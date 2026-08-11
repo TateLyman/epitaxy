@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@domain/*": ["packages/domain/src/*"],
+      "@storage/*": ["packages/storage/src/*"],
+      "@solana/*": ["packages/solana/src/*"],
+      "@adapters/*": ["packages/adapters/src/*"],
+      "@intelligence/*": ["packages/intelligence/src/*"],
+      "@strategy/*": ["packages/strategy/src/*"],
+      "@execution/*": ["packages/execution/src/*"],
+      "@research/*": ["packages/research/src/*"],
+      "@obs/*": ["packages/observability/src/*"]
+    }
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "data"]
+}

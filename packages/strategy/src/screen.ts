@@ -1,0 +1,102 @@
+import { randomUUID } from 'node:crypto';
+import type { AppConfig } from '../../domain/src/config.js';
+import type { DecisionSnapshot, RoundTrip, ScreeningOutcome } from '../../domain/src/types.js';
+import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
+import { evaluateCheapGates, evaluateQuoteGates, parseUtc, summarize } from '../../intelligence/src/gates.js';
+import { extractFeatures, opportunityScore } from './score.js';
+import { sanitizeExternal } from '../../observability/src/log.js';
+
+/**
+ * The single screening path. Observe, paper, and replay all run THIS function,
+ * so a decision cannot differ between modes. The only thing that varies is
+ * whether `measureRoundTrip` is actually called or replayed from storage.
+ */
+
+export interface ScreenResult {
+  readonly snapshot: DecisionSnapshot;
+  readonly outcome: ScreeningOutcome;
+  readonly roundTrip: RoundTrip | null;
+  /** True when the cheap layer passed and a quote is worth spending. */
+  readonly deservesQuote: boolean;
+}
+
+export function tokenAgeMs(info: MintInformation, nowUtcMs: number): number | null {
+  const created = parseUtc(info.firstPool?.createdAt) ?? parseUtc(info.createdAt);
+  return created === null ? null : nowUtcMs - created;
+}
+
+/** Phase 1: free. Rejects the overwhelming majority without spending a quote. */
+export function screenCheap(
+  info: MintInformation,
+  config: AppConfig,
+  nowUtcMs: number,
+  sourceAgeMs: number,
+): { gates: ReturnType<typeof evaluateCheapGates>; deservesQuote: boolean } {
+  const gates = evaluateCheapGates({ info, nowUtcMs, sourceAgeMs, config: config.gates });
+  return { gates, deservesQuote: summarize(gates).passedHardGates };
+}
+
+/** Phase 2: combines the cheap layer with an optional measured round trip. */
+export function finalizeScreen(
+  info: MintInformation,
+  config: AppConfig,
+  nowUtcMs: number,
+  cheapGates: ReturnType<typeof evaluateCheapGates>,
+  roundTrip: RoundTrip | null,
+  slot: number | null,
+): ScreenResult {
+  const cheapSummary = summarize(cheapGates);
+  const deservesQuote = cheapSummary.passedHardGates;
+
+  // Quote gates only run when the cheap layer earned them. Otherwise the
+  // absence of a quote must not be recorded as a quote failure.
+  const quoteGates = deservesQuote ? evaluateQuoteGates(roundTrip, config.gates) : [];
+  const gates = [...cheapGates, ...quoteGates];
+  const summary = summarize(gates);
+
+  const ageMs = tokenAgeMs(info, nowUtcMs);
+  const { score, components } = opportunityScore(info, roundTrip, summary.softRiskScore, ageMs);
+
+  const snapshot: DecisionSnapshot = {
+    snapshotId: randomUUID(),
+    mint: info.id,
+    takenUtcMs: nowUtcMs,
+    takenMonotonicMs: Math.round(performance.now()),
+    slot,
+    tokenAgeMs: ageMs,
+    features: extractFeatures(info, roundTrip, ageMs),
+    rawInputs: {
+      symbol: sanitizeExternal(info.symbol ?? '', 32),
+      name: sanitizeExternal(info.name ?? '', 64),
+      launchpad: sanitizeExternal(info.launchpad ?? '', 32),
+      dev: info.dev ?? null,
+      decimals: info.decimals,
+      tokenProgram: info.tokenProgram ?? null,
+      audit: info.audit ?? null,
+      stats5m: info.stats5m ?? null,
+      buyQuoteId: roundTrip?.buy.quoteId ?? null,
+      sellQuoteId: roundTrip?.sell?.quoteId ?? null,
+    },
+    freshnessMs: {
+      jupiter_tokens: nowUtcMs - (parseUtc(info.updatedAt) ?? nowUtcMs),
+      quote: roundTrip ? nowUtcMs - roundTrip.buy.receivedUtcMs : -1,
+    },
+  };
+
+  const eligible = summary.passedHardGates && score >= config.minOpportunityScore;
+
+  const outcome: ScreeningOutcome = {
+    mint: info.id,
+    snapshotId: snapshot.snapshotId,
+    evaluatedUtcMs: nowUtcMs,
+    gates,
+    hardVetoes: summary.hardVetoes,
+    softRiskScore: summary.softRiskScore,
+    opportunityScore: score,
+    scoreComponents: components,
+    eligible,
+    strategyVersion: config.strategyVersion,
+  };
+
+  return { snapshot, outcome, roundTrip, deservesQuote };
+}

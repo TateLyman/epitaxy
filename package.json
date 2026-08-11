@@ -1,0 +1,39 @@
+{
+  "name": "solmeme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.0",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "doctor": "tsx scripts/doctor.ts",
+    "observe": "tsx apps/collector/src/main.ts",
+    "paper": "tsx apps/engine/src/paper.ts",
+    "replay": "tsx packages/research/src/replay-cli.ts",
+    "backtest": "tsx packages/research/src/backtest-cli.ts",
+    "report": "tsx packages/research/src/report-cli.ts",
+    "status": "tsx scripts/status.ts",
+    "health": "tsx scripts/health.ts",
+    "reconcile": "tsx apps/executor/src/reconcile-cli.ts",
+    "canary": "tsx apps/executor/src/main.ts --mode=canary",
+    "live": "tsx apps/executor/src/main.ts --mode=live",
+    "kill": "tsx scripts/kill.ts",
+    "dashboard": "tsx apps/dashboard/src/main.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "secretscan": "tsx scripts/secretscan.ts",
+    "check": "pnpm typecheck && pnpm secretscan && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "fast-check": "^3.23.1"
+  },
+  "dependencies": {
+    "zod": "^3.24.1",
+    "pino": "^9.5.0"
+  }
+}
