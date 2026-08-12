@@ -202,3 +202,48 @@ export const PriceV3Schema = z.record(
     })
     .passthrough(),
 );
+
+/**
+ * GET /swap/v2/build
+ *
+ * Raw, policy-inspectable instructions rather than a serialized transaction.
+ *
+ * Verified live 2026-08-12: this endpoint requires a `taker` but does NOT
+ * require that taker to hold the funds. A wallet with 0 lamports gets a full
+ * instruction set back, where `/swap/v2/order` with the same taker returns
+ * errorCode 1 "Insufficient funds" and an empty `transaction`. That difference
+ * is the whole reason paper mode can establish structural buildability at all.
+ *
+ * Structural buildability is NOT the same as a successful mainnet simulation,
+ * and this schema is never treated as one. It answers: could a transaction have
+ * been constructed for this exact route at this exact size?
+ */
+export const BuildInstructionSchema = z
+  .object({
+    programId: z.string(),
+    accounts: z
+      .array(z.object({ pubkey: z.string(), isSigner: z.boolean(), isWritable: z.boolean() }).passthrough())
+      .optional(),
+    data: z.string().optional(),
+  })
+  .passthrough();
+
+export const BuildResponseSchema = z
+  .object({
+    inputMint: z.string(),
+    outputMint: z.string(),
+    inAmount: U64String,
+    outAmount: U64String,
+    swapInstruction: BuildInstructionSchema.nullish(),
+    setupInstructions: z.array(BuildInstructionSchema).optional(),
+    cleanupInstruction: BuildInstructionSchema.nullish(),
+    computeBudgetInstructions: z.array(BuildInstructionSchema).optional(),
+    otherInstructions: z.array(BuildInstructionSchema).optional(),
+    tipInstruction: BuildInstructionSchema.nullish(),
+    addressesByLookupTableAddress: z.record(z.unknown()).nullish(),
+    blockhashWithMetadata: z.unknown().nullish(),
+    errorCode: z.number().nullish(),
+    errorMessage: z.string().nullish(),
+  })
+  .passthrough();
+export type BuildResponse = z.infer<typeof BuildResponseSchema>;

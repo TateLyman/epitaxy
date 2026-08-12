@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { RateLimiter } from '../ratelimit.js';
 import { fetchJson, SourceFetchError } from '../http.js';
 import {
+  BuildResponseSchema,
   MintListSchema,
   OrderResponseSchema,
   PriceV3Schema,
@@ -111,6 +112,67 @@ export class JupiterClient {
   }
 
   /**
+   * Structural build check for a route, via `/swap/v2/build`.
+   *
+   * Returns whether a transaction could have been CONSTRUCTED for this exact
+   * route at this exact size, plus the instruction shape for policy inspection.
+   * The taker is a public key only; nothing signable is produced for it and
+   * this process holds no key for any address.
+   *
+   * A null result means the build could not be established and the caller must
+   * fail closed — it never means "probably fine".
+   */
+  async build(params: {
+    inputMint: string;
+    outputMint: string;
+    amount: bigint;
+    taker: string;
+    slippageBps?: number;
+  }): Promise<BuildOutcome | null> {
+    const qs = new URLSearchParams({
+      inputMint: params.inputMint,
+      outputMint: params.outputMint,
+      amount: params.amount.toString(),
+      taker: params.taker,
+    });
+    if (params.slippageBps !== undefined) qs.set('slippageBps', String(params.slippageBps));
+
+    try {
+      const res = await fetchJson(this.limiter, {
+        url: `${BASE}/swap/v2/build?${qs.toString()}`,
+        source: 'jupiter.swap.v2.build',
+        sourceType: 'official_indexer',
+        bucket: MAIN_BUCKET,
+        schema: BuildResponseSchema,
+        schemaVersion: SCHEMA_VERSION,
+        parserVersion: PARSER_VERSION,
+        headers: this.headers,
+      });
+      const b = res.data;
+      const programIds = [
+        ...(b.computeBudgetInstructions ?? []),
+        ...(b.setupInstructions ?? []),
+        ...(b.swapInstruction ? [b.swapInstruction] : []),
+        ...(b.cleanupInstruction ? [b.cleanupInstruction] : []),
+        ...(b.otherInstructions ?? []),
+      ].map((i) => i.programId);
+
+      return {
+        buildable: b.swapInstruction != null && (b.errorCode ?? null) === null,
+        errorCode: b.errorCode ?? null,
+        errorMessage: b.errorMessage ? sanitizeExternal(b.errorMessage, 120) : null,
+        instructionCount: programIds.length,
+        programIds,
+        hasSetup: (b.setupInstructions ?? []).length > 0,
+        hasCleanup: b.cleanupInstruction != null,
+      };
+    } catch (e) {
+      if (e instanceof SourceFetchError) return null;
+      throw e;
+    }
+  }
+
+  /**
    * Quote-only order. Deliberately omits `taker`, which means Jupiter returns
    * routing and fees but never a signable transaction. This is the ONLY form
    * observe and paper mode are permitted to call.
@@ -167,6 +229,17 @@ export class JupiterClient {
       throw e;
     }
   }
+}
+
+/** What a `/swap/v2/build` attempt established. */
+export interface BuildOutcome {
+  readonly buildable: boolean;
+  readonly errorCode: number | null;
+  readonly errorMessage: string | null;
+  readonly instructionCount: number;
+  readonly programIds: readonly string[];
+  readonly hasSetup: boolean;
+  readonly hasCleanup: boolean;
 }
 
 export function toExecutableQuote(

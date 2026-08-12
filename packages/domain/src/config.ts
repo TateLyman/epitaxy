@@ -274,6 +274,18 @@ export interface Secrets {
   tradingKeypairPath: string | null;
   liveAckPath: string | null;
   databasePath: string;
+  /**
+   * PUBLIC key used as the `taker` for `/swap/v2/build`, so paper mode can
+   * establish that a route is structurally buildable.
+   *
+   * Deliberately not a keypair path. `/swap/v2/order` with a taker refuses to
+   * build for an unfunded wallet (errorCode 1, "Insufficient funds", empty
+   * transaction), but `/swap/v2/build` returns raw instructions regardless of
+   * balance — verified 2026-08-12 against a wallet holding 0 lamports. A public
+   * key is therefore sufficient, and no private key exists anywhere in this
+   * system for it to leak.
+   */
+  paperTakerPubkey: string | null;
   dataDir: string;
 }
 
@@ -310,6 +322,7 @@ export function loadSecrets(): Secrets {
   return {
     heliusApiKey,
     jupiterApiKey: envOrNull('JUPITER_API_KEY'),
+    paperTakerPubkey: envOrNull('PAPER_TAKER_PUBKEY'),
     goplusToken: envOrNull('GOPLUS_ACCESS_TOKEN'),
     rpcHttp: explicitRpcHttp ?? (heliusApiKey === null ? null : heliusRpcUrl(heliusApiKey)),
     rpcWs: envOrNull('SOLANA_RPC_WS'),

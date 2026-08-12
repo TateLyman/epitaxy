@@ -97,6 +97,18 @@ async function main(): Promise<void> {
   const jupiter = new JupiterClient({ limiter, apiKey: secrets.jupiterApiKey });
   const rpc = new SolanaRpc(limiter, { primary: secrets.rpcHttp, fallback: secrets.rpcHttpFallback });
 
+  // Public key only. Used solely as the `taker` for `/swap/v2/build`; no
+  // private key for it exists anywhere in this system and paper mode has no
+  // signer, so nothing built here can be signed or sent.
+  const taker = secrets.paperTakerPubkey;
+  if (config.requireBuildableFill && taker === null) {
+    throw new Error(
+      'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
+        'buildability cannot be established and paper mode would book nothing. ' +
+        'Set a public key, or set requireBuildableFill false and treat every row as quote-only.',
+    );
+  }
+
   const ledger = restoreLedger(db, config, Date.now());
   log.info(
     {
@@ -185,7 +197,7 @@ async function main(): Promise<void> {
           skip: heldMints,
           rpc: rpc.configured ? rpc : null,
           onEligible: async (info, result) => {
-            await tryEnter(db, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
+            await tryEnter(db, jupiter, taker, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
           },
         });
       } catch (e) {
@@ -233,6 +245,8 @@ async function main(): Promise<void> {
 
 async function tryEnter(
   db: Db,
+  jupiter: JupiterClient,
+  taker: string | null,
   config: AppConfig,
   ledger: Ledger,
   mint: string,
@@ -281,25 +295,49 @@ async function tryEnter(
   // A price is not an execution.
   //
   // Every quote in the corpus was fetched without a `taker`, so Jupiter
-  // returned routing and fees but never a transaction, and `transactionBuildable`
-  // was false on all 2255 of them. Booking a fill anyway asserted that a trade
-  // could have happened when nothing had demonstrated that it could. The flag
-  // was stored from the first commit and read by no decision.
+  // returned routing and fees but never a transaction, and
+  // `transactionBuildable` was false on all 2255 of them. Booking a fill anyway
+  // asserted that a trade could have happened when nothing had demonstrated
+  // that it could. The flag was stored from the first commit and read by no
+  // decision.
   //
-  // Refusing here is not a strategy change. It withdraws a claim the system was
-  // never entitled to make.
-  if (config.requireBuildableFill && !rt.buy.transactionBuildable) {
-    recordHealth(
-      db,
-      'unbuildable_entry_refused',
-      'warn',
-      `${mint.slice(0, 12)} priced but no buildable transaction; quote-only fills are not executable evidence`,
-    );
+  // The check is a separate `/swap/v2/build` call rather than the quote's own
+  // flag, because `/swap/v2/order` refuses to build for an unfunded taker
+  // (errorCode 1, "Insufficient funds") while `/swap/v2/build` returns the
+  // instruction set regardless of balance. Verified 2026-08-12 against a wallet
+  // holding 0 lamports. This establishes STRUCTURAL buildability only: that a
+  // transaction could have been constructed for this route at this size. It is
+  // not a mainnet simulation and is never reported as one.
+  if (config.requireBuildableFill) {
+    if (taker === null) {
+      recordHealth(db, 'buildability_unverifiable', 'critical', 'PAPER_TAKER_PUBKEY unset; cannot establish buildability');
+      log.warn({ mint }, 'entry refused — no taker configured, buildability cannot be established');
+      return;
+    }
+    const built = await jupiter.build({
+      inputMint: WSOL_MINT,
+      outputMint: mint,
+      amount: lamportsIn,
+      taker,
+      slippageBps: config.risk.maxSlippageBps,
+    });
+    if (built === null || !built.buildable) {
+      recordHealth(
+        db,
+        'unbuildable_entry_refused',
+        'warn',
+        `${mint.slice(0, 12)} priced but not buildable: ${built === null ? 'build request failed' : (built.errorMessage ?? `errorCode ${built.errorCode}`)}`,
+      );
+      log.info(
+        { mint, symbol, router: rt.buy.router, errorCode: built?.errorCode ?? null },
+        'entry refused — route priced but no transaction could be constructed',
+      );
+      return;
+    }
     log.info(
-      { mint, symbol, router: rt.buy.router, quoteId: rt.buy.quoteId },
-      'entry refused — quote carried no buildable transaction',
+      { mint, symbol, instructions: built.instructionCount, setup: built.hasSetup, cleanup: built.hasCleanup },
+      'entry buildability established',
     );
-    return;
   }
 
   const fixedCosts = config.assumedPriorityFeeLamports + config.assumedAtaRentLamports;

@@ -214,6 +214,7 @@ describe('the gates refuse promotion on the evidence a fresh run has', () => {
   const secrets: Secrets = {
     heliusApiKey: null,
     jupiterApiKey: null,
+    paperTakerPubkey: null,
     goplusToken: null,
     rpcHttp: null,
     rpcWs: null,
