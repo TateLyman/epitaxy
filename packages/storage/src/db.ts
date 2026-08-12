@@ -429,6 +429,80 @@ CREATE INDEX IF NOT EXISTS idx_exits_outcome ON position_exits(outcome);
 CREATE INDEX IF NOT EXISTS idx_exits_closed ON position_exits(closed_utc_ms);
 `,
   },
+  {
+    id: 6,
+    name: 'build_attempts',
+    sql: `
+-- Every structural build check, whether or not it succeeded.
+--
+-- Paper mode booked 38 fills across 19 positions against quotes where
+-- transaction_buildable was false on all 2255 rows, because the flag was
+-- written and read by no decision (P2a.1 §P0). The gate now refuses such a
+-- fill, but refusing is only half of it: the EVIDENCE that a route was
+-- buildable has to survive, or the corpus still cannot distinguish "we checked
+-- and it built" from "we never asked".
+--
+-- Separate table rather than more columns on \`quotes\`, because a build is a
+-- different observation from a price: it is taken against a taker, at a
+-- moment, through an endpoint that may differ from the one that priced it.
+-- Conflating them is what let /order pricing and /build buildability be
+-- treated as the same route.
+--
+-- NULL means unknown. A build we did not attempt is not a build that failed.
+CREATE TABLE IF NOT EXISTS build_attempts (
+  build_id                 TEXT PRIMARY KEY,
+  mint                     TEXT NOT NULL,
+  side                     TEXT NOT NULL CHECK (side IN ('buy','sell')),
+  position_id              TEXT,
+  quote_id                 TEXT,
+
+  requested_utc_ms         INTEGER NOT NULL,
+  received_utc_ms          INTEGER,
+  latency_ms               INTEGER,
+
+  -- What we asked for. Amount is TEXT for the same reason every other amount
+  -- is: SQLite INTEGER is 64-bit signed.
+  input_mint               TEXT NOT NULL,
+  output_mint              TEXT NOT NULL,
+  amount                   TEXT NOT NULL,
+  taker                    TEXT NOT NULL,
+  slippage_bps             INTEGER,
+
+  -- Where it came from. Recorded per row because /order and /build are
+  -- different routes with different router universes and must never be
+  -- reported as one.
+  build_endpoint           TEXT NOT NULL,
+  build_router             TEXT,
+  build_request_id         TEXT,
+
+  -- BUILD_SUCCEEDED | BUILD_FAILED | UNVERIFIABLE
+  build_status             TEXT NOT NULL,
+  build_error_code         INTEGER,
+  build_error_class        TEXT,
+
+  instruction_count        INTEGER,
+  program_ids              TEXT,
+  has_setup                INTEGER,
+  has_cleanup              INTEGER,
+
+  transaction_bytes_hash   TEXT,
+  last_valid_block_height  INTEGER,
+  expire_at                INTEGER,
+  quote_context_slot       INTEGER,
+  build_context_slot       INTEGER,
+
+  -- Deliberately nullable and deliberately NOT defaulted to a pass. The
+  -- transaction-policy decoder and a local SVM simulation are not wired yet;
+  -- until they are, these stay NULL and no row may claim policy or simulation
+  -- validation it never received.
+  policy_status            TEXT,
+  simulation_status        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_build_mint ON build_attempts(mint);
+CREATE INDEX IF NOT EXISTS idx_build_status ON build_attempts(build_status);
+CREATE INDEX IF NOT EXISTS idx_build_time ON build_attempts(requested_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

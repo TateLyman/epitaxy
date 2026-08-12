@@ -188,6 +188,26 @@ add(
     : 'gate OFF — quote-only rows would be booked as fills and are NOT executable evidence',
   !config.requireBuildableFill || !takerSet,
 );
+// Build attempts, which is the number the readiness gate actually needs.
+// `quote_buildable_rate` below stays because it is the historical fact, but a
+// quote-only corpus reading 0/N must not be confused with a build gate that is
+// failing: they are different measurements and only one of them is about
+// whether routes can be traded.
+const builds = one<{ n: number; ok: number; failed: number }>(
+  `SELECT COUNT(*) AS n,
+          COALESCE(SUM(CASE WHEN build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END),0) AS ok,
+          COALESCE(SUM(CASE WHEN build_status='BUILD_FAILED' THEN 1 ELSE 0 END),0) AS failed
+   FROM build_attempts`,
+);
+add(
+  'build_success_rate',
+  builds === null || builds.n === 0 ? 'no attempts yet' : `${builds.ok}/${builds.n}`,
+  builds === null || builds.n === 0
+    ? 'no build has been attempted; buildability is UNMEASURED, not proven'
+    : `${((builds.ok / builds.n) * 100).toFixed(1)}% built, ${builds.failed} refused`,
+  builds === null || builds.n === 0,
+);
+
 add(
   'quote_buildable_rate',
   `${quotes.buildable}/${quotes.n}`,

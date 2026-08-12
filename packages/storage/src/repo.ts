@@ -886,3 +886,122 @@ export function exitOutcomeBreakdown(
     .all() as { outcome: string; n: number; r: number }[];
   return rows.map((x) => ({ outcome: x.outcome, count: x.n, totalRealized: BigInt(x.r) }));
 }
+
+/**
+ * A structural build attempt, successful or not.
+ *
+ * Written for EVERY attempt. A refused entry is as much a fact about the route
+ * as an accepted one, and the corpus needs both to answer "what fraction of
+ * eligible candidates could actually be traded?" — a question no stored row
+ * could answer before this table existed.
+ */
+export interface BuildAttempt {
+  buildId: string;
+  mint: string;
+  side: 'buy' | 'sell';
+  positionId: string | null;
+  quoteId: string | null;
+  requestedUtcMs: number;
+  receivedUtcMs: number | null;
+  latencyMs: number | null;
+  inputMint: string;
+  outputMint: string;
+  amount: bigint;
+  taker: string;
+  slippageBps: number | null;
+  buildEndpoint: string;
+  buildRouter: string | null;
+  buildRequestId: string | null;
+  buildStatus: 'BUILD_SUCCEEDED' | 'BUILD_FAILED' | 'UNVERIFIABLE';
+  buildErrorCode: number | null;
+  buildErrorClass: string | null;
+  instructionCount: number | null;
+  programIds: readonly string[] | null;
+  hasSetup: boolean | null;
+  hasCleanup: boolean | null;
+  transactionBytesHash: string | null;
+  lastValidBlockHeight: number | null;
+  expireAt: number | null;
+  quoteContextSlot: number | null;
+  buildContextSlot: number | null;
+  /** NULL until the decoder is wired. Never defaulted to a pass. */
+  policyStatus: string | null;
+  /** NULL until a local SVM fixture exists. Never defaulted to a pass. */
+  simulationStatus: string | null;
+}
+
+export function insertBuildAttempt(db: Db, b: BuildAttempt): void {
+  db.prepare(
+    `INSERT INTO build_attempts
+      (build_id,mint,side,position_id,quote_id,requested_utc_ms,received_utc_ms,latency_ms,
+       input_mint,output_mint,amount,taker,slippage_bps,
+       build_endpoint,build_router,build_request_id,build_status,build_error_code,build_error_class,
+       instruction_count,program_ids,has_setup,has_cleanup,
+       transaction_bytes_hash,last_valid_block_height,expire_at,quote_context_slot,build_context_slot,
+       policy_status,simulation_status)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    b.buildId,
+    b.mint,
+    b.side,
+    b.positionId,
+    b.quoteId,
+    b.requestedUtcMs,
+    b.receivedUtcMs,
+    b.latencyMs,
+    b.inputMint,
+    b.outputMint,
+    b.amount.toString(),
+    b.taker,
+    b.slippageBps,
+    b.buildEndpoint,
+    b.buildRouter,
+    b.buildRequestId,
+    b.buildStatus,
+    b.buildErrorCode,
+    b.buildErrorClass,
+    b.instructionCount,
+    b.programIds === null ? null : JSON.stringify(b.programIds),
+    b.hasSetup === null ? null : b.hasSetup ? 1 : 0,
+    b.hasCleanup === null ? null : b.hasCleanup ? 1 : 0,
+    b.transactionBytesHash,
+    b.lastValidBlockHeight,
+    b.expireAt,
+    b.quoteContextSlot,
+    b.buildContextSlot,
+    b.policyStatus,
+    b.simulationStatus,
+  );
+}
+
+/** Build success rate over a window, for the readiness gate and health. */
+export function buildStats(db: Db, sinceUtcMs: number | null): {
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  unverifiable: number;
+} {
+  const row = (
+    sinceUtcMs === null
+      ? db.prepare(
+          `SELECT COUNT(*) AS attempts,
+                  SUM(CASE WHEN build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END) AS succeeded,
+                  SUM(CASE WHEN build_status='BUILD_FAILED' THEN 1 ELSE 0 END) AS failed,
+                  SUM(CASE WHEN build_status='UNVERIFIABLE' THEN 1 ELSE 0 END) AS unverifiable
+           FROM build_attempts`,
+        )
+      : db.prepare(
+          `SELECT COUNT(*) AS attempts,
+                  SUM(CASE WHEN build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END) AS succeeded,
+                  SUM(CASE WHEN build_status='BUILD_FAILED' THEN 1 ELSE 0 END) AS failed,
+                  SUM(CASE WHEN build_status='UNVERIFIABLE' THEN 1 ELSE 0 END) AS unverifiable
+           FROM build_attempts WHERE requested_utc_ms >= ?`,
+        )
+  ).get(...(sinceUtcMs === null ? [] : [sinceUtcMs])) as Record<string, number | null>;
+  return {
+    attempts: row['attempts'] ?? 0,
+    succeeded: row['succeeded'] ?? 0,
+    failed: row['failed'] ?? 0,
+    unverifiable: row['unverifiable'] ?? 0,
+  };
+}

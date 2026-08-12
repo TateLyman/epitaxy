@@ -14,6 +14,7 @@ import { openDb, ProcessLock } from '../../../packages/storage/src/db.js';
 import type { Db } from '../../../packages/storage/src/db.js';
 import {
   counters,
+  insertBuildAttempt,
   insertFill,
   insertPosition,
   insertPositionExit,
@@ -370,6 +371,44 @@ async function tryEnter(
       taker,
       slippageBps: config.risk.maxSlippageBps,
     });
+    // Recorded whether or not it succeeded. A refused entry is as much a fact
+    // about the route as an accepted one, and without the failures the corpus
+    // cannot say what fraction of eligible candidates were actually tradable.
+    insertBuildAttempt(db, {
+      buildId: randomUUID(),
+      mint,
+      side: 'buy',
+      positionId: null,
+      quoteId: rt.buy.quoteId,
+      requestedUtcMs: built?.requestedUtcMs ?? Date.now(),
+      receivedUtcMs: built?.receivedUtcMs ?? null,
+      latencyMs: built?.latencyMs ?? null,
+      inputMint: WSOL_MINT,
+      outputMint: mint,
+      amount: lamportsIn,
+      taker,
+      slippageBps: config.risk.maxSlippageBps,
+      buildEndpoint: built?.endpoint ?? '/swap/v2/build',
+      buildRouter: built?.router ?? null,
+      buildRequestId: built?.requestId ?? null,
+      buildStatus: built === null ? 'UNVERIFIABLE' : built.buildable ? 'BUILD_SUCCEEDED' : 'BUILD_FAILED',
+      buildErrorCode: built?.errorCode ?? null,
+      buildErrorClass: built === null ? 'request_failed' : built.errorMessage,
+      instructionCount: built?.instructionCount ?? null,
+      programIds: built?.programIds ?? null,
+      hasSetup: built?.hasSetup ?? null,
+      hasCleanup: built?.hasCleanup ?? null,
+      transactionBytesHash: null,
+      lastValidBlockHeight: null,
+      expireAt: null,
+      quoteContextSlot: null,
+      buildContextSlot: null,
+      // NULL, not a pass. The decoder and a local SVM fixture are not wired,
+      // and a row must never claim validation it did not receive.
+      policyStatus: null,
+      simulationStatus: null,
+    });
+
     if (built === null || !built.buildable) {
       recordHealth(
         db,

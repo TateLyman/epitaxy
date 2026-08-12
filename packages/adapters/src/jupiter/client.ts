@@ -137,6 +137,7 @@ export class JupiterClient {
     });
     if (params.slippageBps !== undefined) qs.set('slippageBps', String(params.slippageBps));
 
+    const requestedUtcMs = Date.now();
     try {
       const res = await fetchJson(this.limiter, {
         url: `${BASE}/swap/v2/build?${qs.toString()}`,
@@ -157,6 +158,7 @@ export class JupiterClient {
         ...(b.otherInstructions ?? []),
       ].map((i) => i.programId);
 
+      const receivedUtcMs = res.provenance.receivedUtcMs;
       return {
         buildable: b.swapInstruction != null && (b.errorCode ?? null) === null,
         errorCode: b.errorCode ?? null,
@@ -165,6 +167,12 @@ export class JupiterClient {
         programIds,
         hasSetup: (b.setupInstructions ?? []).length > 0,
         hasCleanup: b.cleanupInstruction != null,
+        endpoint: '/swap/v2/build',
+        router: (b as { router?: string }).router ?? null,
+        requestId: (b as { requestId?: string }).requestId ?? null,
+        requestedUtcMs,
+        receivedUtcMs,
+        latencyMs: receivedUtcMs - requestedUtcMs,
       };
     } catch (e) {
       if (e instanceof SourceFetchError) return null;
@@ -240,6 +248,13 @@ export interface BuildOutcome {
   readonly programIds: readonly string[];
   readonly hasSetup: boolean;
   readonly hasCleanup: boolean;
+  /** Provenance, so a build is never conflated with the quote that priced it. */
+  readonly endpoint: string;
+  readonly router: string | null;
+  readonly requestId: string | null;
+  readonly requestedUtcMs: number;
+  readonly receivedUtcMs: number;
+  readonly latencyMs: number;
 }
 
 export function toExecutableQuote(
