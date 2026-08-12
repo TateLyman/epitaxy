@@ -345,7 +345,7 @@ export function signerAllowed(mode: Mode): boolean {
   return mode === 'canary' || mode === 'live';
 }
 
-const KILL_PATHS = ['./data/KILL', './KILL'] as const;
+export const KILL_PATHS = ['./data/KILL', './KILL'] as const;
 
 /**
  * The kill switch, as a file rather than a signal or an API call.

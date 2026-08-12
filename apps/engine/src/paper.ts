@@ -3,9 +3,10 @@ import {
   loadConfig,
   loadSecrets,
   signerAllowed,
-  killSwitchEngaged,
   modeFromArgv,
 } from '../../../packages/domain/src/config.js';
+import { KILL_PATHS } from '../../../packages/domain/src/config.js';
+import { haltState, exitManagementActive, mayTerminate } from '../../../packages/domain/src/halt.js';
 import type { AppConfig } from '../../../packages/domain/src/config.js';
 import { LAMPORTS_PER_SOL, WSOL_MINT } from '../../../packages/domain/src/types.js';
 import type { Fill, Position } from '../../../packages/domain/src/types.js';
@@ -36,7 +37,7 @@ import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
-import { restoreLedger, rollDayIfNeeded } from './ledger.js';
+import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 
 /**
@@ -138,6 +139,8 @@ async function main(): Promise<void> {
   // wider than the entire lifetime of every collapse we have measured. The loop
   // now ticks at the mark cadence and discovery runs on its own schedule.
   let lastDiscoveryUtcMs = 0;
+  // A halt is announced once, not every 10s for as long as the file exists.
+  let haltAnnounced = false;
 
   while (!stop) {
     const started = Date.now();
@@ -147,11 +150,44 @@ async function main(): Promise<void> {
     // Checked every cycle, before any work. A switch consulted only at startup
     // cannot stop a process that is already running, which is the only case
     // anyone reaches for it in.
-    const killed = killSwitchEngaged();
-    if (killed !== null) {
-      recordHealth(db, 'kill_switch', 'critical', `KILL file at ${killed}`);
-      log.error({ path: killed }, 'KILL file present — stopping');
-      break;
+    //
+    // A halt stops ENTRIES immediately. It does not, by default, stop exit
+    // management: the previous behaviour broke out of the loop at once, which
+    // released the lock and left any open position unmanaged at precisely the
+    // moment someone had decided something was wrong. Going flat and stopping
+    // are now separate things — see packages/domain/src/halt.ts.
+    const halt = haltState(KILL_PATHS);
+    if (halt !== null) {
+      const openNow = openPositions(db).length;
+      if (!haltAnnounced) {
+        if (halt.defaulted) {
+          log.warn(
+            { path: halt.path, rawLabel: halt.rawLabel },
+            'halt file names no recognised mode — defaulting to TERMINATE_WHEN_FLAT',
+          );
+        }
+        recordHealth(db, 'halt_engaged', 'critical', `${halt.mode} via ${halt.path}; ${openNow} open position(s)`);
+        log.error({ path: halt.path, mode: halt.mode, open: openNow }, 'halt engaged');
+        haltAnnounced = true;
+      }
+      if (mayTerminate(halt.mode, openNow)) {
+        if (halt.mode === 'EMERGENCY_RECONCILE' && openNow > 0) {
+          // Loud, and recorded, because it is the one path that can orphan a
+          // position. It is never reached by writing a bare halt file.
+          recordHealth(
+            db,
+            'position_abandoned',
+            'critical',
+            `EMERGENCY_RECONCILE with ${openNow} open position(s) — exposure is unmanaged until reconciled`,
+          );
+          log.error({ open: openNow }, 'stopping with open positions — EMERGENCY_RECONCILE');
+        } else {
+          log.info({ mode: halt.mode }, 'flat — stopping');
+        }
+        break;
+      }
+      if (!exitManagementActive(halt.mode)) break;
+      // Otherwise fall through: exits are still worked below, entries are not.
     }
 
     // The daily loss cap is a DAILY cap, so someone has to notice the day
@@ -178,6 +214,11 @@ async function main(): Promise<void> {
 
     const heldMints = new Set(openPositions(db).map((p) => p.mint));
 
+    // Entries are refused for as long as any halt file exists, whatever its
+    // mode. Discovery still runs so the corpus keeps growing, and marks still
+    // run so open positions stay observed.
+    const entriesHalted = halt !== null;
+
     // Discovery runs on its own, much slower schedule. The loop itself now
     // ticks at the mark cadence, so an open position is re-quoted every
     // `markIntervalMs` regardless of how expensive discovery is; when the two
@@ -197,6 +238,7 @@ async function main(): Promise<void> {
           skip: heldMints,
           rpc: rpc.configured ? rpc : null,
           onEligible: async (info, result) => {
+            if (entriesHalted) return;
             await tryEnter(db, jupiter, taker, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
           },
         });
@@ -272,6 +314,13 @@ async function tryEnter(
     totalExposureLamports: open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n),
     realizedTodayLamports: ledger.realizedTodayLamports,
     peakNavLamports: ledger.peakNavLamports,
+    realizedWeekLamports: realizedWeek(db, Date.now()),
+    // Planned loss across the open book: each position's cost times the stop
+    // distance, i.e. what the book loses if every stop fills at its level.
+    plannedLossLamports: openPositions(db).reduce(
+      (a, p) => a + (BigInt(p.cost_lamports) * BigInt(config.exits.stopLossBps)) / 10_000n,
+      0n,
+    ),
   };
 
   const sizing = sizePosition(state, config, result.outcome.opportunityScore ?? 0);

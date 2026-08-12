@@ -18,6 +18,8 @@ function state(over: Partial<PortfolioState> = {}): PortfolioState {
     openPositions: 0,
     totalExposureLamports: 0n,
     realizedTodayLamports: 0n,
+    realizedWeekLamports: 0n,
+    plannedLossLamports: 0n,
     ...over,
   };
   // Peak defaults to the current NAV, so a test that lowers `navLamports` to

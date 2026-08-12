@@ -91,6 +91,20 @@ export function restoreLedger(db: Db, config: AppConfig, nowUtcMs: number): Ledg
   };
 }
 
+/** Milliseconds in seven days, for the trailing weekly loss halt. */
+export const WEEK_MS = 7 * 86_400_000;
+
+/**
+ * Realised P&L over the trailing seven days.
+ *
+ * A rolling window rather than a calendar week: a Monday-reset would make the
+ * halt weakest immediately after the reset, which is the opposite of what a
+ * loss halt is for.
+ */
+export function realizedWeek(db: Db, nowUtcMs: number): bigint {
+  return sumRealized(db, nowUtcMs - WEEK_MS);
+}
+
 /**
  * Advance the ledger's notion of "today" when the UTC day has rolled over.
  * Returns whether it rolled.

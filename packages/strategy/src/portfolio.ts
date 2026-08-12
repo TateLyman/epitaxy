@@ -16,6 +16,14 @@ export interface PortfolioState {
   readonly openPositions: number;
   readonly totalExposureLamports: bigint;
   readonly realizedTodayLamports: bigint;
+  /** Realised P&L over the trailing 7 UTC days, for `weeklyLossHaltPct`. */
+  readonly realizedWeekLamports: bigint;
+  /**
+   * Sum of PLANNED loss across open positions — each position's notional times
+   * its stop distance. Bounds what the book can lose if every stop fills at its
+   * level, which `maxAggregatePlannedLossPct` caps.
+   */
+  readonly plannedLossLamports: bigint;
   /**
    * Highest NAV this experiment has ever reached. Compared against
    * `navLamports` to enforce `drawdownHaltPct`. Peak rather than starting NAV,
@@ -31,6 +39,9 @@ export type SizingRefusal =
   | 'reserve_floor'
   | 'daily_loss_cap'
   | 'drawdown_halt'
+  | 'daily_loss_halt'
+  | 'weekly_loss_halt'
+  | 'aggregate_planned_loss'
   | 'size_below_viable'
   | 'score_below_threshold';
 
@@ -84,16 +95,43 @@ export function sizePosition(
     return refuse('daily_loss_cap', `realized ${state.realizedTodayLamports} today`);
   }
 
+  // The percentage halts. All three were declared in RiskConfigSchema and
+  // listed in SAFER_WHEN_LOWER — the tree would refuse to loosen them — while
+  // no code read the values (O040). An operator reading config/live.json would
+  // reasonably have believed a 1.5% daily and 4% weekly halt were active. They
+  // were not. These are the enforcement branches; each has a test.
+  //
+  // Expressed against NAV rather than a fixed lamport amount, so they scale
+  // with the book instead of silently tightening as it grows.
+  const pctOfNav = (pct: number): bigint => (state.navLamports * BigInt(Math.round(pct * 100))) / 10_000n;
+
+  if (risk.dailyLossHaltPct > 0 && -state.realizedTodayLamports >= pctOfNav(risk.dailyLossHaltPct)) {
+    return refuse(
+      'daily_loss_halt',
+      `realised ${state.realizedTodayLamports} today >= ${risk.dailyLossHaltPct}% of nav`,
+    );
+  }
+
+  if (risk.weeklyLossHaltPct > 0 && -state.realizedWeekLamports >= pctOfNav(risk.weeklyLossHaltPct)) {
+    return refuse(
+      'weekly_loss_halt',
+      `realised ${state.realizedWeekLamports} over 7d >= ${risk.weeklyLossHaltPct}% of nav`,
+    );
+  }
+
+  if (risk.maxAggregatePlannedLossPct > 0 && state.plannedLossLamports >= pctOfNav(risk.maxAggregatePlannedLossPct)) {
+    return refuse(
+      'aggregate_planned_loss',
+      `planned loss ${state.plannedLossLamports} >= ${risk.maxAggregatePlannedLossPct}% of nav`,
+    );
+  }
+
   // NAV drawdown from peak.
   //
-  // `drawdownHaltPct` was declared in the schema and listed in
-  // SAFER_WHEN_LOWER — the tree carried machinery to refuse any override that
-  // loosened it — while no code anywhere read the value. Three of its four
-  // neighbours (maxAggregatePlannedLossPct, dailyLossHaltPct,
-  // weeklyLossHaltPct) are still in that state and are registered as O040.
-  // This one is implemented first because it is also a preregistered P8
-  // readiness gate, and because it is the backstop that lets the daily cap be
-  // sized for measurement rather than for capital preservation.
+  // `drawdownHaltPct` was the first of the four O040 halts to be implemented,
+  // because it is also a preregistered P8 readiness gate and the backstop that
+  // lets the daily cap be sized for measurement rather than capital
+  // preservation. The other three are enforced directly above.
   if (risk.drawdownHaltPct > 0 && state.peakNavLamports > 0n) {
     const drawdown = state.peakNavLamports - state.navLamports;
     const limit = (state.peakNavLamports * BigInt(Math.round(risk.drawdownHaltPct * 100))) / 10_000n;
