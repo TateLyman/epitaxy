@@ -220,3 +220,237 @@ started.**
 No canary, no live, no key, no funded wallet, no transaction. P2b ranking was not
 started, per the directive and the explicit instruction. The exit policy was not
 changed.
+
+
+---
+
+# P0.2 — Both legs, decoded. **COMPLETE.**
+
+The entry leg was build-gated in the first half of this session; the exit leg was
+not. That gap is worth naming precisely, because it is the same defect class as
+everything else in this document: a position could be opened on a route that was
+proven buildable and then closed against a price that nobody had shown could be
+traded, and the resulting realized PnL would have looked exactly like evidence.
+
+`apps/engine/src/buildleg.ts` now runs one function for both legs. It:
+
+- calls `/swap/v2/build` with the taker;
+- runs `evaluateInstructionPolicy()` over the returned instructions, using the
+  same program allowlist, instruction cap, signer rule and priority-fee cap the
+  executor applies to real transaction bytes;
+- persists the attempt **whether or not it succeeded**;
+- fills `transaction_bytes_hash`, `last_valid_block_height`, `expire_at` and
+  `build_context_slot` from the response.
+
+### What the policy check is, and what it is not
+
+`/swap/v2/build` returns instructions, not serialized bytes. So the executor's
+`evaluateTransactionPolicy()` cannot run on it unchanged, and pretending
+otherwise would be the exact failure this session exists to remove. The checks
+were separated from their input format instead:
+
+| decidable from instructions | needs the assembled message |
+|---|---|
+| program allowlist | fee payer is account 0 |
+| instruction count | required signature count |
+| unexpected co-signers | recent blockhash present |
+| compute unit limit present | packet size ≤ 1232 bytes |
+| priority fee ≤ cap | |
+
+`InstructionPolicyResult.coverage` is the literal string `instructions-only`, it
+is stored inside `policy_status` as `POLICY_PASS(instructions-only)`, and a
+mutation that widens it to `full-transaction` is caught by a test. Nothing this
+check approves may ever be signed.
+
+### `simulation_status` is still not a pass
+
+It is written as an explicit string rather than left NULL, because a NULL reads
+as an omission and this is a decision:
+
+- buy leg: `NOT_SIMULATED(no local SVM fixture wired; structural build only)`
+- sell leg: `NOT_SIMULATED(taker does not hold the hypothetical tokens; a
+  mainnet simulation would fail for a reason unrelated to the route)`
+
+The directive names both tempting shortcuts here — claiming mainnet simulation
+success from a wallet that lacks the token, and silently downgrading to
+quote-only. Neither is taken. A local SVM fork with synthetic balances remains
+the correct way to close this and is not wired.
+
+---
+
+# P1.2 — The label split, and history reclassified
+
+Eight mutually exclusive diagnostics, ordered so that facts which invalidate a
+measurement outrank the measurement. The ordering claim is the substance:
+
+```
+1 PROVIDER_FAILURE          we did not observe the market at all
+2 SCHEMA_OR_PARSER_ERROR    we observed it and cannot trust our reading
+3 NO_EXIT_ROUTE             no route existed at any price
+4 UNBUILDABLE_EXIT          a price existed, no transaction could be built
+5 STALE_EXIT_QUOTE          the observation was too old to act on
+6 EXECUTABLE_VALUE_COLLAPSE the position is worth a fraction of its cost
+7 ADVERSE_EXIT_IMPACT       impact against us exceeded the frozen cap
+8 ROUND_TRIP_COST_EXPANSION still sellable, round trip loses money
+```
+
+A 500 from an aggregator and a drained pool produce the same missing number. The
+old system called both a liquidity event.
+
+### All 603 historical marks reclassified
+
+`scripts/reclassify.ts`, run with `--apply`:
+
+| diagnostic | marks |
+|---|---|
+| NONE | 590 |
+| EXECUTABLE_VALUE_COLLAPSE | 8 |
+| ADVERSE_EXIT_IMPACT | 5 |
+| UNVERIFIABLE | 0 |
+
+Two things were deliberately **not** reconstructed. `routeBuildable` stays NULL,
+because no build was ever attempted for these rows and null is the honest
+answer — which also means no historical row can be labelled `UNBUILDABLE_EXIT`.
+`providerFailed` stays false, because the old engine skipped the mark entirely
+on an outage, so a stored mark is by construction not an outage. That is a fact
+about the old control flow, and it is why outages are *absent* from the
+historical corpus rather than rare in it.
+
+**Re-labelling rescues nothing.** All 603 still fail `admissible()` on
+`NO_RAW_PAYLOAD` and `NOT_BUILD_VALID`, and the script prints that.
+
+---
+
+# P6 — The size surface. **Measured live.**
+
+Seven notionals, one token, one instant, both legs. `artifacts/size-surface.json`.
+
+| size SOL | buy build | sell build | round-trip bps | feeBps | ATA rent bps | fixed cost bps | within canary cap | min NAV |
+|---|---|---|---|---|---|---|---|---|
+| 0.005 | yes | yes | 45 | 10 | **4078** | 2859 | yes | 0.55 |
+| 0.010 | yes | yes | -162 | 10 | 2039 | 1429 | yes | 1.05 |
+| 0.020 | yes | yes | 169 | 10 | **1019** | 714 | yes | 2.05 |
+| 0.030 | yes | yes | 154 | 10 | 679 | 476 | no | 3.05 |
+| 0.050 | yes | yes | 87 | 10 | 407 | 285 | no | 5.05 |
+| 0.075 | yes | yes | 158 | 10 | 271 | 190 | no | 7.55 |
+| 0.100 | yes | yes | 95 | 10 | 203 | 142 | no | 10.05 |
+
+Three findings.
+
+**Buildability is not size-limited.** Both legs build at every notional from
+0.005 to 0.100 SOL. Whatever the constraint is, it is not the router's ability
+to construct a transaction.
+
+**The constraint is fixed cost, and it is severe at deployable size.** The canary
+cap is the smaller of 0.02 SOL and 0.10% of NAV. At 0.02 SOL, ATA rent alone is
+**1019 bps — 10.2% of the trade** — and total non-recoverable fixed cost is
+714 bps. P5 establishes that rent recovery is currently unproven and therefore
+zero, so that burden is real rather than a lockup. A strategy has to clear
+roughly 10% before it does anything at the size we are actually permitted to
+deploy at.
+
+**The NAV question answers itself.** Under the frozen risk policy, 0.020 SOL
+needs 2.05 SOL of NAV and 0.050 SOL needs 5.05. Paper NAV was raised to ~5.7 SOL
+and the first entry was 0.0486 SOL. That is not a coincidence, and it is why
+"proven at 0.05" says nothing about canary.
+
+The one negative round-trip figure (-162 bps at 0.010 SOL) is a favourable
+instantaneous round trip and is almost certainly a transient between two quotes
+rather than free money. n=1 token, one instant.
+
+**Deliberately absent** from the artifact: expected net return, expected log
+growth, maximum drawdown, tail loss. Those are properties of a distribution;
+there are zero build-valid completed trades to estimate one from, and producing
+them here would be fabrication.
+
+---
+
+# P7 — The collapses. **Eight, not four, and none of them explained.**
+
+`scripts/collapse-forensics.ts`.
+
+The reported figure was four. There are **eight**, across eight distinct mints.
+
+| mint | entry cost | marks | above 10% floor | last healthy | final |
+|---|---|---|---|---|---|
+| 23n8oNsU… | 52,233,144 | 18 | 17 | 55,945,145 | 491,353 |
+| 3XiaH5DA… | 49,320,251 | 38 | 37 | 42,553,483 | 13 |
+| 5bjC6rcN… | 52,139,280 | 18 | 17 | 55,423,987 | 481,520 |
+| 8rojswXF… | 52,118,869 | 52 | 51 | 58,972,970 | 494,083 |
+| BZbZPhcN… | 52,239,280 | 79 | 78 | 63,863,620 | 13 |
+| GHSzMoRv… | 52,239,280 | 34 | 33 | 73,546,279 | 8 |
+| GaGMcyqD… | 52,239,280 | 9 | 8 | 46,306,384 | 44,815 |
+| HTaEUsni… | 45,527,853 | 7 | 6 | 44,642,327 | 8 |
+
+Two structural facts, both from the "above 10% floor" column:
+
+**Every collapse happened inside a single mark interval.** In all eight cases,
+every mark but the last was above the 10% floor. The fall is faster than the
+sampling, at the 31s cadence these were recorded at and probably at 10.5s too.
+Any rule defined over a *level* is reached only after the fall has happened.
+This is the mechanism Policy C in the preregistration exists to test.
+
+**Every collapse is on `Pump.fun Amm`.** Eight of eight, one route.
+
+And then the honest part: **every one is classified `UNKNOWN`.** Distinguishing
+a true pool drain from a creator dump, a liquidity removal and a pool migration
+requires reserve state, transfer-fee extension state and creator flow at each
+slot. `position_marks` *declares* columns for all of those. Every one is NULL on
+every row, because the feeds were never wired. 32 required evidence items are
+absent across the eight cases.
+
+A near-zero Jupiter route is not by itself proof that on-chain liquidity
+vanished. Fitting a hard gate to these eight rows would be fitting to the only
+variable that was actually measured, which is the outcome.
+
+---
+
+# P9 — Capability, extended
+
+`pnpm capability` now reports 18 flags. The four that changed:
+
+- `clock_healthy` — **measured** from persisted monotonic/wall checkpoint pairs
+  rather than reporting that it had never looked;
+- `resume_resync_required` — **measured**, and outstanding across a restart;
+- `single_data_regime` — refuses to describe a mixed corpus as one thing;
+- `pnl_eligible_trades` — the number P2b turns on. Currently **0**.
+
+---
+
+# Verification, this session
+
+| check | result |
+|---|---|
+| `pnpm typecheck` | clean |
+| `pnpm secretscan` | 143 files, 0 findings |
+| `pnpm test` | 387 tests, 21 files, all pass, 2.6s |
+| `scripts/mutate-p2a1.py` | 32 mutations, all caught |
+| `scripts/mutate-ledger.py` | 11 mutations, all caught |
+| `scripts/mutate-halts.py` | 10 mutations, all caught |
+| `scripts/mutate-drawdown.py` | 6 mutations, all caught |
+| `scripts/mutate-replay.py` | 7 mutations, all caught |
+| destructive crash recovery | SIGKILL mid-write, WAL un-checkpointed, 12/12 marks recovered, sequence unbroken |
+
+Four mutations survived the first `mutate-p2a1.py` run. All four were real
+coverage gaps and all four got tests: an unasked buildability must not read as a
+failed one, an unobserved token balance must not read as an empty account, a
+co-signer other than the taker must be refused, and an instruction-level pass
+must never claim full transaction coverage.
+
+---
+
+# What this session did NOT do
+
+- **No mainnet simulation.** No local SVM fork with synthetic balances exists.
+  `simulation_status` says so on every row.
+- **No exit-policy change.** The economics are frozen exactly as they were until
+  `docs/P2B_PREREGISTRATION.md` was committed, which is the point of committing
+  it.
+- **No P7 mechanism identified.** The eight collapses are classified UNKNOWN
+  because the data to classify them was never collected.
+- **No pool/vault, transfer-graph, or Token-2022 extension feed.** Those columns
+  remain NULL, which is why P5 rent recovery is zero and P7 is unanswerable.
+- **No canary, no live, no acknowledgement file.** No capital was placed at risk
+  and none can be by anything in this commit.
+- **No claim of profitability.** Zero trades in this corpus establish executable
+  PnL.

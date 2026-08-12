@@ -1,5 +1,10 @@
 # STATUS
 
+> **2026-08-12 — P2a.1 complete. State: `P2B_PREREGISTERED_AND_COLLECTING`.**
+> The confirmatory window is open and empty: **0 trades establish executable PnL**.
+> Everything before it is development data. See the last section of this file,
+> `docs/P2A1_AUDIT.md`, and `docs/P2B_PREREGISTRATION.md`.
+
 Last updated: 2026-08-12T17:10Z
 
 ## Current state
@@ -791,3 +796,113 @@ observed at the new cadence, and there are none yet.
    whether P005/P006/P012/P013 are blocked by money or only by implementation.
    The free tier is 1M credits/month at 1 credit per standard RPC call, so the
    answer is probably "implementation" — but that is a measurement, not a guess.
+
+
+---
+
+## 2026-08-12 — P2a.1: validity repair, and the P2b preregistration
+
+Full audit: `docs/P2A1_AUDIT.md`. Preregistration: `docs/P2B_PREREGISTRATION.md`.
+
+### Final state
+
+```
+P2B_PREREGISTERED_AND_COLLECTING
+```
+
+That state means the confirmatory window is **open and empty**. It does not mean
+the strategy works, and nothing in this session produced evidence that it does.
+
+**0 trades in this corpus establish executable PnL.** The 20 closed positions and
+603 marks that exist are development data, permanently — they have no retained
+raw payload and no build-validated exit leg, so they fail admissibility on two
+independent counts and re-labelling them does not change that.
+
+### What was actually wrong
+
+Everything below was found by looking, and every one of them is the same defect
+class: a mechanism that was written, stored, listed in a schema, and read by no
+decision.
+
+| # | defect | consequence |
+|---|---|---|
+| O043 | the exit leg was never build-checked | a position could close against a price nobody had shown could be traded |
+| O044 | absent `priceImpact` was parsed as `0` | indistinguishable from a perfect fill |
+| O045 | one label spanned outage, collapse, and a winning position | any average over it describes nothing |
+| O046 | no row recorded which experiment produced it | five regimes pooled into one average |
+| O047 | cadence, timeouts and stale locks all ran on wall time | a resumed laptop bursts against a 0.5 RPS budget |
+| O048 | ATA rent was credited back automatically | the credit is largest exactly where it is least deserved |
+| O049 | `SAFER_WHEN_HIGHER` did not exist as a list | one hand-written `if`, and no mechanism to add a second field to |
+| O050 | raw provider payloads were discarded | a parser bug was permanently unrecoverable |
+
+### What now holds
+
+- **Both legs build, or nothing is booked.** Entry and exit both go through
+  `checkLeg()`, which runs the instruction-level policy decoder — same program
+  allowlist, instruction cap, signer rule and priority-fee cap as the executor —
+  and persists the attempt whether it passed or failed. `policy_status` carries
+  its own coverage string so a research check can never read as the signer check.
+- **Impact is parsed once, from measurement.** The directive's rule that a
+  negative Jupiter impact indicates corruption is **refuted by the live API** and
+  is not implemented; the evidence is in `packages/domain/src/impact.ts` and
+  ledger row MT016. Absence is `ABSENT`, never `0`.
+- **Eight mutually exclusive diagnostics**, ordered so a provider outage outranks
+  a value collapse.
+- **Every observation is tagged** with a run context, and `requireSingleRegime()`
+  throws rather than pooling two.
+- **Two ledgers.** `portfolio_paper` is the deployable wallet; `alpha_shadow`
+  records what the signal said before the portfolio refused it, so losses stop
+  silently censoring the sample.
+- **Monotonic clocks** for cadence, timeouts and stale-lock detection; wall time
+  only for logging and day boundaries. A divergence blocks entries until every
+  open position is re-marked from a fresh route and the database checks out, and
+  the block survives a restart.
+- **The UTC day is derived from immutable rows** under a persisted date key, so a
+  clock rollback has no counter to zero.
+- **Rate budget is ordered.** An exit quote never queues behind discovery.
+- **ATA rent is locked capital** and its recovery is zero, with the reason
+  attached: withheld transfer fees are unobserved, and unobserved is not zero.
+- **Raw payloads are retained**, deduplicated by content hash, so a future parser
+  bug is recoverable.
+
+### The two measurements that matter most
+
+**At the canary cap of 0.02 SOL, ATA rent alone is 10.2% of the trade and total
+non-recoverable fixed cost is 7.1%.** Both legs build at every size from 0.005 to
+0.100 SOL, so buildability is not the binding constraint — cost is. Combined with
+zero proven rent recovery, a strategy has to clear roughly a tenth of its stake
+before it does anything, at the only size we are permitted to deploy at.
+
+**There are eight liquidity collapses, not four, every one on `Pump.fun Amm`, and
+every one fell from above the 10% floor to near zero inside a single mark
+interval.** All eight are classified `UNKNOWN`. The columns that would separate a
+pool drain from a creator dump exist in the schema and are NULL on every row.
+
+### Verification
+
+387 tests across 21 files in 2.6s. 66 mutations across five scripts, all caught —
+including four that survived the first run and were real coverage gaps rather
+than excuses. A destructive recovery test SIGKILLs a child mid-write with WAL
+un-checkpointed and proves exactly-once accounting on restart.
+
+`pnpm capability` reports 18 flags independently. `pnl_eligible_trades` is 0 and
+says so.
+
+### Not done, and named
+
+- No local SVM simulation. `simulation_status` is an explicit
+  `NOT_SIMULATED(reason)` on every row, never a pass.
+- No pool/vault reserve, transfer-graph or Token-2022 extension feed. This is
+  what makes P7 unanswerable and P5 rent recovery zero, and it is the highest-
+  value next piece of work.
+- No P7 mechanism identified.
+- No canary, no live, no acknowledgement file, no capital at risk.
+
+### Blockers to the 21-day / 200-trade gate
+
+1. Zero admissible trades today. The window opens at the preregistration commit.
+2. `maxSimultaneousPositions` is 1 in paper, so the trade rate is bounded by
+   holding period; at ~2 entries/day, 200 trades is a 100-day run.
+3. Any change to a decision-bearing file restarts the window.
+4. The engine must run from a clean tree — a `+dirty` source commit excludes
+   every row it writes.
