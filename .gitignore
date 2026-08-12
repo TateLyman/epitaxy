@@ -25,3 +25,7 @@ Thumbs.db
 coverage/
 *.tsbuildinfo
 .live-ack*
+
+# Vitest JSON reporter output. Scratch, not evidence.
+/all.json
+/vr.json
