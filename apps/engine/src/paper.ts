@@ -36,6 +36,8 @@ import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
+import { restoreLedger, rollDayIfNeeded } from './ledger.js';
+import type { Ledger } from './ledger.js';
 
 /**
  * Paper mode.
@@ -46,25 +48,27 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
  * returned to this process.
  *
  * Fill honesty rules, applied without exception:
- *  - a simulated fill uses the quote's `otherAmountThreshold` (the worst amount
- *    the router guarantees at that slippage), never the optimistic `outAmount`;
+ *  - an ENTRY fill uses the quote's `otherAmountThreshold` — the worst amount
+ *    the router guarantees at that slippage — never the optimistic `outAmount`,
+ *    so we never credit ourselves tokens a live buy might not have received;
+ *  - an EXIT is valued at `outAmount`, the router's expected output. This is
+ *    deliberately the other field, and the asymmetry is the conservative
+ *    direction in both cases. `otherAmountThreshold` is derived from our own
+ *    `slippageBps` and is therefore not an observation of the market at all;
+ *    marking an open position against it subtracted a constant `slippageBps`
+ *    from every mark and made a position look impaired by an amount we had
+ *    chosen ourselves. Exit slippage is modelled where slippage belongs — in
+ *    the cost model — not smuggled into the price;
  *  - priority fee and ATA rent are charged on entry even though no transaction
  *    was sent, because a live entry would pay them;
  *  - the modelled new-token fee is the DOCUMENTED 50 bps, not the 10 bps we
  *    measured, so paper results cannot be flattered by an unexplained discount.
  *
- * A paper P&L that would not survive being wrong about those three things is
+ * A paper P&L that would not survive being wrong about those four things is
  * not evidence of anything.
  */
 
 const log = logger.child({ app: 'paper' });
-
-interface Ledger {
-  navLamports: bigint;
-  freeLamports: bigint;
-  realizedTodayLamports: bigint;
-  dayStartUtcMs: number;
-}
 
 async function main(): Promise<void> {
   const config = loadConfig(modeFromArgv());
@@ -93,7 +97,7 @@ async function main(): Promise<void> {
   const jupiter = new JupiterClient({ limiter, apiKey: secrets.jupiterApiKey });
   const rpc = new SolanaRpc(limiter, { primary: secrets.rpcHttp, fallback: secrets.rpcHttpFallback });
 
-  const ledger = restoreLedger(db, config);
+  const ledger = restoreLedger(db, config, Date.now());
   log.info(
     {
       mode: config.mode,
@@ -116,6 +120,12 @@ async function main(): Promise<void> {
 
   const seen = new Set<string>();
   let cycle = 0;
+  // Discovery is expensive and slow-moving; marking an open position is cheap
+  // and urgent. Before P2 they shared one interval, so the mark cadence was
+  // whatever discovery happened to be — 31s in the observed corpus, which is
+  // wider than the entire lifetime of every collapse we have measured. The loop
+  // now ticks at the mark cadence and discovery runs on its own schedule.
+  let lastDiscoveryUtcMs = 0;
 
   while (!stop) {
     const started = Date.now();
@@ -132,6 +142,18 @@ async function main(): Promise<void> {
       break;
     }
 
+    // The daily loss cap is a DAILY cap, so someone has to notice the day
+    // ended. `dayStartUtcMs` used to be set once in `restoreLedger` and read
+    // by nothing, which made the cap permanent rather than daily: paper mode
+    // had been halted for the whole measurement window with 145 eligible
+    // candidates and zero open positions, and the only cure was a restart.
+    if (rollDayIfNeeded(db, ledger, started)) {
+      log.info(
+        { dayStartUtcMs: ledger.dayStartUtcMs, realizedTodaySol: formatAmount(ledger.realizedTodayLamports, 9) },
+        'UTC day rolled — daily loss budget reset',
+      );
+    }
+
     // Exits run FIRST, every cycle, before any entry may compete for the quote
     // budget. Getting out is always more urgent than getting in.
     let exits = 0;
@@ -144,26 +166,36 @@ async function main(): Promise<void> {
 
     const heldMints = new Set(openPositions(db).map((p) => p.mint));
 
-    try {
-      stats = await runCycle({
-        db,
-        jupiter,
-        config,
-        seen,
-        cycleIndex: cycle,
-        skip: heldMints,
-        rpc: rpc.configured ? rpc : null,
-        onEligible: async (info, result) => {
-          await tryEnter(db, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
-        },
-      });
-    } catch (e) {
-      if (e instanceof SourceFetchError) {
-        recordSourceHealth(db, e.source, false, null, e.kind);
-        log.warn({ source: e.source, kind: e.kind }, 'discovery failed');
-      } else {
-        recordHealth(db, 'cycle_error', 'warn', (e as Error).message);
-        log.error({ err: (e as Error).message }, 'cycle error');
+    // Discovery runs on its own, much slower schedule. The loop itself now
+    // ticks at the mark cadence, so an open position is re-quoted every
+    // `markIntervalMs` regardless of how expensive discovery is; when the two
+    // shared an interval, the resolution of the entire exit corpus was set by
+    // whatever the discovery budget happened to allow.
+    const discoveryDue = started - lastDiscoveryUtcMs >= config.discoveryIntervalMs;
+
+    if (discoveryDue) {
+      lastDiscoveryUtcMs = started;
+      try {
+        stats = await runCycle({
+          db,
+          jupiter,
+          config,
+          seen,
+          cycleIndex: cycle,
+          skip: heldMints,
+          rpc: rpc.configured ? rpc : null,
+          onEligible: async (info, result) => {
+            await tryEnter(db, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
+          },
+        });
+      } catch (e) {
+        if (e instanceof SourceFetchError) {
+          recordSourceHealth(db, e.source, false, null, e.kind);
+          log.warn({ source: e.source, kind: e.kind }, 'discovery failed');
+        } else {
+          recordHealth(db, 'cycle_error', 'warn', (e as Error).message);
+          log.error({ err: (e as Error).message }, 'cycle error');
+        }
       }
     }
 
@@ -176,6 +208,7 @@ async function main(): Promise<void> {
       {
         cycle,
         ...stats,
+        discovery: discoveryDue,
         exits,
         open: open.length,
         navSol: formatAmount(ledger.navLamports, 9),
@@ -188,35 +221,14 @@ async function main(): Promise<void> {
       'cycle complete',
     );
 
-    await sleep(Math.max(1_000, config.discoveryIntervalMs - (Date.now() - started)), () => stop);
+    // The tick is the MARK cadence, not the discovery cadence. Discovery
+    // gates itself above on its own, longer interval.
+    await sleep(Math.max(1_000, config.markIntervalMs - (Date.now() - started)), () => stop);
   }
 
   lock.release();
   db.close();
   log.info('paper mode stopped cleanly');
-}
-
-/**
- * Reconstructs NAV from persisted positions and fills so a restart does not
- * silently reset the experiment to a fresh, flattering starting balance.
- */
-function restoreLedger(db: Db, config: AppConfig): Ledger {
-  const realized = db.prepare('SELECT COALESCE(SUM(CAST(realized_lamports AS INTEGER)),0) AS r FROM positions').get() as {
-    r: number;
-  };
-  const open = openPositions(db);
-  const exposure = open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n);
-  const nav = config.paperStartLamports + BigInt(realized.r);
-  const dayStart = new Date().setUTCHours(0, 0, 0, 0);
-  const realizedToday = db
-    .prepare('SELECT COALESCE(SUM(CAST(realized_lamports AS INTEGER)),0) AS r FROM positions WHERE closed_utc_ms >= ?')
-    .get(dayStart) as { r: number };
-  return {
-    navLamports: nav,
-    freeLamports: nav - exposure,
-    realizedTodayLamports: BigInt(realizedToday.r),
-    dayStartUtcMs: dayStart,
-  };
 }
 
 async function tryEnter(

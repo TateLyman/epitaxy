@@ -2,6 +2,7 @@
   "mode": "observe",
   "strategyVersion": "delayed-momentum-v0.3.0",
   "discoveryIntervalMs": 30000,
+  "markIntervalMs": 10000,
   "enrichIntervalMs": 15000,
   "maxClockSkewMs": 2000,
   "maxQuoteAgeMs": 8000,

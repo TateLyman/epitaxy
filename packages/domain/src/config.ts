@@ -98,6 +98,24 @@ export const AppConfigSchema = z.object({
   paperStartLamports: z.coerce.bigint(),
   /** Discovery cadence, bounded by the source rate budget. */
   discoveryIntervalMs: z.number().int().min(1000),
+  /**
+   * Cadence at which an OPEN position is re-quoted and a `position_marks` row
+   * is written. Separate from `discoveryIntervalMs` because the two have
+   * opposite economics: discovery is expensive, rate-limited and slow-moving,
+   * while marking an open position is a single quote and is the only thing
+   * standing between us and knowing what happened to the money.
+   *
+   * Before this field existed the two shared one interval, so the mark cadence
+   * was whatever discovery happened to be — ~31s in the measured corpus. All
+   * four liquidity collapses did their entire damage inside a single interval,
+   * which means the corpus cannot distinguish a one-block rug from a
+   * 25-second drain. That is a property of the instrument, not of the market,
+   * and it is what this field exists to fix.
+   *
+   * Floor of 1s rather than lower: below that the quote is older than the
+   * interval and the extra requests buy nothing but rate-limit pressure.
+   */
+  markIntervalMs: z.number().int().min(1000),
   enrichIntervalMs: z.number().int().min(1000),
   /** Max clock skew before trading is refused. */
   maxClockSkewMs: z.number().int().min(0),
