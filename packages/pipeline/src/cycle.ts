@@ -163,15 +163,28 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     }),
   ];
 
-  const promoted: { info: MintInformation; gates: ReturnType<typeof screenCheap>['gates'] }[] = [];
+  // `sourceAgeMs` travels with the candidate rather than being recomputed at
+  // persist time. Recomputing it against a later clock would store a freshness
+  // the gates never saw, and replay would then diverge from a decision that was
+  // correct when it was made.
+  const promoted: {
+    info: MintInformation;
+    gates: ReturnType<typeof screenCheap>['gates'];
+    sourceAgeMs: number | null;
+  }[] = [];
   for (const info of toScreen) {
-    const sourceAgeMs = nowUtcMs - (parseUtc(info.updatedAt) ?? nowUtcMs);
+    // §7.6 -- a missing provider timestamp is UNKNOWN, not zero age. The
+    // previous expression fell back to `nowUtcMs`, which made a token with no
+    // `updatedAt` score as perfectly fresh: the most favourable possible value,
+    // derived from the absence of information.
+    const updatedAt = parseUtc(info.updatedAt);
+    const sourceAgeMs = updatedAt === null ? null : nowUtcMs - updatedAt;
     const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs);
     if (deservesQuote) {
       stats.cheapPassed += 1;
-      promoted.push({ info, gates });
+      promoted.push({ info, gates, sourceAgeMs });
     } else {
-      await persist(deps, info, gates, null, null, nowUtcMs, stats);
+      await persist(deps, info, gates, null, null, nowUtcMs, stats, sourceAgeMs);
     }
   }
 
@@ -180,11 +193,11 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
   // we are trying to avoid spending.
   promoted.sort((a, b) => (b.info.liquidity ?? 0) - (a.info.liquidity ?? 0));
 
-  for (const { info, gates } of promoted.slice(0, config.maxQuotesPerCycle)) {
+  for (const { info, gates, sourceAgeMs } of promoted.slice(0, config.maxQuotesPerCycle)) {
     const roundTrip = await priceRoundTrip(deps, info, stats);
     if (roundTrip === 'provider_failure') continue;
     const concentration = await measureConcentration(deps, info.id, stats);
-    await persist(deps, info, gates, roundTrip, concentration, Date.now(), stats);
+    await persist(deps, info, gates, roundTrip, concentration, Date.now(), stats, sourceAgeMs);
   }
 
   // Phase 4 — forward observations on things we already refused. One batched
@@ -325,8 +338,9 @@ async function persist(
   concentration: ConcentrationFacts | null,
   nowUtcMs: number,
   stats: CycleStats,
+  sourceAgeMs: number | null,
 ): Promise<void> {
-  const result = finalizeScreen(info, deps.config, nowUtcMs, gates, roundTrip, null, concentration);
+  const result = finalizeScreen(info, deps.config, nowUtcMs, gates, roundTrip, null, concentration, sourceAgeMs);
   insertSnapshot(deps.db, result.snapshot);
   insertScreening(deps.db, result.outcome);
   stats.screened += 1;

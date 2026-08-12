@@ -20,12 +20,26 @@ const base: AppConfig = AppConfigSchema.parse(JSON.parse(readFileSync('config/pa
 const SOL = 1_000_000_000n;
 const lamports = fc.bigInt({ min: 0n, max: 1_000n * SOL });
 
+/**
+ * The COMPLETE state, not a cast over a partial one.
+ *
+ * This generator previously produced five of the eight fields and the call site
+ * wrote `state as PortfolioState`. That cast held while every consumer only
+ * COMPARED the missing fields — `undefined >= 0n` is false, so the branch
+ * quietly never fired — and broke the moment one of them did arithmetic. The
+ * resulting TypeError looked like a production defect in sizing and was a
+ * defect in the fixture. A test double has to have the shape of the real thing.
+ */
 const portfolio = fc.record({
   navLamports: fc.bigInt({ min: 0n, max: 1_000n * SOL }),
   freeLamports: lamports,
   openPositions: fc.integer({ min: 0, max: 6 }),
   totalExposureLamports: lamports,
   realizedTodayLamports: fc.bigInt({ min: -100n * SOL, max: 100n * SOL }),
+  realizedWeekLamports: fc.bigInt({ min: -500n * SOL, max: 500n * SOL }),
+  plannedLossLamports: fc.bigInt({ min: 0n, max: 100n * SOL }),
+  peakNavLamports: fc.bigInt({ min: 0n, max: 1_000n * SOL }),
+  observedSevereLossBps: fc.option(fc.integer({ min: 0, max: 10_000 }), { nil: null }),
 });
 
 const riskOverride = fc.record({
@@ -57,7 +71,7 @@ describe('a permitted size respects every cap simultaneously', () => {
     fc.assert(
       fc.property(portfolio, riskOverride, score, (state, over, s) => {
         const config = configWith(over);
-        const out = sizePosition(state as PortfolioState, config, s);
+        const out = sizePosition(state, config, s);
         if (!out.allowed) return;
 
         const size = out.lamports;
@@ -85,7 +99,7 @@ describe('a permitted size respects every cap simultaneously', () => {
     fc.assert(
       fc.property(portfolio, riskOverride, score, (state, over, s) => {
         const config = configWith(over);
-        const out = sizePosition(state as PortfolioState, config, s);
+        const out = sizePosition(state, config, s);
         if (!out.allowed) return;
         expect(state.freeLamports - out.lamports).toBeGreaterThanOrEqual(config.risk.minSolReserveLamports);
       }),
@@ -145,7 +159,7 @@ describe('refusals are unconditional', () => {
     fc.assert(
       fc.property(portfolio, riskOverride, score, (state, over, s) => {
         const config = configWith(over);
-        const out = sizePosition(state as PortfolioState, config, s);
+        const out = sizePosition(state, config, s);
         if (out.allowed) expect(out.lamports).toBeGreaterThanOrEqual(viableFloorLamports(config));
         else expect(out.lamports).toBe(0n);
       }),

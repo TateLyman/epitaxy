@@ -178,7 +178,9 @@ export function replayOne(db: Db, config: AppConfig, row: SnapshotRow): Mismatch
   const info = reconstruct(row);
   const features = JSON.parse(row.features_json) as Record<string, unknown>;
   const raw = JSON.parse(row.raw_inputs_json) as RawInputs;
-  const freshness = JSON.parse(row.freshness_json) as { jupiter_tokens: number };
+  // `jupiter_tokens` may be null, and passing it through as null is the point:
+  // a snapshot taken when freshness was unknown must replay as unknown.
+  const freshness = JSON.parse(row.freshness_json) as { jupiter_tokens: number | null };
 
   const { gates } = screenCheap(info, config, row.taken_utc_ms, freshness.jupiter_tokens);
   const roundTrip = roundTripFrom(db, raw, features);
@@ -199,6 +201,7 @@ export function replayOne(db: Db, config: AppConfig, row: SnapshotRow): Mismatch
     roundTrip,
     null,
     raw.concentration ?? null,
+    freshness.jupiter_tokens,
   );
 
   const out: Mismatch[] = [];

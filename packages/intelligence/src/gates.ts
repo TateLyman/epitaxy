@@ -32,8 +32,14 @@ function soft(gate: string, risk: number, reason: string, detail: string): GateR
 export interface GateInputs {
   readonly info: MintInformation;
   readonly nowUtcMs: number;
-  /** Age of the underlying data at decision time, per source. */
-  readonly sourceAgeMs: number;
+  /**
+   * Age of the underlying data at decision time. NULL when the provider gave
+   * no timestamp -- never 0, which would be the most favourable possible value
+   * derived from the absence of information.
+   */
+  readonly sourceAgeMs: number | null;
+  /** True in modes that can lose money. Unknowns are refused there. */
+  readonly capitalAtRisk?: boolean;
   readonly roundTrip: RoundTrip | null;
   readonly config: GateConfig;
 }
@@ -47,17 +53,38 @@ export interface GateInputs {
  */
 export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateResult[] {
   const { info, nowUtcMs, sourceAgeMs, config } = input;
+  const capitalAtRisk = input.capitalAtRisk === true;
   const out: GateResult[] = [];
 
   // --- Data freshness. A stale snapshot may not drive a decision. ----------
-  out.push(
-    veto(
-      'data_freshness',
-      sourceAgeMs <= config.maxSourceAgeMs,
-      'stale_source',
-      `source age ${sourceAgeMs}ms > ${config.maxSourceAgeMs}ms`,
-    ),
-  );
+  //
+  // §7.6 — an ABSENT source timestamp is not age zero.
+  //
+  // `cycle.ts` computed `nowUtcMs - (parseUtc(info.updatedAt) ?? nowUtcMs)`,
+  // so a token whose provider record carried no `updatedAt` scored as PERFECTLY
+  // FRESH — the single most favourable value available — on the strength of a
+  // missing field. That is the absence-becomes-zero defect this project has
+  // now removed from impact, from transfer fees, and from holder ownership.
+  //
+  // Unknown is its own state. It passes the hard veto in modes that risk
+  // nothing, carries soft risk, and is refused outright where capital is at
+  // stake.
+  if (sourceAgeMs === null) {
+    out.push(
+      capitalAtRisk
+        ? veto('data_freshness', false, 'source_age_unknown', 'provider reported no updatedAt; freshness is unknown')
+        : soft('data_freshness_unknown', 0.25, 'source_age_unknown', 'provider reported no updatedAt'),
+    );
+  } else {
+    out.push(
+      veto(
+        'data_freshness',
+        sourceAgeMs <= config.maxSourceAgeMs,
+        'stale_source',
+        `source age ${sourceAgeMs}ms > ${config.maxSourceAgeMs}ms`,
+      ),
+    );
+  }
 
   // --- Token program allowlist. Unknown program = we cannot reason. --------
   const program = info.tokenProgram ?? 'unknown';
@@ -310,15 +337,32 @@ export function evaluateQuoteGates(roundTrip: RoundTrip | null, config: GateConf
   // The decisive one. A buy route without a sell route is not a trade.
   out.push(veto('exit_route_exists', roundTrip.exitExists, 'no_exit_route', 'no sell route for the acquired amount'));
 
-  const impactBps = Math.round(Math.abs(roundTrip.buy.priceImpactPct) * 10_000);
+  // §P14 / §20 — no `Math.abs` on a signed market variable.
+  //
+  // This was the last surviving instance in the tree. The exit path had it
+  // removed twice; the ENTRY gate kept it, so a favourable +500bps move and an
+  // adverse -500bps move were the same number to the gate that decides whether
+  // to buy. `adverseBps` is already non-negative by construction and is the
+  // only field a cap may read; see packages/domain/src/impact.ts.
+  const reading = roundTrip.buy.impact;
+  const adverseBps = reading.adverseBps;
   out.push(
     veto(
       'price_impact',
-      impactBps <= config.maxPriceImpactBps,
+      // An UNKNOWN impact does not satisfy the cap and does not breach it. It
+      // means the provider said nothing, which is a fact about the provider --
+      // so it passes here and is charged as soft risk below, rather than being
+      // silently read as a perfect 0.
+      adverseBps === null || adverseBps <= config.maxPriceImpactBps,
       'excessive_impact',
-      `buy impact ${impactBps}bps > ${config.maxPriceImpactBps}bps`,
+      `buy adverse impact ${adverseBps === null ? 'unknown' : adverseBps.toFixed(0)}bps > ${config.maxPriceImpactBps}bps`,
     ),
   );
+  if (adverseBps === null) {
+    out.push(
+      soft('impact_unavailable', 0.2, 'impact_unknown', `impact unreadable: ${reading.status}`),
+    );
+  }
 
   const rt = roundTrip.roundTripLossBps;
   out.push(

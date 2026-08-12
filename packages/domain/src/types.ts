@@ -100,7 +100,13 @@ export interface DecisionSnapshot {
   readonly features: Readonly<Record<string, number | null>>;
   readonly rawInputs: Readonly<Record<string, unknown>>;
   /** Per-source age in ms at decision time; stale inputs must veto. */
-  readonly freshnessMs: Readonly<Record<string, number>>;
+  /**
+   * Age of each source at decision time. NULL means the provider gave no
+   * timestamp -- never 0, which is the most favourable value obtainable from
+   * the absence of information, and never -1, which a consumer could compare
+   * against a threshold and pass.
+   */
+  readonly freshnessMs: Readonly<Record<string, number | null>>;
 }
 
 export type GateSeverity = 'hard_veto' | 'soft_risk';

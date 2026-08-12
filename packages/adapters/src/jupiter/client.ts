@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { RateLimiter } from '../ratelimit.js';
 import { fetchJson, SourceFetchError } from '../http.js';
 import {
@@ -12,8 +12,10 @@ import {
   type OrderResponse,
 } from './schemas.js';
 import type { ExecutableQuote } from '../../../domain/src/types.js';
-import { parseImpact } from '../../../domain/src/impact.js';
+import { parseImpact, type ImpactReading } from '../../../domain/src/impact.js';
 import type { RawInstruction } from '../../../solana/src/instructionpolicy.js';
+import { instructionSetHash, type LookupTableMap } from '../../../solana/src/buildpolicy.js';
+import { routePlanHash, type ObservationFailure } from '../../../domain/src/execution.js';
 import type { RequestPriority } from '../ratelimit.js';
 import { lossBps } from '../../../domain/src/amounts.js';
 import { sanitizeExternal } from '../../../observability/src/log.js';
@@ -132,7 +134,7 @@ export class JupiterClient {
     taker: string;
     slippageBps?: number;
     priority?: RequestPriority;
-  }): Promise<BuildOutcome | null> {
+  }): Promise<BuildOutcome> {
     const qs = new URLSearchParams({
       inputMint: params.inputMint,
       outputMint: params.outputMint,
@@ -168,36 +170,65 @@ export class JupiterClient {
       ];
       const programIds = instructions.map((i) => i.programId);
 
-      // NOT a transaction hash. `/swap/v2/build` returns instructions, never
-      // serialized bytes, so this is a digest of the canonical instruction set:
-      // enough to prove two builds produced the same structure, and never to be
-      // reported as the hash of a transaction that existed.
-      const instructionSetHash = createHash('sha256')
-        .update(
-          JSON.stringify(
-            instructions.map((i) => [i.programId, i.data ?? null, (i.accounts ?? []).map((a) => a.pubkey)]),
-          ),
-        )
-        .digest('hex');
+      // Address lookup tables, resolved. Their contents are part of the
+      // transaction's identity: a table whose addresses changed resolves to
+      // different accounts under the same address.
+      const lookupTables: Record<string, string[]> = {};
+      for (const [table, addrs] of Object.entries(b.addressesByLookupTableAddress ?? {})) {
+        if (Array.isArray(addrs)) lookupTables[table] = addrs.filter((a): a is string => typeof a === 'string');
+      }
+
+      // NOT a transaction hash -- /build returns instructions, never serialized
+      // bytes. It IS the identity of the instruction set, and it now includes
+      // isSigner, isWritable, instruction order and lookup-table contents. The
+      // previous version covered only program id, data and account pubkeys, so
+      // a transaction that READ an account and one that DRAINED it hashed the
+      // same. Those are the two cases a hash exists to tell apart.
+      const setHash = instructionSetHash(instructions, lookupTables);
 
       const expireAtRaw = b.expireAt ?? null;
       const expireAtNum = expireAtRaw === null ? null : Number(expireAtRaw);
 
+      const bh = b.blockhashWithMetadata ?? null;
+      const blockhash =
+        bh === null || bh.blockhash == null
+          ? null
+          : typeof bh.blockhash === 'string'
+            ? bh.blockhash
+            : base58FromBytes(bh.blockhash);
+
       const receivedUtcMs = res.provenance.receivedUtcMs;
+      const buildable = b.swapInstruction != null && (b.errorCode ?? null) === null;
       return {
-        buildable: b.swapInstruction != null && (b.errorCode ?? null) === null,
+        buildable,
+        failure: buildable ? null : 'NO_ROUTE',
         errorCode: b.errorCode ?? null,
         errorMessage: b.errorMessage ? sanitizeExternal(b.errorMessage, 120) : null,
         instructionCount: instructions.length,
         instructions,
         programIds,
+        lookupTables,
         hasSetup: (b.setupInstructions ?? []).length > 0,
         hasCleanup: b.cleanupInstruction != null,
         endpoint: '/swap/v2/build',
         router: b.router ?? null,
         requestId: b.requestId ?? null,
-        instructionSetHash,
-        lastValidBlockHeight: b.lastValidBlockHeight ?? b.blockhashWithMetadata?.lastValidBlockHeight ?? null,
+        instructionSetHash: setHash,
+        // The route's OWN economics, from this same response. Nothing here is
+        // borrowed from an /order call against a different route universe.
+        inAmount: BigInt(b.inAmount),
+        outAmount: BigInt(b.outAmount),
+        otherAmountThreshold: b.otherAmountThreshold === undefined ? null : BigInt(b.otherAmountThreshold),
+        slippageBps: b.slippageBps ?? null,
+        impact: parseImpact({ priceImpactPct: b.priceImpactPct }),
+        routePlanHash: routePlanHash((b.routePlan ?? []).map((r) => ({
+          ammKey: r.swapInfo.ammKey,
+          label: r.swapInfo.label,
+          percent: r.percent,
+        }))),
+        routeLabels: (b.routePlan ?? []).map((r) => r.swapInfo.label ?? r.swapInfo.ammKey.slice(0, 8)),
+        blockhash,
+        lastValidBlockHeight: b.lastValidBlockHeight ?? bh?.lastValidBlockHeight ?? null,
         expireAt: expireAtNum !== null && Number.isFinite(expireAtNum) ? expireAtNum : null,
         contextSlot: b.contextSlot ?? null,
         rawBody: res.rawBody,
@@ -206,7 +237,13 @@ export class JupiterClient {
         latencyMs: receivedUtcMs - requestedUtcMs,
       };
     } catch (e) {
-      if (e instanceof SourceFetchError) return null;
+      // A provider failure is not an untradeable token, and a no-route response
+      // is not an outage. Collapsing every SourceFetchError to null made those
+      // four cases indistinguishable in the stored record, so a 429 during a
+      // rate-limit spike looked exactly like a token with no liquidity.
+      if (e instanceof SourceFetchError) {
+        return unbuilt(classifyFetchFailure(e), requestedUtcMs, sanitizeExternal(e.message, 160));
+      }
       throw e;
     }
   }
@@ -273,15 +310,26 @@ export class JupiterClient {
   }
 }
 
-/** What a `/swap/v2/build` attempt established. */
+/**
+ * What a `/swap/v2/build` attempt established.
+ *
+ * Always returned -- never null. `buildable` false with a typed `failure` says
+ * WHY, because "we could not get a route" and "the provider was down" are
+ * different facts about different things and the caller must be able to tell
+ * them apart.
+ */
 export interface BuildOutcome {
   readonly buildable: boolean;
+  /** Null only when `buildable`. Never collapsed across causes. */
+  readonly failure: ObservationFailure | null;
   readonly errorCode: number | null;
   readonly errorMessage: string | null;
   readonly instructionCount: number;
-  /** The instructions themselves, for the policy decoder. */
+  /** The instructions themselves, in execution order, for the policy decoder. */
   readonly instructions: readonly RawInstruction[];
   readonly programIds: readonly string[];
+  /** Resolved address lookup tables, for writable-account inspection. */
+  readonly lookupTables: LookupTableMap;
   readonly hasSetup: boolean;
   readonly hasCleanup: boolean;
   /** Provenance, so a build is never conflated with the quote that priced it. */
@@ -289,19 +337,105 @@ export interface BuildOutcome {
   readonly router: string | null;
   readonly requestId: string | null;
   /**
-   * sha256 of the canonical instruction set. Stored in
-   * `build_attempts.transaction_bytes_hash`, and deliberately never called a
-   * transaction hash where it is computed: /build returns no bytes.
+   * Identity of the instruction set: program ids, data, ordered account metas
+   * INCLUDING isSigner and isWritable, instruction order, and lookup-table
+   * contents. Never called a transaction hash -- /build returns no bytes.
    */
   readonly instructionSetHash: string;
+
+  /** This response's OWN economics. Never mixed with an /order quote. */
+  readonly inAmount: bigint;
+  readonly outAmount: bigint;
+  readonly otherAmountThreshold: bigint | null;
+  readonly slippageBps: number | null;
+  readonly impact: ImpactReading;
+  readonly routePlanHash: string;
+  readonly routeLabels: readonly string[];
+
+  readonly blockhash: string | null;
   readonly lastValidBlockHeight: number | null;
   readonly expireAt: number | null;
   readonly contextSlot: number | null;
-  /** The exact response body, for `raw_payloads`. */
+  /** The exact response body, for `raw_payloads`. Empty when the call failed. */
   readonly rawBody: string;
   readonly requestedUtcMs: number;
   readonly receivedUtcMs: number;
   readonly latencyMs: number;
+}
+
+/** Map a transport failure onto the persisted taxonomy. */
+export function classifyFetchFailure(e: SourceFetchError): ObservationFailure {
+  switch (e.kind) {
+    case 'rate_limited':
+      return 'HTTP_429';
+    case 'server_error':
+      return 'HTTP_5XX';
+    case 'not_found':
+      return 'NO_ROUTE';
+    case 'client_error':
+      return /route|no.*liquidit/i.test(e.message) ? 'NO_ROUTE' : 'HTTP_4XX';
+    case 'timeout':
+      return 'TIMEOUT';
+    case 'schema_drift':
+      return 'SCHEMA_DRIFT';
+    case 'not_json':
+      return 'PARSER_ERROR';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
+/** A failed build, fully typed rather than a null. */
+function unbuilt(failure: ObservationFailure, requestedUtcMs: number, detail: string): BuildOutcome {
+  const now = Date.now();
+  return {
+    buildable: false,
+    failure,
+    errorCode: null,
+    errorMessage: detail,
+    instructionCount: 0,
+    instructions: [],
+    programIds: [],
+    lookupTables: {},
+    hasSetup: false,
+    hasCleanup: false,
+    endpoint: '/swap/v2/build',
+    router: null,
+    requestId: null,
+    instructionSetHash: '',
+    inAmount: 0n,
+    outAmount: 0n,
+    otherAmountThreshold: null,
+    slippageBps: null,
+    impact: parseImpact({}),
+    routePlanHash: '',
+    routeLabels: [],
+    blockhash: null,
+    lastValidBlockHeight: null,
+    expireAt: null,
+    contextSlot: null,
+    rawBody: '',
+    requestedUtcMs,
+    receivedUtcMs: now,
+    latencyMs: now - requestedUtcMs,
+  };
+}
+
+/** Blockhash bytes to base58, for the shape /build sometimes returns. */
+function base58FromBytes(bytes: readonly number[]): string {
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b & 0xff);
+  let out = '';
+  while (n > 0n) {
+    out = ALPHABET[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    out = '1' + out;
+  }
+  return out;
 }
 
 export function toExecutableQuote(

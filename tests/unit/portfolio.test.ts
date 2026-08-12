@@ -20,6 +20,7 @@ function state(over: Partial<PortfolioState> = {}): PortfolioState {
     realizedTodayLamports: 0n,
     realizedWeekLamports: 0n,
     plannedLossLamports: 0n,
+    observedSevereLossBps: null,
     ...over,
   };
   // Peak defaults to the current NAV, so a test that lowers `navLamports` to
@@ -113,11 +114,50 @@ describe('sizePosition caps', () => {
  * same whether the strategy found nothing or could never act, and only this
  * relationship distinguishes the two.
  */
-describe('capital adequacy', () => {
-  it('permits a largest position that clears the viability floor', () => {
+describe('capital adequacy under catastrophic-loss sizing', () => {
+  /**
+   * These three tests changed meaning, and the change IS the finding.
+   *
+   * Sizing used to divide the per-trade risk budget by the nominal 25% stop,
+   * which asserts that a stop caps the loss at a quarter of the notional. For
+   * this population that is false and the corpus says so: all eight measured
+   * collapses fell from above the 10% floor to near zero inside ONE mark
+   * interval, faster than any stop could be acted on. A stop is an instruction
+   * to the market, not a promise from it.
+   *
+   * With `catastrophicLossFloorPct` at 100 — the honest assumption while zero
+   * valid observations exist — the same budget buys a quarter of the notional
+   * it used to. At the committed paper NAV that lands BELOW the viability
+   * floor, so nothing can be sized at all:
+   *
+   *     nav                10.000000000 SOL
+   *     risk budget        0.25%           = 0.025 SOL of planned loss
+   *     planned loss       100% of notional (floor, no observations yet)
+   *     max notional       0.025 SOL
+   *     viability floor    0.028592800 SOL
+   *     result             refused, size_below_viable
+   *
+   * The correct response is not to loosen the budget. It is to record that the
+   * strategy is not sizable at this bankroll under honest assumptions, and to
+   * state the bankroll that would be required.
+   */
+  it('refuses every entry at the committed paper NAV, because honest sizing lands below the floor', () => {
     const d = sizePosition(state(), base, 1);
-    expect(d.refusal).not.toBe('size_below_viable');
+    expect(d.allowed).toBe(false);
+    expect(d.refusal).toBe('size_below_viable');
+  });
+
+  it('names the bankroll that would be needed, rather than lowering the standard', () => {
+    // budget = nav * riskBudgetPct; notional = budget / plannedLossFraction.
+    // With a 100% loss fraction, notional == budget, so the NAV that just
+    // clears the floor is floor / riskBudgetPct.
+    const floor = viableFloorLamports(base);
+    const required = (floor * 10_000n) / BigInt(Math.round(base.risk.riskBudgetPctPerTrade * 100));
+    const d = sizePosition(state({ navLamports: required, freeLamports: required }), base, 1);
     expect(d.allowed).toBe(true);
+    expect(d.lamports).toBeGreaterThanOrEqual(floor);
+    // Roughly 11.4 SOL against a committed 10 — close, and on the wrong side.
+    expect(required).toBeGreaterThan(base.paperStartLamports);
   });
 
   it('refuses everything when capital is below the floor, at any score', () => {
@@ -129,10 +169,33 @@ describe('capital adequacy', () => {
     }
   });
 
-  it('a permitted size always covers its own round-trip cost by the configured margin', () => {
-    const d = sizePosition(state(), base, 1);
+  it('any permitted size still covers its own round-trip cost by the configured margin', () => {
+    const floor = viableFloorLamports(base);
+    const required = (floor * 10_000n) / BigInt(Math.round(base.risk.riskBudgetPctPerTrade * 100));
+    const d = sizePosition(state({ navLamports: required, freeLamports: required }), base, 1);
     expect(d.allowed).toBe(true);
     const feeShareBps = (roundTripCostLamports(base) * 10_000n) / d.lamports;
     expect(Number(feeShareBps)).toBeLessThanOrEqual(base.maxFeeFractionBps);
+  });
+
+  it('a measured severe-loss quantile above the stop governs sizing, and below it does not', () => {
+    // The floor is only a floor. If observation ever shows losses WORSE than
+    // 100% of notional it cannot (there is no worse), but the same maximum
+    // applies to the stop: a 25% stop can never make sizing more generous than
+    // the measured severe loss.
+    const floorOff = { ...base, catastrophicLossFloorPct: 0 };
+    // 20 SOL: large enough that both sizes clear the viability floor, small
+    // enough that maxEntryLamports does not cap both to the same number and
+    // hide the effect being tested.
+    const nav = 20n * 1_000_000_000n;
+    const withStop = sizePosition(state({ navLamports: nav, freeLamports: nav }), floorOff, 1);
+    const withSevere = sizePosition(
+      state({ navLamports: nav, freeLamports: nav, observedSevereLossBps: 9_000 }),
+      floorOff,
+      1,
+    );
+    expect(withStop.allowed).toBe(true);
+    expect(withSevere.allowed).toBe(true);
+    expect(withSevere.lamports).toBeLessThan(withStop.lamports);
   });
 });

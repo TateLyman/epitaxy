@@ -20,7 +20,6 @@ import {
   insertPositionMark,
   insertQuote,
   latestMark,
-  openPositions,
   recordHealth,
   recordSourceHealth,
   updatePosition,
@@ -58,7 +57,26 @@ import { logger, sanitizeExternal } from '../../../packages/observability/src/lo
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
-import { checkLeg } from './buildleg.js';
+import { observeRoute } from './observe-route.js';
+import {
+  bindEntryObservation,
+  bindExitObservation,
+  managedPositions,
+  markExitBlocked,
+  openShadowPosition,
+  openShadowPositions,
+  insertShadowMark,
+  closeShadowPosition,
+  updateShadowPeak,
+  unmanagedPositions,
+} from '../../../packages/storage/src/observation-repo.js';
+import {
+  legIsExecutable,
+  netExpectedOutput,
+  netMinimumOutput,
+  totalEntryCost,
+  netExitProceeds,
+} from '../../../packages/domain/src/execution.js';
 
 /**
  * Paper mode.
@@ -108,6 +126,17 @@ const log = logger.child({ app: 'paper' });
  * rather than a second copy of the cycle log.
  */
 const CLOCK_CHECKPOINT_INTERVAL_MS = 300_000;
+
+/**
+ * How often a blocked exit is retried.
+ *
+ * A position that cannot be sold is still ours, so the retry must keep
+ * happening; it must not consume the whole rate budget doing so. Thirty seconds
+ * is roughly three mark intervals, which is frequent enough that a route
+ * reappearing is noticed quickly and rare enough that a permanently dead token
+ * does not starve everything else.
+ */
+const EXIT_RETRY_INTERVAL_MS = 30_000;
 
 async function main(): Promise<void> {
   const config = loadConfig(modeFromArgv());
@@ -186,7 +215,7 @@ async function main(): Promise<void> {
       dataRegimeId: ctx.dataRegimeId,
       sourceCommit: ctx.sourceCommit.slice(0, 12),
       navSol: formatAmount(ledger.navLamports, 9),
-      openPositions: openPositions(db).length,
+      openPositions: managedPositions(db).length,
       maxQuotesPerCycle: config.maxQuotesPerCycle,
     },
     'paper mode starting — simulated fills, real quotes, no signer',
@@ -258,7 +287,7 @@ async function main(): Promise<void> {
     // are now separate things — see packages/domain/src/halt.ts.
     const halt = haltState(KILL_PATHS);
     if (halt !== null) {
-      const openNow = openPositions(db).length;
+      const openNow = managedPositions(db).length;
       if (!haltAnnounced) {
         if (halt.defaulted) {
           log.warn(
@@ -320,22 +349,74 @@ async function main(): Promise<void> {
       recordHealth(db, 'exit_management_error', 'critical', (e as Error).message);
     }
 
+    // Shadow books are worked after the realizable wallet, never before: the
+    // wallet is the only book that can actually lose money.
+    try {
+      await manageShadowBooks(db, jupiter, config, taker, contextHash);
+    } catch (e) {
+      log.warn({ err: (e as Error).message }, 'shadow book management failed');
+    }
+
     // Reconciliation after a discontinuity: every open position has now been
     // re-quoted from a fresh executable route and re-marked above, and the
     // database is checked below. Only then are entries allowed again.
     if (pendingResync !== null) {
+      // §4.3 — database integrity says nothing about whether any position was
+      // successfully re-observed. The previous gate cleared on
+      // `PRAGMA integrity_check` alone, so a provider outage during a resume
+      // re-enabled entries without a single fresh observation of anything held.
+      //
+      // Every clause is a requirement and a provider failure leaves the resync
+      // unresolved. Entries stay blocked, which is the correct cost.
+      const blockers: string[] = [];
+
       const integrity = (db.prepare('PRAGMA integrity_check').all() as { integrity_check: string }[])[0];
-      if (integrity?.integrity_check === 'ok') {
+      if (integrity?.integrity_check !== 'ok') blockers.push(`integrity=${integrity?.integrity_check ?? 'unknown'}`);
+      if ((db.prepare('PRAGMA foreign_key_check').all() as unknown[]).length > 0) blockers.push('foreign key violations');
+
+      const stray = unmanagedPositions(db);
+      if (stray.length > 0) blockers.push(`${stray.length} position(s) hold tokens outside the managed set`);
+
+      const sourcesOk =
+        (
+          db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM source_health
+               WHERE ok = 0 AND utc_ms > ?`,
+            )
+            .get(pendingResync.wallUtcMs) as { n: number }
+        ).n === 0;
+      if (!sourcesOk) blockers.push('a source has failed since the discontinuity');
+
+      // The substantive clause: every managed position must have been marked
+      // AFTER the discontinuity checkpoint, from a fresh observation.
+      const managed = managedPositions(db);
+      for (const row of managed) {
+        const fresh = db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM position_marks
+             WHERE position_id = ? AND observed_utc_ms > ? AND route_available = 1`,
+          )
+          .get(row.position_id, pendingResync.wallUtcMs) as { n: number };
+        if (fresh.n === 0) blockers.push(`${row.mint.slice(0, 12)} has no fresh mark since the discontinuity`);
+      }
+
+      if (blockers.length === 0) {
         markResyncDone(db, pendingResync.checkpointId, Date.now());
-        recordHealth(db, 'clock_resync_complete', 'info', 'positions re-marked from fresh routes; entries re-enabled');
-        log.info('clock resync complete — entries re-enabled');
+        recordHealth(
+          db,
+          'clock_resync_complete',
+          'info',
+          `${managed.length} managed position(s) re-observed after the discontinuity; entries re-enabled`,
+        );
+        log.info({ managed: managed.length }, 'clock resync complete — entries re-enabled');
         pendingResync = null;
       } else {
-        log.error({ integrity: integrity?.integrity_check }, 'database integrity check failed during resync');
+        log.warn({ blockers }, 'resync still unresolved — entries remain blocked');
       }
     }
 
-    const heldMints = new Set(openPositions(db).map((p) => p.mint));
+    const heldMints = new Set(managedPositions(db).map((p) => p.mint));
 
     // Entries are refused for as long as any halt file exists, whatever its
     // mode, and while a clock discontinuity is unreconciled. Discovery still
@@ -384,7 +465,7 @@ async function main(): Promise<void> {
     }
 
     lock.heartbeat();
-    const open = openPositions(db);
+    const open = managedPositions(db);
     const exposure = open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n);
     const c = counters(db);
 
@@ -441,7 +522,7 @@ async function tryEnter(
     return;
   }
 
-  const open = openPositions(db);
+  const open = managedPositions(db);
   const state: PortfolioState = {
     navLamports: ledger.navLamports,
     freeLamports: ledger.freeLamports,
@@ -450,6 +531,9 @@ async function tryEnter(
     realizedTodayLamports: ledger.realizedTodayLamports,
     peakNavLamports: ledger.peakNavLamports,
     realizedWeekLamports: realizedWeek(db, Date.now()),
+    // Null until valid observations exist. Null means the catastrophic floor
+    // governs sizing, not that risk is zero.
+    observedSevereLossBps: null,
     // Planned loss across the open book: each position's cost times the stop
     // distance, i.e. what the book loses if every stop fills at its level.
     plannedLossLamports: open.reduce(
@@ -497,87 +581,107 @@ async function tryEnter(
       contextHash,
     });
     log.info({ mint, refusal: sizing.refusal, detail: sizing.detail }, 'entry refused by portfolio caps');
+
+    // §5 — THE repair. A refusal used to write a row and follow nothing, which
+    // does not remove loss-dependent censoring: the engine stops entering after
+    // a bad day, so the observations that follow a loss are systematically
+    // absent and every estimate built on the survivors is biased. A row saying
+    // "we did not take this" is not a substitute for tracking what it did.
+    //
+    // Both books open here, at their own frozen notionals, with no shared NAV
+    // and no capital check. They are never summed with the realizable wallet.
+    await openShadowBooks(db, jupiter, config, taker, mint, contextHash, sizing.refusal ?? 'unknown');
     return;
   }
 
-  // The quote was taken at probe size. Scale its worst-case output linearly and
-  // then charge the documented new-token fee on top. Linear scaling understates
-  // impact at larger size, so the size is also capped at the probe notional to
-  // keep the extrapolation honest.
-  const probe = config.quoteProbeLamports;
-  const lamportsIn = sizing.lamports > probe ? probe : sizing.lamports;
-  const guaranteedOut = (rt.buy.otherAmountThreshold * lamportsIn) / probe;
-  const feeBps = BigInt(Math.max(config.assumedNewTokenFeeBps, rt.buy.platformFeeBps));
-  const tokensReceived = (guaranteedOut * (10_000n - feeBps)) / 10_000n;
-
-  if (tokensReceived <= 0n) return;
-
-  // A price is not an execution.
+  // §3.1 — the probe screens; it does not price the fill.
   //
-  // Every quote in the original corpus was fetched without a `taker`, so
-  // Jupiter returned routing and fees but never a transaction, and
-  // `transactionBuildable` was false on all 2255 of them. Booking a fill anyway
-  // asserted that a trade could have happened when nothing had demonstrated
-  // that it could. The flag was stored from the first commit and read by no
-  // decision.
-  //
-  // The check is a separate `/swap/v2/build` call rather than the quote's own
-  // flag, because `/swap/v2/order` refuses to build for an unfunded taker
-  // (errorCode 1, "Insufficient funds") while `/swap/v2/build` returns the
-  // instruction set regardless of balance. Verified 2026-08-12 against a wallet
-  // holding 0 lamports. This establishes STRUCTURAL buildability only, and is
-  // never reported as a mainnet simulation.
-  if (config.requireBuildableFill) {
-    if (taker === null) {
-      recordHealth(db, 'buildability_unverifiable', 'critical', 'PAPER_TAKER_PUBKEY unset; cannot establish buildability');
-      log.warn({ mint }, 'entry refused — no taker configured, buildability cannot be established');
-      return;
-    }
-    const leg = await checkLeg(db, jupiter, {
-      mint,
-      side: 'buy',
-      positionId: null,
-      quoteId: rt.buy.quoteId,
-      inputMint: WSOL_MINT,
-      outputMint: mint,
-      amount: lamportsIn,
-      taker,
-      slippageBps: config.risk.maxSlippageBps,
-      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-      priority: 'risk',
-      contextHash,
-    });
+  // The old code took the 0.05 SOL probe quote's `otherAmountThreshold` and
+  // multiplied it by `lamportsIn / probe`. Impact is not linear in size, so
+  // that scaling is wrong at every size, and it is wrong in the flattering
+  // direction below the probe. The exact-size route is requested instead.
+  const lamportsIn = sizing.lamports;
 
-    if (!leg.buildable) {
-      recordHealth(
-        db,
-        'unbuildable_entry_refused',
-        'warn',
-        `${mint.slice(0, 12)} priced but not tradable: ${leg.reason}`,
-      );
-      log.info(
-        { mint, symbol, router: rt.buy.router, reason: leg.reason },
-        'entry refused — route priced but no policy-valid transaction could be constructed',
-      );
-      return;
-    }
-    log.info(
-      {
-        mint,
-        symbol,
-        instructions: leg.outcome?.instructionCount,
-        policy: leg.policyStatus,
-        lastValidBlockHeight: leg.outcome?.lastValidBlockHeight,
-      },
-      'entry buildability and policy established',
-    );
+  if (taker === null) {
+    recordHealth(db, 'buildability_unverifiable', 'critical', 'PAPER_TAKER_PUBKEY unset; no route can be observed');
+    log.warn({ mint }, 'entry refused — no taker configured');
+    return;
   }
 
-  // ATA rent is LOCKED capital, not a fee. It leaves free capital and stays in
-  // the position until a close is shown to be possible. See §P5.
+  // ONE observation. Amount, expected output, minimum output, route plan, fee
+  // model, instructions, blockhash and expiry all come from this single
+  // response. Nothing is borrowed from the `/order` quote that screened it —
+  // that quote is a QUOTE_ONLY_BENCHMARK and is never mixed in.
+  const entry = await observeRoute(db, jupiter, {
+    family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+    mint,
+    side: 'buy',
+    positionId: null,
+    shadowPositionId: null,
+    purpose: 'entry',
+    inputMint: WSOL_MINT,
+    outputMint: mint,
+    amount: lamportsIn,
+    taker,
+    slippageBps: config.risk.maxSlippageBps,
+    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+    priority: 'risk',
+    contextHash,
+  });
+
+  // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
+  // entered, against the response that priced it.
+  const executable = legIsExecutable(entry);
+  if (!executable.ok) {
+    recordHealth(
+      db,
+      'entry_not_executable',
+      'warn',
+      `${mint.slice(0, 12)} refused: ${executable.reasons.join('; ')}`,
+    );
+    log.info(
+      { mint, symbol, reasons: executable.reasons, observationId: entry.observationId },
+      'entry refused — the exact-size observation is not an executable leg',
+    );
+    // §5 — the realizable portfolio declining is exactly the case the shadow
+    // book exists for, but a shadow position may only be opened on an
+    // observation that was itself obtained. An unbuildable route is a fact
+    // about the token and there is nothing to shadow.
+    return;
+  }
+
+  // §3.2 — the fee is charged ONCE, by the family contract. BUILD_CUSTOM
+  // returns no fee fields at all (verified live), so there is nothing to
+  // deduct; the old code multiplied by (1 - feeBps) on top of an /order amount
+  // that already had the fee taken out.
+  const tokensReceived = netMinimumOutput(entry);
+  if (tokensReceived <= 0n) return;
+
+  // §3.4 — every fixed cost, charged once each, nothing omitted for being
+  // small. The signature fee is 5000 lamports; against the 0.02 SOL canary cap
+  // that is 2.5 bps, and the whole question is whether a few hundred bps of
+  // edge exists. An accounting model that skips the costs it considers
+  // negligible cannot test a thin edge.
+  //
+  // ATA rent is LOCKED capital rather than a fee: it leaves free capital and
+  // stays in the position until a close is shown to be possible. See §P5.
   const rentLamports = config.assumedAtaRentLamports;
-  const fixedCosts = config.assumedPriorityFeeLamports + rentLamports;
-  const costLamports = lamportsIn + fixedCosts;
+  const entryCosts = {
+    inputLamports: lamportsIn,
+    signatureFeeLamports: config.assumedSignatureFeeLamports,
+    priorityFeeLamports: config.assumedPriorityFeeLamports,
+    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+    ataRentLamports: rentLamports,
+    // Not observed for this mint. Null would be more honest than 0, but this
+    // field feeds an amount rather than a label, so it is 0 with the gap named
+    // in docs/AUDIT_HEAD_3155EA.md rather than silently absent.
+    transferFeeLamports: 0n,
+    // BUILD_CUSTOM carries no platform fee. Charging one would be inventing it.
+    platformFeeLamports: 0n,
+    assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+  };
+  const costLamports = totalEntryCost(entryCosts);
 
   const positionId = randomUUID();
   const position: Position = {
@@ -594,6 +698,9 @@ async function tryEnter(
   };
   insertPosition(db, position);
   stampContext(db, 'positions', positionId, contextHash);
+  // The position now points at the ONE observation it was built from. A leg
+  // that cannot name its observation is not an executable leg.
+  bindEntryObservation(db, positionId, entry.observationId, entry.family);
 
   const fillId = randomUUID();
   const fill: Fill = {
@@ -603,7 +710,10 @@ async function tryEnter(
     side: 'buy',
     actualInAmount: lamportsIn,
     actualOutAmount: tokensReceived,
-    feeLamports: (lamportsIn * feeBps) / 10_000n,
+    // BUILD_CUSTOM returns no platform fee, so none is charged here. The
+    // previous value multiplied an /order amount that had already had its
+    // fee deducted.
+    feeLamports: 0n,
     priorityFeeLamports: config.assumedPriorityFeeLamports,
     rentLamports,
     signature: null,
@@ -645,11 +755,186 @@ async function tryEnter(
       lockedRentSol: formatAmount(rentLamports, 9),
       score: result.outcome.opportunityScore,
       roundTripLossBps: rt.roundTripLossBps,
-      modelledFeeBps: Number(feeBps),
-      actualFeeBps: rt.buy.platformFeeBps,
+      family: entry.family,
+      observationId: entry.observationId,
+      expectedOut: netExpectedOutput(entry).toString(),
+      bookedOut: tokensReceived.toString(),
     },
-    'PAPER ENTRY (simulated fill, real quote, build-validated)',
+    'PAPER ENTRY (one exact-size observation, policy-valid)',
   );
+}
+
+/**
+ * Open one position in each shadow book for a signal the portfolio refused.
+ *
+ * Each book gets its OWN exact-size observation at its own frozen notional —
+ * a 0.02 SOL shadow is not a 0.05 SOL result divided by 2.5, because impact is
+ * not linear and that is the same error §3.1 removed from entries.
+ */
+async function openShadowBooks(
+  db: Db,
+  jupiter: JupiterClient,
+  config: AppConfig,
+  taker: string | null,
+  mint: string,
+  contextHash: string,
+  refusal: string,
+): Promise<void> {
+  if (taker === null) return;
+  const books: { book: 'alpha_shadow' | 'canary_shadow'; notional: bigint }[] = [
+    { book: 'alpha_shadow', notional: config.alphaShadowNotionalLamports },
+    { book: 'canary_shadow', notional: config.canaryShadowNotionalLamports },
+  ];
+
+  for (const { book, notional } of books) {
+    if (notional <= 0n) continue;
+    const obs = await observeRoute(db, jupiter, {
+      family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+      mint,
+      side: 'buy',
+      positionId: null,
+      shadowPositionId: null,
+      purpose: `${book}_entry`,
+      inputMint: WSOL_MINT,
+      outputMint: mint,
+      amount: notional,
+      taker,
+      slippageBps: config.risk.maxSlippageBps,
+      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+      broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+      priority: 'enrichment',
+      contextHash,
+    });
+
+    // The shadow book records what the SIGNAL was worth, so it is not gated on
+    // simulation the way a paper fill is — but it inherits every other
+    // requirement, and an unbuildable route is a fact about the token that no
+    // book gets to ignore.
+    if (obs.instructionSetHash === null || obs.expectedOutput <= 0n) continue;
+
+    const cost =
+      notional +
+      config.assumedSignatureFeeLamports +
+      config.assumedPriorityFeeLamports +
+      config.assumedBroadcasterTipLamports +
+      config.assumedAtaRentLamports +
+      config.assumedFailedAttemptLamports;
+
+    const id = openShadowPosition(db, {
+      book,
+      mint,
+      state: 'POSITION_OPEN',
+      notionalLamports: notional,
+      tokenAmount: netMinimumOutput(obs),
+      costLamports: cost,
+      entryObservationId: obs.observationId,
+      openedUtcMs: Date.now(),
+      portfolioRefusal: refusal,
+      strategyVersion: config.strategyVersion,
+      contextHash,
+    });
+    log.info({ book, mint, shadowPositionId: id, refusal }, 'shadow position opened on a refused signal');
+  }
+}
+
+/**
+ * Work the shadow books.
+ *
+ * Independent state, independent exits, no shared capital. Bounded per cycle so
+ * an accumulating shadow book cannot starve the realizable wallet of rate
+ * budget — the wallet is the thing that could actually lose money.
+ */
+async function manageShadowBooks(
+  db: Db,
+  jupiter: JupiterClient,
+  config: AppConfig,
+  taker: string | null,
+  contextHash: string,
+): Promise<number> {
+  if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
+  const open = openShadowPositions(db).slice(0, config.maxShadowMarksPerCycle);
+  let closed = 0;
+
+  for (const row of open) {
+    const tokenAmount = BigInt(row.token_amount);
+    const costLamports = BigInt(row.cost_lamports);
+    if (tokenAmount <= 0n) continue;
+
+    const obs = await observeRoute(db, jupiter, {
+      family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+      mint: row.mint,
+      side: 'sell',
+      positionId: null,
+      shadowPositionId: row.shadow_position_id,
+      purpose: `${row.book}_mark`,
+      inputMint: row.mint,
+      outputMint: WSOL_MINT,
+      amount: tokenAmount,
+      taker,
+      slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+      broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+      priority: 'enrichment',
+      contextHash,
+    });
+
+    const nowMs = Date.now();
+    const routeAvailable = obs.instructionSetHash !== null && obs.expectedOutput > 0n;
+    const value = routeAvailable ? netExpectedOutput(obs) : null;
+
+    const seq = (
+      db
+        .prepare('SELECT COALESCE(MAX(seq), -1) AS s FROM shadow_marks WHERE shadow_position_id = ?')
+        .get(row.shadow_position_id) as { s: number }
+    ).s + 1;
+    insertShadowMark(db, {
+      shadowPositionId: row.shadow_position_id,
+      seq,
+      observedUtcMs: nowMs,
+      observationId: obs.observationId,
+      executableValueLamports: value,
+      routeAvailable,
+    });
+
+    const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
+    if (value !== null && value > peak) updateShadowPeak(db, row.shadow_position_id, value);
+
+    const decision = decideExit(
+      {
+        costLamports,
+        peakValueLamports: value !== null && value > peak ? value : peak,
+        markLamports: value,
+        openedUtcMs: row.opened_utc_ms,
+        nowUtcMs: nowMs,
+        exitRouteExists: routeAvailable,
+      },
+      config.exits,
+    );
+    if (!decision.exit) continue;
+
+    // A shadow exit needs a buildable route for the same reason a real one
+    // does. Without it the position stays open and keeps being worked.
+    if (!routeAvailable) continue;
+
+    closeShadowPosition(db, row.shadow_position_id, {
+      realizedLamports: (value ?? 0n) - costLamports,
+      closedUtcMs: nowMs,
+      exitReason: decision.reason ?? 'unknown',
+      diagnostic: routeAvailable ? 'NONE' : 'NO_EXIT_ROUTE',
+      exitObservationId: obs.observationId,
+    });
+    closed += 1;
+    log.info(
+      {
+        book: row.book,
+        mint: row.mint,
+        pnlSol: formatAmount((value ?? 0n) - costLamports, 9),
+        reason: decision.reason,
+      },
+      'shadow position closed (NOT a wallet result and never summed with one)',
+    );
+  }
+  return closed;
 }
 
 /** Marks every open position with a live sell quote and applies the exit rules. */
@@ -661,10 +946,29 @@ async function manageOpenPositions(
   taker: string | null,
   contextHash: string,
 ): Promise<number> {
-  const open = openPositions(db);
+  const open = managedPositions(db);
   let exited = 0;
 
+  if (taker === null) {
+    // Without a taker no route can be observed at all, so an open position
+    // cannot be marked, let alone exited. Loud, and not silently skipped.
+    if (open.length > 0) {
+      recordHealth(
+        db,
+        'exit_management_impossible',
+        'critical',
+        `${open.length} managed position(s) and no PAPER_TAKER_PUBKEY; no exit can be observed`,
+      );
+    }
+    return 0;
+  }
+
   for (const row of open) {
+    // §4.1 — an EXIT_BLOCKED position is retried at a bounded interval rather
+    // than hammered every cycle or forgotten forever.
+    if (row.state === 'EXIT_BLOCKED' && row.last_exit_attempt_utc_ms !== null) {
+      if (Date.now() - row.last_exit_attempt_utc_ms < EXIT_RETRY_INTERVAL_MS) continue;
+    }
     const tokenAmount = BigInt(row.token_amount);
     const costLamports = BigInt(row.cost_lamports);
 
@@ -832,48 +1136,57 @@ async function manageOpenPositions(
       continue;
     }
 
-    // §P0.2 — the exit leg. This is the half that was missing: the entry was
-    // build-gated and the exit was not, so a closed position could carry a
-    // realized PnL derived from a price that had never been shown to be
-    // tradable. A trade is PAPER_PNL_ELIGIBLE only when BOTH legs built.
-    let exitBuildable: boolean | null = null;
-    if (config.requireBuildableFill) {
-      if (taker === null) {
-        exitBuildable = null;
-      } else {
-        const leg = await checkLeg(db, jupiter, {
-          mint: row.mint,
-          side: 'sell',
-          positionId: row.position_id,
-          quoteId: sell.quoteId,
-          inputMint: row.mint,
-          outputMint: WSOL_MINT,
-          amount: tokenAmount,
-          taker,
-          slippageBps: Math.min(config.risk.maxSlippageBps, 300),
-          maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-          priority: 'emergency_exit',
-          contextHash,
-        });
-        exitBuildable = leg.buildable;
-        if (!leg.buildable) {
-          // The exit is still taken — refusing to close a position because the
-          // build check failed would leave real exposure open on a route we
-          // have just been told is unhealthy, which is worse. What changes is
-          // the CLAIM: the row is marked UNBUILDABLE_EXIT and is excluded from
-          // confirmatory results by `disqualifiesFromConfirmatory`.
-          recordHealth(
-            db,
-            'unbuildable_exit',
-            'critical',
-            `${row.mint.slice(0, 12)} exit priced but not buildable: ${leg.reason} — this trade is NOT PnL-eligible`,
-          );
-          log.error({ mint: row.mint, reason: leg.reason }, 'exit leg not buildable — closing, but not PnL-eligible');
-        }
-      }
+    // §2.2 / §4.2 — the exit leg is ONE exact-size observation of the same
+    // family the entry used, for the exact token amount held.
+    const exitObs = await observeRoute(db, jupiter, {
+      family: (row.route_family ?? config.primaryRouteFamily) as 'BUILD_CUSTOM',
+      mint: row.mint,
+      side: 'sell',
+      positionId: row.position_id,
+      shadowPositionId: null,
+      purpose: 'exit',
+      inputMint: row.mint,
+      outputMint: WSOL_MINT,
+      amount: tokenAmount,
+      taker,
+      slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+      broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+      priority: 'emergency_exit',
+      contextHash,
+    });
+
+    const exitExecutable = legIsExecutable(exitObs);
+    if (!exitExecutable.ok) {
+      // §4.2 — THE repair. The previous code recorded the failure, closed the
+      // position, realized the PnL and returned the capital to the free
+      // balance. That is not a wallet path that exists: an exit that cannot be
+      // built cannot be taken, so the tokens are still held, the rent is still
+      // locked, and the exposure is still ours.
+      //
+      // The position stays managed and is retried. Capital is NOT released.
+      markExitBlocked(db, row.position_id, nowMs, exitExecutable.reasons.join('; '));
+      recordHealth(
+        db,
+        'exit_blocked',
+        'critical',
+        `${row.mint.slice(0, 12)} wants out and cannot: ${exitExecutable.reasons.join('; ')}. ` +
+          'Tokens still held, rent still locked, capital NOT released.',
+      );
+      log.error(
+        { mint: row.mint, positionId: row.position_id, reasons: exitExecutable.reasons },
+        'EXIT BLOCKED — position remains managed, capital remains committed',
+      );
+      // The failed attempt still costs what a failed attempt costs.
+      continue;
     }
 
-    const proceeds = markLamports;
+    bindExitObservation(db, row.position_id, exitObs.observationId);
+    const exitBuildable = true;
+
+    // §3.4 — every exit cost subtracted, and the ATA rent credited only if a
+    // close was shown to be possible (it never is in paper; see ata.ts).
+    const grossFromObservation = netExpectedOutput(exitObs);
 
     // ATA rent settlement. In paper this always returns zero recovery, and it
     // says which unknown stopped it: withheld transfer fees are unobserved, and
@@ -896,7 +1209,17 @@ async function manageOpenPositions(
     };
     const ataVerdict = settleAtaRent(ata);
 
-    const realized = proceeds - costLamports + ataVerdict.ataRentRecoveredLamports;
+    const proceeds = netExitProceeds({
+      grossProceedsLamports: grossFromObservation,
+      signatureFeeLamports: config.assumedSignatureFeeLamports,
+      priorityFeeLamports: config.assumedPriorityFeeLamports,
+      broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+      transferFeeLamports: 0n,
+      closeAccountFeeLamports: config.assumedSignatureFeeLamports,
+      assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+      ataRentRecoveredLamports: ataVerdict.ataRentRecoveredLamports,
+    });
+    const realized = proceeds - costLamports;
 
     // Classified from executable value, independently of which rule fired.
     // `decision.reason` is kept beside it rather than replaced by it.
@@ -928,7 +1251,7 @@ async function manageOpenPositions(
       // Gross, and therefore never negative. The priority fee lives in its own
       // column; folding it into the output produced a fill claiming the swap
       // returned less SOL than it did.
-      actualOutAmount: grossProceeds,
+      actualOutAmount: grossFromObservation,
       feeLamports: sell.platformFeeAmount ?? (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       rentLamports: 0n,
@@ -947,8 +1270,8 @@ async function manageOpenPositions(
       outcomeRationale: verdict.rationale,
       exitValueRatio: verdict.exitValueRatio,
       positionEntryCostLamports: costLamports,
-      quotedExitOutputLamports: grossProceeds,
-      grossProceedsLamports: grossProceeds,
+      quotedExitOutputLamports: grossFromObservation,
+      grossProceedsLamports: grossFromObservation,
       exitFeesLamports: config.assumedPriorityFeeLamports,
       netProceedsLamports: proceeds,
       realizedLamports: realized,

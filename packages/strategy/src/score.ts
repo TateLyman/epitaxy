@@ -16,7 +16,22 @@ import { normalize } from '../../intelligence/src/gates.js';
  * later measure which component actually predicted anything.
  */
 
-export const STRATEGY_VERSION = 'delayed-momentum-v0.2.0';
+/**
+ * The strategy version.
+ *
+ * This constant said v0.2.0 while every config file said v0.3.0, so anything
+ * comparing the two -- a replay filter, a regime key, a report header -- was
+ * comparing a value against a different value that meant the same thing.
+ *
+ * v0.4.0 is a real semantic bump, not a tidy-up. Between v0.3.0 and here the
+ * ENTRY path changed in four ways that alter which tokens are eligible:
+ *   - price impact is read from the signed adverse magnitude, not Math.abs;
+ *   - a missing provider timestamp is unknown rather than perfectly fresh;
+ *   - an unresolved or unverified holder counts as wallet concentration;
+ *   - sizing assumes catastrophic rather than stop-bounded loss.
+ * Rows written under v0.3.0 are not comparable and replay must not pool them.
+ */
+export const STRATEGY_VERSION = 'delayed-momentum-v0.4.0';
 
 export interface ScoreResult {
   readonly score: number;

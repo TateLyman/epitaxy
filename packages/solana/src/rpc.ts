@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { classifyHolder, loadEntityRegistry, type HolderClass } from './entity-registry.js';
 import { fetchJson, SourceFetchError } from '../../adapters/src/http.js';
 import type { RateLimiter } from '../../adapters/src/ratelimit.js';
 import { assertPubkey, base58Encode as base58EncodeBytes } from './base58.js';
@@ -250,8 +251,8 @@ export class SolanaRpc {
    */
   async getTokenAccountOwners(
     tokenAccounts: readonly string[],
-  ): Promise<Map<string, { owner: string; systemOwned: boolean }>> {
-    const out = new Map<string, { owner: string; systemOwned: boolean }>();
+  ): Promise<Map<string, { owner: string; systemOwned: boolean; ownerProgram: string | null }>> {
+    const out = new Map<string, { owner: string; systemOwned: boolean; ownerProgram: string | null }>();
     if (tokenAccounts.length === 0) return out;
 
     const accounts = await this.getMultipleAccountsRaw(tokenAccounts);
@@ -268,16 +269,19 @@ export class SolanaRpc {
 
     const uniqueOwners = [...new Set(ownerByTokenAccount.values())];
     const ownerAccounts = await this.getMultipleAccountsRaw(uniqueOwners);
-    const systemOwned = new Map<string, boolean>();
+    const ownerProgram = new Map<string, string | null>();
     for (const owner of uniqueOwners) {
       const info = ownerAccounts.get(owner);
       // A wallet that has never been funded has no account at all; it is still
-      // a wallet, not a program.
-      systemOwned.set(owner, info === null || info === undefined ? true : info.owner === SYSTEM_PROGRAM_ID);
+      // a wallet, not a program. An account the RPC did not return at all is a
+      // different case and is reported as null so the caller can refuse to
+      // guess -- see classifyHolder().
+      ownerProgram.set(owner, info === null || info === undefined ? SYSTEM_PROGRAM_ID : info.owner);
     }
 
     for (const [tokenAccount, owner] of ownerByTokenAccount) {
-      out.set(tokenAccount, { owner, systemOwned: systemOwned.get(owner) === true });
+      const program = ownerProgram.get(owner) ?? null;
+      out.set(tokenAccount, { owner, systemOwned: program === SYSTEM_PROGRAM_ID, ownerProgram: program });
     }
     return out;
   }
@@ -335,7 +339,19 @@ export interface HolderShare {
   readonly owner: string | null;
   readonly amount: bigint;
   readonly pctOfSupply: number;
-  /** True when the owning account is program-controlled (a pool, vault or PDA). */
+  /**
+   * WALLET | VERIFIED_PROGRAM_CONTROLLED | UNKNOWN.
+   *
+   * Replaces a boolean that had to answer two questions at once and got the
+   * second one wrong: an unresolved owner was reported as program-controlled
+   * and therefore excluded from wallet concentration, so a holder we failed to
+   * look up made the token look SAFER. See entity-registry.ts.
+   */
+  readonly holderClass: HolderClass;
+  readonly holderClassDetail: string;
+  /** Program owning the holder's account. Null when unresolved. */
+  readonly ownerProgram: string | null;
+  /** True ONLY for verified market inventory. */
   readonly programControlled: boolean;
 }
 
@@ -348,8 +364,17 @@ export interface ConcentrationFacts {
   readonly topWalletPct: number | null;
   /** Top ten independent wallets combined. */
   readonly topTenWalletPct: number | null;
-  /** Supply sitting in pools and other program-controlled accounts. */
+  /** Supply in VERIFIED market inventory: pools, curves, vaults. */
   readonly programControlledPct: number;
+  /**
+   * Supply held by owners we could not classify.
+   *
+   * Counted INSIDE the wallet figures, and reported separately so the gate can
+   * say how much of its own number rests on an unknown.
+   */
+  readonly unknownOwnerPct: number;
+  /** Version stamp of the program registry used to classify. */
+  readonly registryVersion: string;
 }
 
 const SPL_ACCOUNT_OWNER_OFFSET = 32;
@@ -376,20 +401,27 @@ export async function fetchConcentration(rpc: SolanaRpc, mint: string): Promise<
 
   const owners = await rpc.getTokenAccountOwners(largest.accounts.map((a) => a.address));
 
+  const registry = loadEntityRegistry();
   const holders: HolderShare[] = largest.accounts.map((a) => {
     const o = owners.get(a.address) ?? null;
+    const cls = classifyHolder(
+      { owner: o?.owner ?? null, ownerProgram: o?.ownerProgram ?? null },
+      registry,
+    );
     return {
       tokenAccount: a.address,
       owner: o?.owner ?? null,
       amount: a.amount,
       pctOfSupply: Number((a.amount * 1_000_000n) / supply.amount) / 10_000,
-      // Unknown ownership is treated as program-controlled only for the
-      // pool figure; it is excluded from the wallet figures either way, so an
-      // unresolved account can never make concentration look better than it is.
-      programControlled: o === null ? true : o.systemOwned === false,
+      holderClass: cls.holderClass,
+      holderClassDetail: cls.detail,
+      ownerProgram: o?.ownerProgram ?? null,
+      programControlled: cls.excludedFromWalletConcentration,
     };
   });
 
+  // Only VERIFIED market inventory is excluded. An unresolved owner and a
+  // creator-controlled PDA both count as wallets, because both can sell.
   const wallets = holders.filter((h) => !h.programControlled);
   const topWalletPct = wallets.length > 0 ? Math.max(...wallets.map((w) => w.pctOfSupply)) : null;
   const topTenWalletPct =
@@ -401,12 +433,17 @@ export async function fetchConcentration(rpc: SolanaRpc, mint: string): Promise<
           .reduce((a, b) => a + b, 0)
       : null;
   const programControlledPct = holders.filter((h) => h.programControlled).reduce((a, h) => a + h.pctOfSupply, 0);
+  const unknownOwnerPct = holders
+    .filter((h) => h.holderClass === 'UNKNOWN')
+    .reduce((a, h) => a + h.pctOfSupply, 0);
 
   return {
     mint,
     slot: largest.slot,
     supply: supply.amount,
     holders,
+    unknownOwnerPct,
+    registryVersion: registry.version,
     topWalletPct,
     topTenWalletPct,
     programControlledPct,

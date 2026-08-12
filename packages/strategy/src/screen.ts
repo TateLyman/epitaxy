@@ -37,7 +37,7 @@ export function screenCheap(
   info: MintInformation,
   config: AppConfig,
   nowUtcMs: number,
-  sourceAgeMs: number,
+  sourceAgeMs: number | null,
 ): { gates: ReturnType<typeof evaluateCheapGates>; deservesQuote: boolean } {
   const gates = evaluateCheapGates({ info, nowUtcMs, sourceAgeMs, config: config.gates });
   return { gates, deservesQuote: summarize(gates).passedHardGates };
@@ -52,6 +52,18 @@ export function finalizeScreen(
   roundTrip: RoundTrip | null,
   slot: number | null,
   concentration: ConcentrationInput | null = null,
+  /**
+   * Age of the token feed at decision time. Null when the provider gave no
+   * timestamp.
+   *
+   * REQUIRED, deliberately. It was briefly a defaulted parameter, and the
+   * default disagreed with the value `screenCheap` had actually used: the gates
+   * saw a number, the snapshot recorded null, and replay reported the resulting
+   * score difference as a divergence. It was right to. A snapshot that records
+   * an input the decision never saw is not a snapshot of that decision, so
+   * every caller now has to pass the same value it gave the cheap gates.
+   */
+  sourceAgeMs: number | null,
 ): ScreenResult {
   const cheapSummary = summarize(cheapGates);
   const deservesQuote = cheapSummary.passedHardGates;
@@ -113,8 +125,11 @@ export function finalizeScreen(
             },
     },
     freshnessMs: {
-      jupiter_tokens: nowUtcMs - (parseUtc(info.updatedAt) ?? nowUtcMs),
-      quote: roundTrip ? nowUtcMs - roundTrip.buy.receivedUtcMs : -1,
+      // Null, not zero and not -1. A snapshot that cannot say "we did not know"
+      // cannot be replayed into the same decision, and replay is the only
+      // mechanism that catches a strategy change nobody wrote down.
+      jupiter_tokens: sourceAgeMs,
+      quote: roundTrip ? nowUtcMs - roundTrip.buy.receivedUtcMs : null,
     },
   };
 

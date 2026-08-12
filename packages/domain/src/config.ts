@@ -168,6 +168,84 @@ export const AppConfigSchema = z.object({
   maxQuotesPerCycle: z.number().int().min(0).max(60),
   /** Minimum opportunity score for a candidate to be considered eligible. */
   minOpportunityScore: z.number().min(0).max(1),
+
+  /**
+   * The one route family a paper fill may be built from.
+   *
+   * A price from `/order` and a build from `/build` are two different trades.
+   * Measured live 2026-08-12 at 0.02 SOL -> USDC: /build returned 1,510,066 and
+   * carried no fee fields, /order returned 1,509,732 with feeBps 2. Booking a
+   * fill against both describes a trade that existed on neither, so the family
+   * is chosen once, here, and every leg of a position uses it.
+   *
+   * BUILD_CUSTOM is the only PnL-eligible family today: it returns quote and
+   * instructions in one response, and it is the only one whose sell leg a local
+   * SVM fork could ever validate for a wallet that does not hold the tokens.
+   */
+  primaryRouteFamily: z.enum(['ORDER_EXECUTE', 'BUILD_CUSTOM', 'DIRECT_VENUE', 'QUOTE_ONLY_BENCHMARK']),
+
+  /**
+   * Refuse to book a paper fill without a successful LOCAL simulation.
+   *
+   * This is currently unsatisfiable and that is the point. A mainnet
+   * `simulateTransaction` cannot validate either leg here: the taker holds no
+   * SOL, so a buy fails on funding, and it holds none of the hypothetical
+   * tokens, so a sell fails on balance. Both failures would be about the wallet
+   * rather than the route. The correct instrument is a local SVM fork with
+   * captured mainnet accounts and a synthetic balance, and it is not wired.
+   *
+   * Setting this true therefore stops paper booking fills. That is a true
+   * statement about the evidence -- no observation in this system has ever been
+   * simulated -- and it is better made every cycle by a refusal than once in a
+   * document nobody re-reads.
+   */
+  requireLocalSimulation: z.boolean(),
+
+  /**
+   * Refuse to price an entry from any amount other than the one being entered.
+   *
+   * The probe quote may screen. It may not price the fill: impact is not linear
+   * in size, and scaling a 0.05 SOL threshold down to 0.02 SOL overstates the
+   * output in the flattering direction.
+   */
+  requireExactSizeBuild: z.boolean(),
+
+  /** Tip the chosen broadcaster requires. Zero for an ordinary RPC send. */
+  assumedBroadcasterTipLamports: z.coerce.bigint(),
+  /**
+   * Expected cost of attempts that never land, per round trip. Not optional:
+   * a failed transaction still pays its signature and priority fee.
+   */
+  assumedFailedAttemptLamports: z.coerce.bigint(),
+  /** Haircut applied to the expected output for the LATENCY_STRESSED valuation. */
+  latencyStressBps: z.number().int().min(0).max(10_000),
+  /**
+   * Floor on planned loss per trade, as a fraction of notional.
+   *
+   * A 25% nominal stop is not the loss this population can inflict. Eight
+   * measured collapses went from above the 10% floor to near zero inside one
+   * mark interval -- faster than the stop could be acted on. Until enough valid
+   * observations exist to estimate a severe-loss quantile, sizing assumes the
+   * whole principal is at risk.
+   */
+  catastrophicLossFloorPct: z.number().min(0).max(100),
+
+  /**
+   * Frozen notionals for the shadow books.
+   *
+   * Frozen, and not derived from free capital, because the whole point of a
+   * shadow book is to estimate what a signal is worth independently of whether
+   * the wallet happened to be able to take it. A shadow position sized from
+   * available capital would reintroduce the censoring it exists to remove.
+   *
+   * `canaryShadow` is deliberately the committed canary entry cap. It answers
+   * the question the paper ledger cannot: do results at a comfortable paper
+   * size survive at the amount this system is actually permitted to deploy?
+   */
+  alphaShadowNotionalLamports: z.coerce.bigint(),
+  canaryShadowNotionalLamports: z.coerce.bigint(),
+  /** Cap on shadow positions worked per cycle, so the rate budget survives. */
+  maxShadowMarksPerCycle: z.number().int().min(0).max(50),
 });
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
@@ -207,6 +285,40 @@ export const SAFER_WHEN_LOWER: readonly (keyof RiskConfig)[] = [
 
 /** Fields where a LARGER value is the safer one. */
 export const SAFER_WHEN_HIGHER: readonly (keyof RiskConfig)[] = ['minSolReserveLamports'];
+
+/**
+ * Canary may never be more permissive than live.
+ *
+ * A mode with a smaller absolute entry cap is not automatically safer. The
+ * committed canary config had a 0.02 SOL entry cap -- reassuringly small -- and
+ * simultaneously a 6x looser per-trade risk budget, an 8x looser notional
+ * fraction, double the aggregate planned loss, double the daily halt, and half
+ * the SOL reserve. Canary is the mode where real money moves for the first
+ * time, on the least-tested path, so every dimension of it must be at least as
+ * tight as the mode it is a rehearsal for.
+ *
+ * Throws rather than warns: this is a promotion gate, and a warning printed
+ * during promotion is a line of output nobody reads.
+ */
+export function assertCanaryNoLooserThanLive(canary: RiskConfig, live: RiskConfig): void {
+  const offences: string[] = [];
+  for (const key of SAFER_WHEN_LOWER) {
+    if (scaled(canary[key]) > scaled(live[key])) {
+      offences.push(`${key}: canary ${String(canary[key])} > live ${String(live[key])}`);
+    }
+  }
+  for (const key of SAFER_WHEN_HIGHER) {
+    if (scaled(canary[key]) < scaled(live[key])) {
+      offences.push(`${key}: canary ${String(canary[key])} < live ${String(live[key])}`);
+    }
+  }
+  if (offences.length > 0) {
+    throw new ConfigError(
+      `canary risk policy is looser than live in ${offences.length} dimension(s): ${offences.join('; ')}. ` +
+        'A smaller absolute entry cap does not make a mode safer.',
+    );
+  }
+}
 
 /** Comparable integer for a field that may be a bigint or a fractional number. */
 function scaled(v: number | bigint): bigint {

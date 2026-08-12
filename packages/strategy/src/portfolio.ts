@@ -31,6 +31,12 @@ export interface PortfolioState {
    * back rather than being credited for having started low.
    */
   readonly peakNavLamports: bigint;
+  /**
+   * Severe-loss quantile measured from VALID completed observations, in bps of
+   * notional. Null until enough exist, which is the current state -- and null
+   * means the catastrophic floor governs, not that risk is zero.
+   */
+  readonly observedSevereLossBps: number | null;
 }
 
 export type SizingRefusal =
@@ -119,12 +125,9 @@ export function sizePosition(
     );
   }
 
-  if (risk.maxAggregatePlannedLossPct > 0 && state.plannedLossLamports >= pctOfNav(risk.maxAggregatePlannedLossPct)) {
-    return refuse(
-      'aggregate_planned_loss',
-      `planned loss ${state.plannedLossLamports} >= ${risk.maxAggregatePlannedLossPct}% of nav`,
-    );
-  }
+  // NOTE: the aggregate planned-loss check moved BELOW sizing, because it must
+  // include the trade being proposed. Checking only the existing book lets the
+  // cap be crossed by exactly one position every time -- see §6.2.
 
   // NAV drawdown from peak.
   //
@@ -147,11 +150,24 @@ export function sizePosition(
     return refuse('score_below_threshold', `${opportunityScore} < ${config.minOpportunityScore}`);
   }
 
-  // Risk-budget sizing: notional such that a full stop-loss move costs exactly
-  // the per-trade risk budget.
+  // Risk-budget sizing.
+  //
+  // The old version divided the budget by the STOP DISTANCE alone, which says a
+  // 25% stop puts 25% of the notional at risk. For this population that is not
+  // true and the corpus already says so: all eight measured collapses fell from
+  // above the 10% floor to near zero inside a single mark interval, faster than
+  // any stop could be acted on. A stop is an instruction to the market, not a
+  // promise from it.
+  //
+  // Planned loss is therefore the WORST of three views (§6.1):
+  //   - the nominal stop distance;
+  //   - the empirically observed severe-loss quantile, when one exists;
+  //   - a configured catastrophic-loss floor.
+  // With no valid observations yet, the floor is 100% of principal, so sizing
+  // is currently driven by "assume it can all go" rather than by the stop.
   const budget = (state.navLamports * BigInt(Math.round(risk.riskBudgetPctPerTrade * 100))) / 10_000n;
-  const stopFraction = BigInt(config.exits.stopLossBps);
-  const riskSized = stopFraction === 0n ? budget : (budget * 10_000n) / stopFraction;
+  const plannedLossBps = plannedLossFractionBps(config, state.observedSevereLossBps);
+  const riskSized = plannedLossBps === 0 ? budget : (budget * 10_000n) / BigInt(plannedLossBps);
 
   const notionalCap = (state.navLamports * BigInt(Math.round(risk.maxNotionalPctPerPosition * 100))) / 10_000n;
 
@@ -183,5 +199,37 @@ export function sizePosition(
     return refuse('size_below_viable', `size ${size} < viable floor ${viableFloor}`);
   }
 
+  // §6.2 — the aggregate planned-loss cap must include the trade being
+  // proposed. Evaluated against the existing book only, the cap was crossable
+  // by exactly one position on every single entry: the book was always
+  // compliant right up to the moment the new position made it not.
+  if (risk.maxAggregatePlannedLossPct > 0) {
+    const proposed = (size * BigInt(plannedLossBps)) / 10_000n;
+    const total = state.plannedLossLamports + proposed;
+    const cap = pctOfNav(risk.maxAggregatePlannedLossPct);
+    if (total >= cap) {
+      return refuse(
+        'aggregate_planned_loss',
+        `existing ${state.plannedLossLamports} + proposed ${proposed} = ${total} >= ${risk.maxAggregatePlannedLossPct}% of nav (${cap})`,
+      );
+    }
+  }
+
   return { allowed: true, lamports: size, refusal: null, detail: '' };
+}
+
+/**
+ * Fraction of notional treated as at risk, in basis points.
+ *
+ * The maximum of the nominal stop, any measured severe-loss quantile, and the
+ * configured catastrophic floor. Exported because the aggregate cap, the
+ * per-trade sizing and the report must all use the same number -- three call
+ * sites deriving it separately is how the first version ended up with two
+ * different collapse definitions.
+ */
+export function plannedLossFractionBps(config: AppConfig, observedSevereLossBps: number | null): number {
+  const nominal = config.exits.stopLossBps;
+  const floor = Math.round(config.catastrophicLossFloorPct * 100);
+  const observed = observedSevereLossBps ?? 0;
+  return Math.max(nominal, observed, floor);
 }

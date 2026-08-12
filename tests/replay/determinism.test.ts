@@ -88,8 +88,9 @@ function token(over: Partial<MintInformation> = {}): MintInformation {
 
 /** Screens a token and records it exactly as the pipeline does. */
 function record(info: MintInformation, takenUtcMs = NOW): string {
-  const { gates } = screenCheap(info, config, takenUtcMs, 0);
-  const result = finalizeScreen(info, config, takenUtcMs, gates, null, null, null);
+  const sourceAgeMs = 0;
+  const { gates } = screenCheap(info, config, takenUtcMs, sourceAgeMs);
+  const result = finalizeScreen(info, config, takenUtcMs, gates, null, null, null, sourceAgeMs);
   insertSnapshot(db, result.snapshot);
   insertScreening(db, result.outcome);
   return result.snapshot.snapshotId;
@@ -200,8 +201,9 @@ describe('replay rebuilds quotes from storage', () => {
     insertQuote(db, info.id, 'buy', buy);
     insertQuote(db, info.id, 'sell', sell);
 
-    const { gates } = screenCheap(info, config, NOW, 0);
-    const result = finalizeScreen(info, config, NOW, gates, roundTrip, null, null);
+    const sourceAgeMs = 0;
+    const { gates } = screenCheap(info, config, NOW, sourceAgeMs);
+    const result = finalizeScreen(info, config, NOW, gates, roundTrip, null, null, sourceAgeMs);
     insertSnapshot(db, result.snapshot);
     insertScreening(db, result.outcome);
   }
@@ -355,8 +357,9 @@ describe('a decision depends only on what the snapshot captured', () => {
     // fixed while moving the clock would be varying two things at once.
     const write = (target: Db, at: number): void => {
       const aged = { ...info, createdAt: new Date(at - 30 * 60_000).toISOString() } as MintInformation;
-      const { gates } = screenCheap(aged, config, at, 0);
-      const r = finalizeScreen(aged, config, at, gates, null, null, null);
+      const sourceAgeMs = 0;
+      const { gates } = screenCheap(aged, config, at, sourceAgeMs);
+      const r = finalizeScreen(aged, config, at, gates, null, null, null, sourceAgeMs);
       insertSnapshot(target, r.snapshot);
       insertScreening(target, r.outcome);
     };
@@ -385,8 +388,9 @@ describe('concentration is part of the snapshot, not an input replay has to gues
   /** Records a decision taken WITH a concentration measurement. */
   function recordWithConcentration(c: ConcentrationInput | null, over: Partial<MintInformation> = {}): string {
     const info = token(over);
-    const { gates } = screenCheap(info, config, NOW, 0);
-    const result = finalizeScreen(info, config, NOW, gates, null, null, c);
+    const sourceAgeMs = 0;
+    const { gates } = screenCheap(info, config, NOW, sourceAgeMs);
+    const result = finalizeScreen(info, config, NOW, gates, null, null, c, sourceAgeMs);
     insertSnapshot(db, result.snapshot);
     insertScreening(db, result.outcome);
     return result.snapshot.snapshotId;
@@ -447,8 +451,9 @@ describe('a snapshot missing an input it depended on is unverifiable, not a pass
 
   function recorded(c: ConcentrationInput | null): SnapshotRow {
     const info = token();
-    const { gates } = screenCheap(info, config, NOW, 0);
-    const result = finalizeScreen(info, config, NOW, gates, null, null, c);
+    const sourceAgeMs = 0;
+    const { gates } = screenCheap(info, config, NOW, sourceAgeMs);
+    const result = finalizeScreen(info, config, NOW, gates, null, null, c, sourceAgeMs);
     insertSnapshot(db, result.snapshot);
     insertScreening(db, result.outcome);
     return rows()[0]!;

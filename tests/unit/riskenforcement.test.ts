@@ -34,6 +34,7 @@ function state(over: Partial<PortfolioState> = {}): PortfolioState {
     realizedWeekLamports: 0n,
     plannedLossLamports: 0n,
     peakNavLamports: nav,
+    observedSevereLossBps: null,
     ...over,
   };
 }
@@ -61,10 +62,27 @@ describe('each percentage halt fires, and only on its own input', () => {
     expect(refusalFor({ realizedWeekLamports: -limit })).toBe('weekly_loss_halt');
   });
 
-  it('maxAggregatePlannedLossPct', () => {
-    const limit = pctOfNav(base.risk.maxAggregatePlannedLossPct);
-    expect(refusalFor({ plannedLossLamports: limit - 1n })).not.toBe('aggregate_planned_loss');
-    expect(refusalFor({ plannedLossLamports: limit })).toBe('aggregate_planned_loss');
+  it('maxAggregatePlannedLossPct, counted INCLUDING the proposed trade', () => {
+    // The check moved below sizing, because a cap evaluated against the
+    // existing book alone is crossable by exactly one position every time: the
+    // book is compliant right up to the moment the new trade makes it not.
+    //
+    // NAV is raised here so that sizing can actually produce a notional to add.
+    // At the committed paper NAV, catastrophic-loss sizing refuses first with
+    // `size_below_viable` and this branch is unreachable — which is itself
+    // worth knowing, and is covered in portfolio.test.ts.
+    const nav = 200n * 1_000_000_000n;
+    const limit = pctOfNav(base.risk.maxAggregatePlannedLossPct, nav);
+    const room = { navLamports: nav, freeLamports: nav, peakNavLamports: nav };
+
+    // Existing book alone is under the cap, and stays under once the proposed
+    // trade is added.
+    expect(refusalFor({ ...room, plannedLossLamports: 0n })).not.toBe('aggregate_planned_loss');
+
+    // Existing book alone is under the cap. The proposed trade pushes it over,
+    // and the old implementation would have allowed exactly this entry.
+    expect(refusalFor({ ...room, plannedLossLamports: limit - 1n })).toBe('aggregate_planned_loss');
+    expect(refusalFor({ ...room, plannedLossLamports: limit })).toBe('aggregate_planned_loss');
   });
 
   it('drawdownHaltPct', () => {

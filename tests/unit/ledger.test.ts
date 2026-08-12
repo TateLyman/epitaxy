@@ -204,6 +204,7 @@ describe('the halt this fixes', () => {
         peakNavLamports: ledger.peakNavLamports,
         realizedWeekLamports: 0n,
         plannedLossLamports: 0n,
+        observedSevereLossBps: null,
       },
       config,
       1,
@@ -276,6 +277,7 @@ describe('the drawdown halt', () => {
         peakNavLamports: peak,
         realizedWeekLamports: 0n,
         plannedLossLamports: 0n,
+        observedSevereLossBps: null,
       },
       config,
       1,
@@ -317,6 +319,7 @@ describe('the drawdown halt', () => {
         peakNavLamports: peak,
         realizedWeekLamports: 0n,
         plannedLossLamports: 0n,
+        observedSevereLossBps: null,
       },
       config,
       0, // also below minOpportunityScore

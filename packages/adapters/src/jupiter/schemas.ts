@@ -235,6 +235,23 @@ export const BuildResponseSchema = z
     outputMint: z.string(),
     inAmount: U64String,
     outAmount: U64String,
+    // Verified live 2026-08-12: /build carries its own economics. Top-level key
+    // set for 0.02 SOL -> USDC was addressesByLookupTableAddress,
+    // blockhashWithMetadata, cleanupInstruction, computeBudgetInstructions,
+    // inAmount, inputMint, otherAmountThreshold, otherInstructions, outAmount,
+    // outputMint, priceImpactPct, routePlan, setupInstructions, slippageBps,
+    // swapInstruction, swapMode, tipInstruction.
+    //
+    // Notably ABSENT: feeBps, feeMint, platformFee, signatureFeeLamports,
+    // prioritizationFeeLamports, rentFeeLamports, router, requestId,
+    // contextSlot, expireAt, priceImpact. That absence is the point -- this is
+    // a Metis-only route with no default Jupiter swap fee, and it is why an
+    // /order price cannot be attached to a /build instruction set.
+    otherAmountThreshold: U64String.optional(),
+    swapMode: z.string().optional(),
+    slippageBps: z.number().optional(),
+    priceImpactPct: z.union([z.string(), z.number()]).optional(),
+    routePlan: z.array(RoutePlanStepSchema).optional(),
     swapInstruction: BuildInstructionSchema.nullish(),
     setupInstructions: z.array(BuildInstructionSchema).optional(),
     cleanupInstruction: BuildInstructionSchema.nullish(),

@@ -716,6 +716,162 @@ CREATE INDEX IF NOT EXISTS idx_ledger_kind ON ledger_entries(ledger, utc_ms);
 CREATE INDEX IF NOT EXISTS idx_ledger_position ON ledger_entries(position_id);
 `,
   },
+  {
+    id: 8,
+    name: 'execution_observations_and_shadow_books',
+    sql: `
+-- One observation, one route family, one trade.
+--
+-- The engine priced entries from /swap/v2/order and proved buildability from
+-- /swap/v2/build, then booked a fill as though those were one trade. Measured
+-- live 2026-08-12 at 0.02 SOL -> USDC, same instant:
+--
+--   /order  outAmount 1509732  feeBps 2  router metis
+--   /build  outAmount 1510066  no fee fields at all
+--
+-- 334 units apart, different fee models, different route universes. A fill
+-- claiming one price and the other's buildability describes a trade that was
+-- available on neither.
+--
+-- Every economic field here comes from ONE response. A leg that is PnL-eligible
+-- references exactly one row of this table, and nothing may be assembled by
+-- reading two.
+CREATE TABLE IF NOT EXISTS execution_observations (
+  observation_id           TEXT PRIMARY KEY,
+  family                   TEXT NOT NULL
+    CHECK (family IN ('ORDER_EXECUTE','BUILD_CUSTOM','DIRECT_VENUE','QUOTE_ONLY_BENCHMARK')),
+  mint                     TEXT NOT NULL,
+  side                     TEXT NOT NULL CHECK (side IN ('buy','sell')),
+  position_id              TEXT,
+  shadow_position_id       TEXT,
+  purpose                  TEXT NOT NULL,
+
+  input_mint               TEXT NOT NULL,
+  output_mint              TEXT NOT NULL,
+  -- The EXACT amount requested. Never a probe scaled to something else.
+  requested_amount         TEXT NOT NULL,
+  expected_output          TEXT,
+  minimum_output           TEXT,
+  slippage_bps             INTEGER,
+
+  -- As the response reported them. Whether the platform fee is already inside
+  -- the amounts above is a property of the FAMILY, not of this row, and
+  -- netExpectedOutput() is the only sanctioned way to ask.
+  platform_fee_bps         INTEGER,
+  platform_fee_amount      TEXT,
+  platform_fee_mint        TEXT,
+  signature_fee_lamports   TEXT,
+  prioritization_fee_lamports TEXT,
+  rent_fee_lamports        TEXT,
+  broadcaster_tip_lamports TEXT,
+
+  route_plan_hash          TEXT,
+  route_labels             TEXT,
+  instruction_set_hash     TEXT,
+  instruction_count        INTEGER,
+  compute_unit_limit       INTEGER,
+  estimated_transaction_bytes INTEGER,
+  writable_accounts        TEXT,
+  lookup_tables            TEXT,
+
+  raw_impact_string        TEXT,
+  impact_schema_status     TEXT,
+  adverse_impact_bps       REAL,
+
+  blockhash                TEXT,
+  last_valid_block_height  INTEGER,
+  expire_at                INTEGER,
+  context_slot             INTEGER,
+
+  raw_payload_hash         TEXT,
+  endpoint                 TEXT NOT NULL,
+  request_id               TEXT,
+
+  -- Three separate questions, three separate answers. NOT_RUN and
+  -- NOT_SIMULATED are unknowns and never pass as approvals.
+  instruction_policy       TEXT NOT NULL CHECK (instruction_policy IN ('PASS','FAIL','NOT_RUN')),
+  transaction_policy       TEXT NOT NULL CHECK (transaction_policy IN ('PASS','FAIL','NOT_RUN')),
+  simulation               TEXT NOT NULL
+    CHECK (simulation IN ('SIMULATED_OK','SIMULATION_FAILED','NOT_SIMULATED')),
+  policy_detail            TEXT,
+  simulation_detail        TEXT,
+
+  -- Typed rather than collapsed to null: a 429, a timeout, a schema drift and a
+  -- genuine no-route are four different facts about two different things.
+  failure                  TEXT,
+
+  requested_utc_ms         INTEGER NOT NULL,
+  received_utc_ms          INTEGER NOT NULL,
+  latency_ms               INTEGER,
+  context_hash             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_obs_mint ON execution_observations(mint, requested_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_obs_position ON execution_observations(position_id);
+CREATE INDEX IF NOT EXISTS idx_obs_family ON execution_observations(family, side);
+CREATE INDEX IF NOT EXISTS idx_obs_failure ON execution_observations(failure);
+
+-- A real shadow book, not a label.
+--
+-- \`alpha_shadow\` used to be an event written on the realizable portfolio when
+-- sizing refused a signal. It followed nothing, so it did not remove the
+-- censoring it exists to remove: the engine stops entering after a bad day, and
+-- the observations that follow a loss are therefore systematically absent from
+-- the sample. A row saying "we did not take this" is not a substitute for
+-- tracking what it would have done.
+--
+-- These positions have their OWN state machine, their own notional, and no
+-- shared NAV. They are never summed with the realizable wallet -- the \`book\`
+-- column is what makes that summation impossible to write by accident.
+CREATE TABLE IF NOT EXISTS shadow_positions (
+  shadow_position_id       TEXT PRIMARY KEY,
+  book                     TEXT NOT NULL CHECK (book IN ('alpha_shadow','canary_shadow')),
+  mint                     TEXT NOT NULL,
+  state                    TEXT NOT NULL,
+  -- Frozen per book, so a shadow result is a statement about a size someone
+  -- could actually have deployed rather than about whatever capital was free.
+  notional_lamports        TEXT NOT NULL,
+  token_amount             TEXT NOT NULL,
+  cost_lamports            TEXT NOT NULL,
+  realized_lamports        TEXT,
+  peak_value_lamports      TEXT,
+  entry_observation_id     TEXT,
+  exit_observation_id      TEXT,
+  opened_utc_ms            INTEGER NOT NULL,
+  closed_utc_ms            INTEGER,
+  exit_reason              TEXT,
+  diagnostic               TEXT,
+  -- Why the realizable portfolio did NOT take this signal. The whole point of
+  -- the book is the rows where this is not null.
+  portfolio_refusal        TEXT,
+  strategy_version         TEXT NOT NULL,
+  context_hash             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_shadow_book ON shadow_positions(book, state);
+CREATE INDEX IF NOT EXISTS idx_shadow_mint ON shadow_positions(mint, opened_utc_ms);
+
+CREATE TABLE IF NOT EXISTS shadow_marks (
+  shadow_mark_id           TEXT PRIMARY KEY,
+  shadow_position_id       TEXT NOT NULL REFERENCES shadow_positions(shadow_position_id),
+  seq                      INTEGER NOT NULL,
+  observed_utc_ms          INTEGER NOT NULL,
+  observation_id           TEXT,
+  executable_value_lamports TEXT,
+  route_available          INTEGER NOT NULL,
+  UNIQUE (shadow_position_id, seq)
+);
+
+-- Lifecycle repair: an EXIT_BLOCKED position keeps its tokens, its rent and its
+-- exposure, and must be re-quoted at a bounded interval. These columns are what
+-- lets the engine find it again and rate-limit the retries.
+ALTER TABLE positions ADD COLUMN exit_blocked_since_utc_ms INTEGER;
+ALTER TABLE positions ADD COLUMN exit_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE positions ADD COLUMN last_exit_attempt_utc_ms INTEGER;
+ALTER TABLE positions ADD COLUMN last_exit_failure TEXT;
+ALTER TABLE positions ADD COLUMN entry_observation_id TEXT;
+ALTER TABLE positions ADD COLUMN exit_observation_id TEXT;
+ALTER TABLE positions ADD COLUMN route_family TEXT;
+`,
+  },
 ];
 
 export interface OpenOptions {

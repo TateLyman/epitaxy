@@ -1,0 +1,203 @@
+import { randomUUID } from 'node:crypto';
+import type { Db } from '../../../packages/storage/src/db.js';
+import { recordHealth } from '../../../packages/storage/src/repo.js';
+import { storeRawPayload } from '../../../packages/storage/src/provenance-repo.js';
+import { insertObservation } from '../../../packages/storage/src/observation-repo.js';
+import type { JupiterClient } from '../../../packages/adapters/src/jupiter/client.js';
+import {
+  evaluateInstructionPolicy,
+  instructionPolicyLimits,
+} from '../../../packages/solana/src/instructionpolicy.js';
+import {
+  buildPolicyLimits,
+  evaluateBuildPolicy,
+  buildPolicyStatusLabel,
+} from '../../../packages/solana/src/buildpolicy.js';
+import type { ExecutionObservation, RouteFamily } from '../../../packages/domain/src/execution.js';
+import { FAMILY_CONTRACTS } from '../../../packages/domain/src/execution.js';
+import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.js';
+
+/**
+ * Take ONE exact-size execution observation, fully validated and persisted.
+ *
+ * Everything a leg needs comes from a single response: the amount, the expected
+ * and minimum output, the route plan, the fee model, the instructions, the
+ * blockhash and its expiry. Nothing is borrowed from a second call. That is the
+ * whole repair — the previous code priced from `/order` and proved buildability
+ * from `/build`, which are different routes with different economics.
+ *
+ * Three gates run, and each records its own answer:
+ *
+ *   instructionPolicy   program allowlist, instruction cap, signer set,
+ *                       compute limit, priority fee — from instructions alone
+ *   transactionPolicy   fee payer, signer count, blockhash and its expiry,
+ *                       estimated packet size, and ALT-resolved writable
+ *                       accounts — the questions that need the whole message
+ *   simulation          NOT RUN. See below.
+ *
+ * On simulation, plainly: this system cannot simulate either leg today. A
+ * mainnet `simulateTransaction` for the buy fails because the taker holds no
+ * SOL; for the sell it fails because the taker holds none of the hypothetical
+ * tokens. Both failures would be about the wallet, not the route, so reporting
+ * either as evidence would be worse than reporting nothing. The instrument that
+ * would work is a local SVM fork with captured mainnet accounts and a synthetic
+ * balance, and it is not wired. Every observation therefore carries
+ * `NOT_SIMULATED` with that reason attached, and `config.requireLocalSimulation`
+ * turns that into a refusal rather than a footnote.
+ */
+
+export const SIMULATION_UNAVAILABLE =
+  'no local SVM fixture is wired. A mainnet simulateTransaction cannot validate either leg here: the ' +
+  'taker holds no SOL so a buy fails on funding, and holds none of the hypothetical tokens so a sell ' +
+  'fails on balance. Both failures would describe the wallet rather than the route.';
+
+export interface ObservationRequest {
+  readonly family: RouteFamily;
+  readonly mint: string;
+  readonly side: 'buy' | 'sell';
+  readonly positionId: string | null;
+  readonly shadowPositionId: string | null;
+  /** Why this observation was taken: entry | mark | exit | benchmark. */
+  readonly purpose: string;
+  readonly inputMint: string;
+  readonly outputMint: string;
+  /** The EXACT amount. Never a probe scaled to something else. */
+  readonly amount: bigint;
+  readonly taker: string;
+  readonly slippageBps: number;
+  readonly maxPriorityFeeLamports: bigint;
+  readonly broadcasterTipLamports: bigint;
+  readonly priority: RequestPriority;
+  readonly contextHash: string | null;
+}
+
+/**
+ * Always returns an observation, never null.
+ *
+ * A failed attempt is as much a fact about the route as a successful one, and a
+ * corpus that stores only successes cannot say what fraction of eligible
+ * candidates were tradable.
+ */
+export async function observeRoute(
+  db: Db,
+  jupiter: JupiterClient,
+  req: ObservationRequest,
+): Promise<ExecutionObservation> {
+  if (req.family !== 'BUILD_CUSTOM') {
+    // The only family that returns quote and instructions in one response, and
+    // therefore the only one that can back a coherent leg today.
+    throw new Error(
+      `observeRoute supports BUILD_CUSTOM only; ${req.family} would require a second call and a second route`,
+    );
+  }
+
+  const built = await jupiter.build({
+    inputMint: req.inputMint,
+    outputMint: req.outputMint,
+    amount: req.amount,
+    taker: req.taker,
+    slippageBps: req.slippageBps,
+    priority: req.priority,
+  });
+
+  const rawPayloadHash =
+    built.rawBody.length > 0
+      ? storeRawPayload(db, 'jupiter.swap.v2.build', built.endpoint, built.rawBody, built.receivedUtcMs)
+      : null;
+
+  let instructionPolicy: ExecutionObservation['instructionPolicy'] = 'NOT_RUN';
+  let transactionPolicy: ExecutionObservation['transactionPolicy'] = 'NOT_RUN';
+  let policyDetail: string | null = null;
+  let computeUnitLimit: number | null = null;
+  let estimatedBytes: number | null = null;
+  let writableAccounts: readonly string[] = [];
+
+  if (built.buildable && built.instructions.length > 0) {
+    const ix = evaluateInstructionPolicy(
+      built.instructions,
+      instructionPolicyLimits(req.taker, req.maxPriorityFeeLamports),
+    );
+    instructionPolicy = ix.allowed ? 'PASS' : 'FAIL';
+
+    const tx = evaluateBuildPolicy(
+      {
+        instructions: built.instructions,
+        lookupTables: built.lookupTables,
+        blockhash: built.blockhash,
+        lastValidBlockHeight: built.lastValidBlockHeight,
+      },
+      buildPolicyLimits(req.taker, req.maxPriorityFeeLamports),
+    );
+    transactionPolicy = tx.allowed ? 'PASS' : 'FAIL';
+    computeUnitLimit = tx.computeUnitLimit;
+    estimatedBytes = tx.estimatedBytes;
+    writableAccounts = tx.writableAccounts;
+    policyDetail = `${ix.allowed ? 'IX_PASS' : `IX_FAIL(${ix.violations.map((v) => v.violation).join(',')})`} ${buildPolicyStatusLabel(tx)}`;
+  }
+
+  const contract = FAMILY_CONTRACTS[req.family];
+  const observation: ExecutionObservation = {
+    observationId: randomUUID(),
+    family: req.family,
+    mint: req.mint,
+    side: req.side,
+    inputMint: req.inputMint,
+    outputMint: req.outputMint,
+    requestedAmount: req.amount,
+    expectedOutput: built.outAmount,
+    minimumOutput: built.otherAmountThreshold ?? 0n,
+    slippageBps: built.slippageBps ?? req.slippageBps,
+    // /build carries no fee fields at all — verified live. Null is the honest
+    // record of that, and `feeIncludedInAmounts` on the family contract is
+    // false, so nothing is deducted twice and nothing is invented.
+    platformFeeBps: null,
+    platformFeeAmount: null,
+    platformFeeMint: null,
+    signatureFeeLamports: null,
+    prioritizationFeeLamports: null,
+    rentFeeLamports: null,
+    broadcasterTipLamports: req.broadcasterTipLamports,
+    routePlanHash: built.routePlanHash,
+    routeLabels: built.routeLabels,
+    instructionSetHash: built.instructionSetHash.length > 0 ? built.instructionSetHash : null,
+    instructionCount: built.instructionCount,
+    computeUnitLimit,
+    transactionBytes: estimatedBytes,
+    lastValidBlockHeight: built.lastValidBlockHeight,
+    expireAt: built.expireAt,
+    contextSlot: built.contextSlot,
+    rawPayloadHash,
+    endpoint: built.endpoint,
+    requestId: built.requestId,
+    instructionPolicy,
+    transactionPolicy,
+    simulation: 'NOT_SIMULATED',
+    policyDetail,
+    simulationDetail: SIMULATION_UNAVAILABLE,
+    requestedUtcMs: built.requestedUtcMs,
+    receivedUtcMs: built.receivedUtcMs,
+    latencyMs: built.latencyMs,
+    contextHash: req.contextHash,
+  };
+
+  insertObservation(db, observation, {
+    positionId: req.positionId,
+    shadowPositionId: req.shadowPositionId,
+    purpose: req.purpose,
+    failure: built.failure,
+    impactStatus: built.impact.status,
+    impactRawString: built.impact.rawString,
+    adverseImpactBps: built.impact.adverseBps,
+    writableAccounts,
+    lookupTables: Object.keys(built.lookupTables),
+  });
+
+  if (built.failure !== null && built.failure !== 'NO_ROUTE') {
+    // A provider failing is not a token being untradeable. Recorded as what it
+    // is so the corpus can tell a 429 from a drained pool.
+    recordHealth(db, 'observation_provider_failure', 'warn', `${req.side} ${req.mint.slice(0, 12)}: ${built.failure}`);
+  }
+
+  void contract;
+  return observation;
+}
