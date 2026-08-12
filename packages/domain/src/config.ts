@@ -123,6 +123,22 @@ export const AppConfigSchema = z.object({
    * interval and the extra requests buy nothing but rate-limit pressure.
    */
   markIntervalMs: z.number().int().min(1000),
+  /**
+   * Refuse to book a simulated fill unless the quote that priced it carried a
+   * structurally buildable transaction.
+   *
+   * The project's own rule is that a quoted price without a buildable
+   * transaction is not executable. Paper mode nevertheless booked 38 fills
+   * across 19 positions against quotes where `transaction_buildable = 0` on
+   * every one of 2255 rows, because nothing read the flag — the same dead-field
+   * class as O028, O031, O037 and O040. Those 19 closed positions therefore
+   * establish no executable PnL (P2a.1 audit, docs/P2A1_AUDIT.md).
+   *
+   * Defaults to true and fails CLOSED. Setting it false does not make a fill
+   * executable; it only records that the operator accepted quote-only
+   * observations, and such rows must be excluded from any confirmatory result.
+   */
+  requireBuildableFill: z.boolean(),
   enrichIntervalMs: z.number().int().min(1000),
   /** Max clock skew before trading is refused. */
   maxClockSkewMs: z.number().int().min(0),

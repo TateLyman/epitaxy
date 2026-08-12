@@ -278,6 +278,30 @@ async function tryEnter(
 
   if (tokensReceived <= 0n) return;
 
+  // A price is not an execution.
+  //
+  // Every quote in the corpus was fetched without a `taker`, so Jupiter
+  // returned routing and fees but never a transaction, and `transactionBuildable`
+  // was false on all 2255 of them. Booking a fill anyway asserted that a trade
+  // could have happened when nothing had demonstrated that it could. The flag
+  // was stored from the first commit and read by no decision.
+  //
+  // Refusing here is not a strategy change. It withdraws a claim the system was
+  // never entitled to make.
+  if (config.requireBuildableFill && !rt.buy.transactionBuildable) {
+    recordHealth(
+      db,
+      'unbuildable_entry_refused',
+      'warn',
+      `${mint.slice(0, 12)} priced but no buildable transaction; quote-only fills are not executable evidence`,
+    );
+    log.info(
+      { mint, symbol, router: rt.buy.router, quoteId: rt.buy.quoteId },
+      'entry refused — quote carried no buildable transaction',
+    );
+    return;
+  }
+
   const fixedCosts = config.assumedPriorityFeeLamports + config.assumedAtaRentLamports;
   const costLamports = lamportsIn + fixedCosts;
 
