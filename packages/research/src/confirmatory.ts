@@ -27,6 +27,37 @@ export interface RowProvenance {
   /** True only when BOTH legs of the trade were shown to be buildable. */
   readonly bothLegsBuildable: boolean | null;
   readonly diagnostic: ExitDiagnostic | null;
+
+  // --- §9.3, the clauses that used to live only in prose -----------------
+  /** When the position closed. Compared against the preregistration commit. */
+  readonly closedUtcMs: number | null;
+  /** Source commit of the run context. `+dirty` fails. */
+  readonly sourceCommit: string | null;
+  readonly strategyConfigHash: string | null;
+  readonly riskPolicyHash: string | null;
+  readonly schemaVersion: string | null;
+  /** One family across both legs, or the legs describe different trades. */
+  readonly entryRouteFamily: string | null;
+  readonly exitRouteFamily: string | null;
+  /** Both legs must name their observation. */
+  readonly entryObservationId: string | null;
+  readonly exitObservationId: string | null;
+  /** The amount observed must be the amount entered. */
+  readonly entryRequestedAmount: bigint | null;
+  readonly entryFilledAmount: bigint | null;
+  /** Full transaction policy, not only instruction policy. */
+  readonly entryTransactionPolicy: string | null;
+  readonly exitTransactionPolicy: string | null;
+  readonly entrySimulation: string | null;
+  readonly exitSimulation: string | null;
+  /** Marks observed, and the widest gap between them. */
+  readonly markCount: number | null;
+  readonly maxMarkGapMs: number | null;
+  /** ATA settlement must have been decided, not left unset. */
+  readonly ataAccountingVersion: string | null;
+  /** A position still holding tokens is not a closed trade. */
+  readonly positionState: string | null;
+  readonly residualTokenAmount: bigint | null;
 }
 
 export type Exclusion =
@@ -34,7 +65,19 @@ export type Exclusion =
   | 'NO_RAW_PAYLOAD'
   | 'NOT_BUILD_VALID'
   | 'DISQUALIFYING_DIAGNOSTIC'
-  | 'MIXED_REGIME';
+  | 'MIXED_REGIME'
+  | 'BEFORE_PREREGISTRATION'
+  | 'DIRTY_SOURCE'
+  | 'MISSING_HASHES'
+  | 'MIXED_ROUTE_FAMILY'
+  | 'MISSING_OBSERVATION'
+  | 'AMOUNT_MISMATCH'
+  | 'TRANSACTION_POLICY_NOT_PASSED'
+  | 'NOT_SIMULATED'
+  | 'INSUFFICIENT_MARKS'
+  | 'MARK_GAP_TOO_WIDE'
+  | 'ATA_UNSETTLED'
+  | 'LIFECYCLE_VIOLATION';
 
 export interface Admissibility {
   readonly admissible: boolean;
@@ -43,13 +86,73 @@ export interface Admissibility {
 }
 
 /**
+ * A row that satisfies every clause.
+ *
+ * Exported for tests and for `scripts/`, so that a check of one clause varies
+ * exactly one field. Writing seventeen fields by hand at each call site is how
+ * a test ends up asserting the wrong thing about the wrong field.
+ *
+ * It is NOT a default. `admissible()` takes no partial and applies no fallback:
+ * a caller that omits a field gets a compile error rather than a pass.
+ */
+export const ADMISSIBLE_TEMPLATE: RowProvenance = {
+  contextHash: 'ctx',
+  dataRegimeId: 'regime',
+  rawPayloadHash: 'payload',
+  bothLegsBuildable: true,
+  diagnostic: 'NONE',
+  closedUtcMs: 1,
+  sourceCommit: 'abcdef',
+  strategyConfigHash: 'cfg',
+  riskPolicyHash: 'risk',
+  schemaVersion: 'schema-v8',
+  entryRouteFamily: 'BUILD_CUSTOM',
+  exitRouteFamily: 'BUILD_CUSTOM',
+  entryObservationId: 'obs-entry',
+  exitObservationId: 'obs-exit',
+  entryRequestedAmount: 20_000_000n,
+  entryFilledAmount: 20_000_000n,
+  entryTransactionPolicy: 'PASS',
+  exitTransactionPolicy: 'PASS',
+  entrySimulation: 'SIMULATED_OK',
+  exitSimulation: 'SIMULATED_OK',
+  markCount: 10,
+  maxMarkGapMs: 11_000,
+  ataAccountingVersion: 'ata-v1',
+  positionState: 'POSITION_CLOSED',
+  residualTokenAmount: 0n,
+};
+
+export interface AdmissibilityWindow {
+  /** Nothing before this instant is confirmatory. */
+  readonly preregistrationUtcMs: number;
+  /** Widest permitted gap between marks. */
+  readonly maxMarkGapMs: number;
+  readonly minMarks: number;
+}
+
+export const DEFAULT_WINDOW: AdmissibilityWindow = {
+  preregistrationUtcMs: 0,
+  // Three mark intervals at the measured 10.5s cadence. A wider gap means the
+  // position went unobserved for long enough that a collapse could have
+  // happened entirely inside it — all eight measured collapses did.
+  maxMarkGapMs: 32_000,
+  minMarks: 2,
+};
+
+/**
  * Whether one row may enter a confirmatory result.
  *
- * Every condition is a REQUIREMENT, not a preference, and an unknown fails.
- * `bothLegsBuildable === null` means nobody asked, and a row nobody asked about
- * is exactly the row the original corpus was made of.
+ * §9.3 — this is the executable version. Every clause the preregistration
+ * asserted in prose is checked here, because a rule that lives only in a
+ * document is a rule that gets skipped, and because the previous version
+ * checked four of seventeen while the document claimed all of them.
+ *
+ * Every condition is a REQUIREMENT and every unknown FAILS. `null` means nobody
+ * asked, and a row nobody asked about is exactly the row the original corpus
+ * was made of.
  */
-export function admissible(row: RowProvenance): Admissibility {
+export function admissible(row: RowProvenance, window: AdmissibilityWindow = DEFAULT_WINDOW): Admissibility {
   const exclusions: Exclusion[] = [];
 
   if (row.contextHash === null) exclusions.push('NO_CONTEXT');
@@ -59,12 +162,64 @@ export function admissible(row: RowProvenance): Admissibility {
     exclusions.push('DISQUALIFYING_DIAGNOSTIC');
   }
 
+  // Timestamp after the preregistration commit.
+  if (row.closedUtcMs === null || row.closedUtcMs < window.preregistrationUtcMs) {
+    exclusions.push('BEFORE_PREREGISTRATION');
+  }
+
+  // A working tree that does not match its commit cannot be replayed, so a row
+  // produced from one cannot be reproduced and is not evidence.
+  if (row.sourceCommit === null || row.sourceCommit.endsWith('+dirty')) exclusions.push('DIRTY_SOURCE');
+
+  if (row.strategyConfigHash === null || row.riskPolicyHash === null || row.schemaVersion === null) {
+    exclusions.push('MISSING_HASHES');
+  }
+
+  // One family across both legs. Two families are two different trades.
+  if (
+    row.entryRouteFamily === null ||
+    row.exitRouteFamily === null ||
+    row.entryRouteFamily !== row.exitRouteFamily
+  ) {
+    exclusions.push('MIXED_ROUTE_FAMILY');
+  }
+
+  if (row.entryObservationId === null || row.exitObservationId === null) exclusions.push('MISSING_OBSERVATION');
+
+  // The amount observed must be the amount entered — no probe scaling.
+  if (
+    row.entryRequestedAmount === null ||
+    row.entryFilledAmount === null ||
+    row.entryRequestedAmount !== row.entryFilledAmount
+  ) {
+    exclusions.push('AMOUNT_MISMATCH');
+  }
+
+  if (row.entryTransactionPolicy !== 'PASS' || row.exitTransactionPolicy !== 'PASS') {
+    exclusions.push('TRANSACTION_POLICY_NOT_PASSED');
+  }
+
+  if (row.entrySimulation !== 'SIMULATED_OK' || row.exitSimulation !== 'SIMULATED_OK') {
+    exclusions.push('NOT_SIMULATED');
+  }
+
+  if (row.markCount === null || row.markCount < window.minMarks) exclusions.push('INSUFFICIENT_MARKS');
+  if (row.maxMarkGapMs === null || row.maxMarkGapMs > window.maxMarkGapMs) exclusions.push('MARK_GAP_TOO_WIDE');
+
+  if (row.ataAccountingVersion === null) exclusions.push('ATA_UNSETTLED');
+
+  // A position still holding tokens is not a closed trade, whatever its state
+  // column says.
+  if (row.positionState !== 'POSITION_CLOSED' || (row.residualTokenAmount ?? 0n) > 0n) {
+    exclusions.push('LIFECYCLE_VIOLATION');
+  }
+
   return {
     admissible: exclusions.length === 0,
     exclusions,
     detail:
       exclusions.length === 0
-        ? 'tagged, raw payload retained, both legs build-valid, diagnostic does not disqualify'
+        ? 'every admissibility clause satisfied'
         : `excluded: ${exclusions.join(', ')}`,
   };
 }
@@ -90,7 +245,13 @@ export class PoolingRefused extends Error {
 export function requireSingleRegime(rows: readonly { dataRegimeId: string | null }[]): string {
   const regimes = [...new Set(rows.map((r) => r.dataRegimeId ?? 'UNTAGGED'))].sort();
   if (regimes.length > 1) throw new PoolingRefused(regimes);
-  return regimes[0] ?? 'EMPTY';
+  const only = regimes[0] ?? 'EMPTY';
+  // §9.3 — a corpus of all-null contexts is not one regime. It is a corpus
+  // that cannot say which regime it came from, and calling that "one" is how
+  // 603 untagged marks would have passed a uniformity check by having no
+  // information at all.
+  if (only === 'UNTAGGED' && rows.length > 0) throw new PoolingRefused(['UNTAGGED (no row carries a run context)']);
+  return only;
 }
 
 export class ResamplingUnitRefused extends Error {

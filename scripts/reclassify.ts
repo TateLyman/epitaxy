@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { loadSecrets } from '../packages/domain/src/config.js';
 import { parseImpact } from '../packages/domain/src/impact.js';
 import { diagnoseExit, unverifiable } from '../packages/domain/src/exitdiagnostic.js';
-import { admissible } from '../packages/research/src/confirmatory.js';
+import { admissible, ADMISSIBLE_TEMPLATE } from '../packages/research/src/confirmatory.js';
 
 /**
  * P2a.1 §P1.2 — reclassify history from whatever survived.
@@ -134,11 +134,36 @@ try {
 
     if (
       !admissible({
+        // Historical rows: every §9.3 clause is unknown, because the mechanisms
+        // that would answer them did not exist when the row was written. The
+        // template supplies the SHAPE; every field is then overridden with the
+        // honest null so nothing is accidentally inherited as a pass.
+        ...ADMISSIBLE_TEMPLATE,
         contextHash: m.context_hash,
         dataRegimeId: null,
         rawPayloadHash: m.raw_payload_hash,
         bothLegsBuildable: null,
         diagnostic: verdict.diagnostic,
+        closedUtcMs: null,
+        sourceCommit: null,
+        strategyConfigHash: null,
+        riskPolicyHash: null,
+        schemaVersion: null,
+        entryRouteFamily: null,
+        exitRouteFamily: null,
+        entryObservationId: null,
+        exitObservationId: null,
+        entryRequestedAmount: null,
+        entryFilledAmount: null,
+        entryTransactionPolicy: null,
+        exitTransactionPolicy: null,
+        entrySimulation: null,
+        exitSimulation: null,
+        markCount: null,
+        maxMarkGapMs: null,
+        ataAccountingVersion: null,
+        positionState: null,
+        residualTokenAmount: null,
       }).admissible
     ) {
       stillInadmissible += 1;

@@ -235,7 +235,14 @@ describe('the gates refuse promotion on the evidence a fresh run has', () => {
 
     expect(failed).toContain('signer.keypair');
     expect(failed).toContain('rpc.primary');
-    expect(failed).toContain('evidence.paperPositions');
+    // Renamed: the gate no longer counts closed SIMULATED positions, which a
+    // corpus of 200 quote-only fills would have satisfied. It counts positions
+    // whose BOTH legs were observed in one route family with policy and
+    // simulation passed.
+    expect(failed).toContain('evidence.pnlEligiblePositions');
+    // And the lifecycle clauses, which pass on an empty database precisely
+    // because there is nothing unmanaged or blocked in it.
+    expect(failed).toContain('evidence.replayResult');
     // Every failure carries both what was seen and what was needed, so the
     // refusal is auditable rather than an opinion.
     for (const r of results.filter((x) => !x.passed)) {

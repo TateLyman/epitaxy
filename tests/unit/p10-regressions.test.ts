@@ -18,6 +18,7 @@ import { Cadence, detectDiscontinuity, utcDateKey, utcDaysBetween } from '../../
 import { AppConfigSchema, SAFER_WHEN_LOWER, SAFER_WHEN_HIGHER } from '../../packages/domain/src/config.js';
 import {
   admissible,
+  ADMISSIBLE_TEMPLATE,
   blocksFor,
   mayCallDeploymentEvidence,
   mayRankPolicies,
@@ -191,11 +192,10 @@ describe('2 — entry build valid, exit build invalid, is not a PnL claim', () =
   });
 
   it('a row is inadmissible unless BOTH legs were shown buildable', () => {
-    const base = { contextHash: 'c', dataRegimeId: 'r', rawPayloadHash: 'p', diagnostic: null };
-    expect(admissible({ ...base, bothLegsBuildable: true }).admissible).toBe(true);
-    expect(admissible({ ...base, bothLegsBuildable: false }).exclusions).toContain('NOT_BUILD_VALID');
+    expect(admissible(ADMISSIBLE_TEMPLATE).admissible).toBe(true);
+    expect(admissible({ ...ADMISSIBLE_TEMPLATE, bothLegsBuildable: false }).exclusions).toContain('NOT_BUILD_VALID');
     // Unknown fails. A row nobody asked about is the row the corpus was made of.
-    expect(admissible({ ...base, bothLegsBuildable: null }).exclusions).toContain('NOT_BUILD_VALID');
+    expect(admissible({ ...ADMISSIBLE_TEMPLATE, bothLegsBuildable: null }).exclusions).toContain('NOT_BUILD_VALID');
   });
 });
 
@@ -622,51 +622,69 @@ describe('19 — a counterfactual fills later, or not at all', () => {
 // ---------------------------------------------------------------------------
 describe('20 — missing provenance excludes a row from confirmatory results', () => {
   it('no context hash excludes', () => {
-    const r = admissible({
-      contextHash: null,
-      dataRegimeId: null,
-      rawPayloadHash: 'p',
-      bothLegsBuildable: true,
-      diagnostic: 'NONE',
-    });
+    const r = admissible({ ...ADMISSIBLE_TEMPLATE, contextHash: null });
     expect(r.admissible).toBe(false);
     expect(r.exclusions).toContain('NO_CONTEXT');
   });
 
   it('no retained raw payload excludes, because the row cannot be re-derived', () => {
-    const r = admissible({
-      contextHash: 'c',
-      dataRegimeId: 'r',
-      rawPayloadHash: null,
-      bothLegsBuildable: true,
-      diagnostic: 'NONE',
-    });
-    expect(r.exclusions).toContain('NO_RAW_PAYLOAD');
+    expect(admissible({ ...ADMISSIBLE_TEMPLATE, rawPayloadHash: null }).exclusions).toContain('NO_RAW_PAYLOAD');
   });
 
   it('a disqualifying diagnostic excludes even when everything else is present', () => {
     for (const d of ['PROVIDER_FAILURE', 'SCHEMA_OR_PARSER_ERROR', 'STALE_EXIT_QUOTE', 'UNVERIFIABLE'] as const) {
-      const r = admissible({
-        contextHash: 'c',
-        dataRegimeId: 'r',
-        rawPayloadHash: 'p',
-        bothLegsBuildable: true,
-        diagnostic: d,
-      });
-      expect(r.admissible).toBe(false);
+      expect(admissible({ ...ADMISSIBLE_TEMPLATE, diagnostic: d }).admissible).toBe(false);
     }
   });
 
   it('a fully provenanced, build-valid, clean row is admissible', () => {
-    expect(
-      admissible({
-        contextHash: 'c',
-        dataRegimeId: 'r',
-        rawPayloadHash: 'p',
-        bothLegsBuildable: true,
-        diagnostic: 'NONE',
-      }).admissible,
-    ).toBe(true);
+    expect(admissible(ADMISSIBLE_TEMPLATE).admissible).toBe(true);
+  });
+
+  /**
+   * §9.3 — every clause is load-bearing. One field is varied per case, so a
+   * clause that stopped being checked fails exactly one of these rather than
+   * hiding behind another.
+   */
+  it('every §9.3 clause independently excludes a row', () => {
+    const cases: [Partial<typeof ADMISSIBLE_TEMPLATE>, string][] = [
+      [{ closedUtcMs: null }, 'BEFORE_PREREGISTRATION'],
+      [{ sourceCommit: 'abcdef+dirty' }, 'DIRTY_SOURCE'],
+      [{ sourceCommit: null }, 'DIRTY_SOURCE'],
+      [{ strategyConfigHash: null }, 'MISSING_HASHES'],
+      [{ riskPolicyHash: null }, 'MISSING_HASHES'],
+      [{ schemaVersion: null }, 'MISSING_HASHES'],
+      [{ exitRouteFamily: 'ORDER_EXECUTE' }, 'MIXED_ROUTE_FAMILY'],
+      [{ entryRouteFamily: null }, 'MIXED_ROUTE_FAMILY'],
+      [{ entryObservationId: null }, 'MISSING_OBSERVATION'],
+      [{ exitObservationId: null }, 'MISSING_OBSERVATION'],
+      [{ entryFilledAmount: 19_000_000n }, 'AMOUNT_MISMATCH'],
+      [{ entryRequestedAmount: null }, 'AMOUNT_MISMATCH'],
+      [{ entryTransactionPolicy: 'NOT_RUN' }, 'TRANSACTION_POLICY_NOT_PASSED'],
+      [{ exitTransactionPolicy: 'FAIL' }, 'TRANSACTION_POLICY_NOT_PASSED'],
+      [{ entrySimulation: 'NOT_SIMULATED' }, 'NOT_SIMULATED'],
+      [{ exitSimulation: 'SIMULATION_FAILED' }, 'NOT_SIMULATED'],
+      [{ markCount: 1 }, 'INSUFFICIENT_MARKS'],
+      [{ markCount: null }, 'INSUFFICIENT_MARKS'],
+      [{ maxMarkGapMs: 120_000 }, 'MARK_GAP_TOO_WIDE'],
+      [{ maxMarkGapMs: null }, 'MARK_GAP_TOO_WIDE'],
+      [{ ataAccountingVersion: null }, 'ATA_UNSETTLED'],
+      [{ positionState: 'EXIT_BLOCKED' }, 'LIFECYCLE_VIOLATION'],
+      [{ residualTokenAmount: 1n }, 'LIFECYCLE_VIOLATION'],
+    ];
+    for (const [override, expected] of cases) {
+      const r = admissible({ ...ADMISSIBLE_TEMPLATE, ...override });
+      expect(r.admissible, `${JSON.stringify(override, (_k, v) => (typeof v === 'bigint' ? String(v) : v))}`).toBe(
+        false,
+      );
+      expect(r.exclusions).toContain(expected);
+    }
+  });
+
+  it('an all-null-context corpus does not pass as one regime', () => {
+    // 603 untagged marks would otherwise be "uniform" by containing no
+    // information at all.
+    expect(() => requireSingleRegime([{ dataRegimeId: null }, { dataRegimeId: null }])).toThrow(PoolingRefused);
   });
 });
 

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { sourceCommit } from '../../domain/src/provenance.js';
 import { loadConfig, loadSecrets, modeFromArgv } from '../../domain/src/config.js';
 import { openDb } from '../../storage/src/db.js';
 import { replayAll, snapshotRows } from './replay.js';
@@ -29,13 +31,43 @@ function main(): void {
   const loaded = loadConfig(modeFromArgv());
   const config = asVersion === null ? loaded : { ...loaded, strategyVersion: asVersion };
   const secrets = loadSecrets();
-  const db = openDb({ path: secrets.databasePath, readonly: true });
+  // Writable, because the run RECORDS its own result for the deployment gate
+  // to read. Replay still reads only snapshots to derive decisions; the single
+  // write is the verdict, appended, never a change to an observation.
+  const db = openDb({ path: secrets.databasePath });
 
   const summary = replayAll(db, config, snapshotRows(db, limit));
 
   if (asVersion !== null) {
     console.log(`replaying snapshots stored as ${asVersion} against code version ${loaded.strategyVersion}`);
   }
+  // §12.3 — record the result so a deployment gate can READ it instead of
+  // inferring replay success from the number of rows in the corpus. A gate that
+  // recomputes its own evidence is not a gate.
+  try {
+    db.prepare(
+      `INSERT INTO replay_runs
+         (run_id,run_utc_ms,strategy_version,source_commit,examined,replayed,divergences,unverifiable,threw,detail)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      randomUUID(),
+      Date.now(),
+      config.strategyVersion,
+      sourceCommit(),
+      summary.examined,
+      summary.replayed,
+      summary.divergentSnapshots,
+      summary.unverifiable,
+      summary.threw,
+      summary.mismatches
+        .slice(0, 20)
+        .map((m) => `${m.mint.slice(0, 8)}:${m.field}`)
+        .join(','),
+    );
+  } catch (e) {
+    console.log(`  (replay result not recorded: ${(e as Error).message})`);
+  }
+
   console.log(`replay strategy ${config.strategyVersion}`);
   console.log(`  snapshots examined   ${summary.examined}`);
   console.log(`  replayed             ${summary.replayed}`);

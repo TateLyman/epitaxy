@@ -29,7 +29,9 @@
     "reclassify": "tsx scripts/reclassify.ts",
     "size-surface": "tsx scripts/size-surface.ts --mode=paper",
     "collapse-forensics": "tsx scripts/collapse-forensics.ts",
-    "mutate": "python scripts/mutate-p2a1.py && python scripts/mutate-ledger.py && python scripts/mutate-halts.py && python scripts/mutate-drawdown.py && python scripts/mutate-replay.py"
+    "mutate": "python scripts/mutate-p2a1.py && python scripts/mutate-ledger.py && python scripts/mutate-halts.py && python scripts/mutate-drawdown.py && python scripts/mutate-replay.py",
+    "release-manifest": "tsx scripts/release-manifest.ts",
+    "audit-baseline": "tsx scripts/audit-baseline.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -33,10 +33,19 @@ export interface GateResult {
 
 /** Chosen thresholds. Changing one is a decision that belongs in DECISION_LOG.md. */
 export const CANARY_THRESHOLDS = {
-  minClosedPaperPositions: 200,
+  /**
+   * PnL-ELIGIBLE positions in the CURRENT context, not closed simulated ones.
+   *
+   * The old gate counted `positions WHERE simulated = 1 AND closed_utc_ms IS
+   * NOT NULL`, which at the time of writing was 200 rows away from being
+   * satisfied by a corpus in which ZERO rows established executable PnL. It
+   * would have opened canary on 200 quote-only fills from five pooled regimes.
+   */
+  minEligiblePositions: 200,
   minReplayedSnapshots: 1_000,
   maxReplayDivergences: 0,
-  minObservationHours: 72,
+  /** 21 days, not 72 hours. Three days cannot contain multiple market regimes. */
+  minObservationHours: 21 * 24,
 } as const;
 
 export const LIVE_THRESHOLDS = {
@@ -124,15 +133,80 @@ export function operationalGates(config: AppConfig, secrets: Secrets, db: Db): G
 export function canaryEvidenceGates(db: Db, config: AppConfig): GateResult[] {
   const results: GateResult[] = [];
 
-  const closed =
-    one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM positions WHERE simulated = 1 AND closed_utc_ms IS NOT NULL')
-      ?.n ?? 0;
+  // §12.1 / §12.3 — the evidence contract, as a query.
+  //
+  // Every clause the preregistration asserts is checked here. A closed
+  // simulated position is not evidence; a position with BOTH legs observed in
+  // ONE route family, both policies passed, both simulated, raw payloads
+  // retained, in the current context, is.
+  const eligible =
+    one<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM positions p
+       JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+       JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+       WHERE p.closed_utc_ms IS NOT NULL
+         AND p.context_hash IS NOT NULL
+         AND CAST(p.token_amount AS INTEGER) = 0
+         AND e.family = x.family
+         AND e.side = 'buy' AND x.side = 'sell'
+         AND e.requested_amount = CAST(? AS TEXT) OR 1=0`,
+      ['never'],
+    )?.n ?? 0;
+  const eligibleStrict =
+    one<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM positions p
+       JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+       JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+       JOIN run_contexts c ON c.context_hash = p.context_hash
+       WHERE p.closed_utc_ms IS NOT NULL
+         AND CAST(p.token_amount AS INTEGER) = 0
+         AND c.source_commit NOT LIKE '%+dirty'
+         AND e.family = x.family
+         AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
+         AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+         AND e.simulation = 'SIMULATED_OK' AND x.simulation = 'SIMULATED_OK'
+         AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL`,
+    )?.n ?? 0;
+  void eligible;
   results.push(
     gate(
-      'evidence.paperPositions',
-      closed >= CANARY_THRESHOLDS.minClosedPaperPositions,
-      `${closed} closed paper positions`,
-      `at least ${CANARY_THRESHOLDS.minClosedPaperPositions}`,
+      'evidence.pnlEligiblePositions',
+      eligibleStrict >= CANARY_THRESHOLDS.minEligiblePositions,
+      `${eligibleStrict} PnL-eligible positions (both legs observed, one family, policy + simulation passed, clean commit)`,
+      `at least ${CANARY_THRESHOLDS.minEligiblePositions}`,
+    ),
+  );
+
+  // A position still holding tokens is exposure, whatever its state says. The
+  // gate refuses to promote while any exists.
+  const stray =
+    one<{ n: number }>(
+      db,
+      "SELECT COUNT(*) AS n FROM positions WHERE closed_utc_ms IS NULL AND CAST(token_amount AS INTEGER) > 0 AND state NOT IN ('POSITION_OPEN','EXIT_INTENT','EXIT_BLOCKED','RECONCILING')",
+    )?.n ?? 0;
+  results.push(
+    gate('evidence.noUnmanagedPositions', stray === 0, `${stray} unmanaged position(s) holding tokens`, 'exactly 0'),
+  );
+
+  const blocked =
+    one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM positions WHERE state = 'EXIT_BLOCKED'")?.n ?? 0;
+  results.push(
+    gate('evidence.noBlockedExits', blocked === 0, `${blocked} position(s) in EXIT_BLOCKED`, 'exactly 0'),
+  );
+
+  const unresolvedResync =
+    one<{ n: number }>(
+      db,
+      'SELECT COUNT(*) AS n FROM clock_checkpoints WHERE resync_required = 1 AND resync_done_utc_ms IS NULL',
+    )?.n ?? 0;
+  results.push(
+    gate(
+      'evidence.noUnresolvedReconciliation',
+      unresolvedResync === 0,
+      `${unresolvedResync} unresolved clock discontinuity`,
+      'exactly 0',
     ),
   );
 
@@ -152,17 +226,75 @@ export function canaryEvidenceGates(db: Db, config: AppConfig): GateResult[] {
     ),
   );
 
+  // `decision_snapshots` carries no strategy_version column -- the version
+  // lives on `screenings`. Counting the corpus is all this gate does; whether
+  // it REPLAYS at the current version is the separate gate below, which is the
+  // whole point of splitting them.
   const snapshots = one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM decision_snapshots')?.n ?? 0;
   results.push(
     gate(
       'evidence.replayCorpus',
       snapshots >= CANARY_THRESHOLDS.minReplayedSnapshots,
       `${snapshots} decision snapshots`,
-      `at least ${CANARY_THRESHOLDS.minReplayedSnapshots} (replay must then show ${CANARY_THRESHOLDS.maxReplayDivergences} divergences)`,
+      `at least ${CANARY_THRESHOLDS.minReplayedSnapshots}`,
+    ),
+  );
+
+  // §12.3 — read the ACTUAL replay result, do not infer it from a count.
+  //
+  // The gate above says a corpus exists. Whether it replays is a different
+  // question, and inferring "replay passed" from "enough snapshots exist" is
+  // the same shape of error as inferring "the route is tradable" from "a price
+  // came back".
+  const replay = latestReplayResult(db);
+  results.push(
+    gate(
+      'evidence.replayResult',
+      replay !== null &&
+        replay.divergences <= CANARY_THRESHOLDS.maxReplayDivergences &&
+        replay.replayed > 0 &&
+        replay.strategyVersion === config.strategyVersion,
+      replay === null
+        ? 'no machine-generated replay result has been recorded'
+        : `${replay.replayed} replayed, ${replay.divergences} divergent, ${replay.unverifiable} unverifiable on ${replay.strategyVersion}`,
+      `a recorded replay run on ${config.strategyVersion} with ${CANARY_THRESHOLDS.maxReplayDivergences} divergences`,
     ),
   );
 
   return results;
+}
+
+export interface ReplayResultRow {
+  readonly runUtcMs: number;
+  readonly strategyVersion: string;
+  readonly examined: number;
+  readonly replayed: number;
+  readonly divergences: number;
+  readonly unverifiable: number;
+  readonly sourceCommit: string | null;
+}
+
+/**
+ * The most recent recorded replay run.
+ *
+ * Written by `pnpm replay`, read here. A gate that recomputes replay itself
+ * would be a gate that can be satisfied by the gate, which is not evidence.
+ */
+export function latestReplayResult(db: Db): ReplayResultRow | null {
+  try {
+    return (
+      (db
+        .prepare(
+          `SELECT run_utc_ms AS runUtcMs, strategy_version AS strategyVersion, examined, replayed,
+                  divergences, unverifiable, source_commit AS sourceCommit
+           FROM replay_runs ORDER BY run_utc_ms DESC LIMIT 1`,
+        )
+        .get() as ReplayResultRow | undefined) ?? null
+    );
+  } catch {
+    // Table absent at an older schema version. Absent is not a pass.
+    return null;
+  }
 }
 
 /**

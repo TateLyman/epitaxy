@@ -872,6 +872,32 @@ ALTER TABLE positions ADD COLUMN exit_observation_id TEXT;
 ALTER TABLE positions ADD COLUMN route_family TEXT;
 `,
   },
+  {
+    id: 9,
+    name: 'replay_runs',
+    sql: `
+-- The machine-generated result of a replay run.
+--
+-- The canary gate used to infer replay success from the NUMBER of snapshots in
+-- the corpus: 1000 rows existing was read as 1000 rows reproducing. Those are
+-- different claims, and the second is the one that matters. A gate that infers
+-- a result it did not read is the same error as reading a price and calling it
+-- a trade.
+CREATE TABLE IF NOT EXISTS replay_runs (
+  run_id           TEXT PRIMARY KEY,
+  run_utc_ms       INTEGER NOT NULL,
+  strategy_version TEXT NOT NULL,
+  source_commit    TEXT,
+  examined         INTEGER NOT NULL,
+  replayed         INTEGER NOT NULL,
+  divergences      INTEGER NOT NULL,
+  unverifiable     INTEGER NOT NULL,
+  threw            INTEGER NOT NULL,
+  detail           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_replay_runs_time ON replay_runs(run_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

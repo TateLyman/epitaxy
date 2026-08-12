@@ -2,6 +2,7 @@ import { loadConfig, loadSecrets } from '../../domain/src/config.js';
 import { openDb } from '../../storage/src/db.js';
 import type { Db } from '../../storage/src/db.js';
 import { formatAmount } from '../../domain/src/amounts.js';
+import { sourceCommit } from '../../domain/src/provenance.js';
 import { viableFloorLamports, roundTripCostLamports } from '../../strategy/src/portfolio.js';
 
 /**
@@ -110,6 +111,73 @@ function main(): void {
   const db = openDb({ path: secrets.databasePath, readonly: true });
 
   console.log(`report — strategy ${config.strategyVersion}, mode ${config.mode}, generated ${new Date().toISOString()}`);
+
+  // §12.2 — the report opens with what is VALID, not with an aggregate of
+  // invalid history followed by a paragraph explaining that it was invalid. A
+  // number shown first is the number that gets remembered.
+  section('evidence (read this first)');
+  const evidence = one<{
+    eligible: number;
+    devClosed: number;
+    invalidHistoric: number;
+    open: number;
+    blocked: number;
+    stray: number;
+  }>(
+    db,
+    `SELECT
+       (SELECT COUNT(*) FROM positions p
+          JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+          JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+          JOIN run_contexts c ON c.context_hash = p.context_hash
+        WHERE p.closed_utc_ms IS NOT NULL
+          AND c.source_commit NOT LIKE '%+dirty'
+          AND e.family = x.family
+          AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+          AND e.simulation = 'SIMULATED_OK' AND x.simulation = 'SIMULATED_OK'
+          AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL) AS eligible,
+       (SELECT COUNT(*) FROM positions WHERE closed_utc_ms IS NOT NULL AND context_hash IS NOT NULL) AS devClosed,
+       (SELECT COUNT(*) FROM positions WHERE closed_utc_ms IS NOT NULL AND context_hash IS NULL) AS invalidHistoric,
+       (SELECT COUNT(*) FROM positions WHERE state = 'POSITION_OPEN') AS open,
+       (SELECT COUNT(*) FROM positions WHERE state = 'EXIT_BLOCKED') AS blocked,
+       (SELECT COUNT(*) FROM positions
+        WHERE closed_utc_ms IS NULL AND CAST(token_amount AS INTEGER) > 0
+          AND state NOT IN ('POSITION_OPEN','EXIT_INTENT','EXIT_BLOCKED','RECONCILING')) AS stray`,
+  );
+  console.log(`  valid confirmatory positions   ${evidence?.eligible ?? 0}`);
+  console.log(`  valid development positions    ${evidence?.devClosed ?? 0}`);
+  console.log(`  invalid historical positions   ${evidence?.invalidHistoric ?? 0}`);
+  console.log(`  open positions                 ${evidence?.open ?? 0}`);
+  console.log(`  EXIT_BLOCKED positions         ${evidence?.blocked ?? 0}`);
+  console.log(`  unmanaged holding tokens       ${evidence?.stray ?? 0}`);
+  if ((evidence?.eligible ?? 0) === 0) {
+    console.log('');
+    console.log('  0 positions establish executable PnL. Every realized figure below this line is');
+    console.log('  DEVELOPMENT DATA and is not evidence of anything about the strategy.');
+  }
+
+  section('provenance of this report');
+  const prov = one<{ maxPos: number | null; maxMark: number | null; maxObs: number | null; schema: number }>(
+    db,
+    `SELECT (SELECT MAX(closed_utc_ms) FROM positions) AS maxPos,
+            (SELECT MAX(observed_utc_ms) FROM position_marks) AS maxMark,
+            (SELECT MAX(received_utc_ms) FROM execution_observations) AS maxObs,
+            (SELECT COALESCE(MAX(id),0) FROM schema_migrations) AS schema`,
+  );
+  console.log(`  generated                      ${new Date().toISOString()}`);
+  console.log(`  source commit                  ${sourceCommit()}`);
+  console.log(`  strategy version               ${config.strategyVersion}`);
+  console.log(`  primary route family           ${config.primaryRouteFamily}`);
+  console.log(`  schema version                 ${prov?.schema ?? 0}`);
+  console.log(`  max closed position utc_ms     ${prov?.maxPos ?? 'none'}`);
+  console.log(`  max mark utc_ms                ${prov?.maxMark ?? 'none'}`);
+  console.log(`  max observation utc_ms         ${prov?.maxObs ?? 'none'}`);
+  const ctxs = all<{ h: string; regime: string; commit: string }>(
+    db,
+    'SELECT context_hash AS h, data_regime_id AS regime, source_commit AS commit_ FROM run_contexts ORDER BY first_seen_utc_ms',
+  );
+  console.log(`  run contexts                   ${ctxs.length}`);
+  console.log('  inclusion query                see canaryEvidenceGates() in packages/execution/src/gates.ts');
 
   section('funnel');
   const f = one<{ n: number; e: number; first: number | null; last: number | null }>(
