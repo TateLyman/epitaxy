@@ -303,6 +303,51 @@ add(
   quotes.buildable === 0,
 );
 
+// ---- can a leg actually be booked? -----------------------------------------
+//
+// The whole thesis of this report is that "alive" is not "able to trade", and
+// it was about to make that mistake in a new place. Every flag above was green
+// while the engine could not book a fill, because `requireLocalSimulation` is
+// on and no simulator exists. A report that says ENGINE CAN OPEN A POSITION
+// under those conditions is the sixteen-hour outage again.
+const simulatorWired = false; // no local SVM fixture exists in this tree
+add(
+  'local_simulation_available',
+  simulatorWired ? 'yes' : 'no',
+  simulatorWired
+    ? 'a local SVM fixture is wired'
+    : 'no local SVM fixture. A mainnet simulateTransaction cannot validate either leg: the taker holds ' +
+      'no SOL, and none of the hypothetical tokens. Both failures describe the wallet, not the route.',
+  !simulatorWired,
+);
+
+const simulationRequired = config.requireLocalSimulation;
+const canBookFill = !simulationRequired || simulatorWired;
+add(
+  'can_book_a_fill',
+  canBookFill ? 'yes' : 'no',
+  canBookFill
+    ? 'observations can back an executable leg'
+    : `requireLocalSimulation=${String(simulationRequired)} and no simulator is wired, so every entry is refused ` +
+      'and no new row can become confirmatory evidence',
+  !canBookFill,
+);
+
+const observations = one<{ n: number; policyPass: number; simulated: number }>(
+  `SELECT COUNT(*) AS n,
+          COALESCE(SUM(CASE WHEN instruction_policy='PASS' AND transaction_policy='PASS' THEN 1 ELSE 0 END),0) AS policyPass,
+          COALESCE(SUM(CASE WHEN simulation='SIMULATED_OK' THEN 1 ELSE 0 END),0) AS simulated
+   FROM execution_observations`,
+);
+add(
+  'observations_policy_valid',
+  observations === null || observations.n === 0 ? 'no observations yet' : `${observations.policyPass}/${observations.n}`,
+  observations === null || observations.n === 0
+    ? 'no exact-size route observation has been taken against this database'
+    : `${observations.simulated} of ${observations.n} simulated`,
+  observations === null || observations.n === 0,
+);
+
 // ---- report ----------------------------------------------------------------
 const width = Math.max(...out.map((c) => c.name.length));
 console.log(`capability report — mode=${config.mode}  ${new Date(now).toISOString()}\n`);
@@ -317,8 +362,12 @@ console.log(`\n${out.length} capabilities, ${notable.length} needing attention`)
 // Deliberately NOT a pass/fail. "healthy" as a single word is the thing that
 // hid a 16-hour outage. The exit code says whether the engine can trade, and
 // the report above says why.
-const canTrade = entryAllowed === 'yes' && alive && dbOk;
+const canTrade = entryAllowed === 'yes' && alive && dbOk && canBookFill;
 console.log(canTrade ? '\nENGINE CAN OPEN A POSITION' : '\nENGINE CANNOT OPEN A POSITION — see flags above');
+if (!canBookFill) {
+  console.log('  blocked by: no local simulation. Discovery, screening and marks continue;');
+  console.log('  no fill can be booked and no row can become confirmatory evidence.');
+}
 if (!canTrade) process.exitCode = 1;
 
 if (existsSync('data/KILL')) console.log('note: data/KILL exists');
