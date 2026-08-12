@@ -37,7 +37,8 @@
     "audit:state": "tsx scripts/audit-baseline.ts",
     "shadow:status": "tsx scripts/shadow-status.ts",
     "release:manifest": "tsx scripts/release-manifest.ts",
-    "ci:local": "pnpm typecheck && pnpm secretscan && pnpm test"
+    "ci:local": "pnpm typecheck && pnpm secretscan && pnpm test",
+    "dev:status": "tsx scripts/development-status.ts --mode=paper"
   },
   "devDependencies": {
     "@solana/surfpool": "1.5.0",

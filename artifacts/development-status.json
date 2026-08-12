@@ -1,0 +1,160 @@
+{
+  "generatedUtc": "2026-08-12T23:48:58.419Z",
+  "source": {
+    "commit": "7ebb15f638469ac1dc6430e200546cc754cc7802+dirty",
+    "dirty": true,
+    "branch": "master"
+  },
+  "ci": {
+    "note": "read from GitHub Actions; see artifacts/release-manifest.json for the run URL"
+  },
+  "branchProtection": {
+    "enabled": false,
+    "reason": "private repository requires GitHub Pro for branch protection"
+  },
+  "hashes": {
+    "strategyVersion": "delayed-momentum-v0.4.0",
+    "strategyConfigHash": "718670ab0478544bd79b78b26fb0bd57580579e9cc42be65f3a430972eb2a56d",
+    "riskPolicyHash": "ffc23e18a594a61ab5cd2ee8ed970514830f70172a0e3b6afcd7508e94ea67e2",
+    "dataRegimeId": "delayed-momentum-v0.4.0/10s/build/52d37d3bbcd3"
+  },
+  "executionFamily": "BUILD_CUSTOM",
+  "simulator": {
+    "available": false,
+    "reason": "win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
+    "packageVersion": "1.5.0",
+    "parityEstablished": false,
+    "accountSnapshotRegime": "none — no snapshot capture pipeline yet"
+  },
+  "observations": {
+    "total": 1945,
+    "policyValid": 1534,
+    "simulated": 0,
+    "withRawPayload": 1759,
+    "byPurpose": [
+      {
+        "purpose": "alpha_shadow_mark",
+        "n": 936
+      },
+      {
+        "purpose": "canary_shadow_mark",
+        "n": 923
+      },
+      {
+        "purpose": "canary_shadow_entry",
+        "n": 42
+      },
+      {
+        "purpose": "alpha_shadow_entry",
+        "n": 42
+      },
+      {
+        "purpose": "verification",
+        "n": 2
+      }
+    ],
+    "byFamily": [
+      {
+        "family": "BUILD_CUSTOM",
+        "n": 1945
+      }
+    ]
+  },
+  "shadowPositions": [
+    {
+      "book": "alpha_shadow",
+      "state": "POSITION_CLOSED",
+      "n": 32
+    },
+    {
+      "book": "alpha_shadow",
+      "state": "POSITION_OPEN",
+      "n": 10
+    },
+    {
+      "book": "canary_shadow",
+      "state": "POSITION_CLOSED",
+      "n": 32
+    },
+    {
+      "book": "canary_shadow",
+      "state": "POSITION_OPEN",
+      "n": 10
+    }
+  ],
+  "portfolioPositions": [
+    {
+      "state": "POSITION_CLOSED",
+      "n": 20
+    }
+  ],
+  "blockedPositions": 0,
+  "unmanagedPositions": 0,
+  "markCadence": {
+    "positionsWithMarks": 68,
+    "intervalCount": 1791,
+    "medianGapMs": 10271,
+    "p95GapMs": 15198,
+    "maxGapMs": 23802
+  },
+  "costModel": {
+    "priorityFeeFormula": "ceil(unit_price_micro_lamports * chosen_limit / 1e6)",
+    "assumedPriorityFeeLamports": "200000",
+    "observedRouterUnitPriceMicroLamports": 2054,
+    "note": "the config assumption of 200000 lamports is ~486x the fee the observed router price implies at a 200k compute limit (411 lamports). §4.1 replacement with simulated unitsConsumed is NOT done.",
+    "failedAttemptModel": "still a single assumed value charged on entry and again on exit (§4.2 open)",
+    "ataRecoveryTreatment": "observed, which is currently 0% (withheld transfer fees unobserved)"
+  },
+  "contexts": [
+    {
+      "context_hash": "957d21aa2a768e09fdd7cd4ee14af64c1198c5a061291f64295cb3c153ce018e",
+      "data_regime_id": "delayed-momentum-v0.3.0/10s/build/ab9681aec27a",
+      "source_commit": "76283b1819fb5ed590a339810b2f07aad3605ae7+dirty"
+    },
+    {
+      "context_hash": "f0dbf5926f00b070cac4f6100fb1a677650f02ac1aff2d0672f1482d9db17943",
+      "data_regime_id": "delayed-momentum-v0.3.0/10s/build/ab9681aec27a",
+      "source_commit": "84738afde9ae37c4716e3b7b77bd8d67e2928578"
+    },
+    {
+      "context_hash": "373b8a1bc6090db180d1df7beb2fc26370e415928f3016af5ecdf0f91720841d",
+      "data_regime_id": "delayed-momentum-v0.3.0/10s/build/ab9681aec27a",
+      "source_commit": "3155ea74795fd51279575803d17abeb293f20b08"
+    },
+    {
+      "context_hash": "3354be31f984244aad1c4803f2f1fe286019b20f6632969b9946ee785fb36547",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/52d37d3bbcd3",
+      "source_commit": "1ea251688a48ab2fe84ab801affc660c4948a94f"
+    },
+    {
+      "context_hash": "b823385c5765cee56b1d51755e4c27cab247b19eb32a2d54184b5151e9e4376b",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/52d37d3bbcd3",
+      "source_commit": "1ea251688a48ab2fe84ab801affc660c4948a94f+dirty"
+    },
+    {
+      "context_hash": "7952072ac025f4ebe26f83f2421ccea51aed145ccec1a2f19848892a81a932c7",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/52d37d3bbcd3",
+      "source_commit": "a5680d76bbd430953bf7368663f67d62dec95f76"
+    }
+  ],
+  "replay": {
+    "strategy_version": "delayed-momentum-v0.4.0",
+    "replayed": 0,
+    "divergences": 0,
+    "run_utc_ms": 1786571844068
+  },
+  "validDevelopmentTrades": 64,
+  "validConfirmatoryTrades": 0,
+  "blockers": [
+    "0 of 1945 observations are simulated. requireLocalSimulation=true and the engine books no fills; every row is DEVELOPMENT_STRUCTURAL.",
+    "no local SVM on this platform: win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
+    "working tree does not match its commit; nothing produced here is reproducible",
+    "no replay run has reproduced a snapshot at the current strategy version",
+    "branch protection unavailable: private repository requires GitHub Pro (operator action)",
+    "§5 exact v0 transaction assembly not implemented; policy is instruction-level plus an estimate",
+    "§6.7 simulator parity corpus does not exist",
+    "§7 entry does not request a linked BUILD_CUSTOM buy+sell round-trip pair",
+    "§9.2 signal-episode identity not implemented; rescreens may duplicate a signal",
+    "§9.4 due-time shadow scheduler not implemented; selection is oldest-first"
+  ]
+}
