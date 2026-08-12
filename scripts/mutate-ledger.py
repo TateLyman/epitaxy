@@ -1,8 +1,12 @@
-"""Mutation check for tests/unit/ledger.test.ts.
+"""Mutation check for tests/unit/ledger.test.ts and tests/durability/recovery.test.ts.
 
-Each mutation is a defect the suite claims to catch. Four of the five are
-defects that were ACTUALLY IN THE TREE at some point, not invented ones.
-A mutation that survives means the corresponding test does not test anything.
+Each mutation is a defect the suite claims to catch. Most are defects that were
+ACTUALLY IN THE TREE at some point, not invented ones. A mutation that survives
+means the corresponding test does not test anything.
+
+Two files now, because P2a.1 moved the UTC-day helpers into the clock module:
+the day boundary and the cadence are the same concern and had been split across
+two definitions of "what time is it".
 """
 import pathlib
 import re
@@ -10,23 +14,27 @@ import subprocess
 import sys
 
 SRC = pathlib.Path('apps/engine/src/ledger.ts')
+CLOCK = pathlib.Path('packages/domain/src/clock.ts')
 
 MUTATIONS = [
     (
+        SRC,
         'M1 the original defect: the day never rolls',
         lambda s: s.replace(
-            '  const today = utcDayStart(nowUtcMs);\n  if (today === ledger.dayStartUtcMs) return false;',
-            '  const today = utcDayStart(nowUtcMs);\n  if (true) return false;',
+            "  if (today === ledger.dayStartUtcMs) return { rolled: false, daysSkipped: 0, wentBackward: false };",
+            "  if (true) return { rolled: false, daysSkipped: 0, wentBackward: false };",
         ),
     ),
     (
-        'M2 roll zeroes the day instead of recomputing it',
+        SRC,
+        'M2 roll zeroes the day instead of recomputing it from immutable rows',
         lambda s: s.replace(
-            '  ledger.realizedTodayLamports = sumRealized(db, today);',
+            '  ledger.realizedTodayLamports = realizedForDay(db, today).realized;',
             '  ledger.realizedTodayLamports = 0n;',
         ),
     ),
     (
+        SRC,
         'M3 the original defect: realised total summed through a double',
         lambda s: re.sub(
             r'  let total = 0n;\n  for \(const row of rows\) total \+= BigInt\(row\.r\);\n  return total;',
@@ -35,44 +43,96 @@ MUTATIONS = [
         ),
     ),
     (
+        SRC,
+        'M5 cutoff excludes positions closed exactly at midnight',
+        lambda s: s.replace("AND closed_utc_ms >= ?", "AND closed_utc_ms > ?"),
+    ),
+    (
+        SRC,
+        'M6 the closing day is not sealed, so a skipped day leaves no record',
+        lambda s: s.replace('  recordDay(\n    db,', '  if (false) recordDay(\n    db,'),
+    ),
+    (
+        SRC,
+        'M7 a backward day move is silently treated as forward',
+        lambda s: s.replace(
+            '  return { rolled: true, daysSkipped: skipped, wentBackward: skipped < 0 };',
+            '  return { rolled: true, daysSkipped: skipped, wentBackward: false };',
+        ),
+    ),
+    (
+        SRC,
+        'M8 the day total ignores the upper bound, so it counts later days too',
+        lambda s: s.replace(
+            "AND closed_utc_ms >= ? AND closed_utc_ms < ?",
+            "AND closed_utc_ms >= ? AND closed_utc_ms < ? + 999999999999",
+        ),
+    ),
+    (
+        CLOCK,
         'M4 day boundary is local time, not UTC',
         lambda s: s.replace('setUTCHours(0, 0, 0, 0)', 'setHours(0, 0, 0, 0)'),
     ),
     (
-        'M5 cutoff excludes positions closed exactly at midnight',
-        lambda s: s.replace('AND closed_utc_ms >= ?', 'AND closed_utc_ms > ?'),
+        CLOCK,
+        'M9 the UTC date key is derived from local time',
+        lambda s: s.replace(
+            "return new Date(utcMs).toISOString().slice(0, 10);",
+            "return new Date(utcMs).toDateString();",
+        ),
+    ),
+    (
+        CLOCK,
+        'M10 a cadence catches up after a stall instead of scheduling from now',
+        lambda s: s.replace(
+            '  fired(nowMonotonicMs: number): void {\n    this.last = nowMonotonicMs;\n  }',
+            '  fired(nowMonotonicMs: number): void {\n    this.last = (this.last ?? nowMonotonicMs) + this.intervalMs;\n    void nowMonotonicMs;\n  }',
+        ),
+    ),
+    (
+        CLOCK,
+        'M11 a forward wall jump is not reported as a discontinuity',
+        lambda s: s.replace("  if (skewMs > thresholdMs) {", "  if (false) {"),
     ),
 ]
 
-original = SRC.read_text(encoding='utf-8')
-failed_to_apply = []
-survived = []
+TESTS = [
+    'tests/unit/ledger.test.ts',
+    'tests/unit/p10-regressions.test.ts',
+    'tests/durability/recovery.test.ts',
+    'tests/unit/portfolio.test.ts',
+]
+
+ORIGINAL = {SRC: SRC.read_text(encoding='utf-8'), CLOCK: CLOCK.read_text(encoding='utf-8')}
+unapplied, survived = [], []
 
 try:
-    for name, mutate in MUTATIONS:
-        mutated = mutate(original)
-        if mutated == original:
-            failed_to_apply.append(name)
+    for path, name, mutate in MUTATIONS:
+        mutated = mutate(ORIGINAL[path])
+        if mutated == ORIGINAL[path]:
+            unapplied.append(name)
             print(f'!! {name}: PATTERN DID NOT MATCH — mutation not applied')
             continue
-        SRC.write_text(mutated, encoding='utf-8')
+        path.write_text(mutated, encoding='utf-8')
         r = subprocess.run(
-            ['npx', 'vitest', 'run', 'tests/unit/ledger.test.ts', '--reporter=basic'],
+            ['npx', 'vitest', 'run', *TESTS, '--reporter=basic'],
             capture_output=True, text=True, shell=True,
         )
         out = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout + r.stderr)
         m = re.search(r'Tests\s+(\d+) failed', out)
         n = int(m.group(1)) if m else 0
+        path.write_text(ORIGINAL[path], encoding='utf-8')
         if n == 0:
             survived.append(name)
-            print(f'SURVIVED  {name}  <-- the suite does not catch this')
+            print(f'SURVIVED  {name}  <-- not covered')
         else:
             print(f'caught    {name}  ({n} failing test(s))')
 finally:
-    SRC.write_text(original, encoding='utf-8')
-    print('\nrestored', SRC)
+    for path, original in ORIGINAL.items():
+        path.write_text(original, encoding='utf-8')
+    print('\nrestored both files')
 
-if failed_to_apply or survived:
-    print('\nFAILED:', len(failed_to_apply), 'unapplied,', len(survived), 'survived')
+if unapplied or survived:
+    print(f'\nFAILED: {len(unapplied)} unapplied, {len(survived)} survived')
     sys.exit(1)
 print('\nall mutations caught')

@@ -180,8 +180,17 @@ function configPathForMode(mode: Mode): string {
 /**
  * Direction in which each risk field is "safer". Used to reject any override
  * that moves a cap in the permissive direction.
+ *
+ * Both lists are EXPORTED and both are enforced by the same loop. Until P2a.1
+ * only the first existed as a list; the one field that is safer when higher was
+ * checked by a hand-written `if` at the bottom of `assertNotLoosened`, so
+ * "enumerate every field in SAFER_WHEN_HIGHER" had no answer and a second such
+ * field would have been added with no mechanism to add it to.
+ *
+ * `tests/unit/p10-regressions.test.ts` enumerates the risk schema and fails if
+ * any numeric field appears in neither list, or in both.
  */
-const SAFER_WHEN_LOWER: readonly (keyof RiskConfig)[] = [
+export const SAFER_WHEN_LOWER: readonly (keyof RiskConfig)[] = [
   'riskBudgetPctPerTrade',
   'maxNotionalPctPerPosition',
   'maxSimultaneousPositions',
@@ -196,23 +205,34 @@ const SAFER_WHEN_LOWER: readonly (keyof RiskConfig)[] = [
   'maxSlippageBps',
 ];
 
+/** Fields where a LARGER value is the safer one. */
+export const SAFER_WHEN_HIGHER: readonly (keyof RiskConfig)[] = ['minSolReserveLamports'];
+
+/** Comparable integer for a field that may be a bigint or a fractional number. */
+function scaled(v: number | bigint): bigint {
+  return typeof v === 'bigint' ? v : BigInt(Math.round(Number(v) * 1e6));
+}
+
 export function assertNotLoosened(base: RiskConfig, override: Partial<RiskConfig>): void {
   for (const key of SAFER_WHEN_LOWER) {
     const o = override[key];
     if (o === undefined) continue;
-    const b = base[key];
-    const oNum = typeof o === 'bigint' ? o : BigInt(Math.round(Number(o) * 1e6));
-    const bNum = typeof b === 'bigint' ? b : BigInt(Math.round(Number(b) * 1e6));
-    if (oNum > bNum) {
+    if (scaled(o) > scaled(base[key])) {
       throw new ConfigError(
-        `refusing to loosen risk cap "${key}": committed=${String(b)} attempted=${String(o)}. ` +
+        `refusing to loosen risk cap "${key}": committed=${String(base[key])} attempted=${String(o)}. ` +
           `Loosening requires a versioned config change, not a runtime override.`,
       );
     }
   }
-  // minSolReserveLamports is safer when HIGHER — inverted check.
-  if (override.minSolReserveLamports !== undefined && override.minSolReserveLamports < base.minSolReserveLamports) {
-    throw new ConfigError('refusing to lower minSolReserveLamports at runtime');
+  for (const key of SAFER_WHEN_HIGHER) {
+    const o = override[key];
+    if (o === undefined) continue;
+    if (scaled(o) < scaled(base[key])) {
+      throw new ConfigError(
+        `refusing to lower risk floor "${key}": committed=${String(base[key])} attempted=${String(o)}. ` +
+          `Lowering requires a versioned config change, not a runtime override.`,
+      );
+    }
   }
 }
 

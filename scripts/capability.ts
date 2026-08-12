@@ -158,19 +158,105 @@ const fk = q<unknown>('PRAGMA foreign_key_check');
 const dbOk = integrity[0]?.integrity_check === 'ok' && fk.length === 0;
 add('database_healthy', dbOk ? 'yes' : 'no', `integrity=${integrity[0]?.integrity_check}, fk violations=${fk.length}`, !dbOk);
 
-// Wall vs monotonic. Only a within-process comparison is available here, so
-// this reports the check exists rather than claiming a verified clock.
+// Wall vs monotonic, from the checkpoints the engine persists. Both clocks are
+// stored at every cycle, so this is a measurement rather than an assertion that
+// the check exists.
+const lastCheck = one<{
+  wall_utc_ms: number;
+  skew_ms: number | null;
+  discontinuity: string | null;
+  detail: string | null;
+}>(
+  'SELECT wall_utc_ms, skew_ms, discontinuity, detail FROM clock_checkpoints ORDER BY wall_utc_ms DESC LIMIT 1',
+);
+const discontinuities = one<{ n: number }>(
+  'SELECT COUNT(*) AS n FROM clock_checkpoints WHERE discontinuity IS NOT NULL',
+)!;
 add(
   'clock_healthy',
-  'unknown',
-  'no persisted monotonic/wall pair to compare — P3.1 not implemented; clock drift is UNMEASURED',
-  true,
+  lastCheck === null ? 'unknown' : discontinuities.n === 0 ? 'yes' : 'no',
+  lastCheck === null
+    ? 'no clock checkpoint has been written yet; drift is UNMEASURED, which is not the same as absent'
+    : `${discontinuities.n} discontinuity(ies) recorded; last skew ${lastCheck.skew_ms === null ? 'n/a' : Math.round(lastCheck.skew_ms) + 'ms'}`,
+  lastCheck === null || discontinuities.n > 0,
+);
+
+const pendingResync = one<{ detail: string; wall_utc_ms: number }>(
+  `SELECT detail, wall_utc_ms FROM clock_checkpoints
+   WHERE resync_required = 1 AND resync_done_utc_ms IS NULL ORDER BY wall_utc_ms DESC LIMIT 1`,
 );
 add(
   'resume_resync_required',
-  'unknown',
-  'sleep/resume detection not implemented (P3.1); a resumed process is indistinguishable from a healthy one',
-  true,
+  lastCheck === null ? 'unknown' : pendingResync === null ? 'no' : 'yes',
+  lastCheck === null
+    ? 'sleep/resume detection has produced no checkpoint yet'
+    : pendingResync === null
+      ? 'no unresolved clock discontinuity; entries are not gated by one'
+      : `UNRESOLVED since ${new Date(pendingResync.wall_utc_ms).toISOString()}: ${pendingResync.detail.slice(0, 70)}`,
+  lastCheck === null || pendingResync !== null,
+);
+
+// ---- provenance and admissibility ------------------------------------------
+// The question P2b actually turns on: how much of this corpus is allowed to be
+// evidence? Reported as a count, never as a rate, because a rate hides the
+// denominator and the denominator is the point.
+const regimes = q<{ data_regime_id: string; n: number }>(
+  `SELECT r.data_regime_id, COUNT(*) AS n
+   FROM position_marks m JOIN run_contexts r ON r.context_hash = m.context_hash
+   GROUP BY 1`,
+);
+add(
+  'single_data_regime',
+  regimes.length === 0 ? 'unknown' : regimes.length === 1 ? 'yes' : 'no',
+  regimes.length === 0
+    ? 'no mark carries a run context yet; every stored mark predates provenance tagging'
+    : `${regimes.length} regime(s): ${regimes.map((r) => `${r.data_regime_id} (${r.n})`).join(', ')}`,
+  regimes.length !== 1,
+);
+
+const markProv = one<{ total: number; tagged: number; withRaw: number }>(
+  `SELECT COUNT(*) AS total,
+          SUM(CASE WHEN context_hash IS NOT NULL THEN 1 ELSE 0 END) AS tagged,
+          SUM(CASE WHEN raw_payload_hash IS NOT NULL THEN 1 ELSE 0 END) AS withRaw
+   FROM position_marks`,
+)!;
+add(
+  'marks_with_full_provenance',
+  `${markProv.withRaw ?? 0}/${markProv.total}`,
+  (markProv.withRaw ?? 0) === 0
+    ? 'no mark retains the raw provider payload it was derived from; none can be re-derived if the parser was wrong'
+    : `${markProv.tagged ?? 0} tagged with a run context, ${markProv.withRaw} retain their raw payload`,
+  (markProv.withRaw ?? 0) === 0,
+);
+
+const diag = q<{ diagnostic: string; n: number }>(
+  `SELECT COALESCE(diagnostic,'UNCLASSIFIED') AS diagnostic, COUNT(*) AS n
+   FROM position_marks GROUP BY 1 ORDER BY n DESC`,
+);
+const unclassified = diag.find((d) => d.diagnostic === 'UNCLASSIFIED')?.n ?? 0;
+add(
+  'marks_classified',
+  `${markProv.total - unclassified}/${markProv.total}`,
+  diag.map((d) => `${d.diagnostic}:${d.n}`).join(' '),
+  unclassified > 0,
+);
+
+// The number that decides whether P2b may start at all.
+const eligible = one<{ n: number }>(
+  `SELECT COUNT(*) AS n FROM position_exits e
+   WHERE e.context_hash IS NOT NULL
+     AND e.diagnostic IS NOT NULL
+     AND e.diagnostic NOT IN ('PROVIDER_FAILURE','SCHEMA_OR_PARSER_ERROR','STALE_EXIT_QUOTE','UNVERIFIABLE','UNBUILDABLE_EXIT')
+     AND EXISTS (SELECT 1 FROM build_attempts b
+                 WHERE b.position_id = e.position_id AND b.side = 'sell' AND b.build_status = 'BUILD_SUCCEEDED')`,
+)!;
+add(
+  'pnl_eligible_trades',
+  String(eligible.n),
+  eligible.n === 0
+    ? 'no closed trade has a build-validated exit leg; 0 trades establish executable PnL'
+    : `${eligible.n} closed trade(s) with both legs build-validated`,
+  eligible.n === 0,
 );
 
 // ---- buildability gate -----------------------------------------------------

@@ -100,6 +100,15 @@ import { checkLeg } from './buildleg.js';
 
 const log = logger.child({ app: 'paper' });
 
+/**
+ * How often both clocks are persisted together.
+ *
+ * Five minutes: often enough that a drift is caught within one mark window of
+ * an operator looking, rare enough that the table stays a log of the clock
+ * rather than a second copy of the cycle log.
+ */
+const CLOCK_CHECKPOINT_INTERVAL_MS = 300_000;
+
 async function main(): Promise<void> {
   const config = loadConfig(modeFromArgv());
   const secrets = loadSecrets();
@@ -205,7 +214,13 @@ async function main(): Promise<void> {
   // whatever discovery happened to be — 31s in the observed corpus, wider than
   // the entire lifetime of every collapse we have measured.
   const discovery = new Cadence(config.discoveryIntervalMs, 'discovery');
+  // Both clocks are persisted on a slow heartbeat as well as on a
+  // discontinuity. Writing only on a discontinuity would mean an engine that
+  // has never drifted is indistinguishable from one that never checked, and
+  // `pnpm capability` would have to report the clock as UNKNOWN forever.
+  const clockBeat = new Cadence(CLOCK_CHECKPOINT_INTERVAL_MS, 'clock');
   let lastClock: ClockReading = readClock();
+  recordClockCheckpoint(db, lastClock, null, false);
   // A halt is announced once, not every 10s for as long as the file exists.
   let haltAnnounced = false;
 
@@ -226,6 +241,11 @@ async function main(): Promise<void> {
       discovery.reset();
     }
     lastClock = now;
+
+    if (clockBeat.due(now.monotonicMs)) {
+      clockBeat.fired(now.monotonicMs);
+      if (skew.discontinuity === null) recordClockCheckpoint(db, now, skew, false);
+    }
 
     // Checked every cycle, before any work. A switch consulted only at startup
     // cannot stop a process that is already running, which is the only case

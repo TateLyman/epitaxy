@@ -7,7 +7,14 @@ import type { Db } from '../../packages/storage/src/db.js';
 import { insertPosition, updatePosition } from '../../packages/storage/src/repo.js';
 import { AppConfigSchema } from '../../packages/domain/src/config.js';
 import type { AppConfig } from '../../packages/domain/src/config.js';
-import { peakNav, restoreLedger, rollDayIfNeeded, sumRealized, utcDayStart } from '../../apps/engine/src/ledger.js';
+import {
+  peakNav,
+  realizedForDay,
+  restoreLedger,
+  rollDayIfNeeded,
+  sumRealized,
+  utcDayStart,
+} from '../../apps/engine/src/ledger.js';
 import type { Ledger } from '../../apps/engine/src/ledger.js';
 import { sizePosition } from '../../packages/strategy/src/portfolio.js';
 
@@ -315,5 +322,42 @@ describe('the drawdown halt', () => {
       0, // also below minOpportunityScore
     );
     expect(d.refusal).toBe('drawdown_halt');
+  });
+});
+
+describe('a UTC day is bounded at both ends', () => {
+  /**
+   * The lower bound had a test; the upper bound did not, and a mutation that
+   * removed it survived the suite. A day total that runs off the end of the day
+   * makes the daily loss cap tighten permanently as the corpus grows: every
+   * later loss counts against today, and the cap that was supposed to release
+   * at midnight instead becomes stricter every day. That is the O037 failure
+   * again by a different route, so it gets its own test.
+   */
+  it('counts only positions closed inside the day, not after it', () => {
+    closed(-10_000_000n, TODAY + 3_600_000);
+    closed(-20_000_000n, TODAY + DAY + 3_600_000);
+    closed(-40_000_000n, TODAY + 5 * DAY);
+
+    expect(realizedForDay(db, TODAY).realized).toBe(-10_000_000n);
+    expect(realizedForDay(db, TODAY).closed).toBe(1);
+    expect(realizedForDay(db, TODAY + DAY).realized).toBe(-20_000_000n);
+    expect(realizedForDay(db, TODAY + 5 * DAY).realized).toBe(-40_000_000n);
+  });
+
+  it('includes a position closed at the first instant and excludes one at the last', () => {
+    closed(-1n, TODAY);
+    closed(-2n, TODAY + DAY - 1);
+    closed(-4n, TODAY + DAY);
+
+    // Midnight belongs to the day that is starting, not the one that ended.
+    expect(realizedForDay(db, TODAY).realized).toBe(-3n);
+    expect(realizedForDay(db, TODAY + DAY).realized).toBe(-4n);
+  });
+
+  it('an empty day is zero rather than the running total', () => {
+    closed(-99_000_000n, TODAY);
+    expect(realizedForDay(db, TODAY + 2 * DAY).realized).toBe(0n);
+    expect(realizedForDay(db, TODAY + 2 * DAY).closed).toBe(0);
   });
 });
