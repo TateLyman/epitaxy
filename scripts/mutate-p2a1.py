@@ -123,8 +123,22 @@ MUTATIONS = [
 
     (POLICY, 'P1 an unexpected co-signer is permitted',
      lambda s: s.replace('    if (s !== limits.expectedSigner) {', '    if (false) {')),
-    (POLICY, 'P2 a missing compute unit limit is permitted',
-     lambda s: s.replace('  if (unitLimit === null) {', '  if (false) {')),
+    # `null ?? {...}` is a no-op, so the earlier form of this mutation proved
+    # nothing and survived while the code was correct. Falling through the
+    # limit-only branch makes the neither-case return no violation, which is
+    # the actual defect.
+    (POLICY, 'P2 a response with neither a unit limit nor a price is permitted',
+     lambda s: s.replace('  if (unitLimit !== null) {', '  if (true) {')),
+    (POLICY, 'P5 an unaffordable compute price is permitted',
+     lambda s: s.replace('        capped < MIN_PLAUSIBLE_COMPUTE_UNITS', '        false')),
+    (POLICY, 'P6 the affordable limit ignores our own fee cap',
+     lambda s: s.replace(
+         '    const affordable = Number((maxPriorityFeeLamports * 1_000_000n) / unitPriceMicroLamports);',
+         '    const affordable = MAX_COMPUTE_UNITS;')),
+    (POLICY, 'P7 a limit with no price is refused, so every cheap route is rejected',
+     lambda s: s.replace(
+         '  if (unitLimit !== null) {\n    return { unitLimit, unitPriceMicroLamports: null, affordableUnitLimit: unitLimit, violation: null };',
+         '  if (false) {\n    return { unitLimit, unitPriceMicroLamports: null, affordableUnitLimit: unitLimit, violation: null };')),
     (POLICY, 'P3 an unknown program is permitted',
      lambda s: s.replace('    if (!allowed.has(program)) {', '    if (false) {')),
     (POLICY, 'P4 instruction-level approval claims full transaction coverage',
@@ -133,7 +147,12 @@ MUTATIONS = [
          "export const INSTRUCTION_POLICY_COVERAGE = 'full-transaction';")),
 ]
 
-TESTS = ['tests/unit/p10-regressions.test.ts', 'tests/unit/buildability.test.ts', 'tests/unit/exitoutcome.test.ts']
+TESTS = [
+    'tests/unit/p10-regressions.test.ts',
+    'tests/unit/p16-repair.test.ts',
+    'tests/unit/buildability.test.ts',
+    'tests/unit/exitoutcome.test.ts',
+]
 
 FILES = {p: p.read_text(encoding='utf-8') for p in (IMPACT, DIAG, ATA, CONF, POLICY)}
 unapplied, survived = [], []

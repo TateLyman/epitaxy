@@ -18,6 +18,11 @@ import {
 } from '../../packages/domain/src/execution.js';
 import { instructionSetHash, evaluateBuildPolicy, buildPolicyLimits } from '../../packages/solana/src/buildpolicy.js';
 import {
+  evaluateComputeBudget,
+  MAX_COMPUTE_UNITS,
+  MIN_PLAUSIBLE_COMPUTE_UNITS,
+} from '../../packages/solana/src/instructionpolicy.js';
+import {
   classifyHolder,
   loadEntityRegistry,
   resetEntityRegistry,
@@ -496,5 +501,75 @@ describe('32 — ALT-loaded writable accounts are inspected', () => {
     );
     expect(r.allowed).toBe(false);
     expect(r.violations.map((v) => v.violation)).toContain('wrong_fee_payer');
+  });
+});
+
+describe('compute budget — the question the format check was standing in for', () => {
+  /**
+   * Measured live 2026-08-12: `/swap/v2/build` returns exactly ONE
+   * compute-budget instruction and it is always SetComputeUnitPrice, never a
+   * limit. `dynamicComputeUnitLimit=true` and `computeUnitPriceMicroLamports=N`
+   * both change nothing — the price came back 2054 µL/unit in all four
+   * variants. The limit is supplied by whoever assembles the transaction.
+   *
+   * So "SetComputeUnitLimit must be present" was asserting something about the
+   * caller and failing the router for it, and it rejected every real route. The
+   * substantive question — can our own fee cap afford a limit a swap could
+   * execute within — is asked instead.
+   */
+  const price = (microLamportsPerUnit: number) => ({
+    programId: COMPUTE_BUDGET,
+    data: (() => {
+      const b = Buffer.alloc(9);
+      b[0] = 3;
+      b.writeBigUInt64LE(BigInt(microLamportsPerUnit), 1);
+      return b.toString('base64');
+    })(),
+  });
+  const swapIx = { programId: JUPITER_V6, accounts: [{ pubkey: TAKER, isSigner: true, isWritable: true }] };
+
+  it('the observed shape — price only — passes, and the affordable limit is ours', () => {
+    const cb = evaluateComputeBudget([price(2054), swapIx], 1_000_000n);
+    expect(cb.violation).toBeNull();
+    expect(cb.unitLimit).toBeNull();
+    expect(cb.unitPriceMicroLamports).toBe(2054n);
+    // 1_000_000 lamports at 2054 µL/unit buys far more than the chain permits,
+    // so the cap is the chain ceiling rather than our wallet.
+    expect(cb.affordableUnitLimit).toBe(MAX_COMPUTE_UNITS);
+  });
+
+  it('a price our fee cap cannot afford IS refused', () => {
+    // 10_000_000 µL/unit against a 1_000_000 lamport cap buys 100_000 units,
+    // below what a swap needs. That is a real economic refusal.
+    const cb = evaluateComputeBudget([price(10_000_000), swapIx], 1_000_000n);
+    expect(cb.violation?.violation).toBe('priority_fee_too_high');
+    expect(cb.affordableUnitLimit).toBeLessThan(MIN_PLAUSIBLE_COMPUTE_UNITS);
+  });
+
+  it('the affordable limit tracks OUR cap, not the chain ceiling', () => {
+    const generous = evaluateComputeBudget([price(1_000_000), swapIx], 1_000_000n);
+    const stingy = evaluateComputeBudget([price(1_000_000), swapIx], 500_000n);
+    expect(generous.affordableUnitLimit).toBe(1_000_000);
+    expect(stingy.affordableUnitLimit).toBe(500_000);
+    // Halving the cap halves what it buys. A limit that ignored the cap would
+    // return the same number twice.
+    expect(stingy.affordableUnitLimit).toBeLessThan(generous.affordableUnitLimit ?? 0);
+  });
+
+  it('neither a limit nor a price is UNKNOWN, and unknown is refused', () => {
+    const cb = evaluateComputeBudget([swapIx], 1_000_000n);
+    expect(cb.violation?.violation).toBe('compute_limit_missing');
+    expect(cb.affordableUnitLimit).toBeNull();
+  });
+
+  it('a limit with no price passes: no price means no priority fee at all', () => {
+    const cb = evaluateComputeBudget([UNIT_LIMIT_IX, swapIx], 1_000_000n);
+    expect(cb.violation).toBeNull();
+    expect(cb.unitLimit).toBe(200_000);
+  });
+
+  it('both present, over the cap, is refused on the fee the response determines', () => {
+    const cb = evaluateComputeBudget([UNIT_LIMIT_IX, price(1_000_000_000), swapIx], 1_000n);
+    expect(cb.violation?.violation).toBe('priority_fee_too_high');
   });
 });

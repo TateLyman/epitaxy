@@ -1,10 +1,10 @@
 {
-  "generatedUtc": "2026-08-12T22:07:41.781Z",
+  "generatedUtc": "2026-08-12T22:27:06.825Z",
   "source": {
-    "commit": "5c242c5418496caf36ae224f5806ae97f9839796+dirty",
+    "commit": "1ea251688a48ab2fe84ab801affc660c4948a94f+dirty",
     "dirty": true,
     "branch": "master",
-    "describe": "5c242c5-dirty",
+    "describe": "1ea2516-dirty",
     "remote": "https://github.com/TateLyman/epitaxy.git"
   },
   "toolchain": {
@@ -61,7 +61,7 @@
   "docs": {
     "auditBaseline": "72600e1711be1c57dc26a3391f0bd56b427852c61b9aad99c4b107c38af046f1",
     "invalidation": "e3c1e9c2ae45965f6cc2ea34a3fbbe94a9f70a6cedaa4fb5d7add34bd766cb31",
-    "multipleTestingLedger": "b7a935e14bebf04edee3940edff16c3e5e1ac3b49e7fd0bcc357e6b890f77864"
+    "multipleTestingLedger": "167f0c6f85d737c16582d40b8647924bdcf511c91e6d8d7e54b6a1dc3a8d1c09"
   },
   "knownBlockers": [
     "requireLocalSimulation is true and no local SVM fixture is wired, so paper mode books no fills. This is deliberate: a mainnet simulateTransaction cannot validate either leg for an unfunded taker that holds none of the hypothetical tokens.",

@@ -44,7 +44,11 @@ export interface InstructionPolicyResult {
   readonly allowed: boolean;
   readonly violations: readonly { violation: PolicyViolation; detail: string }[];
   readonly priorityFeeLamports: bigint;
+  /** Limit the response set, if it set one. Measured: /build never does. */
   readonly computeUnitLimit: number | null;
+  /** Limit our own fee cap can afford at the router's price. */
+  readonly affordableComputeUnitLimit: number | null;
+  readonly unitPriceMicroLamports: bigint | null;
   readonly programIds: readonly string[];
   /** Always `instructions-only`. Never widened without the bytes. */
   readonly coverage: string;
@@ -106,45 +110,149 @@ export function evaluateInstructionPolicy(
   // Compute budget, read from the instruction data rather than from whatever
   // the quote claimed. It is the one field a router can inflate without
   // changing anything visible in the price.
+  const cb = evaluateComputeBudget(instructions, limits.maxPriorityFeeLamports);
+  if (cb.violation !== null) violations.push(cb.violation);
+
+  const fee = priorityFeeLamports({
+    unitLimit: cb.unitLimit ?? cb.affordableUnitLimit,
+    unitPriceMicroLamports: cb.unitPriceMicroLamports,
+  });
+
+  return {
+    allowed: violations.length === 0,
+    violations,
+    priorityFeeLamports: fee,
+    computeUnitLimit: cb.unitLimit,
+    affordableComputeUnitLimit: cb.affordableUnitLimit,
+    unitPriceMicroLamports: cb.unitPriceMicroLamports,
+    programIds,
+    coverage: INSTRUCTION_POLICY_COVERAGE,
+  };
+}
+/**
+ * Smallest compute-unit limit a Jupiter swap can plausibly execute within.
+ *
+ * A route that our own fee cap could not afford to run is a route we cannot
+ * take, whatever else is true of it.
+ */
+export const MIN_PLAUSIBLE_COMPUTE_UNITS = 200_000;
+
+/** Solana's per-transaction ceiling. A limit above it cannot be set. */
+export const MAX_COMPUTE_UNITS = 1_400_000;
+
+export interface ComputeBudgetVerdict {
+  readonly unitLimit: number | null;
+  readonly unitPriceMicroLamports: bigint | null;
+  /**
+   * Limit implied by our own priority-fee cap at the router's unit price.
+   * Null when no price was returned.
+   */
+  readonly affordableUnitLimit: number | null;
+  readonly violation: { violation: PolicyViolation; detail: string } | null;
+}
+
+/**
+ * Decide the compute budget from what the response actually returns.
+ *
+ * Measured live 2026-08-12: `/swap/v2/build` returns exactly ONE compute-budget
+ * instruction and it is always `SetComputeUnitPrice` — never a limit. Passing
+ * `dynamicComputeUnitLimit=true` or `computeUnitPriceMicroLamports=N` changes
+ * nothing; the price came back 2054 µL/unit in all four variants.
+ *
+ * That is not a defect in the route. `/build` returns raw instructions for
+ * LOCAL assembly, and the unit limit is one of the things the assembler
+ * supplies. So an earlier version of this check — "SetComputeUnitLimit must be
+ * present" — was asserting something about the caller and blaming the router
+ * for it, and it failed every real route.
+ *
+ * The substantive question survives, and is asked properly: given the router's
+ * unit PRICE and our own maximum priority fee, what unit limit could we afford
+ * to set, and is a swap executable within it? If the price is high enough that
+ * our cap buys fewer units than a swap needs, the route is genuinely
+ * unaffordable and that is a refusal about economics rather than about format.
+ *
+ * A response with neither a price nor a limit leaves the fee unknown, and
+ * unknown is refused.
+ */
+export function evaluateComputeBudget(
+  instructions: readonly RawInstruction[],
+  maxPriorityFeeLamports: bigint,
+): ComputeBudgetVerdict {
   let unitLimit: number | null = null;
   let unitPriceMicroLamports: bigint | null = null;
+
   for (const ix of instructions) {
     if (ix.programId !== COMPUTE_BUDGET_PROGRAM || ix.data === undefined) continue;
     let d: Buffer;
     try {
       d = Buffer.from(ix.data, 'base64');
     } catch {
-      violations.push({ violation: 'undecodable', detail: 'compute budget instruction data is not base64' });
-      continue;
+      return {
+        unitLimit: null,
+        unitPriceMicroLamports: null,
+        affordableUnitLimit: null,
+        violation: { violation: 'undecodable', detail: 'compute budget instruction data is not base64' },
+      };
     }
     if (d.length === 0) continue;
     const tag = d[0] as number;
-    if (tag === 2 && d.length >= 5) {
-      unitLimit = d.readUInt32LE(1);
-    } else if (tag === 3 && d.length >= 9) {
-      unitPriceMicroLamports = d.readBigUInt64LE(1);
+    if (tag === 2 && d.length >= 5) unitLimit = d.readUInt32LE(1);
+    else if (tag === 3 && d.length >= 9) unitPriceMicroLamports = d.readBigUInt64LE(1);
+  }
+
+  // Both present: the fee is fully determined by the response.
+  if (unitLimit !== null && unitPriceMicroLamports !== null) {
+    const fee = priorityFeeLamports({ unitLimit, unitPriceMicroLamports });
+    return {
+      unitLimit,
+      unitPriceMicroLamports,
+      affordableUnitLimit: unitLimit,
+      violation:
+        fee > maxPriorityFeeLamports
+          ? { violation: 'priority_fee_too_high', detail: `${fee} > ${maxPriorityFeeLamports} lamports` }
+          : null,
+    };
+  }
+
+  // Price only — the observed shape. The limit is ours to set.
+  if (unitPriceMicroLamports !== null) {
+    if (unitPriceMicroLamports === 0n) {
+      return { unitLimit, unitPriceMicroLamports, affordableUnitLimit: MAX_COMPUTE_UNITS, violation: null };
     }
+    const affordable = Number((maxPriorityFeeLamports * 1_000_000n) / unitPriceMicroLamports);
+    const capped = Math.min(affordable, MAX_COMPUTE_UNITS);
+    return {
+      unitLimit,
+      unitPriceMicroLamports,
+      affordableUnitLimit: capped,
+      violation:
+        capped < MIN_PLAUSIBLE_COMPUTE_UNITS
+          ? {
+              violation: 'priority_fee_too_high',
+              detail:
+                `router priced compute at ${unitPriceMicroLamports} µL/unit; a ${maxPriorityFeeLamports} lamport ` +
+                `cap buys only ${capped} units, below the ${MIN_PLAUSIBLE_COMPUTE_UNITS} a swap needs`,
+            }
+          : null,
+    };
   }
 
-  const fee = priorityFeeLamports({ unitLimit, unitPriceMicroLamports });
-  if (unitLimit === null) {
-    // Without an explicit limit the transaction is charged at the default
-    // ceiling, which makes any fee we modelled a fiction.
-    violations.push({ violation: 'compute_limit_missing', detail: 'no SetComputeUnitLimit instruction' });
-  }
-  if (fee > limits.maxPriorityFeeLamports) {
-    violations.push({
-      violation: 'priority_fee_too_high',
-      detail: `${fee} > ${limits.maxPriorityFeeLamports} lamports`,
-    });
+  // Limit only. No unit price means no priority fee at all: the transaction
+  // pays base fee and competes on nothing. Cheap and fully determined, so it
+  // passes -- refusing it would be refusing the least expensive shape there is.
+  if (unitLimit !== null) {
+    return { unitLimit, unitPriceMicroLamports: null, affordableUnitLimit: unitLimit, violation: null };
   }
 
+  // Neither. The fee is unbounded and unknown, which is not a pass.
   return {
-    allowed: violations.length === 0,
-    violations,
-    priorityFeeLamports: fee,
-    computeUnitLimit: unitLimit,
-    programIds,
-    coverage: INSTRUCTION_POLICY_COVERAGE,
+    unitLimit: null,
+    unitPriceMicroLamports: null,
+    affordableUnitLimit: null,
+    violation: {
+      violation: 'compute_limit_missing',
+      detail: 'response carried neither a compute unit limit nor a unit price; the priority fee is unknown',
+    },
   };
 }
+

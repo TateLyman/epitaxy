@@ -129,6 +129,8 @@ export async function observeRoute(
       buildPolicyLimits(req.taker, req.maxPriorityFeeLamports),
     );
     transactionPolicy = tx.allowed ? 'PASS' : 'FAIL';
+    // The response's own limit, which is null on every observed route. The
+    // affordable ceiling is OUR number and is not stored as if it were theirs.
     computeUnitLimit = tx.computeUnitLimit;
     estimatedBytes = tx.estimatedBytes;
     writableAccounts = tx.writableAccounts;

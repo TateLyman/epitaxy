@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { COMPUTE_BUDGET_PROGRAM, priorityFeeLamports } from './transaction.js';
+import { priorityFeeLamports } from './transaction.js';
 import { DEFAULT_ALLOWED_PROGRAMS, MAX_TX_BYTES, type PolicyViolation } from './txpolicy.js';
-import type { RawInstruction } from './instructionpolicy.js';
+import { evaluateComputeBudget, type RawInstruction } from './instructionpolicy.js';
 
 /**
  * Policy over a complete `/swap/v2/build` response.
@@ -67,7 +67,15 @@ export interface BuildPolicyResult {
   /** Every account any instruction can mutate, static and ALT-loaded. */
   readonly writableAccounts: readonly string[];
   readonly estimatedBytes: number;
+  /**
+   * The limit the RESPONSE set. Measured: /swap/v2/build never sets one, so
+   * this is null on every real route and storing the affordable ceiling here
+   * instead would record a number the router never returned.
+   */
   readonly computeUnitLimit: number | null;
+  /** What our own fee cap can afford at the router's unit price. Ours, not theirs. */
+  readonly affordableComputeUnitLimit: number | null;
+  readonly unitPriceMicroLamports: bigint | null;
   readonly priorityFeeLamports: bigint;
   readonly coverage: string;
 }
@@ -133,30 +141,13 @@ export function evaluateBuildPolicy(input: BuildPolicyInput, limits: BuildPolicy
     for (const a of addresses) altAddresses.add(a);
   }
 
-  // Compute budget, read from the bytes rather than from a claim.
-  let unitLimit: number | null = null;
-  let unitPriceMicroLamports: bigint | null = null;
-  for (const ix of input.instructions) {
-    if (ix.programId !== COMPUTE_BUDGET_PROGRAM || ix.data === undefined) continue;
-    let d: Buffer;
-    try {
-      d = Buffer.from(ix.data, 'base64');
-    } catch {
-      violations.push({ violation: 'undecodable', detail: 'compute budget data is not base64' });
-      continue;
-    }
-    if (d.length === 0) continue;
-    const tag = d[0] as number;
-    if (tag === 2 && d.length >= 5) unitLimit = d.readUInt32LE(1);
-    else if (tag === 3 && d.length >= 9) unitPriceMicroLamports = d.readBigUInt64LE(1);
-  }
-  const fee = priorityFeeLamports({ unitLimit, unitPriceMicroLamports });
-  if (unitLimit === null) {
-    violations.push({ violation: 'compute_limit_missing', detail: 'no SetComputeUnitLimit instruction' });
-  }
-  if (fee > limits.maxPriorityFeeLamports) {
-    violations.push({ violation: 'priority_fee_too_high', detail: `${fee} > ${limits.maxPriorityFeeLamports}` });
-  }
+  // Compute budget. See evaluateComputeBudget(): /build returns a unit PRICE
+  // and never a limit, so the question asked is whether our own fee cap can
+  // afford a limit a swap could execute within.
+  const cb = evaluateComputeBudget(input.instructions, limits.maxPriorityFeeLamports);
+  if (cb.violation !== null) violations.push(cb.violation);
+  const unitLimit = cb.unitLimit ?? cb.affordableUnitLimit;
+  const fee = priorityFeeLamports({ unitLimit, unitPriceMicroLamports: cb.unitPriceMicroLamports });
 
   if (input.blockhash === null || input.blockhash.length === 0) {
     violations.push({ violation: 'blockhash_missing', detail: 'build response carried no blockhash' });
@@ -183,7 +174,9 @@ export function evaluateBuildPolicy(input: BuildPolicyInput, limits: BuildPolicy
     requiredSigners: signers,
     writableAccounts: [...writable].sort(),
     estimatedBytes,
-    computeUnitLimit: unitLimit,
+    computeUnitLimit: cb.unitLimit,
+    affordableComputeUnitLimit: cb.affordableUnitLimit,
+    unitPriceMicroLamports: cb.unitPriceMicroLamports,
     priorityFeeLamports: fee,
     coverage: BUILD_POLICY_COVERAGE,
   };

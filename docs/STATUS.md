@@ -1,9 +1,10 @@
 # STATUS
 
-> **2026-08-12 — P2a.1 complete. State: `P2B_PREREGISTERED_AND_COLLECTING`.**
-> The confirmatory window is open and empty: **0 trades establish executable PnL**.
-> Everything before it is development data. See the last section of this file,
-> `docs/P2A1_AUDIT.md`, and `docs/P2B_PREREGISTRATION.md`.
+> **2026-08-12 — executable-truth repair. State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> The P2b window is VOID (`docs/P2B_INVALIDATION.md`). **0 positions establish
+> executable PnL** and the engine currently books none, because no observation
+> in this system has ever been simulated. See the last section of this file and
+> `docs/AUDIT_HEAD_3155EA.md`.
 
 Last updated: 2026-08-12T17:10Z
 
@@ -906,3 +907,115 @@ says so.
 3. Any change to a decision-bearing file restarts the window.
 4. The engine must run from a clean tree — a `+dirty` source commit excludes
    every row it writes.
+
+
+---
+
+## 2026-08-12 — executable-truth repair from HEAD `3155ea7`
+
+Baseline: `docs/AUDIT_HEAD_3155EA.md`. Invalidation: `docs/P2B_INVALIDATION.md`.
+
+### Final state
+
+```
+MEASUREMENT_REPAIR_REQUIRED
+```
+
+The measurement is now honest and the instrument is now unable to produce a
+reading. Both halves of that sentence are the result.
+
+### The previous window is void
+
+The P2b window opened at `3155ea7` is reclassified as development data. It
+contained **0 positions, 0 marks, 0 build attempts and 0 closed rows** — it ran
+under an hour and never entered — so invalidating it destroys nothing. Twelve
+defects, each identified after the preregistration was frozen, are listed in
+`docs/P2B_INVALIDATION.md`. The one that matters most:
+
+**The engine priced entries from `/swap/v2/order` and proved buildability from
+`/swap/v2/build`.** Probed live at 0.02 SOL → USDC, same instant: `/order`
+returned 1,509,732 with `feeBps 2`; `/build` returned 1,510,066 with no fee
+fields at all. Different routes, different fee models, 22 bps apart. Every
+"build-validated" fill described a trade available on neither.
+
+### What one observation now means
+
+`/build` turns out to carry its own `outAmount`, `otherAmountThreshold`,
+`routePlan`, `slippageBps` and blockhash metadata, so a leg can come from a
+single response. `observeRoute()` is the only way to obtain one, and
+`assertCoherent()` throws on any attempt to blend two.
+
+### The replay divergence
+
+Exactly **1 snapshot of 2000** changed verdict against the repaired gates:
+`TOMORROW`, vetoed `excessive_impact` at 293 bps against a 150 bps cap — on a
+price move of **+293 bps, in our favour**. `Math.abs` in the entry gate. The
+same expression had already been removed from exit accounting twice. It is the
+last instance in the tree, and a test now fails if it returns to any of five
+files.
+
+### Defects repaired
+
+| what | why it mattered |
+|---|---|
+| route hybrid | a fill described a trade available on neither route |
+| probe scaling | impact is not linear; the error flatters below the probe |
+| double-charged platform fee | `/order` includes it; the engine deducted it again |
+| omitted signature fee, tip, close fee, failed attempts | 2.5 bps at canary size, against a question measured in hundreds of bps |
+| `EXIT_BLOCKED` outside the managed set | the state needing most attention was the one nothing watched |
+| unbuildable exit closed and released capital | not a wallet path that exists |
+| resync cleared on `integrity_check` alone | a provider outage re-enabled entries with no fresh observation |
+| unresolved holder = program-controlled | a holder we failed to look up made a token look *safer* |
+| missing `updatedAt` = age 0 | perfect freshness derived from absence of information |
+| `alpha_shadow` was a label | censoring it exists to remove was not removed |
+| canary looser than live in 7 of 13 dimensions | a small absolute cap made a permissive policy look safe |
+| stop-based sizing | all 8 collapses beat the stop inside one mark interval |
+| `admissible()` checked 4 of 17 clauses | the preregistration claimed all of them |
+| canary gate counted closed simulated positions | 200 quote-only fills would have opened canary |
+| canary gate inferred replay success from row count | existing is not reproducing |
+| instruction hash ignored `isSigner`/`isWritable` | a read and a drain hashed identically |
+| provider errors collapsed to `null` | a 429 and a dead token were indistinguishable |
+| `requireLocalSimulation` read by nothing | the same dead-field defect, introduced *this session* and caught before commit |
+
+### Why nothing is being collected
+
+`requireLocalSimulation` is `true` for paper and no local SVM fixture exists, so
+the engine books no fills and records the refusal every cycle.
+
+This is not a workaround. A mainnet `simulateTransaction` cannot validate either
+leg: the taker holds no SOL, so a buy fails on funding; it holds none of the
+hypothetical tokens, so a sell fails on balance. Both failures describe the
+wallet, not the route. **No observation in this system has ever been simulated**,
+and a refusal repeated every ten seconds states that better than a document.
+
+### The other blocker, which is economic
+
+Under honest catastrophic-loss sizing the strategy **cannot size a viable trade
+at the committed paper NAV**: 0.025 SOL of permitted notional against a 0.0286
+SOL viability floor. Roughly 11.4 SOL of bankroll would be needed. Combined with
+the earlier P6 finding — ATA rent is 10.2% of notional at the 0.02 SOL canary
+cap, with rent recovery unproven and therefore zero — the honest reading is that
+**canary viability at the committed cap is unresolved and looks unlikely**, and
+`STRATEGY_NOT_CANARY_VIABLE_AT_CURRENT_SIZE` is the outcome to expect unless a
+cheaper route family changes the arithmetic.
+
+Neither number was answered by editing a config.
+
+### Verification
+
+432 tests across 24 files. Typecheck and secretscan clean. Doctor 15/15. Replay
+recorded to `replay_runs` and read by the promotion gate — currently `replayed:
+0` at v0.4.0, which correctly fails it.
+
+### Still not done
+
+- **No local SVM simulation.** The single blocker to any valid window.
+- **No pool/vault reserve, transfer-graph or Token-2022 extension feed** (§7.3,
+  §7.4). This is why all eight collapses remain `UNKNOWN`.
+- **No WSS risk trigger** (§7.5).
+- **No route/broadcaster benchmark** (§11) — it needs a funded canary to measure
+  landing probability, and funding is forbidden.
+- **No executor loop** (§13). `apps/executor` still refuses to start, correctly.
+- **No reject-tracking repair** (§8) — provider disappearance is still treated
+  as total loss in the reject backtest.
+- **No age-cohort collection** (§10).

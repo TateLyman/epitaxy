@@ -13,7 +13,14 @@ MUTATIONS = [
     (PORT, 'H2 the original defect: weeklyLossHaltPct read by nothing',
      lambda s: s.replace('if (risk.weeklyLossHaltPct > 0 &&', 'if (false &&')),
     (PORT, 'H3 the original defect: maxAggregatePlannedLossPct read by nothing',
-     lambda s: s.replace('if (risk.maxAggregatePlannedLossPct > 0 &&', 'if (false &&')),
+     lambda s: s.replace('  if (risk.maxAggregatePlannedLossPct > 0) {', '  if (false) {')),
+    (PORT, 'H7 the aggregate cap ignores the trade being proposed',
+     lambda s: s.replace('    const total = state.plannedLossLamports + proposed;',
+                         '    const total = state.plannedLossLamports;')),
+    (PORT, 'H8 planned loss falls back to the stop instead of the catastrophic floor',
+     lambda s: s.replace('  return Math.max(nominal, observed, floor);', '  return nominal;')),
+    (PORT, 'H9 a measured severe loss cannot tighten sizing',
+     lambda s: s.replace('  return Math.max(nominal, observed, floor);', '  return Math.max(nominal, floor);')),
     (PORT, 'H4 a zero threshold halts everything instead of disabling the halt',
      lambda s: s.replace('if (risk.dailyLossHaltPct > 0 &&', 'if (risk.dailyLossHaltPct >= 0 &&')),
     (PORT, 'H5 daily halt reads the weekly window',
@@ -49,7 +56,8 @@ try:
         path.write_text(mutated, encoding='utf-8')
         r = subprocess.run(
             ['npx', 'vitest', 'run', 'tests/unit/riskenforcement.test.ts', 'tests/unit/halt.test.ts',
-             'tests/unit/portfolio.test.ts', 'tests/unit/ledger.test.ts', '--reporter=basic'],
+             'tests/unit/portfolio.test.ts', 'tests/unit/ledger.test.ts',
+             'tests/unit/p16-repair.test.ts', '--reporter=basic'],
             capture_output=True, text=True, shell=True,
         )
         out = re.sub(r'\x1b\[[0-9;]*m', '', r.stdout + r.stderr)
