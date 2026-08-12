@@ -201,23 +201,55 @@ export function assertCoherent(a: ExecutionObservation, b: ExecutionObservation)
   if (a.contextSlot !== b.contextSlot) throw new RouteHybrid(`context slot ${a.contextSlot} vs ${b.contextSlot}`);
 }
 
+export interface LegRequirements {
+  /**
+   * Whether a successful LOCAL simulation is required.
+   *
+   * Read from `config.requireLocalSimulation`. It is a PARAMETER rather than a
+   * constant because this repository's entire defect history is fields that
+   * were declared, stored, listed in a schema, and read by no decision -- and a
+   * config flag that nothing consults is that defect wearing a new name. If the
+   * requirement were hardcoded here the flag would be ceremonial, and the
+   * project has a test whose whole job is to fail on ceremonial config.
+   */
+  readonly requireLocalSimulation: boolean;
+}
+
 /**
  * Whether a single observation may back a PnL-eligible leg.
  *
  * Every clause is a requirement and an unknown fails. `NOT_RUN` and
  * `NOT_SIMULATED` are unknowns, not passes.
  */
-export function legIsExecutable(o: ExecutionObservation): { ok: boolean; reasons: string[] } {
+export function legIsExecutable(
+  o: ExecutionObservation,
+  req: LegRequirements = { requireLocalSimulation: true },
+): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
   const contract = FAMILY_CONTRACTS[o.family];
   if (!contract.pnlEligible) reasons.push(`family ${o.family} is never PnL-eligible`);
   if (o.instructionPolicy !== 'PASS') reasons.push(`instruction policy ${o.instructionPolicy}`);
   if (o.transactionPolicy !== 'PASS') reasons.push(`transaction policy ${o.transactionPolicy}`);
-  if (o.simulation !== 'SIMULATED_OK') reasons.push(`simulation ${o.simulation}`);
+  if (req.requireLocalSimulation && o.simulation !== 'SIMULATED_OK') {
+    reasons.push(`simulation ${o.simulation}`);
+  }
   if (o.instructionSetHash === null) reasons.push('no instruction set');
   if (o.rawPayloadHash === null) reasons.push('no retained raw payload');
   if (o.expectedOutput <= 0n) reasons.push('no expected output');
   return { ok: reasons.length === 0, reasons };
+}
+
+/**
+ * Whether an observation may back a leg counted as CONFIRMATORY evidence.
+ *
+ * Simulation is never optional here, whatever the operating config says.
+ * `legIsExecutable` decides whether the engine may act; this decides whether
+ * the resulting row is evidence, and those are different questions. An
+ * operator may choose to collect development data without a simulator. Nobody
+ * may choose to call it confirmatory.
+ */
+export function legIsConfirmatory(o: ExecutionObservation): { ok: boolean; reasons: string[] } {
+  return legIsExecutable(o, { requireLocalSimulation: true });
 }
 
 /**

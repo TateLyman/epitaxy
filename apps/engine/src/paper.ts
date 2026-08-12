@@ -632,7 +632,7 @@ async function tryEnter(
 
   // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
   // entered, against the response that priced it.
-  const executable = legIsExecutable(entry);
+  const executable = legIsExecutable(entry, { requireLocalSimulation: config.requireLocalSimulation });
   if (!executable.ok) {
     recordHealth(
       db,
@@ -1156,7 +1156,9 @@ async function manageOpenPositions(
       contextHash,
     });
 
-    const exitExecutable = legIsExecutable(exitObs);
+    const exitExecutable = legIsExecutable(exitObs, {
+      requireLocalSimulation: config.requireLocalSimulation,
+    });
     if (!exitExecutable.ok) {
       // §4.2 — THE repair. The previous code recorded the failure, closed the
       // position, realized the PnL and returned the capital to the free

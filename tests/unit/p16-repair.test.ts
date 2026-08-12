@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   assertCoherent,
   legIsExecutable,
+  legIsConfirmatory,
   netExpectedOutput,
   netMinimumOutput,
   totalEntryCost,
@@ -271,6 +272,24 @@ describe('9 & 10 — a blocked exit stays managed and releases nothing', () => {
     expect(legIsExecutable(obs({ side: 'sell', instructionSetHash: null })).ok).toBe(false);
     expect(legIsExecutable(obs({ side: 'sell', transactionPolicy: 'FAIL' })).ok).toBe(false);
     expect(legIsExecutable(obs({ side: 'sell', simulation: 'NOT_SIMULATED' })).ok).toBe(false);
+  });
+
+  it('22 — requireLocalSimulation is READ, not ceremonial config', () => {
+    const unsimulated = obs({ simulation: 'NOT_SIMULATED' });
+    // The flag has to change the answer, or it is a field nothing consults --
+    // which is the defect class this repository keeps rediscovering.
+    expect(legIsExecutable(unsimulated, { requireLocalSimulation: true }).ok).toBe(false);
+    expect(legIsExecutable(unsimulated, { requireLocalSimulation: false }).ok).toBe(true);
+    // And the paper config sets it, so the engine refuses today.
+    expect(paper.requireLocalSimulation).toBe(true);
+  });
+
+  it('a row is never CONFIRMATORY without simulation, whatever the config says', () => {
+    // legIsExecutable decides whether the engine may act. legIsConfirmatory
+    // decides whether the row is evidence. An operator may collect development
+    // data without a simulator; nobody may call it confirmatory.
+    expect(legIsConfirmatory(obs({ simulation: 'NOT_SIMULATED' })).ok).toBe(false);
+    expect(legIsConfirmatory(obs()).ok).toBe(true);
   });
 });
 
