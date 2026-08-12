@@ -62,8 +62,21 @@ export const ExitConfigSchema = z.object({
   maxHoldMs: z.number().int().min(1000),
   /** Churn guard so a single noisy mark cannot round-trip us through fees. */
   minHoldMs: z.number().int().min(0),
-  /** Exit impact above this means the position is already trapped. */
-  maxExitImpactBps: z.number().int().min(1).max(10_000),
+  /**
+   * Executable exit value, in bps of entry cost, at or below which the
+   * position is treated as a liquidity collapse and closed immediately.
+   *
+   * This replaced `maxExitImpactBps`, which fired on
+   * `Math.abs(priceImpactPct)`. Two things were wrong with that knob and only
+   * one of them was the `Math.abs`: Jupiter does not document the sign
+   * convention of that field at all (checked 2026-08-12, docs/RESEARCH.md), so
+   * no threshold over it could be given a stable meaning. It is not kept as an
+   * unused field, because a config knob read by nothing is the same defect as
+   * O028 and O031.
+   *
+   * Stated against executable output, which needs no vendor convention.
+   */
+  liquidityCollapseRatioBps: z.number().int().min(1).max(10_000),
 });
 export type ExitConfig = z.infer<typeof ExitConfigSchema>;
 

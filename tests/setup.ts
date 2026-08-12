@@ -1,4 +1,24 @@
 import fc from 'fast-check';
+import { suppressDotEnvForTests } from '../packages/domain/src/dotenv.js';
+
+/**
+ * No test reads the operator's `.env`.
+ *
+ * `loadSecrets()` calls `loadDotEnvOnce()`, so the moment O031 was closed every
+ * secrets test began inheriting whatever was on the developer's disk.
+ * `tests/unit/secrets.test.ts` asserts that an unset key yields a null RPC
+ * endpoint; on a configured machine it saw the real Helius URL instead. A suite
+ * must describe the code, not the checkout it happens to run in — and a test
+ * that only passes before the system is configured is worse than no test.
+ *
+ * Suppressed here rather than by deleting variables afterwards, so the secret
+ * never enters `process.env` at all during a test run.
+ *
+ * `tests/unit/dotenv.test.ts` calls `resetDotEnvForTests()` in its own
+ * `afterEach` and points the loader at temporary directories, so the real load
+ * path is still exercised.
+ */
+suppressDotEnvForTests();
 
 /**
  * Global bounds for property tests.

@@ -11,12 +11,31 @@ function main(): void {
   const limitArg = process.argv.find((a) => a.startsWith('--limit='));
   const limit = limitArg ? Number(limitArg.split('=')[1]) : 2000;
 
-  const config = loadConfig(modeFromArgv());
+  // `--as-version=` replays snapshots recorded under an OLDER strategy version
+  // against today's code.
+  //
+  // Without it, a version bump makes replay silently verify nothing: every
+  // stored snapshot is skipped, the run reports zero divergences, and the exit
+  // code is the only thing distinguishing that from a real pass. That is
+  // exactly backwards — a bump is the moment when the question "did anything
+  // change that I did not intend to change?" most needs an answer.
+  //
+  // A pass here means the entry path is byte-identical for the old corpus, so
+  // the bump is attributable to the parts that were meant to change. A failure
+  // is a real finding and must be explained, not silenced by dropping the flag.
+  const asVersionArg = process.argv.find((a) => a.startsWith('--as-version='));
+  const asVersion = asVersionArg ? asVersionArg.slice('--as-version='.length) : null;
+
+  const loaded = loadConfig(modeFromArgv());
+  const config = asVersion === null ? loaded : { ...loaded, strategyVersion: asVersion };
   const secrets = loadSecrets();
   const db = openDb({ path: secrets.databasePath, readonly: true });
 
   const summary = replayAll(db, config, snapshotRows(db, limit));
 
+  if (asVersion !== null) {
+    console.log(`replaying snapshots stored as ${asVersion} against code version ${loaded.strategyVersion}`);
+  }
   console.log(`replay strategy ${config.strategyVersion}`);
   console.log(`  snapshots examined   ${summary.examined}`);
   console.log(`  replayed             ${summary.replayed}`);

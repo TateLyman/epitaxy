@@ -654,3 +654,235 @@ export function rejectionBreakdown(db: Db, sinceUtcMs = 0): { reason: string; co
   }
   return [...tally.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
 }
+
+/**
+ * Position marks and terminal exit records (migration 5).
+ *
+ * The rule enforced in this section: NULL means unknown and is written as
+ * NULL. Nothing here is defaulted to zero to make a row look complete, because
+ * the defect these tables exist to fix (O032) was precisely a number that
+ * looked meaningful and was not.
+ */
+
+export interface PositionMark {
+  readonly markId: string;
+  readonly positionId: string;
+  readonly mint: string;
+  readonly seq: number;
+  readonly observedUtcMs: number;
+
+  /** Provider diagnostic, raw and signed. Never used to classify. */
+  readonly rawPriceImpactPct: number | null;
+  readonly rawPriceImpactBpsSigned: number | null;
+
+  readonly quotedExitInputTokenAmount: bigint | null;
+  readonly quotedExitOutputLamports: bigint | null;
+  readonly quotedExitThresholdLamports: bigint | null;
+  readonly positionEntryCostLamports: bigint;
+  readonly positionMarkedValueLamports: bigint | null;
+  readonly exitValueRatio: number | null;
+  readonly outputChangeFromPreviousMarkBps: number | null;
+
+  readonly routeAvailable: boolean;
+  readonly routeLabels: string | null;
+
+  readonly platformFeeBps: number | null;
+  readonly platformFeeAmount: bigint | null;
+  readonly transferFeeAmount: bigint | null;
+  readonly estimatedNetworkFeeLamports: bigint | null;
+  readonly estimatedPriorityFeeLamports: bigint | null;
+
+  readonly poolQuoteReserve: bigint | null;
+  readonly poolTokenReserve: bigint | null;
+  readonly quoteReserveChangeFromEntryBps: number | null;
+  readonly quoteReserveChangeFromPrevBps: number | null;
+  readonly liquidityUsd: number | null;
+  readonly liquidityChangeFromEntryBps: number | null;
+
+  readonly developerNetTokenFlow: bigint | null;
+  readonly clusteredInsiderNetTokenFlow: bigint | null;
+
+  readonly quoteRequestedUtcMs: number | null;
+  readonly quoteReceivedUtcMs: number | null;
+  readonly quoteLatencyMs: number | null;
+  readonly sourceUtcMs: number | null;
+  readonly slot: number | null;
+  readonly source: string;
+  readonly backfilled: boolean;
+}
+
+/** bigint-or-null to TEXT-or-NULL. Keeps every amount out of float space. */
+const bnOrNull = (v: bigint | null): string | null => (v === null ? null : v.toString());
+
+export function insertPositionMark(db: Db, m: PositionMark): void {
+  db.prepare(
+    `INSERT INTO position_marks
+      (mark_id,position_id,mint,seq,observed_utc_ms,
+       raw_price_impact_pct,raw_price_impact_bps_signed,
+       quoted_exit_input_token_amount,quoted_exit_output_lamports,quoted_exit_threshold_lamports,
+       position_entry_cost_lamports,position_marked_value_lamports,exit_value_ratio,
+       output_change_from_previous_mark_bps,route_available,route_labels,
+       platform_fee_bps,platform_fee_amount,transfer_fee_amount,
+       estimated_network_fee_lamports,estimated_priority_fee_lamports,
+       pool_quote_reserve,pool_token_reserve,quote_reserve_change_from_entry_bps,
+       quote_reserve_change_from_prev_bps,liquidity_usd,liquidity_change_from_entry_bps,
+       developer_net_token_flow,clustered_insider_net_token_flow,
+       quote_requested_utc_ms,quote_received_utc_ms,quote_latency_ms,source_utc_ms,slot,source,backfilled)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(position_id,seq) DO NOTHING`,
+  ).run(
+    m.markId,
+    m.positionId,
+    m.mint,
+    m.seq,
+    m.observedUtcMs,
+    m.rawPriceImpactPct,
+    m.rawPriceImpactBpsSigned,
+    bnOrNull(m.quotedExitInputTokenAmount),
+    bnOrNull(m.quotedExitOutputLamports),
+    bnOrNull(m.quotedExitThresholdLamports),
+    m.positionEntryCostLamports.toString(),
+    bnOrNull(m.positionMarkedValueLamports),
+    m.exitValueRatio,
+    m.outputChangeFromPreviousMarkBps,
+    m.routeAvailable ? 1 : 0,
+    m.routeLabels,
+    m.platformFeeBps,
+    bnOrNull(m.platformFeeAmount),
+    bnOrNull(m.transferFeeAmount),
+    bnOrNull(m.estimatedNetworkFeeLamports),
+    bnOrNull(m.estimatedPriorityFeeLamports),
+    bnOrNull(m.poolQuoteReserve),
+    bnOrNull(m.poolTokenReserve),
+    m.quoteReserveChangeFromEntryBps,
+    m.quoteReserveChangeFromPrevBps,
+    m.liquidityUsd,
+    m.liquidityChangeFromEntryBps,
+    bnOrNull(m.developerNetTokenFlow),
+    bnOrNull(m.clusteredInsiderNetTokenFlow),
+    m.quoteRequestedUtcMs,
+    m.quoteReceivedUtcMs,
+    m.quoteLatencyMs,
+    m.sourceUtcMs,
+    m.slot,
+    m.source,
+    m.backfilled ? 1 : 0,
+  );
+}
+
+export interface PositionExit {
+  readonly positionId: string;
+  readonly mint: string;
+  /** ExitOutcome — what happened economically. */
+  readonly outcome: string;
+  /** TriggerRule — which rule noticed. Deliberately a separate column. */
+  readonly triggerRule: string;
+  readonly outcomeRationale: string;
+  readonly exitValueRatio: number | null;
+
+  readonly positionEntryCostLamports: bigint;
+  readonly quotedExitOutputLamports: bigint | null;
+  /** Lamports the swap returned, before exit fees. Never negative. */
+  readonly grossProceedsLamports: bigint | null;
+  readonly exitFeesLamports: bigint | null;
+  /** gross - fees. May be negative, which is a real economic statement. */
+  readonly netProceedsLamports: bigint | null;
+  readonly realizedLamports: bigint;
+
+  readonly entryNotionalLamports: bigint | null;
+  readonly entryFixedCostsLamports: bigint | null;
+  readonly ataRentLamports: bigint | null;
+  /** Null when unknown. Paper has never modelled the refund; see O033. */
+  readonly ataRentRefunded: boolean | null;
+
+  readonly finalMarkId: string | null;
+  readonly marksObserved: number;
+  readonly openedUtcMs: number;
+  readonly closedUtcMs: number | null;
+  readonly heldMs: number | null;
+  readonly strategyVersion: string;
+  readonly accountingVersion: string;
+  readonly backfilled: boolean;
+}
+
+export function insertPositionExit(db: Db, e: PositionExit): void {
+  db.prepare(
+    `INSERT INTO position_exits
+      (position_id,mint,outcome,trigger_rule,outcome_rationale,exit_value_ratio,
+       position_entry_cost_lamports,quoted_exit_output_lamports,gross_proceeds_lamports,
+       exit_fees_lamports,net_proceeds_lamports,realized_lamports,
+       entry_notional_lamports,entry_fixed_costs_lamports,ata_rent_lamports,ata_rent_refunded,
+       final_mark_id,marks_observed,opened_utc_ms,closed_utc_ms,held_ms,
+       strategy_version,accounting_version,backfilled)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(position_id) DO UPDATE SET
+       outcome=excluded.outcome, trigger_rule=excluded.trigger_rule,
+       outcome_rationale=excluded.outcome_rationale, exit_value_ratio=excluded.exit_value_ratio,
+       quoted_exit_output_lamports=excluded.quoted_exit_output_lamports,
+       gross_proceeds_lamports=excluded.gross_proceeds_lamports,
+       exit_fees_lamports=excluded.exit_fees_lamports,
+       net_proceeds_lamports=excluded.net_proceeds_lamports,
+       final_mark_id=excluded.final_mark_id, marks_observed=excluded.marks_observed,
+       accounting_version=excluded.accounting_version, backfilled=excluded.backfilled`,
+  ).run(
+    e.positionId,
+    e.mint,
+    e.outcome,
+    e.triggerRule,
+    e.outcomeRationale,
+    e.exitValueRatio,
+    e.positionEntryCostLamports.toString(),
+    bnOrNull(e.quotedExitOutputLamports),
+    bnOrNull(e.grossProceedsLamports),
+    bnOrNull(e.exitFeesLamports),
+    bnOrNull(e.netProceedsLamports),
+    e.realizedLamports.toString(),
+    bnOrNull(e.entryNotionalLamports),
+    bnOrNull(e.entryFixedCostsLamports),
+    bnOrNull(e.ataRentLamports),
+    e.ataRentRefunded === null ? null : e.ataRentRefunded ? 1 : 0,
+    e.finalMarkId,
+    e.marksObserved,
+    e.openedUtcMs,
+    e.closedUtcMs,
+    e.heldMs,
+    e.strategyVersion,
+    e.accountingVersion,
+    e.backfilled ? 1 : 0,
+  );
+}
+
+/** Next sequence number for a position. Marks are append-only. */
+export function nextMarkSeq(db: Db, positionId: string): number {
+  const r = db
+    .prepare('SELECT COALESCE(MAX(seq), -1) AS s FROM position_marks WHERE position_id = ?')
+    .get(positionId) as { s: number };
+  return r.s + 1;
+}
+
+/** The most recent mark, or null when none has been taken yet. */
+export function latestMark(
+  db: Db,
+  positionId: string,
+): { seq: number; outLamports: bigint | null } | null {
+  const r = db
+    .prepare(
+      `SELECT seq, quoted_exit_output_lamports AS o FROM position_marks
+       WHERE position_id = ? ORDER BY seq DESC LIMIT 1`,
+    )
+    .get(positionId) as { seq: number; o: string | null } | undefined;
+  if (r === undefined) return null;
+  return { seq: r.seq, outLamports: r.o === null ? null : BigInt(r.o) };
+}
+
+export function exitOutcomeBreakdown(
+  db: Db,
+): { outcome: string; count: number; totalRealized: bigint }[] {
+  const rows = db
+    .prepare(
+      `SELECT outcome, COUNT(*) AS n, COALESCE(SUM(CAST(realized_lamports AS INTEGER)),0) AS r
+       FROM position_exits GROUP BY outcome ORDER BY n DESC`,
+    )
+    .all() as { outcome: string; n: number; r: number }[];
+  return rows.map((x) => ({ outcome: x.outcome, count: x.n, totalRealized: BigInt(x.r) }));
+}

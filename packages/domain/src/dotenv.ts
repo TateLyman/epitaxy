@@ -101,3 +101,20 @@ export function loadDotEnvOnce(cwd = process.cwd()): readonly string[] {
 export function resetDotEnvForTests(): void {
   loaded = null;
 }
+
+/**
+ * Test-only. Marks the load as already done without reading any file.
+ *
+ * Called once from `tests/setup.ts`. Without it, `loadSecrets()` — which calls
+ * `loadDotEnvOnce()` — reads the operator's real `.env` during unit tests, so a
+ * test asserting "no key is configured" passes on a clean checkout and fails on
+ * the machine of anyone who has actually configured the system. That is a test
+ * that reports the state of a developer's disk rather than the state of the
+ * code, and it found nothing when it broke; it only became noisy.
+ *
+ * Suppressing at this level rather than deleting the file's variables keeps the
+ * secret out of `process.env` entirely for the duration of the suite.
+ */
+export function suppressDotEnvForTests(): void {
+  loaded = [];
+}

@@ -1,6 +1,6 @@
 {
   "mode": "canary",
-  "strategyVersion": "delayed-momentum-v0.2.0",
+  "strategyVersion": "delayed-momentum-v0.3.0",
   "discoveryIntervalMs": 30000,
   "enrichIntervalMs": 15000,
   "maxClockSkewMs": 2000,
@@ -56,6 +56,6 @@
     "takeProfitBps": 6000,
     "maxHoldMs": 1800000,
     "minHoldMs": 60000,
-    "maxExitImpactBps": 400
+    "liquidityCollapseRatioBps": 1000
   }
 }

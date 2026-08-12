@@ -15,12 +15,17 @@ import {
   counters,
   insertFill,
   insertPosition,
+  insertPositionExit,
+  insertPositionMark,
   insertQuote,
+  latestMark,
   openPositions,
   recordHealth,
   recordSourceHealth,
   updatePosition,
 } from '../../../packages/storage/src/repo.js';
+import { ACCOUNTING_VERSION, classifyExit } from '../../../packages/domain/src/exitoutcome.js';
+import type { TriggerRule } from '../../../packages/domain/src/exitoutcome.js';
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
 import { JupiterClient } from '../../../packages/adapters/src/jupiter/client.js';
 import { SourceFetchError } from '../../../packages/adapters/src/http.js';
@@ -344,7 +349,75 @@ async function manageOpenPositions(
     const sell = res.quote;
     if (sell) insertQuote(db, row.mint, 'sell', sell);
 
-    const markLamports = sell ? sell.otherAmountThreshold - config.assumedPriorityFeeLamports : null;
+    // The mark is the router's expected output, not `otherAmountThreshold`.
+    // The threshold is a slippage floor — a number chosen by our own slippage
+    // setting, not an observation of the market — so marking against it made
+    // every position look worse by exactly `slippageBps` and made the mark
+    // series unusable as evidence about liquidity. Both are recorded.
+    //
+    // `outAmount` is the SOL the router says the swap returns; route and
+    // platform fees are already reflected in it, so they are recorded as
+    // metadata and NOT subtracted again. The priority fee is not reflected in
+    // it, so it is the one cost deducted here.
+    const grossProceeds = sell ? sell.outAmount : null;
+    const markLamports = grossProceeds === null ? null : grossProceeds - config.assumedPriorityFeeLamports;
+
+    const routeAvailable = sell !== null && sell.outAmount > 0n;
+    const nowMs = Date.now();
+
+    // Every mark is persisted, whether or not it causes an exit. A rule can
+    // only be evaluated against the observations that were available to it,
+    // and marks that are not written are observations that never existed.
+    const prev = latestMark(db, row.position_id);
+    const markId = randomUUID();
+    insertPositionMark(db, {
+      markId,
+      positionId: row.position_id,
+      mint: row.mint,
+      seq: prev === null ? 0 : prev.seq + 1,
+      observedUtcMs: nowMs,
+      rawPriceImpactPct: sell ? sell.priceImpactPct : null,
+      rawPriceImpactBpsSigned: sell ? Math.round(sell.priceImpactPct * 10_000) : null,
+      quotedExitInputTokenAmount: tokenAmount,
+      quotedExitOutputLamports: grossProceeds,
+      quotedExitThresholdLamports: sell ? sell.otherAmountThreshold : null,
+      positionEntryCostLamports: costLamports,
+      positionMarkedValueLamports: markLamports,
+      exitValueRatio:
+        grossProceeds === null || costLamports <= 0n
+          ? null
+          : Number(grossProceeds) / Number(costLamports),
+      outputChangeFromPreviousMarkBps:
+        prev === null || prev.outLamports === null || prev.outLamports === 0n || grossProceeds === null
+          ? null
+          : Number(((grossProceeds - prev.outLamports) * 10_000n) / prev.outLamports),
+      routeAvailable,
+      routeLabels: sell ? sell.routeLabels.join('>') : null,
+      platformFeeBps: sell ? sell.platformFeeBps : null,
+      platformFeeAmount:
+        sell && grossProceeds !== null ? (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n : null,
+      // Null, not zero: paper does not observe transfer-fee extensions yet, and
+      // recording an unobserved cost as zero would understate exit cost.
+      transferFeeAmount: null,
+      estimatedNetworkFeeLamports: sell ? sell.signatureFeeLamports : null,
+      estimatedPriorityFeeLamports: config.assumedPriorityFeeLamports,
+      poolQuoteReserve: null,
+      poolTokenReserve: null,
+      quoteReserveChangeFromEntryBps: null,
+      quoteReserveChangeFromPrevBps: null,
+      liquidityUsd: null,
+      liquidityChangeFromEntryBps: null,
+      developerNetTokenFlow: null,
+      clusteredInsiderNetTokenFlow: null,
+      quoteRequestedUtcMs: sell ? sell.requestedUtcMs : null,
+      quoteReceivedUtcMs: sell ? sell.receivedUtcMs : null,
+      quoteLatencyMs: sell ? sell.latencyMs : null,
+      sourceUtcMs: sell ? sell.provenance.receivedUtcMs : null,
+      slot: null,
+      source: 'jupiter',
+      backfilled: false,
+    });
+
     const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
     const newPeak = markLamports !== null && markLamports > peak ? markLamports : peak;
     if (newPeak !== peak) updatePosition(db, row.position_id, { peakValueLamports: newPeak });
@@ -355,16 +428,17 @@ async function manageOpenPositions(
         peakValueLamports: newPeak,
         markLamports,
         openedUtcMs: row.opened_utc_ms,
-        nowUtcMs: Date.now(),
-        exitRouteExists: sell !== null && sell.outAmount > 0n,
-        exitPriceImpactBps: sell ? Math.round(Math.abs(sell.priceImpactPct) * 10_000) : null,
+        nowUtcMs: nowMs,
+        exitRouteExists: routeAvailable,
       },
       config.exits,
     );
 
     if (!decision.exit) continue;
 
-    if (!sell || markLamports === null) {
+    const marksObserved = (prev === null ? 0 : prev.seq + 1) + 1;
+
+    if (!sell || markLamports === null || grossProceeds === null) {
       // Wanted out, cannot get out. This is a real terminal state and must be
       // recorded as such rather than quietly retried forever.
       updatePosition(db, row.position_id, { state: 'EXIT_BLOCKED', exitReason: decision.reason });
@@ -376,26 +450,66 @@ async function manageOpenPositions(
     const proceeds = markLamports;
     const realized = proceeds - costLamports;
 
+    // Classified from executable value, independently of which rule fired.
+    // `decision.reason` is kept beside it rather than replaced by it.
+    const verdict = classifyExit({
+      quotedExitOutputLamports: grossProceeds,
+      positionEntryCostLamports: costLamports,
+      routeAvailable,
+      triggerRule: decision.reason as TriggerRule,
+    });
+
     insertFill(db, {
       fillId: randomUUID(),
       intentId: row.position_id,
       mint: row.mint,
       side: 'sell',
       actualInAmount: tokenAmount,
-      actualOutAmount: proceeds,
-      feeLamports: (proceeds * BigInt(sell.platformFeeBps)) / 10_000n,
+      // Gross, and therefore never negative. The priority fee lives in its own
+      // column; folding it into the output produced a fill claiming the swap
+      // returned less SOL than it did.
+      actualOutAmount: grossProceeds,
+      feeLamports: (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       rentLamports: 0n,
       signature: null,
       slot: null,
       simulated: true,
-      utcMs: Date.now(),
+      utcMs: nowMs,
+    });
+
+    insertPositionExit(db, {
+      positionId: row.position_id,
+      mint: row.mint,
+      outcome: verdict.outcome,
+      triggerRule: decision.reason ?? 'unknown',
+      outcomeRationale: verdict.rationale,
+      exitValueRatio: verdict.exitValueRatio,
+      positionEntryCostLamports: costLamports,
+      quotedExitOutputLamports: grossProceeds,
+      grossProceedsLamports: grossProceeds,
+      exitFeesLamports: config.assumedPriorityFeeLamports,
+      netProceedsLamports: proceeds,
+      realizedLamports: realized,
+      entryNotionalLamports: null,
+      entryFixedCostsLamports: null,
+      ataRentLamports: config.assumedAtaRentLamports,
+      // Paper has never modelled the ATA-rent refund. Unknown, not false.
+      ataRentRefunded: null,
+      finalMarkId: markId,
+      marksObserved,
+      openedUtcMs: row.opened_utc_ms,
+      closedUtcMs: nowMs,
+      heldMs: nowMs - row.opened_utc_ms,
+      strategyVersion: config.strategyVersion,
+      accountingVersion: ACCOUNTING_VERSION,
+      backfilled: false,
     });
 
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
       realizedLamports: realized,
-      closedUtcMs: Date.now(),
+      closedUtcMs: nowMs,
       exitReason: decision.reason,
       tokenAmount: 0n,
     });

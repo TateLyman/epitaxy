@@ -10,13 +10,22 @@ import { lossBps } from '../../domain/src/amounts.js';
  * exit route is about to get worse, not better.
  */
 
+/**
+ * Which rule fired. This answers "why did we act now?" and nothing else.
+ *
+ * It is deliberately NOT the same vocabulary as `ExitOutcome` in
+ * packages/domain/src/exitoutcome.ts, which answers "what happened to the
+ * money?". Until 2026-08-12 this system had one field doing both jobs, and the
+ * result was that `exit_cost_exploded` covered both a token that had evaporated
+ * and a position that was up 2%. The two questions get two types.
+ */
 export type ExitReason =
   | 'stop_loss'
   | 'trailing_stop'
   | 'take_profit'
   | 'max_hold'
   | 'exit_route_lost'
-  | 'exit_cost_exploded';
+  | 'liquidity_collapse';
 
 export interface ExitInputs {
   readonly costLamports: bigint;
@@ -26,7 +35,6 @@ export interface ExitInputs {
   readonly openedUtcMs: number;
   readonly nowUtcMs: number;
   readonly exitRouteExists: boolean;
-  readonly exitPriceImpactBps: number | null;
 }
 
 export interface ExitDecision {
@@ -48,15 +56,27 @@ export function decideExit(input: ExitInputs, config: ExitConfig): ExitDecision 
     return { exit: true, reason: 'exit_route_lost', detail: 'no sell route at mark time' };
   }
 
-  if (input.exitPriceImpactBps !== null && input.exitPriceImpactBps > config.maxExitImpactBps) {
-    return {
-      exit: true,
-      reason: 'exit_cost_exploded',
-      detail: `exit impact ${input.exitPriceImpactBps}bps > ${config.maxExitImpactBps}bps`,
-    };
-  }
-
   if (input.markLamports === null) return NO_EXIT;
+
+  // Collapse is measured in executable output, not in a provider's diagnostic
+  // field. `markLamports` is the SOL a full-position sell was actually quoted
+  // to return, so this comparison needs no sign convention from anyone and
+  // cannot invert if a vendor changes one.
+  //
+  // Checked before `minHoldMs` for the same reason as the route check above:
+  // the churn guard exists to stop us round-tripping through fees on noise,
+  // and an asset worth a tenth of its cost is not noise.
+  if (input.costLamports > 0n) {
+    const collapseAt = (input.costLamports * BigInt(config.liquidityCollapseRatioBps)) / 10_000n;
+    if (input.markLamports <= collapseAt) {
+      const pct = (Number(input.markLamports) / Number(input.costLamports)) * 100;
+      return {
+        exit: true,
+        reason: 'liquidity_collapse',
+        detail: `full-position sell quote is ${pct.toFixed(2)}% of cost, at or below the ${config.liquidityCollapseRatioBps / 100}% floor`,
+      };
+    }
+  }
 
   // Minimum hold exists so that a single noisy mark cannot round-trip us
   // straight back out through two sets of fees.
@@ -67,8 +87,15 @@ export function decideExit(input: ExitInputs, config: ExitConfig): ExitDecision 
     return { exit: true, reason: 'stop_loss', detail: `${down.toFixed(0)}bps below cost` };
   }
 
+  // Gain is measured against COST, so the arguments to `lossBps` are
+  // (cost, mark) and not (mark, cost). With them the other way round `up` is
+  // positive whenever the position is winning, `-up` is therefore negative,
+  // and `-up >= takeProfitBps` is unsatisfiable for every input: take-profit
+  // was unreachable code. Zero of the first ten closed positions took profit,
+  // which is consistent with a rule that could never fire and is not evidence
+  // that none of them qualified.
   if (input.markLamports > input.costLamports) {
-    const up = lossBps(input.markLamports, input.costLamports);
+    const up = lossBps(input.costLamports, input.markLamports);
     if (up !== null && -up >= config.takeProfitBps) {
       return { exit: true, reason: 'take_profit', detail: `${(-up).toFixed(0)}bps above cost` };
     }

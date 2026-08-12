@@ -50,6 +50,26 @@ structural guarantee, not a policy one.
   is `bigint`.
 - `priceImpactPct` and `swapType` are deprecated upstream; `priceImpact` and
   `router` are current. Both are accepted, current preferred.
+- **The sign convention of `priceImpact` / `priceImpactPct` is undocumented.**
+  Checked 2026-08-12 against the official v2 OpenAPI spec
+  (`developers.jup.ag/docs/openapi-spec/swap/v2/swap.yaml`) and the vendor's own
+  v1 `swagger.yaml` in `jup-ag/jupiter-quote-api-node`. The v2 spec gives a
+  single example — `-0.1 = -0.1%` — and states no rule; the v1 schema carries no
+  description for the field at all. Neither documents the reference price, nor
+  `-1` as a sentinel, nor any caveat for illiquid pools. Our own corpus shows
+  both signs (sell quotes -1.0 .. +0.111) and about -1.0 when a pool collapsed,
+  which is *consistent* with "negative is adverse" but is our inference, not the
+  vendor's statement. Consequence: the field is recorded raw and signed as
+  evidence and is never permitted to define an economic outcome. See
+  `packages/domain/src/exitoutcome.ts`. Registered as O032.
+- Units differ between the two fields, and that much *is* documented:
+  `priceImpact` is in **percentage points** (`-0.1` means -0.1%), while
+  `priceImpactPct` is a **decimal ratio** (`0.001` means 0.1%). The client's
+  `/100` conversion when falling back from `priceImpact` is therefore correct.
+- `inputAmountResult` / `outputAmountResult` appear **only in the `/execute`
+  response**, not in `/order`. Executable value is not directly measurable at
+  quote time, so a quote's `outAmount` stays the best pre-trade estimate and the
+  post-trade result has to be reconciled against it (P9).
 - `transaction` is `null` for quote-only requests but `""` when a build *failed*
   — different meanings, so `transactionBuildable` checks length, not nullness.
 - Schemas are `passthrough()`: providers add fields routinely and that must not

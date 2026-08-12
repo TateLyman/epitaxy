@@ -318,6 +318,117 @@ CREATE UNIQUE INDEX idx_attempts_signature ON execution_attempts(signature);
 CREATE INDEX idx_attempts_outcome ON execution_attempts(outcome);
 `,
   },
+  {
+    id: 5,
+    name: 'position_marks_and_exit_outcomes',
+    sql: `
+-- Every mark of an open position, and the terminal record of how it ended.
+--
+-- Before this migration the only durable trace of a position's life was its
+-- opening fill, its closing fill, and a single exit_reason string. That was
+-- enough to say a position lost money and not enough to say why, or whether
+-- anything observable would have said so earlier. Eight of the first ten paper
+-- positions closed under one label that turned out to cover both "the token
+-- evaporated" and "the price moved in our favour" (see
+-- packages/domain/src/exitoutcome.ts).
+--
+-- NULL here means UNKNOWN and never zero. Several columns cannot be populated
+-- until the on-chain and liquidity feeds land; they are declared now so that
+-- backfilled and live rows share one shape, and so that "we did not measure
+-- this" stays distinguishable from "we measured it and it was nothing". Any
+-- consumer that coalesces these to 0 reintroduces exactly the defect this
+-- table exists to remove.
+CREATE TABLE IF NOT EXISTS position_marks (
+  mark_id                              TEXT PRIMARY KEY,
+  position_id                          TEXT NOT NULL REFERENCES positions(position_id),
+  mint                                 TEXT NOT NULL,
+  seq                                  INTEGER NOT NULL,
+  observed_utc_ms                      INTEGER NOT NULL,
+
+  -- Provider diagnostics, stored raw and signed. Never used to classify.
+  raw_price_impact_pct                 REAL,
+  raw_price_impact_bps_signed          INTEGER,
+
+  -- The executable economics. This is what classification is built on.
+  quoted_exit_input_token_amount       TEXT,
+  quoted_exit_output_lamports          TEXT,
+  quoted_exit_threshold_lamports       TEXT,
+  position_entry_cost_lamports         TEXT NOT NULL,
+  position_marked_value_lamports       TEXT,
+  exit_value_ratio                     REAL,
+  output_change_from_previous_mark_bps INTEGER,
+
+  route_available                      INTEGER NOT NULL,
+  route_labels                         TEXT,
+
+  platform_fee_bps                     INTEGER,
+  platform_fee_amount                  TEXT,
+  transfer_fee_amount                  TEXT,
+  estimated_network_fee_lamports       TEXT,
+  estimated_priority_fee_lamports      TEXT,
+
+  -- Pool and liquidity state. NULL until the reserve feed exists.
+  pool_quote_reserve                   TEXT,
+  pool_token_reserve                   TEXT,
+  quote_reserve_change_from_entry_bps  INTEGER,
+  quote_reserve_change_from_prev_bps   INTEGER,
+  liquidity_usd                        REAL,
+  liquidity_change_from_entry_bps      INTEGER,
+
+  -- Actor flows. NULL until the transfer-graph feed exists.
+  developer_net_token_flow             TEXT,
+  clustered_insider_net_token_flow     TEXT,
+
+  -- Provenance. A mark is only as good as its freshness.
+  quote_requested_utc_ms               INTEGER,
+  quote_received_utc_ms                INTEGER,
+  quote_latency_ms                     INTEGER,
+  source_utc_ms                        INTEGER,
+  slot                                 INTEGER,
+  source                               TEXT NOT NULL,
+  backfilled                           INTEGER NOT NULL DEFAULT 0,
+
+  UNIQUE (position_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_marks_position ON position_marks(position_id, seq);
+CREATE INDEX IF NOT EXISTS idx_marks_mint_time ON position_marks(mint, observed_utc_ms);
+
+-- One row per closed position. Separates what happened economically
+-- (outcome) from which rule noticed (trigger_rule); collapsing those two is
+-- the defect that made the first ten positions unreadable.
+CREATE TABLE IF NOT EXISTS position_exits (
+  position_id                     TEXT PRIMARY KEY REFERENCES positions(position_id),
+  mint                            TEXT NOT NULL,
+  outcome                         TEXT NOT NULL,
+  trigger_rule                    TEXT NOT NULL,
+  outcome_rationale               TEXT NOT NULL,
+  exit_value_ratio                REAL,
+
+  position_entry_cost_lamports    TEXT NOT NULL,
+  quoted_exit_output_lamports     TEXT,
+  gross_proceeds_lamports         TEXT,
+  exit_fees_lamports              TEXT,
+  net_proceeds_lamports           TEXT,
+  realized_lamports               TEXT NOT NULL,
+
+  entry_notional_lamports         TEXT,
+  entry_fixed_costs_lamports      TEXT,
+  ata_rent_lamports               TEXT,
+  ata_rent_refunded               INTEGER,
+
+  final_mark_id                   TEXT REFERENCES position_marks(mark_id),
+  marks_observed                  INTEGER NOT NULL DEFAULT 0,
+  opened_utc_ms                   INTEGER NOT NULL,
+  closed_utc_ms                   INTEGER,
+  held_ms                         INTEGER,
+  strategy_version                TEXT NOT NULL,
+  accounting_version              TEXT NOT NULL,
+  backfilled                      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_exits_outcome ON position_exits(outcome);
+CREATE INDEX IF NOT EXISTS idx_exits_closed ON position_exits(closed_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

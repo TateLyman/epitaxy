@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-11T23:15Z
+Last updated: 2026-08-12T04:55Z
 
 ## Current state
 
@@ -12,7 +12,7 @@ has ever been opened, no key exists, no transaction has ever been signed or sent
 | 0 — environment audit | done |
 | 1 — current-source verification | done |
 | 2 — observe-mode vertical slice | **done, run against mainnet** |
-| 3 — paper mode | **done, running** (strategy `v0.2.0`) |
+| 3 — paper mode | **done, running** (strategy `v0.3.0`) |
 | 3b — solana package (base58, mint/Token-2022, tx policy) | done, 32 unit tests on real mainnet fixtures |
 | 3c — operational commands (`doctor`/`status`/`health`/`kill`/`secretscan`/`check`) | done |
 | 4 — replay / backtest / report | **done**; replay verified 2,200 snapshots, 0 divergence |
@@ -505,17 +505,156 @@ on-chain checks that page assumed had to be bought.
 were not written by me. They belong in `.env`, which is git-ignored and which
 `.claude/settings.json` denies reading.
 
+## 2026-08-12 — P1: exit accounting rebuilt on executable value
+
+Strategy version `delayed-momentum-v0.2.0` -> `delayed-momentum-v0.3.0`.
+Accounting version `exit-accounting-v1`. Schema migration 5.
+Baseline before this work: commit `f7826a5`, backup
+`data/backups/runtime-baseline-20260812T0328Z.db` (383,127,552 bytes).
+
+### The label was doing two jobs and could do neither
+
+Eight of the first ten closed paper positions carried exit reason
+`exit_cost_exploded`, which fired on `Math.abs(priceImpactPct) > maxExitImpactBps`.
+Reading the stored quotes showed that one label covered a token that had
+evaporated to 13 lamports and a position that was worth **105.7% of its cost**
+when it was ejected, twenty-one seconds after opening.
+
+The fix was not to delete the `Math.abs`. Jupiter documents **no sign convention
+for `priceImpactPct` at all** — verified 2026-08-12 against both the v2 OpenAPI
+spec and the v1 swagger, recorded in `docs/RESEARCH.md` as O032. A threshold over
+a field whose direction the vendor never specified cannot be given a stable
+meaning in either direction. The knob was removed rather than corrected, and
+replaced with `liquidityCollapseRatioBps`, stated over the SOL a full-position
+sell was quoted to return. Leaving `maxExitImpactBps` in the config unused would
+have been the third instance of the O028/O031 dead-config defect class.
+
+Outcome and trigger are now two columns. `ExitOutcome` answers "what happened to
+the money"; `TriggerRule` answers "which rule noticed". Conflating them is what
+produced a single label spanning a 20x difference in severity.
+
+### All ten positions reclassified (`scripts/backfill-exit-accounting.ts`)
+
+| position | mint | cost SOL | final executable | ratio | OLD reason | NEW outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+| e8276fb2 | Do3oMFHg | 0.050839280 | 0.047538284 | 0.9351 | exit_cost_exploded | cost_drift |
+| d68a5fc5 | 5bjC6rcN | 0.052139280 | 0.000481520 | 0.0092 | exit_cost_exploded | **liquidity_collapse** |
+| acd33808 | DE6svnZL | 0.042939280 | 0.045388189 | **1.0570** | exit_cost_exploded | cost_drift |
+| eff38f80 | 414LMZzC | 0.049343458 | 0.044628326 | 0.9044 | exit_cost_exploded | cost_drift |
+| c8069ef2 | 3XiaH5DA | 0.049320251 | 0.000000013 | 0.0000 | exit_cost_exploded | **liquidity_collapse** |
+| 5599b5d8 | DWAtCiyw | 0.050368663 | 0.023688794 | 0.4703 | stop_loss | severe_exit_degradation |
+| 39bb459b | 8vPXzkoy | 0.048880498 | 0.043306010 | 0.8860 | trailing_stop | ordinary_stop_loss |
+| cb9b5c75 | HTaEUsni | 0.045527853 | 0.000000008 | 0.0000 | exit_cost_exploded | **liquidity_collapse** |
+| 6f8b1e79 | 23n8oNsU | 0.052233144 | 0.000491353 | 0.0094 | exit_cost_exploded | **liquidity_collapse** |
+| b348a030 | 8vPXzkoy | 0.045884531 | 0.043027745 | 0.9377 | exit_cost_exploded | cost_drift |
+
+150 marks and 10 exits persisted, all flagged `backfilled=1`.
+
+### Where the money actually went
+
+| outcome | n | net SOL | share of losses |
+| --- | --- | --- | --- |
+| liquidity_collapse | 4 | -0.199076823 | **80.1%** |
+| severe_exit_degradation | 1 | -0.027590533 | 11.1% |
+| cost_drift | 4 | -0.014641483 | 5.9% |
+| ordinary_stop_loss | 1 | -0.007073668 | 2.8% |
+
+This is the number the old label made unobtainable. Four positions out of ten
+account for four fifths of all losses, and they are not a stop-loss problem.
+Tuning `stopLossBps` or `maxExitImpactBps` against this corpus would have been
+tuning against 2.8% of the damage.
+
+### Were the collapses survivable? All four were abrupt; none was doomed at entry
+
+| position | entry mark | peak | final | worst single step | healthy for | fatal step over |
+| --- | --- | --- | --- | --- | --- | --- |
+| d68a5fc5 | 0.990 | 1.115 | 0.0092 | 105.4pp = 95% of drawdown | 17/18 marks (515s) | 30.9s |
+| c8069ef2 | 0.952 | 1.072 | 0.0000 | 86.3pp = 81% of drawdown | 37/38 marks (1131s) | 30.8s |
+| cb9b5c75 | 0.891 | 0.981 | 0.0000 | 98.1pp = 100% of drawdown | 6/7 marks (176s) | 30.9s |
+| 6f8b1e79 | 0.942 | 1.074 | 0.0094 | 106.2pp = 100% of drawdown | 17/18 marks (514s) | 31.2s |
+
+Three of the four **peaked above cost**. Every fatal step measures ~31s, which
+is exactly the mark cadence. **At this resolution we cannot distinguish a
+one-block rug from a 25-second drain**, and that is a limitation of the
+instrument, not a finding about the market. It is the direct justification for
+the P2 10s cadence and WebSocket pool monitoring.
+
+### Two further defects found while doing this
+
+**`take_profit` had never been able to fire.** Gain was measured with
+`lossBps(mark, cost)`, which is *positive* when the position is winning, and
+then tested as `-up >= takeProfitBps` — false for every possible input. Zero
+take-profits across ten positions was not evidence that none qualified.
+Replaying the corrected rule over the stored marks with no look-ahead,
+`39bb459b` crosses 6000bps at mark 13 of 19 and closes at **+0.033411329 SOL**
+instead of trailing-stopping six marks later at -0.007073668 SOL. `takeProfitBps`
+itself is unchanged at 6000. (O033, MT013.)
+
+**Positions were marked against the slippage floor.** `paper.ts` used
+`otherAmountThreshold`, which is derived from our own `slippageBps` and is not an
+observation of anything. Every mark was understated by exactly the slippage
+setting, biasing both the stop loss and the trailing stop toward early exits.
+Marks now record `outAmount` as the value and keep `otherAmountThreshold`
+beside it. (O036.)
+
+### Counterfactual, stated with its limits
+
+`scripts/counterfactual-exits.ts` replays the corrected rules over the stored
+marks. 6 of 10 positions could be priced; the other 4 ran out of marks, because
+the old exit is what ended the series and inventing a price past that point
+would be fabricating a fill. Of the 6, **5 fire on the same mark as the real
+exit — zero saving by construction.** The entire +0.041224850 SOL delta is the
+one `take_profit` position. **The corrected collapse rule rescues none of the
+four collapses.** That is the honest result, and it is why P2 is next rather
+than any threshold tuning.
+
+### Verification
+
+- `pnpm check` — 246 tests, 16 files, all pass; typecheck clean; secretscan clean.
+- Exit rules mutation-tested five ways, all caught: collapse `<=` to `<` (3 fail),
+  collapse gated behind `minHoldMs` (1), take-profit arguments swapped back to
+  the original bug (2), route check demoted below collapse (1),
+  stop-loss `>=` to `>` (1).
+- **Replay: 2000 of 2000 snapshots reproduced exactly** across the version bump,
+  via the new `--as-version=` flag. Zero divergence, so v0.3.0 is attributable
+  entirely to the exit changes and the entry path is byte-identical.
+- `pnpm doctor` — 15 checks, 0 failed, 0 warnings.
+
+A version bump previously made `pnpm replay` skip every stored snapshot and
+report zero divergences while verifying nothing; the exit code was the only
+thing separating that from a real pass. (O035.)
+
+Unit tests were also reading the operator's real `.env` — a consequence of
+closing O031 — so `tests/unit/secrets.test.ts` passed on a clean checkout and
+failed on any configured machine, printing a live key in its diff. Suppressed at
+the loader in `tests/setup.ts`. (O034.)
+
+### Still open from P1
+
+The same `Math.abs(priceImpactPct)` construction exists on the **entry** side at
+`packages/intelligence/src/gates.ts:313`. It is not fixed here because entry
+gating is P5/P6, and changing it now would confound the exit measurement.
+
+
 ## Next
 
-1. **MT011 and MT005** — why 8 of 10 exits were forced by cost. Free to
-   investigate, and it gates everything downstream.
-2. `pnpm reconcile` must take the process lock (O024) — a live hazard today.
-3. A backup that survives the WAL (O017).
-4. Clock-skew and sleep/resume detection (A17, D015, O012) — the last wholly
+1. ~~**MT011 and MT005** — why 8 of 10 exits were forced by cost.~~ **Answered
+   2026-08-12.** They were not forced by cost. One label was covering four
+   liquidity collapses, four ordinary cost drifts, and one position that was up
+   5.7%. See the P1 section above.
+2. **P2 — resolve the 31s blind spot.** Every collapse did all its damage inside
+   a single mark interval, so the corpus cannot yet say whether a prospective
+   signal existed. 10s exact full-position quotes plus Helius WebSocket pool
+   monitoring, one open position at a time, counterfactual exits recorded at
+   every mark. This is the only thing standing between us and an answer on the
+   80% of losses, and no threshold should move before it.
+3. `pnpm reconcile` must take the process lock (O024) — a live hazard today.
+4. A backup that survives the WAL (O017).
+5. Clock-skew and sleep/resume detection (A17, D015, O012) — the last wholly
    unguarded environmental assumptions.
-5. `pnpm doctor --mode=` (O023); `evidence.replayCorpus` counting divergences
+6. `pnpm doctor --mode=` (O023); `evidence.replayCorpus` counting divergences
    rather than snapshots (S022).
-6. Measure actual Helius credit burn over a week of observe mode, then decide
+7. Measure actual Helius credit burn over a week of observe mode, then decide
    whether P005/P006/P012/P013 are blocked by money or only by implementation.
    The free tier is 1M credits/month at 1 credit per standard RPC call, so the
    answer is probably "implementation" — but that is a measurement, not a guess.
