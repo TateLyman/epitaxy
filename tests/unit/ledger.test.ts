@@ -7,7 +7,8 @@ import type { Db } from '../../packages/storage/src/db.js';
 import { insertPosition, updatePosition } from '../../packages/storage/src/repo.js';
 import { AppConfigSchema } from '../../packages/domain/src/config.js';
 import type { AppConfig } from '../../packages/domain/src/config.js';
-import { restoreLedger, rollDayIfNeeded, sumRealized, utcDayStart } from '../../apps/engine/src/ledger.js';
+import { peakNav, restoreLedger, rollDayIfNeeded, sumRealized, utcDayStart } from '../../apps/engine/src/ledger.js';
+import type { Ledger } from '../../apps/engine/src/ledger.js';
 import { sizePosition } from '../../packages/strategy/src/portfolio.js';
 
 /**
@@ -185,7 +186,7 @@ describe('the halt this fixes', () => {
    */
   const tripped = -(config.risk.dailyLossCapLamports + 1n);
 
-  function refusal(ledger: { navLamports: bigint; freeLamports: bigint; realizedTodayLamports: bigint }) {
+  function refusal(ledger: Ledger) {
     return sizePosition(
       {
         navLamports: ledger.navLamports,
@@ -193,6 +194,7 @@ describe('the halt this fixes', () => {
         openPositions: 0,
         totalExposureLamports: 0n,
         realizedTodayLamports: ledger.realizedTodayLamports,
+        peakNavLamports: ledger.peakNavLamports,
       },
       config,
       1,
@@ -215,5 +217,97 @@ describe('the halt this fixes', () => {
     // Without the roll this is still `daily_loss_cap`, forever, and the only
     // cure is a restart of the process.
     expect(refusal(ledger).refusal).not.toBe('daily_loss_cap');
+  });
+});
+
+describe('peakNav', () => {
+  it('is the starting balance on an empty corpus', () => {
+    expect(peakNav(db, 10_000_000_000n)).toBe(10_000_000_000n);
+  });
+
+  it('never decreases once reached', () => {
+    closed(2_000_000_000n, TODAY + 1000); // up to 12 SOL
+    closed(-3_000_000_000n, TODAY + 2000); // back down to 9
+    expect(peakNav(db, 10_000_000_000n)).toBe(12_000_000_000n);
+  });
+
+  it('follows the close order, not the insert order', () => {
+    closed(-1_000_000_000n, TODAY + 5000); // closed later, inserted first
+    closed(2_000_000_000n, TODAY + 1000); // closed earlier
+    // By close order: +2 (peak 12), then -1 (nav 11). Peak is 12.
+    // By insert order it would be 10 -> 9 -> 11, and the peak would be 11.
+    expect(peakNav(db, 10_000_000_000n)).toBe(12_000_000_000n);
+  });
+
+  it('is the starting balance for a strategy that only ever lost', () => {
+    closed(-248_382_507n, TODAY + 1000);
+    expect(peakNav(db, 10_000_000_000n)).toBe(10_000_000_000n);
+  });
+
+  it('is what restoreLedger reports', () => {
+    closed(2_000_000_000n, TODAY + 1000);
+    closed(-3_000_000_000n, TODAY + 2000);
+    const ledger = restoreLedger(db, config, TODAY + 3000);
+    expect(ledger.peakNavLamports).toBe(config.paperStartLamports + 2_000_000_000n);
+    expect(ledger.navLamports).toBe(config.paperStartLamports - 1_000_000_000n);
+  });
+});
+
+describe('the drawdown halt', () => {
+  const pct = config.risk.drawdownHaltPct;
+
+  function sized(nav: bigint, peak: bigint) {
+    return sizePosition(
+      {
+        navLamports: nav,
+        freeLamports: nav,
+        openPositions: 0,
+        totalExposureLamports: 0n,
+        realizedTodayLamports: 0n,
+        peakNavLamports: peak,
+      },
+      config,
+      1,
+    );
+  }
+
+  it('permits entry at the peak', () => {
+    expect(sized(config.paperStartLamports, config.paperStartLamports).refusal).not.toBe('drawdown_halt');
+  });
+
+  it('halts once NAV falls the configured fraction below peak', () => {
+    const peak = config.paperStartLamports;
+    const limit = (peak * BigInt(Math.round(pct * 100))) / 10_000n;
+    expect(sized(peak - limit + 1n, peak).refusal).not.toBe('drawdown_halt');
+    expect(sized(peak - limit, peak).refusal).toBe('drawdown_halt');
+    expect(sized(peak - limit - 1n, peak).refusal).toBe('drawdown_halt');
+  });
+
+  it('measures against the peak, not the starting balance', () => {
+    // Same NAV, different history: one strategy is up overall but has given
+    // back more than the limit, the other has never been above water.
+    const peak = config.paperStartLamports * 2n;
+    const limit = (peak * BigInt(Math.round(pct * 100))) / 10_000n;
+    const nav = peak - limit;
+    expect(sized(nav, peak).refusal).toBe('drawdown_halt');
+    expect(sized(nav, nav).refusal).not.toBe('drawdown_halt');
+  });
+
+  it('is checked before the score gate, so a halted engine refuses for the real reason', () => {
+    const peak = config.paperStartLamports;
+    const limit = (peak * BigInt(Math.round(pct * 100))) / 10_000n;
+    const d = sizePosition(
+      {
+        navLamports: peak - limit,
+        freeLamports: peak - limit,
+        openPositions: 0,
+        totalExposureLamports: 0n,
+        realizedTodayLamports: 0n,
+        peakNavLamports: peak,
+      },
+      config,
+      0, // also below minOpportunityScore
+    );
+    expect(d.refusal).toBe('drawdown_halt');
   });
 });

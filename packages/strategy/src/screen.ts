@@ -90,6 +90,27 @@ export function finalizeScreen(
       stats5m: info.stats5m ?? null,
       buyQuoteId: roundTrip?.buy.quoteId ?? null,
       sellQuoteId: roundTrip?.sell?.quoteId ?? null,
+      // The authoritative on-chain holder distribution the gates actually saw.
+      //
+      // Omitting it made the decision non-re-derivable: replay had no way to
+      // know a measurement had been taken, so it re-decided against null, got
+      // `holder_concentration_unavailable` instead of `holder_concentration`,
+      // and produced a different soft-risk mean and sometimes a different hard
+      // veto. That is the snapshot being incomplete, which the invariant says
+      // is a defect, and it is fixed here rather than by teaching replay to
+      // skip the rows it cannot reproduce.
+      //
+      // `null` means measured-and-unavailable. A MISSING key means the
+      // snapshot predates this capture; replay distinguishes the two and
+      // refuses to treat the second as verified.
+      concentration:
+        concentration === null
+          ? null
+          : {
+              topWalletPct: concentration.topWalletPct,
+              topTenWalletPct: concentration.topTenWalletPct,
+              programControlledPct: concentration.programControlledPct,
+            },
     },
     freshnessMs: {
       jupiter_tokens: nowUtcMs - (parseUtc(info.updatedAt) ?? nowUtcMs),

@@ -257,6 +257,7 @@ async function tryEnter(
     openPositions: open.length,
     totalExposureLamports: open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n),
     realizedTodayLamports: ledger.realizedTodayLamports,
+    peakNavLamports: ledger.peakNavLamports,
   };
 
   const sizing = sizePosition(state, config, result.outcome.opportunityScore ?? 0);
@@ -529,6 +530,7 @@ async function manageOpenPositions(
     ledger.freeLamports += proceeds;
     ledger.navLamports += realized;
     ledger.realizedTodayLamports += realized;
+    if (ledger.navLamports > ledger.peakNavLamports) ledger.peakNavLamports = ledger.navLamports;
     exited += 1;
 
     log.info(

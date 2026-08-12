@@ -22,11 +22,11 @@
     "maxAggregatePlannedLossPct": 1,
     "dailyLossHaltPct": 1.5,
     "weeklyLossHaltPct": 4,
-    "drawdownHaltPct": 6,
+    "drawdownHaltPct": 50,
     "minSolReserveLamports": "50000000",
     "maxEntryLamports": "100000000",
     "maxTotalExposureLamports": "300000000",
-    "dailyLossCapLamports": "60000000",
+    "dailyLossCapLamports": "500000000",
     "maxPriorityFeeLamports": "1000000",
     "maxSlippageBps": 300
   },

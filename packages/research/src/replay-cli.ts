@@ -40,8 +40,20 @@ function main(): void {
   console.log(`  snapshots examined   ${summary.examined}`);
   console.log(`  replayed             ${summary.replayed}`);
   console.log(`  skipped (other ver)  ${summary.skippedOtherVersion}`);
+  console.log(`  unverifiable         ${summary.unverifiable}`);
   console.log(`  threw                ${summary.threw}`);
   console.log(`  divergent snapshots  ${summary.divergentSnapshots}`);
+
+  if (summary.unverifiable > 0) {
+    console.log(
+      `
+  ${summary.unverifiable} snapshot(s) could not be re-derived because an input the gates saw
+` +
+        `  was never captured in the row (concentration; see O042). They are counted as
+` +
+        `  unverifiable, NOT as passes. Snapshots written from this version forward carry it.`,
+    );
+  }
 
   if (summary.mismatches.length > 0) {
     const byField = new Map<string, number>();

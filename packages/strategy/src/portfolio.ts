@@ -16,6 +16,13 @@ export interface PortfolioState {
   readonly openPositions: number;
   readonly totalExposureLamports: bigint;
   readonly realizedTodayLamports: bigint;
+  /**
+   * Highest NAV this experiment has ever reached. Compared against
+   * `navLamports` to enforce `drawdownHaltPct`. Peak rather than starting NAV,
+   * so a strategy that earns and then gives it all back is halted on the give-
+   * back rather than being credited for having started low.
+   */
+  readonly peakNavLamports: bigint;
 }
 
 export type SizingRefusal =
@@ -23,6 +30,7 @@ export type SizingRefusal =
   | 'exposure_cap'
   | 'reserve_floor'
   | 'daily_loss_cap'
+  | 'drawdown_halt'
   | 'size_below_viable'
   | 'score_below_threshold';
 
@@ -74,6 +82,27 @@ export function sizePosition(
   // before sizing so that a bad day cannot be "traded back".
   if (-state.realizedTodayLamports >= risk.dailyLossCapLamports && risk.dailyLossCapLamports > 0n) {
     return refuse('daily_loss_cap', `realized ${state.realizedTodayLamports} today`);
+  }
+
+  // NAV drawdown from peak.
+  //
+  // `drawdownHaltPct` was declared in the schema and listed in
+  // SAFER_WHEN_LOWER — the tree carried machinery to refuse any override that
+  // loosened it — while no code anywhere read the value. Three of its four
+  // neighbours (maxAggregatePlannedLossPct, dailyLossHaltPct,
+  // weeklyLossHaltPct) are still in that state and are registered as O040.
+  // This one is implemented first because it is also a preregistered P8
+  // readiness gate, and because it is the backstop that lets the daily cap be
+  // sized for measurement rather than for capital preservation.
+  if (risk.drawdownHaltPct > 0 && state.peakNavLamports > 0n) {
+    const drawdown = state.peakNavLamports - state.navLamports;
+    const limit = (state.peakNavLamports * BigInt(Math.round(risk.drawdownHaltPct * 100))) / 10_000n;
+    if (drawdown >= limit) {
+      return refuse(
+        'drawdown_halt',
+        `nav ${state.navLamports} is ${drawdown} below peak ${state.peakNavLamports}; limit ${limit}`,
+      );
+    }
   }
 
   if (opportunityScore < config.minOpportunityScore) {

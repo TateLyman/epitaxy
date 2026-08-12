@@ -3,6 +3,7 @@ import type { Db } from '../../storage/src/db.js';
 import type { ExecutableQuote, RoundTrip } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import { finalizeScreen, screenCheap } from '../../strategy/src/screen.js';
+import type { ConcentrationInput } from '../../intelligence/src/gates.js';
 
 /**
  * Replay: re-decides stored snapshots and compares the result to what was
@@ -60,6 +61,12 @@ interface RawInputs {
   stats5m: Record<string, unknown> | null;
   buyQuoteId: string | null;
   sellQuoteId: string | null;
+  /**
+   * Present from the moment concentration capture was added. `null` means the
+   * measurement was attempted and unavailable; ABSENT means the snapshot is
+   * older than the capture and the decision cannot be reproduced at all.
+   */
+  concentration?: ConcentrationInput | null;
 }
 
 /**
@@ -167,10 +174,23 @@ export function replayOne(db: Db, config: AppConfig, row: SnapshotRow): Mismatch
   const { gates } = screenCheap(info, config, row.taken_utc_ms, freshness.jupiter_tokens);
   const roundTrip = roundTripFrom(db, raw, features);
 
-  // Concentration is passed as null: it was not captured in the snapshot, so
-  // replay must not invent it. Rows decided WITH a concentration measurement
-  // are excluded by the caller rather than silently compared against nothing.
-  const result = finalizeScreen(info, config, row.taken_utc_ms, gates, roundTrip, null, null);
+  // Concentration comes from the snapshot. It used to be passed as null with a
+  // comment claiming the caller excluded rows that had a measurement; the
+  // caller filtered on `strategy_version` and nothing else, so those rows were
+  // replayed against nothing and reported as divergences. 28 of them were,
+  // once the v0.3.0 bump made replay actually run again (O035, O042).
+  //
+  // `replayable()` is what now enforces the exclusion the comment described,
+  // and the CLI reports the excluded count so the gap stays visible.
+  const result = finalizeScreen(
+    info,
+    config,
+    row.taken_utc_ms,
+    gates,
+    roundTrip,
+    null,
+    raw.concentration ?? null,
+  );
 
   const out: Mismatch[] = [];
   const push = (field: string, stored: unknown, replayed: unknown): void => {
@@ -190,6 +210,35 @@ export function replayOne(db: Db, config: AppConfig, row: SnapshotRow): Mismatch
   return out;
 }
 
+/**
+ * Whether a stored decision can be re-derived from what was actually captured.
+ *
+ * A snapshot written before concentration capture existed cannot be: the gates
+ * saw an on-chain holder distribution that is nowhere in the row. Replaying it
+ * against `null` does not test determinism, it tests what happens when you
+ * delete an input — so such a row is reported as unverifiable rather than
+ * counted as either a pass or a divergence.
+ *
+ * The evidence that a measurement was taken is the presence of the
+ * `holder_concentration` gate in the stored gate list. Its unavailable twin is
+ * named `holder_concentration_unavailable`, so the check is on the exact name.
+ */
+export function replayable(row: SnapshotRow): boolean {
+  try {
+    const raw = JSON.parse(row.raw_inputs_json) as RawInputs;
+    if ('concentration' in raw) return true;
+    const gates = JSON.parse(row.gates_json) as { gate?: string }[];
+    return !gates.some((g) => g.gate === 'holder_concentration');
+  } catch {
+    // A row that will not parse is a corrupt row, not an old one. Fail CLOSED
+    // by returning it to the normal path, where replayOne throws inside the
+    // caller's try and it is recorded as a divergence. Filtering it out here
+    // would move corruption into a count labelled "unverifiable" — an
+    // explanation it has not earned.
+    return true;
+  }
+}
+
 export function snapshotRows(db: Db, limit: number): SnapshotRow[] {
   return db
     .prepare(
@@ -207,13 +256,17 @@ export interface ReplaySummary {
   readonly examined: number;
   readonly replayed: number;
   readonly skippedOtherVersion: number;
+  /** Rows whose inputs were not fully captured; neither verified nor divergent. */
+  readonly unverifiable: number;
   readonly threw: number;
   readonly divergentSnapshots: number;
   readonly mismatches: readonly Mismatch[];
 }
 
 export function replayAll(db: Db, config: AppConfig, rows: readonly SnapshotRow[]): ReplaySummary {
-  const current = rows.filter((r) => r.strategy_version === config.strategyVersion);
+  const atVersion = rows.filter((r) => r.strategy_version === config.strategyVersion);
+  const current = atVersion.filter(replayable);
+  const unverifiable = atVersion.length - current.length;
   const mismatches: Mismatch[] = [];
   let threw = 0;
 
@@ -237,7 +290,11 @@ export function replayAll(db: Db, config: AppConfig, rows: readonly SnapshotRow[
   return {
     examined: rows.length,
     replayed: current.length,
-    skippedOtherVersion: rows.length - current.length,
+    // Against `atVersion`, not `current`: an unverifiable row was not skipped
+    // for being the wrong version, and folding the two together would let the
+    // capture gap hide inside a number nobody reads closely.
+    skippedOtherVersion: rows.length - atVersion.length,
+    unverifiable,
     threw,
     divergentSnapshots: new Set(mismatches.map((m) => m.snapshotId)).size,
     mismatches,

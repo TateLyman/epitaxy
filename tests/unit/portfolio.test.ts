@@ -12,7 +12,7 @@ import type { PortfolioState } from '../../packages/strategy/src/portfolio.js';
 const base: AppConfig = AppConfigSchema.parse(JSON.parse(readFileSync('config/paper.json', 'utf8')));
 
 function state(over: Partial<PortfolioState> = {}): PortfolioState {
-  return {
+  const merged = {
     navLamports: base.paperStartLamports,
     freeLamports: base.paperStartLamports,
     openPositions: 0,
@@ -20,6 +20,11 @@ function state(over: Partial<PortfolioState> = {}): PortfolioState {
     realizedTodayLamports: 0n,
     ...over,
   };
+  // Peak defaults to the current NAV, so a test that lowers `navLamports` to
+  // describe a SMALL portfolio does not accidentally describe a portfolio in
+  // deep drawdown and trip `drawdown_halt` before the rule it meant to test.
+  // A test about drawdown passes `peakNavLamports` explicitly.
+  return { peakNavLamports: merged.navLamports, ...merged, ...over };
 }
 
 function withConfig(over: Partial<AppConfig>): AppConfig {

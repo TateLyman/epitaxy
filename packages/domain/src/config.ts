@@ -9,8 +9,15 @@ import { loadDotEnvOnce } from './dotenv.js';
  * Typed, validated configuration.
  *
  * Design rule: caps may be TIGHTENED by env/CLI but never LOOSENED beyond the
- * committed config file. `assertNotLoosened` enforces that at load time, so a
- * stray environment variable cannot quietly raise risk limits.
+ * committed config file.
+ *
+ * That rule is currently enforced by the ABSENCE of an override path, not by
+ * `assertNotLoosened`. `loadConfig` reads the committed file and returns it;
+ * nothing merges env or CLI values into `risk`, and nothing calls
+ * `assertNotLoosened`. The previous wording here claimed it was enforced at
+ * load time, which was not true and would have been believed by whoever added
+ * the first override. If an override path is ever added, it must call
+ * `assertNotLoosened` in the same change. Registered as O041.
  */
 
 export const RiskConfigSchema = z.object({

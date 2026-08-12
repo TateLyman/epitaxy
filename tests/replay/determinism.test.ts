@@ -10,7 +10,8 @@ import { loadConfig } from '../../packages/domain/src/config.js';
 import type { AppConfig } from '../../packages/domain/src/config.js';
 import { screenCheap, finalizeScreen } from '../../packages/strategy/src/screen.js';
 import type { MintInformation } from '../../packages/adapters/src/jupiter/schemas.js';
-import { replayAll, snapshotRows, replayOne, loadQuote } from '../../packages/research/src/replay.js';
+import { replayAll, snapshotRows, replayOne, loadQuote, replayable } from '../../packages/research/src/replay.js';
+import type { ConcentrationInput } from '../../packages/intelligence/src/gates.js';
 import type { SnapshotRow } from '../../packages/research/src/replay.js';
 
 /**
@@ -359,5 +360,118 @@ describe('a decision depends only on what the snapshot captured', () => {
     expect(a.eligible).toBe(b.eligible);
     expect(a.opportunity_score).toBe(b.opportunity_score);
     expect(JSON.parse(a.hard_vetoes_json)).toEqual(JSON.parse(b.hard_vetoes_json));
+  });
+});
+
+describe('concentration is part of the snapshot, not an input replay has to guess', () => {
+  /**
+   * The gates see an authoritative on-chain holder distribution. Until O042 it
+   * was not written to the row, so replay re-decided against null, produced
+   * `holder_concentration_unavailable` in place of `holder_concentration`, and
+   * reported a different soft-risk mean. 28 live rows diverged this way the
+   * moment the v0.3.0 bump let replay run again.
+   *
+   * These tests are about the ROUND TRIP: what the gates saw must come back.
+   */
+
+  /** Records a decision taken WITH a concentration measurement. */
+  function recordWithConcentration(c: ConcentrationInput | null, over: Partial<MintInformation> = {}): string {
+    const info = token(over);
+    const { gates } = screenCheap(info, config, NOW, 0);
+    const result = finalizeScreen(info, config, NOW, gates, null, null, c);
+    insertSnapshot(db, result.snapshot);
+    insertScreening(db, result.outcome);
+    return result.snapshot.snapshotId;
+  }
+
+  it('reproduces a decision that used a concentration measurement', () => {
+    recordWithConcentration({ topWalletPct: 8, topTenWalletPct: 25, programControlledPct: 60 });
+    const summary = replayAll(db, config, rows());
+    expect(summary.unverifiable).toBe(0);
+    expect(summary.replayed).toBe(1);
+    expect(summary.mismatches).toEqual([]);
+  });
+
+  it('reproduces a concentrated_ownership veto rather than losing it', () => {
+    // Above maxTopHolderPct, so the stored decision carries a hard veto that
+    // a replay against null could not produce.
+    recordWithConcentration({ topWalletPct: 40, topTenWalletPct: 95, programControlledPct: 1 });
+    const stored = rows()[0]!;
+    expect(JSON.parse(stored.hard_vetoes_json)).toContain('concentrated_ownership');
+    expect(replayOne(db, config, stored)).toEqual([]);
+  });
+
+  it('distinguishes measured-and-unavailable from never-measured', () => {
+    recordWithConcentration(null);
+    const stored = rows()[0]!;
+    const raw = JSON.parse(stored.raw_inputs_json) as Record<string, unknown>;
+    expect('concentration' in raw).toBe(true);
+    expect(raw['concentration']).toBeNull();
+    expect(replayOne(db, config, stored)).toEqual([]);
+  });
+
+  it('does not silently drop a concentration measurement that disagrees', () => {
+    // Two decisions differing ONLY in concentration must not replay alike; if
+    // they did, the field would be arriving nowhere.
+    const low = recordWithConcentration(
+      { topWalletPct: 2, topTenWalletPct: 10, programControlledPct: 80 },
+      { id: 'mintLow'.padEnd(43, 'x') },
+    );
+    const high = recordWithConcentration(
+      { topWalletPct: 30, topTenWalletPct: 60, programControlledPct: 5 },
+      { id: 'mintHigh'.padEnd(43, 'x') },
+    );
+    const all = rows();
+    const a = all.find((r) => r.snapshot_id === low)!;
+    const b = all.find((r) => r.snapshot_id === high)!;
+    expect(a.soft_risk_score).not.toBe(b.soft_risk_score);
+    expect(replayAll(db, config, all).mismatches).toEqual([]);
+  });
+});
+
+describe('a snapshot missing an input it depended on is unverifiable, not a pass', () => {
+  /** Strips the concentration key, reproducing a pre-O042 row. */
+  function stripConcentration(row: SnapshotRow): SnapshotRow {
+    const raw = JSON.parse(row.raw_inputs_json) as Record<string, unknown>;
+    delete raw['concentration'];
+    return { ...row, raw_inputs_json: JSON.stringify(raw) };
+  }
+
+  function recorded(c: ConcentrationInput | null): SnapshotRow {
+    const info = token();
+    const { gates } = screenCheap(info, config, NOW, 0);
+    const result = finalizeScreen(info, config, NOW, gates, null, null, c);
+    insertSnapshot(db, result.snapshot);
+    insertScreening(db, result.outcome);
+    return rows()[0]!;
+  }
+
+  it('counts a stripped row as unverifiable rather than divergent', () => {
+    const row = stripConcentration(recorded({ topWalletPct: 8, topTenWalletPct: 25, programControlledPct: 60 }));
+    expect(replayable(row)).toBe(false);
+
+    const summary = replayAll(db, config, [row]);
+    expect(summary.unverifiable).toBe(1);
+    expect(summary.replayed).toBe(0);
+    expect(summary.divergentSnapshots).toBe(0);
+    // And critically: not counted as a version skip, where it would vanish.
+    expect(summary.skippedOtherVersion).toBe(0);
+  });
+
+  it('still replays a stripped row whose gates show no measurement was taken', () => {
+    // No concentration was ever measured, so nothing is missing and the row is
+    // fully reproducible. Excluding it would be the O035 failure: verifying
+    // less while reporting success.
+    const row = stripConcentration(recorded(null));
+    expect(replayable(row)).toBe(true);
+    const summary = replayAll(db, config, [row]);
+    expect(summary.unverifiable).toBe(0);
+    expect(summary.replayed).toBe(1);
+    expect(summary.mismatches).toEqual([]);
+  });
+
+  it('a row that carries the key is replayable whatever its gates say', () => {
+    expect(replayable(recorded({ topWalletPct: 8, topTenWalletPct: 25, programControlledPct: 60 }))).toBe(true);
+    expect(replayable(recorded(null))).toBe(true);
   });
 });

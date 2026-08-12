@@ -16,6 +16,8 @@ export interface Ledger {
   freeLamports: bigint;
   realizedTodayLamports: bigint;
   dayStartUtcMs: number;
+  /** Highest NAV reached, for `drawdownHaltPct`. Never decreases. */
+  peakNavLamports: bigint;
 }
 
 /** Midnight UTC of the day containing `utcMs`. */
@@ -48,6 +50,30 @@ export function sumRealized(db: Db, closedSinceUtcMs: number | null): bigint {
 }
 
 /**
+ * Highest NAV the experiment has ever reached, replayed from the close order.
+ *
+ * Derived rather than stored so it cannot drift from the position table, and
+ * so a restart recovers the same peak the process had before it died. Realised
+ * P&L only, which is what `navLamports` is also built from — marking open
+ * positions into the peak would let an unrealised spike raise the bar that a
+ * later drawdown is measured against.
+ */
+export function peakNav(db: Db, startLamports: bigint): bigint {
+  const rows = db
+    .prepare(
+      'SELECT realized_lamports AS r FROM positions WHERE realized_lamports IS NOT NULL ORDER BY closed_utc_ms',
+    )
+    .all() as { r: string }[];
+  let nav = startLamports;
+  let peak = startLamports;
+  for (const row of rows) {
+    nav += BigInt(row.r);
+    if (nav > peak) peak = nav;
+  }
+  return peak;
+}
+
+/**
  * Reconstructs NAV from persisted positions and fills so a restart does not
  * silently reset the experiment to a fresh, flattering starting balance.
  */
@@ -61,6 +87,7 @@ export function restoreLedger(db: Db, config: AppConfig, nowUtcMs: number): Ledg
     freeLamports: nav - exposure,
     realizedTodayLamports: sumRealized(db, dayStart),
     dayStartUtcMs: dayStart,
+    peakNavLamports: peakNav(db, config.paperStartLamports),
   };
 }
 
