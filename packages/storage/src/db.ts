@@ -503,6 +503,219 @@ CREATE INDEX IF NOT EXISTS idx_build_status ON build_attempts(build_status);
 CREATE INDEX IF NOT EXISTS idx_build_time ON build_attempts(requested_utc_ms);
 `,
   },
+  {
+    id: 7,
+    name: 'provenance_raw_payloads_diagnostics',
+    sql: `
+-- P2a.1 §P2.1 — what produced a row.
+--
+-- The window this session was called to repair pooled five incompatible
+-- regimes into one average: strategy v0.2 with v0.3, pre-O042 snapshots with
+-- post-O042 ones, 31-second marks with 10.5-second marks, a 0.06 SOL / 6% risk
+-- policy with 0.5 SOL / 50%, and quote-only fills with build-validated fills.
+-- Each of those changes what a row MEANS and none of them was on the row.
+--
+-- Stored once and referenced by hash rather than copied as eight columns onto
+-- nine tables. A report that wants to pool two regimes has to join through a
+-- key that makes the pooling visible.
+CREATE TABLE IF NOT EXISTS run_contexts (
+  context_hash          TEXT PRIMARY KEY,
+  source_commit         TEXT NOT NULL,
+  strategy_version      TEXT NOT NULL,
+  strategy_config_hash  TEXT NOT NULL,
+  risk_policy_hash      TEXT NOT NULL,
+  schema_version        TEXT NOT NULL,
+  paper_engine_version  TEXT NOT NULL,
+  quote_adapter_version TEXT NOT NULL,
+  data_regime_id        TEXT NOT NULL,
+  mode                  TEXT NOT NULL,
+  first_seen_utc_ms     INTEGER NOT NULL,
+  last_seen_utc_ms      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_context_regime ON run_contexts(data_regime_id);
+
+-- P2a.1 §P1.1 — "persist the raw response or a durable raw blob plus hash.
+-- Never preserve only the derived number."
+--
+-- Every derived field in this database is one parser bug away from being
+-- wrong, and until now a parser bug was unrecoverable: the number was stored
+-- and the bytes it came from were discarded. This table is what makes a
+-- reclassification of history possible at all.
+--
+-- Deduplicated by payload hash. Two identical responses are one row; the
+-- reference count says how many observations depended on it.
+CREATE TABLE IF NOT EXISTS raw_payloads (
+  payload_hash      TEXT PRIMARY KEY,
+  source            TEXT NOT NULL,
+  endpoint          TEXT NOT NULL,
+  first_seen_utc_ms INTEGER NOT NULL,
+  last_seen_utc_ms  INTEGER NOT NULL,
+  ref_count         INTEGER NOT NULL DEFAULT 1,
+  byte_length       INTEGER NOT NULL,
+  body              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payload_seen ON raw_payloads(first_seen_utc_ms);
+
+-- P2a.1 §P3.2 — the UTC day, persisted rather than held in a resettable
+-- accumulator.
+--
+-- \`dayStartUtcMs\` used to live only in memory, was set once at startup and read
+-- by nothing (O037), so the daily loss cap was permanent rather than daily.
+-- Deriving the day's realized PnL from immutable closed positions keyed by an
+-- explicit UTC date makes a rollover idempotent: running it twice, or at
+-- midnight, or after a backwards clock step, recomputes the same number from
+-- the same rows instead of zeroing a counter.
+CREATE TABLE IF NOT EXISTS daily_accounting (
+  utc_date            TEXT PRIMARY KEY,
+  day_start_utc_ms    INTEGER NOT NULL,
+  realized_lamports   TEXT NOT NULL,
+  positions_closed    INTEGER NOT NULL,
+  rolled_utc_ms       INTEGER NOT NULL,
+  context_hash        TEXT
+);
+
+-- P2a.1 §P3.1 — both clocks, at every checkpoint.
+--
+-- A checkpoint that stores only wall time cannot detect that wall time moved.
+-- Monotonic milliseconds are process-relative, so a row is only comparable with
+-- another row from the same pid; that is exactly the comparison a resume
+-- detector needs, and the pid column is what stops a cross-process comparison
+-- being attempted.
+CREATE TABLE IF NOT EXISTS clock_checkpoints (
+  checkpoint_id   TEXT PRIMARY KEY,
+  pid             INTEGER NOT NULL,
+  monotonic_ms    REAL NOT NULL,
+  wall_utc_ms     INTEGER NOT NULL,
+  wall_delta_ms   INTEGER,
+  monotonic_delta_ms REAL,
+  skew_ms         REAL,
+  discontinuity   TEXT,
+  detail          TEXT,
+  resync_required INTEGER NOT NULL DEFAULT 0,
+  resync_done_utc_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_clock_wall ON clock_checkpoints(wall_utc_ms);
+
+-- Provenance keys. Nullable because every row written before this migration
+-- genuinely has no context, and back-filling a guess would destroy the one
+-- property the column exists to provide.
+ALTER TABLE decision_snapshots ADD COLUMN context_hash TEXT;
+ALTER TABLE screenings        ADD COLUMN context_hash TEXT;
+ALTER TABLE quotes            ADD COLUMN context_hash TEXT;
+ALTER TABLE positions         ADD COLUMN context_hash TEXT;
+ALTER TABLE fills             ADD COLUMN context_hash TEXT;
+ALTER TABLE position_marks    ADD COLUMN context_hash TEXT;
+ALTER TABLE position_exits    ADD COLUMN context_hash TEXT;
+ALTER TABLE build_attempts    ADD COLUMN context_hash TEXT;
+
+-- P2a.1 §P1.1 — the impact fields, separated so that no single signed number
+-- has to mean three things.
+--
+-- \`raw_price_impact_pct\` already exists on this table and keeps its meaning:
+-- the signed fraction exactly as delivered. What was missing is the
+-- non-negative quantity an exit rule is allowed to compare against a cap, and
+-- the record of whether the field could be read at all. See
+-- packages/domain/src/impact.ts for why negative is ordinary rather than
+-- corrupt.
+ALTER TABLE position_marks ADD COLUMN raw_impact_source_field TEXT;
+ALTER TABLE position_marks ADD COLUMN raw_impact_string       TEXT;
+ALTER TABLE position_marks ADD COLUMN impact_schema_status    TEXT;
+ALTER TABLE position_marks ADD COLUMN adverse_impact_bps      REAL;
+ALTER TABLE position_marks ADD COLUMN favourable_impact_bps   REAL;
+ALTER TABLE position_marks ADD COLUMN impact_parser_version   TEXT;
+
+-- The executable economics, named without ambiguity.
+ALTER TABLE position_marks ADD COLUMN executable_sell_value_lamports TEXT;
+ALTER TABLE position_marks ADD COLUMN all_in_cost_lamports           TEXT;
+ALTER TABLE position_marks ADD COLUMN executable_value_ratio_bps     INTEGER;
+ALTER TABLE position_marks ADD COLUMN signed_mark_return_bps         INTEGER;
+ALTER TABLE position_marks ADD COLUMN round_trip_route_loss_bps      INTEGER;
+ALTER TABLE position_marks ADD COLUMN quote_age_ms                   INTEGER;
+ALTER TABLE position_marks ADD COLUMN route_exists                   INTEGER;
+ALTER TABLE position_marks ADD COLUMN route_buildable                INTEGER;
+ALTER TABLE position_marks ADD COLUMN raw_payload_hash               TEXT;
+
+-- P2a.1 §P1.2 — the diagnostic, mutually exclusive and separate from both the
+-- trigger rule and the economic outcome.
+ALTER TABLE position_marks ADD COLUMN diagnostic         TEXT;
+ALTER TABLE position_marks ADD COLUMN diagnostic_detail  TEXT;
+ALTER TABLE position_marks ADD COLUMN diagnostic_version TEXT;
+
+ALTER TABLE position_exits ADD COLUMN diagnostic         TEXT;
+ALTER TABLE position_exits ADD COLUMN diagnostic_detail  TEXT;
+ALTER TABLE position_exits ADD COLUMN diagnostic_version TEXT;
+ALTER TABLE position_exits ADD COLUMN executable_value_ratio_bps INTEGER;
+
+-- P2a.1 §P5 — ATA rent as locked capital.
+--
+-- \`ata_rent_refunded\` already exists as a nullable boolean and was never
+-- populated by paper. These replace the guess with an audit trail: what was
+-- locked, whether a close was even possible, what it cost, and — the field the
+-- old model had no way to express — why the rent was NOT returned.
+ALTER TABLE position_exits ADD COLUMN ata_created                   INTEGER;
+ALTER TABLE position_exits ADD COLUMN ata_rent_locked_lamports      TEXT;
+ALTER TABLE position_exits ADD COLUMN ata_close_buildable           INTEGER;
+ALTER TABLE position_exits ADD COLUMN ata_close_simulated           INTEGER;
+ALTER TABLE position_exits ADD COLUMN ata_close_attempted           INTEGER;
+ALTER TABLE position_exits ADD COLUMN ata_close_confirmed           INTEGER;
+ALTER TABLE position_exits ADD COLUMN ata_rent_recovered_lamports   TEXT;
+ALTER TABLE position_exits ADD COLUMN ata_close_fee_lamports        TEXT;
+ALTER TABLE position_exits ADD COLUMN ata_close_failure_reason      TEXT;
+ALTER TABLE position_exits ADD COLUMN withheld_transfer_fee_lamports TEXT;
+ALTER TABLE position_exits ADD COLUMN residual_token_amount         TEXT;
+ALTER TABLE position_exits ADD COLUMN ata_accounting_version        TEXT;
+
+-- P2a.1 §P4 — the fees the response actually reported, not the ones we assumed.
+--
+-- Official documentation lists 50bps for tokens younger than 24 hours; a live
+-- probe measured 10bps. Neither is a fact about a specific trade. The response
+-- for each order is, and until now it was parsed and thrown away.
+ALTER TABLE position_exits ADD COLUMN actual_fee_bps                 INTEGER;
+ALTER TABLE position_exits ADD COLUMN actual_fee_mint                TEXT;
+ALTER TABLE position_exits ADD COLUMN actual_platform_fee_amount     TEXT;
+ALTER TABLE position_exits ADD COLUMN actual_platform_fee_bps        INTEGER;
+ALTER TABLE position_exits ADD COLUMN actual_signature_fee_lamports  TEXT;
+ALTER TABLE position_exits ADD COLUMN actual_prioritization_fee_lamports TEXT;
+ALTER TABLE position_exits ADD COLUMN actual_rent_fee_lamports       TEXT;
+
+ALTER TABLE quotes ADD COLUMN fee_mint                    TEXT;
+ALTER TABLE quotes ADD COLUMN platform_fee_amount         TEXT;
+ALTER TABLE quotes ADD COLUMN raw_payload_hash            TEXT;
+ALTER TABLE quotes ADD COLUMN impact_schema_status        TEXT;
+ALTER TABLE quotes ADD COLUMN adverse_impact_bps          REAL;
+
+-- P2a.1 §P2.2 — two ledgers from the same immutable signals.
+--
+-- \`portfolio_paper\` is the deployable policy: one wallet, one position at a
+-- time, every risk cap enforced. \`alpha_shadow\` follows every eligible signal
+-- and ignores the portfolio caps FOR MEASUREMENT ONLY, so that token-selection
+-- and exit quality can be estimated without loss-dependent censoring — the
+-- engine stopped taking entries after a bad day, so the days that followed a
+-- loss are systematically missing from the sample, which is missing-not-at-
+-- random and biases every estimate built on it.
+--
+-- The shadow ledger is not a wallet and can never be reported as one. The
+-- \`ledger\` column is what stops the two being summed by accident.
+CREATE TABLE IF NOT EXISTS ledger_entries (
+  entry_id            TEXT PRIMARY KEY,
+  ledger              TEXT NOT NULL CHECK (ledger IN ('portfolio_paper','alpha_shadow')),
+  position_id         TEXT,
+  mint                TEXT NOT NULL,
+  event               TEXT NOT NULL,
+  utc_ms              INTEGER NOT NULL,
+  notional_lamports   TEXT,
+  realized_lamports   TEXT,
+  nav_lamports        TEXT,
+  free_lamports       TEXT,
+  locked_rent_lamports TEXT,
+  refusal             TEXT,
+  detail              TEXT,
+  context_hash        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_kind ON ledger_entries(ledger, utc_ms);
+CREATE INDEX IF NOT EXISTS idx_ledger_position ON ledger_entries(position_id);
+`,
+  },
 ];
 
 export interface OpenOptions {
@@ -632,4 +845,16 @@ export class ProcessLock {
  */
 export function hostnameSafe(): string {
   return process.env['COMPUTERNAME'] ?? process.env['HOSTNAME'] ?? 'unknown';
+}
+
+/**
+ * Highest applied migration, as the schema version stamped onto observations.
+ *
+ * Read from the database rather than from `MIGRATIONS.length`, because the
+ * question a provenance record has to answer is what shape the data ACTUALLY
+ * had when the row was written, not what shape the code believes it should.
+ */
+export function schemaVersion(db: Db): string {
+  const r = db.prepare('SELECT COALESCE(MAX(id), 0) AS v FROM schema_migrations').get() as { v: number };
+  return `schema-v${r.v}`;
 }

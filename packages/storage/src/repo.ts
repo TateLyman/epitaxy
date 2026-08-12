@@ -122,14 +122,23 @@ export function insertScreening(db: Db, o: ScreeningOutcome): string {
   return id;
 }
 
-export function insertQuote(db: Db, mint: string, side: 'buy' | 'sell', q: ExecutableQuote): void {
+export function insertQuote(
+  db: Db,
+  mint: string,
+  side: 'buy' | 'sell',
+  q: ExecutableQuote,
+  /** Hash of the stored raw body, when the caller persisted one. */
+  rawPayloadHash: string | null = null,
+  contextHash: string | null = null,
+): void {
   db.prepare(
     `INSERT INTO quotes
       (quote_id,mint,input_mint,output_mint,in_amount,out_amount,other_amount_threshold,slippage_bps,
        platform_fee_bps,price_impact_pct,router,route_labels,signature_fee_lamports,
        prioritization_fee_lamports,rent_fee_lamports,transaction_buildable,error_code,error_message,
-       requested_utc_ms,received_utc_ms,latency_ms,side)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       requested_utc_ms,received_utc_ms,latency_ms,side,
+       fee_mint,platform_fee_amount,raw_payload_hash,impact_schema_status,adverse_impact_bps,context_hash)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(quote_id) DO NOTHING`,
   ).run(
     q.quoteId,
@@ -154,6 +163,14 @@ export function insertQuote(db: Db, mint: string, side: 'buy' | 'sell', q: Execu
     q.receivedUtcMs,
     q.latencyMs,
     side,
+    q.feeMint,
+    q.platformFeeAmount === null ? null : q.platformFeeAmount.toString(),
+    rawPayloadHash,
+    // Recorded even when OK, so "the parser was satisfied" is a stored fact
+    // rather than an inference drawn from the absence of a complaint.
+    q.impact.status,
+    q.impact.adverseBps,
+    contextHash,
   );
 }
 
@@ -924,10 +941,24 @@ export interface BuildAttempt {
   expireAt: number | null;
   quoteContextSlot: number | null;
   buildContextSlot: number | null;
-  /** NULL until the decoder is wired. Never defaulted to a pass. */
+  /**
+   * Result of the instruction-level policy decoder, or NULL when it did not
+   * run. Never defaulted to a pass, and never widened to imply the full signer
+   * check: the label carries its own coverage, see
+   * packages/solana/src/instructionpolicy.ts.
+   */
   policyStatus: string | null;
-  /** NULL until a local SVM fixture exists. Never defaulted to a pass. */
+  /**
+   * NULL until a local SVM fixture exists.
+   *
+   * Deliberately still NULL in this build. A mainnet simulation cannot be run
+   * for a paper sell: the taker does not own the hypothetical tokens, so
+   * simulateTransaction fails for a reason that says nothing about the route.
+   * Claiming a pass here from the buy leg, or downgrading silently to the
+   * quote, are the two failures the directive names by name.
+   */
   simulationStatus: string | null;
+  contextHash: string | null;
 }
 
 export function insertBuildAttempt(db: Db, b: BuildAttempt): void {
@@ -938,8 +969,8 @@ export function insertBuildAttempt(db: Db, b: BuildAttempt): void {
        build_endpoint,build_router,build_request_id,build_status,build_error_code,build_error_class,
        instruction_count,program_ids,has_setup,has_cleanup,
        transaction_bytes_hash,last_valid_block_height,expire_at,quote_context_slot,build_context_slot,
-       policy_status,simulation_status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       policy_status,simulation_status,context_hash)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     b.buildId,
     b.mint,
@@ -971,6 +1002,7 @@ export function insertBuildAttempt(db: Db, b: BuildAttempt): void {
     b.buildContextSlot,
     b.policyStatus,
     b.simulationStatus,
+    b.contextHash,
   );
 }
 

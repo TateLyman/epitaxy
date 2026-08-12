@@ -10,11 +10,10 @@ import { haltState, exitManagementActive, mayTerminate } from '../../../packages
 import type { AppConfig } from '../../../packages/domain/src/config.js';
 import { LAMPORTS_PER_SOL, WSOL_MINT } from '../../../packages/domain/src/types.js';
 import type { Fill, Position } from '../../../packages/domain/src/types.js';
-import { openDb, ProcessLock } from '../../../packages/storage/src/db.js';
+import { openDb, ProcessLock, schemaVersion } from '../../../packages/storage/src/db.js';
 import type { Db } from '../../../packages/storage/src/db.js';
 import {
   counters,
-  insertBuildAttempt,
   insertFill,
   insertPosition,
   insertPositionExit,
@@ -26,10 +25,29 @@ import {
   recordSourceHealth,
   updatePosition,
 } from '../../../packages/storage/src/repo.js';
+import {
+  annotateExit,
+  insertLedgerEntry,
+  markResyncDone,
+  outstandingResync,
+  recordClockCheckpoint,
+  recordMarkAnalysis,
+  stampContext,
+  storeRawPayload,
+  upsertRunContext,
+} from '../../../packages/storage/src/provenance-repo.js';
 import { ACCOUNTING_VERSION, classifyExit } from '../../../packages/domain/src/exitoutcome.js';
 import type { TriggerRule } from '../../../packages/domain/src/exitoutcome.js';
+import { diagnoseExit, executableValueRatioBps } from '../../../packages/domain/src/exitdiagnostic.js';
+
+import { ATA_ACCOUNTING_VERSION, settleAtaRent } from '../../../packages/domain/src/ata.js';
+import type { AtaState } from '../../../packages/domain/src/ata.js';
+import { buildRunContext } from '../../../packages/domain/src/provenance.js';
+import { Cadence, detectDiscontinuity, readClock, monotonicMs } from '../../../packages/domain/src/clock.js';
+import type { ClockReading } from '../../../packages/domain/src/clock.js';
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
 import { JupiterClient } from '../../../packages/adapters/src/jupiter/client.js';
+import { SCHEMA_VERSION as JUPITER_SCHEMA_VERSION } from '../../../packages/adapters/src/jupiter/schemas.js';
 import { SourceFetchError } from '../../../packages/adapters/src/http.js';
 import { SolanaRpc } from '../../../packages/solana/src/rpc.js';
 import { emptyStats, runCycle } from '../../../packages/pipeline/src/cycle.js';
@@ -40,34 +58,44 @@ import { logger, sanitizeExternal } from '../../../packages/observability/src/lo
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
+import { checkLeg } from './buildleg.js';
 
 /**
  * Paper mode.
  *
  * Runs the identical screening pipeline as observe, then maintains simulated
  * positions against REAL executable quotes. Nothing here is signed or sent:
- * quotes are requested without `taker`, so no signable transaction can even be
- * returned to this process.
+ * the process holds no key for any address, and paper mode refuses to start if
+ * one is configured.
  *
  * Fill honesty rules, applied without exception:
+ *  - BOTH legs must be structurally buildable. An entry may only be booked when
+ *    `/swap/v2/build` returns an instruction set that passes the same program
+ *    allowlist, instruction cap, signer rule and priority-fee cap the executor
+ *    enforces; an exit may only be booked on the same terms. Until P2a.1 the
+ *    entry leg was gated and the exit leg was not, so a position could be
+ *    opened on a proven route and closed against a price nobody had shown could
+ *    be traded;
  *  - an ENTRY fill uses the quote's `otherAmountThreshold` — the worst amount
  *    the router guarantees at that slippage — never the optimistic `outAmount`,
  *    so we never credit ourselves tokens a live buy might not have received;
- *  - an EXIT is valued at `outAmount`, the router's expected output. This is
- *    deliberately the other field, and the asymmetry is the conservative
- *    direction in both cases. `otherAmountThreshold` is derived from our own
- *    `slippageBps` and is therefore not an observation of the market at all;
- *    marking an open position against it subtracted a constant `slippageBps`
- *    from every mark and made a position look impaired by an amount we had
- *    chosen ourselves. Exit slippage is modelled where slippage belongs — in
- *    the cost model — not smuggled into the price;
- *  - priority fee and ATA rent are charged on entry even though no transaction
- *    was sent, because a live entry would pay them;
+ *  - an EXIT is valued at `outAmount`, the router's expected output. The
+ *    asymmetry is the conservative direction in both cases:
+ *    `otherAmountThreshold` is derived from our own `slippageBps` and is
+ *    therefore not an observation of the market at all, so marking an open
+ *    position against it subtracted a constant we had chosen ourselves. Exit
+ *    slippage is modelled where slippage belongs — in the cost model;
+ *  - priority fee is charged on entry even though no transaction was sent,
+ *    because a live entry would pay it;
+ *  - ATA rent is LOCKED, not spent, and is credited back only when a close
+ *    would be structurally valid. It never is in paper, because withheld
+ *    transfer fees are unobserved, so recovery is zero and says why;
  *  - the modelled new-token fee is the DOCUMENTED 50 bps, not the 10 bps we
  *    measured, so paper results cannot be flattered by an unexplained discount.
+ *    The fee the response actually reported is persisted beside it.
  *
- * A paper P&L that would not survive being wrong about those four things is
- * not evidence of anything.
+ * A paper P&L that would not survive being wrong about those things is not
+ * evidence of anything.
  */
 
 const log = logger.child({ app: 'paper' });
@@ -95,6 +123,23 @@ async function main(): Promise<void> {
     throw new Error(`another engine holds the lock (pid=${held.heldBy}, heartbeat ${held.ageMs}ms ago)`);
   }
 
+  // Provenance first, so every row this process writes can say what produced
+  // it. A dirty tree is reported as dirty rather than attributed to HEAD.
+  const ctx = buildRunContext(config, {
+    schemaVersion: schemaVersion(db),
+    quoteSchemaVersion: JUPITER_SCHEMA_VERSION,
+    nowUtcMs: Date.now(),
+  });
+  const contextHash = upsertRunContext(db, ctx, config.mode);
+  if (ctx.sourceCommit.endsWith('+dirty')) {
+    recordHealth(
+      db,
+      'dirty_tree',
+      'warn',
+      'engine started from a working tree with uncommitted changes; rows are tagged +dirty and are not confirmatory data',
+    );
+  }
+
   const limiter = RateLimiter.fromConfig(secrets.jupiterApiKey !== null);
   const jupiter = new JupiterClient({ limiter, apiKey: secrets.jupiterApiKey });
   const rpc = new SolanaRpc(limiter, { primary: secrets.rpcHttp, fallback: secrets.rpcHttpFallback });
@@ -112,10 +157,25 @@ async function main(): Promise<void> {
   }
 
   const ledger = restoreLedger(db, config, Date.now());
+
+  // A discontinuity recorded by a previous process is still outstanding for
+  // this one. A replacement process is not evidence that the world stopped
+  // moving while the old one was gone.
+  let pendingResync = outstandingResync(db);
+  if (pendingResync !== null) {
+    log.warn(
+      { detail: pendingResync.detail, atUtcMs: pendingResync.wallUtcMs },
+      'unresolved clock discontinuity from a previous run — entries blocked until reconciliation',
+    );
+  }
+
   log.info(
     {
       mode: config.mode,
       strategyVersion: config.strategyVersion,
+      contextHash: contextHash.slice(0, 12),
+      dataRegimeId: ctx.dataRegimeId,
+      sourceCommit: ctx.sourceCommit.slice(0, 12),
       navSol: formatAmount(ledger.navLamports, 9),
       openPositions: openPositions(db).length,
       maxQuotesPerCycle: config.maxQuotesPerCycle,
@@ -134,19 +194,38 @@ async function main(): Promise<void> {
 
   const seen = new Set<string>();
   let cycle = 0;
+
+  // Cadence is driven by the MONOTONIC clock. Wall time is used only for day
+  // boundaries, logging and stored timestamps. Before P3 every schedule ran off
+  // `Date.now()`, so an NTP step or a laptop resume made the loop fire
+  // immediately and repeatedly against a 0.5 RPS budget.
+  //
   // Discovery is expensive and slow-moving; marking an open position is cheap
-  // and urgent. Before P2 they shared one interval, so the mark cadence was
-  // whatever discovery happened to be — 31s in the observed corpus, which is
-  // wider than the entire lifetime of every collapse we have measured. The loop
-  // now ticks at the mark cadence and discovery runs on its own schedule.
-  let lastDiscoveryUtcMs = 0;
+  // and urgent. Before P2a they shared one interval, so the mark cadence was
+  // whatever discovery happened to be — 31s in the observed corpus, wider than
+  // the entire lifetime of every collapse we have measured.
+  const discovery = new Cadence(config.discoveryIntervalMs, 'discovery');
+  let lastClock: ClockReading = readClock();
   // A halt is announced once, not every 10s for as long as the file exists.
   let haltAnnounced = false;
 
   while (!stop) {
-    const started = Date.now();
+    const now = readClock();
+    const started = now.wallUtcMs;
     cycle += 1;
     let stats = emptyStats();
+
+    // Compare the two clocks before anything else uses either of them.
+    const skew = detectDiscontinuity(lastClock, now, config.maxClockSkewMs);
+    if (skew.discontinuity !== null) {
+      const checkpointId = recordClockCheckpoint(db, now, skew, true);
+      recordHealth(db, 'clock_discontinuity', 'critical', `${skew.discontinuity}: ${skew.detail}`);
+      log.error({ discontinuity: skew.discontinuity, skewMs: Math.round(skew.skewMs) }, 'clock discontinuity');
+      pendingResync = { checkpointId, detail: skew.detail, wallUtcMs: now.wallUtcMs };
+      // Every cadence reading predates the gap, so its age means nothing.
+      discovery.reset();
+    }
+    lastClock = now;
 
     // Checked every cycle, before any work. A switch consulted only at startup
     // cannot stop a process that is already running, which is the only case
@@ -192,43 +271,63 @@ async function main(): Promise<void> {
     }
 
     // The daily loss cap is a DAILY cap, so someone has to notice the day
-    // ended. `dayStartUtcMs` used to be set once in `restoreLedger` and read
-    // by nothing, which made the cap permanent rather than daily: paper mode
-    // had been halted for the whole measurement window with 145 eligible
-    // candidates and zero open positions, and the only cure was a restart.
-    if (rollDayIfNeeded(db, ledger, started)) {
+    // ended. `dayStartUtcMs` used to be set once in `restoreLedger` and read by
+    // nothing, which made the cap permanent rather than daily.
+    const roll = rollDayIfNeeded(db, ledger, started, contextHash);
+    if (roll.rolled) {
       log.info(
-        { dayStartUtcMs: ledger.dayStartUtcMs, realizedTodaySol: formatAmount(ledger.realizedTodayLamports, 9) },
-        'UTC day rolled — daily loss budget reset',
+        {
+          utcDate: ledger.utcDate,
+          daysSkipped: roll.daysSkipped,
+          wentBackward: roll.wentBackward,
+          realizedTodaySol: formatAmount(ledger.realizedTodayLamports, 9),
+        },
+        'UTC day rolled — daily loss budget recomputed from closed positions',
       );
+      if (roll.wentBackward) {
+        recordHealth(db, 'utc_day_backward', 'warn', `day key moved back ${-roll.daysSkipped} day(s); no counter was reset`);
+      }
     }
 
     // Exits run FIRST, every cycle, before any entry may compete for the quote
-    // budget. Getting out is always more urgent than getting in.
+    // budget. Getting out is always more urgent than getting in — and after
+    // P4 that is enforced by the rate limiter as well as by ordering.
     let exits = 0;
     try {
-      exits = await manageOpenPositions(db, jupiter, config, ledger);
+      exits = await manageOpenPositions(db, jupiter, config, ledger, taker, contextHash);
     } catch (e) {
       log.error({ err: (e as Error).message }, 'exit management failed');
       recordHealth(db, 'exit_management_error', 'critical', (e as Error).message);
     }
 
+    // Reconciliation after a discontinuity: every open position has now been
+    // re-quoted from a fresh executable route and re-marked above, and the
+    // database is checked below. Only then are entries allowed again.
+    if (pendingResync !== null) {
+      const integrity = (db.prepare('PRAGMA integrity_check').all() as { integrity_check: string }[])[0];
+      if (integrity?.integrity_check === 'ok') {
+        markResyncDone(db, pendingResync.checkpointId, Date.now());
+        recordHealth(db, 'clock_resync_complete', 'info', 'positions re-marked from fresh routes; entries re-enabled');
+        log.info('clock resync complete — entries re-enabled');
+        pendingResync = null;
+      } else {
+        log.error({ integrity: integrity?.integrity_check }, 'database integrity check failed during resync');
+      }
+    }
+
     const heldMints = new Set(openPositions(db).map((p) => p.mint));
 
     // Entries are refused for as long as any halt file exists, whatever its
-    // mode. Discovery still runs so the corpus keeps growing, and marks still
-    // run so open positions stay observed.
-    const entriesHalted = halt !== null;
+    // mode, and while a clock discontinuity is unreconciled. Discovery still
+    // runs so the corpus keeps growing, and marks still run so open positions
+    // stay observed.
+    const entriesHalted = halt !== null || pendingResync !== null;
 
-    // Discovery runs on its own, much slower schedule. The loop itself now
-    // ticks at the mark cadence, so an open position is re-quoted every
-    // `markIntervalMs` regardless of how expensive discovery is; when the two
-    // shared an interval, the resolution of the entire exit corpus was set by
-    // whatever the discovery budget happened to allow.
-    const discoveryDue = started - lastDiscoveryUtcMs >= config.discoveryIntervalMs;
+    const nowMono = monotonicMs();
+    const discoveryDue = discovery.due(nowMono);
 
     if (discoveryDue) {
-      lastDiscoveryUtcMs = started;
+      discovery.fired(nowMono);
       try {
         stats = await runCycle({
           db,
@@ -240,7 +339,17 @@ async function main(): Promise<void> {
           rpc: rpc.configured ? rpc : null,
           onEligible: async (info, result) => {
             if (entriesHalted) return;
-            await tryEnter(db, jupiter, taker, config, ledger, info.id, sanitizeExternal(info.symbol ?? '', 16), result);
+            await tryEnter(
+              db,
+              jupiter,
+              taker,
+              config,
+              ledger,
+              info.id,
+              sanitizeExternal(info.symbol ?? '', 16),
+              result,
+              contextHash,
+            );
           },
         });
       } catch (e) {
@@ -268,6 +377,7 @@ async function main(): Promise<void> {
         open: open.length,
         navSol: formatAmount(ledger.navLamports, 9),
         freeSol: formatAmount(ledger.freeLamports, 9),
+        lockedRentSol: formatAmount(ledger.lockedRentLamports, 9),
         exposureSol: formatAmount(exposure, 9),
         realizedTodaySol: formatAmount(ledger.realizedTodayLamports, 9),
         totalScreenings: c.screenings,
@@ -276,11 +386,14 @@ async function main(): Promise<void> {
       'cycle complete',
     );
 
-    // The tick is the MARK cadence, not the discovery cadence. Discovery
-    // gates itself above on its own, longer interval.
-    await sleep(Math.max(1_000, config.markIntervalMs - (Date.now() - started)), () => stop);
+    // The tick is the MARK cadence, measured on the monotonic clock so a wall
+    // clock correction cannot compress or burst it. Discovery gates itself
+    // above on its own, longer interval.
+    const spentMs = monotonicMs() - now.monotonicMs;
+    await sleep(Math.max(1_000, config.markIntervalMs - spentMs), () => stop);
   }
 
+  recordClockCheckpoint(db, readClock(), null, false);
   lock.release();
   db.close();
   log.info('paper mode stopped cleanly');
@@ -295,6 +408,7 @@ async function tryEnter(
   mint: string,
   symbol: string,
   result: Parameters<Parameters<typeof runCycle>[0]['onEligible']>[1],
+  contextHash: string,
 ): Promise<void> {
   const rt = result.roundTrip;
   if (!rt || !rt.exitExists || !rt.sell) return;
@@ -318,14 +432,50 @@ async function tryEnter(
     realizedWeekLamports: realizedWeek(db, Date.now()),
     // Planned loss across the open book: each position's cost times the stop
     // distance, i.e. what the book loses if every stop fills at its level.
-    plannedLossLamports: openPositions(db).reduce(
+    plannedLossLamports: open.reduce(
       (a, p) => a + (BigInt(p.cost_lamports) * BigInt(config.exits.stopLossBps)) / 10_000n,
       0n,
     ),
   };
 
   const sizing = sizePosition(state, config, result.outcome.opportunityScore ?? 0);
+
+  // The shadow ledger records what the SIGNAL said, before the portfolio had
+  // its say. Without this the corpus is censored by our own losses: the engine
+  // stops entering after a bad day, so the observations that follow a loss are
+  // systematically absent, and every estimate built on what remains is biased.
+  // §P2.2 — measurement only. This is not a wallet and is never summed with one.
   if (!sizing.allowed) {
+    insertLedgerEntry(db, {
+      ledger: 'alpha_shadow',
+      positionId: null,
+      mint,
+      event: 'signal_refused_by_portfolio',
+      utcMs: Date.now(),
+      notionalLamports: null,
+      realizedLamports: null,
+      navLamports: ledger.navLamports,
+      freeLamports: ledger.freeLamports,
+      lockedRentLamports: ledger.lockedRentLamports,
+      refusal: sizing.refusal,
+      detail: sizing.detail,
+      contextHash,
+    });
+    insertLedgerEntry(db, {
+      ledger: 'portfolio_paper',
+      positionId: null,
+      mint,
+      event: 'refused',
+      utcMs: Date.now(),
+      notionalLamports: null,
+      realizedLamports: null,
+      navLamports: ledger.navLamports,
+      freeLamports: ledger.freeLamports,
+      lockedRentLamports: ledger.lockedRentLamports,
+      refusal: sizing.refusal,
+      detail: sizing.detail,
+      contextHash,
+    });
     log.info({ mint, refusal: sizing.refusal, detail: sizing.detail }, 'entry refused by portfolio caps');
     return;
   }
@@ -344,8 +494,8 @@ async function tryEnter(
 
   // A price is not an execution.
   //
-  // Every quote in the corpus was fetched without a `taker`, so Jupiter
-  // returned routing and fees but never a transaction, and
+  // Every quote in the original corpus was fetched without a `taker`, so
+  // Jupiter returned routing and fees but never a transaction, and
   // `transactionBuildable` was false on all 2255 of them. Booking a fill anyway
   // asserted that a trade could have happened when nothing had demonstrated
   // that it could. The flag was stored from the first commit and read by no
@@ -355,80 +505,58 @@ async function tryEnter(
   // flag, because `/swap/v2/order` refuses to build for an unfunded taker
   // (errorCode 1, "Insufficient funds") while `/swap/v2/build` returns the
   // instruction set regardless of balance. Verified 2026-08-12 against a wallet
-  // holding 0 lamports. This establishes STRUCTURAL buildability only: that a
-  // transaction could have been constructed for this route at this size. It is
-  // not a mainnet simulation and is never reported as one.
+  // holding 0 lamports. This establishes STRUCTURAL buildability only, and is
+  // never reported as a mainnet simulation.
   if (config.requireBuildableFill) {
     if (taker === null) {
       recordHealth(db, 'buildability_unverifiable', 'critical', 'PAPER_TAKER_PUBKEY unset; cannot establish buildability');
       log.warn({ mint }, 'entry refused — no taker configured, buildability cannot be established');
       return;
     }
-    const built = await jupiter.build({
-      inputMint: WSOL_MINT,
-      outputMint: mint,
-      amount: lamportsIn,
-      taker,
-      slippageBps: config.risk.maxSlippageBps,
-    });
-    // Recorded whether or not it succeeded. A refused entry is as much a fact
-    // about the route as an accepted one, and without the failures the corpus
-    // cannot say what fraction of eligible candidates were actually tradable.
-    insertBuildAttempt(db, {
-      buildId: randomUUID(),
+    const leg = await checkLeg(db, jupiter, {
       mint,
       side: 'buy',
       positionId: null,
       quoteId: rt.buy.quoteId,
-      requestedUtcMs: built?.requestedUtcMs ?? Date.now(),
-      receivedUtcMs: built?.receivedUtcMs ?? null,
-      latencyMs: built?.latencyMs ?? null,
       inputMint: WSOL_MINT,
       outputMint: mint,
       amount: lamportsIn,
       taker,
       slippageBps: config.risk.maxSlippageBps,
-      buildEndpoint: built?.endpoint ?? '/swap/v2/build',
-      buildRouter: built?.router ?? null,
-      buildRequestId: built?.requestId ?? null,
-      buildStatus: built === null ? 'UNVERIFIABLE' : built.buildable ? 'BUILD_SUCCEEDED' : 'BUILD_FAILED',
-      buildErrorCode: built?.errorCode ?? null,
-      buildErrorClass: built === null ? 'request_failed' : built.errorMessage,
-      instructionCount: built?.instructionCount ?? null,
-      programIds: built?.programIds ?? null,
-      hasSetup: built?.hasSetup ?? null,
-      hasCleanup: built?.hasCleanup ?? null,
-      transactionBytesHash: null,
-      lastValidBlockHeight: null,
-      expireAt: null,
-      quoteContextSlot: null,
-      buildContextSlot: null,
-      // NULL, not a pass. The decoder and a local SVM fixture are not wired,
-      // and a row must never claim validation it did not receive.
-      policyStatus: null,
-      simulationStatus: null,
+      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+      priority: 'risk',
+      contextHash,
     });
 
-    if (built === null || !built.buildable) {
+    if (!leg.buildable) {
       recordHealth(
         db,
         'unbuildable_entry_refused',
         'warn',
-        `${mint.slice(0, 12)} priced but not buildable: ${built === null ? 'build request failed' : (built.errorMessage ?? `errorCode ${built.errorCode}`)}`,
+        `${mint.slice(0, 12)} priced but not tradable: ${leg.reason}`,
       );
       log.info(
-        { mint, symbol, router: rt.buy.router, errorCode: built?.errorCode ?? null },
-        'entry refused — route priced but no transaction could be constructed',
+        { mint, symbol, router: rt.buy.router, reason: leg.reason },
+        'entry refused — route priced but no policy-valid transaction could be constructed',
       );
       return;
     }
     log.info(
-      { mint, symbol, instructions: built.instructionCount, setup: built.hasSetup, cleanup: built.hasCleanup },
-      'entry buildability established',
+      {
+        mint,
+        symbol,
+        instructions: leg.outcome?.instructionCount,
+        policy: leg.policyStatus,
+        lastValidBlockHeight: leg.outcome?.lastValidBlockHeight,
+      },
+      'entry buildability and policy established',
     );
   }
 
-  const fixedCosts = config.assumedPriorityFeeLamports + config.assumedAtaRentLamports;
+  // ATA rent is LOCKED capital, not a fee. It leaves free capital and stays in
+  // the position until a close is shown to be possible. See §P5.
+  const rentLamports = config.assumedAtaRentLamports;
+  const fixedCosts = config.assumedPriorityFeeLamports + rentLamports;
   const costLamports = lamportsIn + fixedCosts;
 
   const positionId = randomUUID();
@@ -445,9 +573,11 @@ async function tryEnter(
     simulated: true,
   };
   insertPosition(db, position);
+  stampContext(db, 'positions', positionId, contextHash);
 
+  const fillId = randomUUID();
   const fill: Fill = {
-    fillId: randomUUID(),
+    fillId,
     intentId: result.outcome.snapshotId,
     mint,
     side: 'buy',
@@ -455,15 +585,35 @@ async function tryEnter(
     actualOutAmount: tokensReceived,
     feeLamports: (lamportsIn * feeBps) / 10_000n,
     priorityFeeLamports: config.assumedPriorityFeeLamports,
-    rentLamports: config.assumedAtaRentLamports,
+    rentLamports,
     signature: null,
     slot: null,
     simulated: true,
     utcMs: Date.now(),
   };
   insertFill(db, fill);
+  stampContext(db, 'fills', fillId, contextHash);
 
   ledger.freeLamports -= costLamports;
+  ledger.lockedRentLamports += rentLamports;
+
+  for (const name of ['portfolio_paper', 'alpha_shadow'] as const) {
+    insertLedgerEntry(db, {
+      ledger: name,
+      positionId,
+      mint,
+      event: 'entry',
+      utcMs: Date.now(),
+      notionalLamports: lamportsIn,
+      realizedLamports: null,
+      navLamports: ledger.navLamports,
+      freeLamports: ledger.freeLamports,
+      lockedRentLamports: ledger.lockedRentLamports,
+      refusal: null,
+      detail: `score ${result.outcome.opportunityScore ?? 0}`,
+      contextHash,
+    });
+  }
 
   log.info(
     {
@@ -472,11 +622,13 @@ async function tryEnter(
       symbol,
       inSol: formatAmount(lamportsIn, 9),
       costSol: formatAmount(costLamports, 9),
+      lockedRentSol: formatAmount(rentLamports, 9),
       score: result.outcome.opportunityScore,
       roundTripLossBps: rt.roundTripLossBps,
       modelledFeeBps: Number(feeBps),
+      actualFeeBps: rt.buy.platformFeeBps,
     },
-    'PAPER ENTRY (simulated fill, real quote)',
+    'PAPER ENTRY (simulated fill, real quote, build-validated)',
   );
 }
 
@@ -486,6 +638,8 @@ async function manageOpenPositions(
   jupiter: JupiterClient,
   config: AppConfig,
   ledger: Ledger,
+  taker: string | null,
+  contextHash: string,
 ): Promise<number> {
   const open = openPositions(db);
   let exited = 0;
@@ -499,18 +653,27 @@ async function manageOpenPositions(
       outputMint: WSOL_MINT,
       amount: tokenAmount,
       slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+      // The most urgent class there is. An exit quote must never queue behind
+      // a discovery call on the shared 0.5 RPS bucket.
+      priority: 'emergency_exit',
     });
 
+    const providerFailed = res.providerFailure !== null;
     if (res.providerFailure) {
       // An outage is not a signal about the position. Do not act on it, but do
       // record it: repeated failures are themselves a reason to stop trading.
       recordSourceHealth(db, res.providerFailure.source, false, null, res.providerFailure.kind);
       log.warn({ mint: row.mint, kind: res.providerFailure.kind }, 'mark failed — provider outage, holding');
-      continue;
     }
 
     const sell = res.quote;
-    if (sell) insertQuote(db, row.mint, 'sell', sell);
+    let rawPayloadHash: string | null = null;
+    if (sell) {
+      if (sell.rawBody !== null) {
+        rawPayloadHash = storeRawPayload(db, 'jupiter.swap.v2.order', '/swap/v2/order', sell.rawBody, sell.receivedUtcMs);
+      }
+      insertQuote(db, row.mint, 'sell', sell, rawPayloadHash, contextHash);
+    }
 
     // The mark is the router's expected output, not `otherAmountThreshold`.
     // The threshold is a slippage floor — a number chosen by our own slippage
@@ -527,10 +690,19 @@ async function manageOpenPositions(
 
     const routeAvailable = sell !== null && sell.outAmount > 0n;
     const nowMs = Date.now();
+    const impact = sell ? sell.impact : null;
+    const quoteAgeMs = sell === null ? null : nowMs - sell.receivedUtcMs;
+
+    // Signed, and left signed. A negative return is a real economic statement
+    // and `Math.abs` on it is the defect this whole session exists to remove.
+    const signedMarkReturnBps =
+      markLamports === null || costLamports <= 0n
+        ? null
+        : Number(((markLamports - costLamports) * 10_000n) / costLamports);
 
     // Every mark is persisted, whether or not it causes an exit. A rule can
-    // only be evaluated against the observations that were available to it,
-    // and marks that are not written are observations that never existed.
+    // only be evaluated against the observations available to it, and marks
+    // that are not written are observations that never existed.
     const prev = latestMark(db, row.position_id);
     const markId = randomUUID();
     insertPositionMark(db, {
@@ -539,17 +711,15 @@ async function manageOpenPositions(
       mint: row.mint,
       seq: prev === null ? 0 : prev.seq + 1,
       observedUtcMs: nowMs,
-      rawPriceImpactPct: sell ? sell.priceImpactPct : null,
-      rawPriceImpactBpsSigned: sell ? Math.round(sell.priceImpactPct * 10_000) : null,
+      rawPriceImpactPct: impact?.signedPct ?? null,
+      rawPriceImpactBpsSigned: impact?.signedBps === null || impact?.signedBps === undefined ? null : Math.round(impact.signedBps),
       quotedExitInputTokenAmount: tokenAmount,
       quotedExitOutputLamports: grossProceeds,
       quotedExitThresholdLamports: sell ? sell.otherAmountThreshold : null,
       positionEntryCostLamports: costLamports,
       positionMarkedValueLamports: markLamports,
       exitValueRatio:
-        grossProceeds === null || costLamports <= 0n
-          ? null
-          : Number(grossProceeds) / Number(costLamports),
+        grossProceeds === null || costLamports <= 0n ? null : Number(grossProceeds) / Number(costLamports),
       outputChangeFromPreviousMarkBps:
         prev === null || prev.outLamports === null || prev.outLamports === 0n || grossProceeds === null
           ? null
@@ -558,7 +728,8 @@ async function manageOpenPositions(
       routeLabels: sell ? sell.routeLabels.join('>') : null,
       platformFeeBps: sell ? sell.platformFeeBps : null,
       platformFeeAmount:
-        sell && grossProceeds !== null ? (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n : null,
+        sell?.platformFeeAmount ??
+        (sell && grossProceeds !== null ? (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n : null),
       // Null, not zero: paper does not observe transfer-fee extensions yet, and
       // recording an unobserved cost as zero would understate exit cost.
       transferFeeAmount: null,
@@ -576,10 +747,41 @@ async function manageOpenPositions(
       quoteReceivedUtcMs: sell ? sell.receivedUtcMs : null,
       quoteLatencyMs: sell ? sell.latencyMs : null,
       sourceUtcMs: sell ? sell.provenance.receivedUtcMs : null,
-      slot: null,
+      slot: sell?.contextSlot ?? null,
       source: 'jupiter',
       backfilled: false,
     });
+
+    // §P1.2 — mutually exclusive diagnostics, derived from economic quantities
+    // and from whether the provider answered at all. `routeBuildable` is null
+    // here: the exit build is only requested when a rule actually wants out,
+    // and null means "not asked", never "failed".
+    const markDiagnostic = diagnoseExit({
+      providerFailed,
+      impact,
+      routeExists: routeAvailable,
+      routeBuildable: null,
+      executableSellValueLamports: grossProceeds,
+      allInCostLamports: costLamports,
+      quoteAgeMs,
+      roundTripLossBps: null,
+    });
+
+    recordMarkAnalysis(db, markId, {
+      impact,
+      diagnostic: markDiagnostic,
+      executableSellValueLamports: grossProceeds,
+      allInCostLamports: costLamports,
+      signedMarkReturnBps,
+      roundTripRouteLossBps: null,
+      quoteAgeMs,
+      routeExists: routeAvailable,
+      routeBuildable: null,
+      rawPayloadHash,
+      contextHash,
+    });
+
+    if (providerFailed) continue;
 
     const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
     const newPeak = markLamports !== null && markLamports > peak ? markLamports : peak;
@@ -602,16 +804,79 @@ async function manageOpenPositions(
     const marksObserved = (prev === null ? 0 : prev.seq + 1) + 1;
 
     if (!sell || markLamports === null || grossProceeds === null) {
-      // Wanted out, cannot get out. This is a real terminal state and must be
-      // recorded as such rather than quietly retried forever.
+      // Wanted out, cannot get out. A real terminal state, recorded as such
+      // rather than quietly retried forever.
       updatePosition(db, row.position_id, { state: 'EXIT_BLOCKED', exitReason: decision.reason });
       recordHealth(db, 'exit_blocked', 'critical', `${row.mint} ${decision.detail}`);
       log.error({ mint: row.mint, reason: decision.reason }, 'EXIT BLOCKED — no sell route');
       continue;
     }
 
+    // §P0.2 — the exit leg. This is the half that was missing: the entry was
+    // build-gated and the exit was not, so a closed position could carry a
+    // realized PnL derived from a price that had never been shown to be
+    // tradable. A trade is PAPER_PNL_ELIGIBLE only when BOTH legs built.
+    let exitBuildable: boolean | null = null;
+    if (config.requireBuildableFill) {
+      if (taker === null) {
+        exitBuildable = null;
+      } else {
+        const leg = await checkLeg(db, jupiter, {
+          mint: row.mint,
+          side: 'sell',
+          positionId: row.position_id,
+          quoteId: sell.quoteId,
+          inputMint: row.mint,
+          outputMint: WSOL_MINT,
+          amount: tokenAmount,
+          taker,
+          slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+          maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+          priority: 'emergency_exit',
+          contextHash,
+        });
+        exitBuildable = leg.buildable;
+        if (!leg.buildable) {
+          // The exit is still taken — refusing to close a position because the
+          // build check failed would leave real exposure open on a route we
+          // have just been told is unhealthy, which is worse. What changes is
+          // the CLAIM: the row is marked UNBUILDABLE_EXIT and is excluded from
+          // confirmatory results by `disqualifiesFromConfirmatory`.
+          recordHealth(
+            db,
+            'unbuildable_exit',
+            'critical',
+            `${row.mint.slice(0, 12)} exit priced but not buildable: ${leg.reason} — this trade is NOT PnL-eligible`,
+          );
+          log.error({ mint: row.mint, reason: leg.reason }, 'exit leg not buildable — closing, but not PnL-eligible');
+        }
+      }
+    }
+
     const proceeds = markLamports;
-    const realized = proceeds - costLamports;
+
+    // ATA rent settlement. In paper this always returns zero recovery, and it
+    // says which unknown stopped it: withheld transfer fees are unobserved, and
+    // an unobserved value is never treated as zero. That makes the previous
+    // implicit "rent is fully sunk" explicit and auditable, and it makes the
+    // recovery assumption a thing a reader can argue with. §P5.
+    const ata: AtaState = {
+      ataCreated: true,
+      ataRentLockedLamports: config.assumedAtaRentLamports,
+      // Never asked: paper builds no close transaction. Null, not false.
+      ataCloseBuildable: null,
+      ataCloseSimulated: null,
+      ataCloseAttempted: false,
+      ataCloseConfirmed: false,
+      // A full-position sell leaves nothing behind, by construction.
+      residualTokenAmount: 0n,
+      // Unobserved. This is the field that keeps recovery at zero.
+      withheldTransferFeeLamports: null,
+      ataCloseFeeLamports: config.assumedSignatureFeeLamports,
+    };
+    const ataVerdict = settleAtaRent(ata);
+
+    const realized = proceeds - costLamports + ataVerdict.ataRentRecoveredLamports;
 
     // Classified from executable value, independently of which rule fired.
     // `decision.reason` is kept beside it rather than replaced by it.
@@ -622,8 +887,20 @@ async function manageOpenPositions(
       triggerRule: decision.reason as TriggerRule,
     });
 
+    const exitDiagnostic = diagnoseExit({
+      providerFailed: false,
+      impact,
+      routeExists: routeAvailable,
+      routeBuildable: exitBuildable,
+      executableSellValueLamports: grossProceeds,
+      allInCostLamports: costLamports,
+      quoteAgeMs,
+      roundTripLossBps: null,
+    });
+
+    const exitFillId = randomUUID();
     insertFill(db, {
-      fillId: randomUUID(),
+      fillId: exitFillId,
       intentId: row.position_id,
       mint: row.mint,
       side: 'sell',
@@ -632,7 +909,7 @@ async function manageOpenPositions(
       // column; folding it into the output produced a fill claiming the swap
       // returned less SOL than it did.
       actualOutAmount: grossProceeds,
-      feeLamports: (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n,
+      feeLamports: sell.platformFeeAmount ?? (grossProceeds * BigInt(sell.platformFeeBps)) / 10_000n,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       rentLamports: 0n,
       signature: null,
@@ -640,6 +917,7 @@ async function manageOpenPositions(
       simulated: true,
       utcMs: nowMs,
     });
+    stampContext(db, 'fills', exitFillId, contextHash);
 
     insertPositionExit(db, {
       positionId: row.position_id,
@@ -654,11 +932,10 @@ async function manageOpenPositions(
       exitFeesLamports: config.assumedPriorityFeeLamports,
       netProceedsLamports: proceeds,
       realizedLamports: realized,
-      entryNotionalLamports: null,
-      entryFixedCostsLamports: null,
+      entryNotionalLamports: costLamports - config.assumedPriorityFeeLamports - config.assumedAtaRentLamports,
+      entryFixedCostsLamports: config.assumedPriorityFeeLamports + config.assumedAtaRentLamports,
       ataRentLamports: config.assumedAtaRentLamports,
-      // Paper has never modelled the ATA-rent refund. Unknown, not false.
-      ataRentRefunded: null,
+      ataRentRefunded: ataVerdict.ataRentRecoveredLamports > 0n,
       finalMarkId: markId,
       marksObserved,
       openedUtcMs: row.opened_utc_ms,
@@ -669,6 +946,26 @@ async function manageOpenPositions(
       backfilled: false,
     });
 
+    annotateExit(db, row.position_id, {
+      diagnostic: exitDiagnostic,
+      ata,
+      ataVerdict,
+      ataAccountingVersion: ATA_ACCOUNTING_VERSION,
+      // §P4 — what the response actually reported, beside what we assumed.
+      // Documentation says 50bps under 24h; a live probe measured 10bps.
+      // Neither is a fact about this trade. This is.
+      fees: {
+        feeBps: sell.platformFeeBps,
+        feeMint: sell.feeMint,
+        platformFeeAmount: sell.platformFeeAmount,
+        platformFeeBps: sell.platformFeeBps,
+        signatureFeeLamports: sell.signatureFeeLamports,
+        prioritizationFeeLamports: sell.prioritizationFeeLamports,
+        rentFeeLamports: sell.rentFeeLamports,
+      },
+      contextHash,
+    });
+
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
       realizedLamports: realized,
@@ -677,22 +974,48 @@ async function manageOpenPositions(
       tokenAmount: 0n,
     });
 
-    ledger.freeLamports += proceeds;
+    ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;
     ledger.navLamports += realized;
     ledger.realizedTodayLamports += realized;
+    ledger.lockedRentLamports -= config.assumedAtaRentLamports;
+    if (ledger.lockedRentLamports < 0n) ledger.lockedRentLamports = 0n;
     if (ledger.navLamports > ledger.peakNavLamports) ledger.peakNavLamports = ledger.navLamports;
     exited += 1;
+
+    for (const name of ['portfolio_paper', 'alpha_shadow'] as const) {
+      insertLedgerEntry(db, {
+        ledger: name,
+        positionId: row.position_id,
+        mint: row.mint,
+        event: 'exit',
+        utcMs: nowMs,
+        notionalLamports: costLamports,
+        realizedLamports: realized,
+        navLamports: ledger.navLamports,
+        freeLamports: ledger.freeLamports,
+        lockedRentLamports: ledger.lockedRentLamports,
+        refusal: null,
+        detail: `${decision.reason ?? 'unknown'} / ${exitDiagnostic.diagnostic}`,
+        contextHash,
+      });
+    }
 
     log.info(
       {
         positionId: row.position_id,
         mint: row.mint,
         reason: decision.reason,
+        diagnostic: exitDiagnostic.diagnostic,
+        exitBuildable,
+        pnlEligible: exitBuildable === true,
         detail: decision.detail,
         costSol: formatAmount(costLamports, 9),
         proceedsSol: formatAmount(proceeds, 9),
         pnlSol: formatAmount(realized, 9),
-        heldSec: Math.round((Date.now() - row.opened_utc_ms) / 1000),
+        rentRecoveredSol: formatAmount(ataVerdict.ataRentRecoveredLamports, 9),
+        rentBlockedBy: ataVerdict.ataCloseFailureReason,
+        executableValueRatioBps: executableValueRatioBps(grossProceeds, costLamports),
+        heldSec: Math.round((nowMs - row.opened_utc_ms) / 1000),
       },
       realized >= 0n ? 'PAPER EXIT (win)' : 'PAPER EXIT (loss)',
     );

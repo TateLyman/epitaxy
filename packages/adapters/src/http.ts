@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { z } from 'zod';
 import { RateLimiter, RateLimitRefused, backoffMs, sleep } from './ratelimit.js';
+import type { RequestPriority } from './ratelimit.js';
 import type { Provenance, SourceType } from '../../domain/src/types.js';
 import { sanitizeExternal } from '../../observability/src/log.js';
 
@@ -44,6 +45,16 @@ export interface FetchResult<T> {
   readonly latencyMs: number;
   /** Provider rate-limit headers when exposed, for budget reconciliation. */
   readonly rateRemaining: number | null;
+  /**
+   * The exact response body, before parsing.
+   *
+   * P2a.1 §P1.1: "Never preserve only the derived number." Every stored field
+   * is one parser bug away from being wrong, and until this existed a parser
+   * bug was unrecoverable — the derived value was kept and the bytes it came
+   * from were discarded, so history could not be re-derived. Callers that
+   * persist a decision are expected to persist this beside it.
+   */
+  readonly rawBody: string;
 }
 
 export interface JsonFetchOptions<T> {
@@ -61,6 +72,13 @@ export interface JsonFetchOptions<T> {
   readonly maxAttempts?: number;
   /** Slot the caller believes this data refers to, when known out-of-band. */
   readonly slot?: number | null;
+  /**
+   * What this request is for. Decides how much of a shared rate bucket the
+   * caller must leave behind for more urgent work — see RESERVED_TOKENS.
+   * Defaults to `discovery`, the class that yields to everything above it, so
+   * an un-annotated call can never starve an exit.
+   */
+  readonly priority?: RequestPriority;
 }
 
 function classify(status: number): { kind: FetchErrorKind; retryable: boolean } {
@@ -78,7 +96,7 @@ export async function fetchJson<T>(limiter: RateLimiter, opts: JsonFetchOptions<
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      await limiter.acquire(opts.bucket);
+      await limiter.acquire(opts.bucket, 30_000, opts.priority ?? 'discovery');
     } catch (e) {
       if (e instanceof RateLimitRefused) {
         throw new SourceFetchError('rate_limited', opts.source, e.message, null, true);
@@ -163,7 +181,7 @@ export async function fetchJson<T>(limiter: RateLimiter, opts: JsonFetchOptions<
         payloadHash: createHash('sha256').update(text).digest('hex').slice(0, 32),
       };
 
-      return { data: parsed.data, provenance, latencyMs, rateRemaining };
+      return { data: parsed.data, provenance, latencyMs, rateRemaining, rawBody: text };
     } catch (e) {
       clearTimeout(timer);
       if (e instanceof SourceFetchError) {

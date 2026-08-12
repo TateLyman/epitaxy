@@ -57,17 +57,23 @@ class Bucket {
     this.lastRefillMs = now;
   }
 
-  /** Milliseconds until one token is available. 0 when immediately available. */
-  msUntilAvailable(): number {
+  /** Milliseconds until `need` tokens are available. 0 when already there. */
+  msUntilAvailable(need = 1): number {
     this.refill();
-    if (this.tokens >= 1) return 0;
+    if (this.tokens >= need) return 0;
     if (this.ratePerSecond <= 0) return Number.POSITIVE_INFINITY;
-    return Math.ceil(((1 - this.tokens) / this.ratePerSecond) * 1000);
+    return Math.ceil(((need - this.tokens) / this.ratePerSecond) * 1000);
   }
 
-  tryTake(): boolean {
+  /**
+   * Take one token, but only if at least `need` are present.
+   *
+   * `need > 1` is how priority is implemented: a low-priority caller must leave
+   * a floor of tokens behind for anything more urgent. See `RESERVED_TOKENS`.
+   */
+  tryTake(need = 1): boolean {
     this.refill();
-    if (this.tokens >= 1) {
+    if (this.tokens >= need) {
       this.tokens -= 1;
       this.granted++;
       return true;
@@ -88,6 +94,49 @@ class Bucket {
     };
   }
 }
+
+/**
+ * What a request is for, in the order the budget should serve it.
+ *
+ * P2a.1 §P4. Every Swap, Price and Token call shares one bucket at 0.5 RPS
+ * keyless — roughly one request every two seconds for the whole system. Before
+ * this, discovery and an emergency exit competed as equals for that budget, so
+ * the request that could save a position queued behind an enrichment call for a
+ * token nobody had bought. Ordering the queue costs nothing and is the single
+ * cheapest improvement available.
+ *
+ * The order is deliberate and is the directive's: getting out first, then
+ * keeping open positions marked, then risk, then finding new things, then
+ * nice-to-have data.
+ */
+export const REQUEST_PRIORITIES = [
+  'emergency_exit',
+  'open_position',
+  'risk',
+  'discovery',
+  'enrichment',
+] as const;
+
+export type RequestPriority = (typeof REQUEST_PRIORITIES)[number];
+
+/**
+ * Tokens a caller of each priority must leave in the bucket.
+ *
+ * A floor, not a share: `enrichment` may take a token only when four remain, so
+ * three are always held back for an exit. With the keyless burst of 5 that
+ * means discovery stops well before the bucket is empty and an exit can always
+ * find budget without waiting for a refill.
+ *
+ * Reserves are clamped against capacity at acquisition time, so a bucket
+ * configured with a burst of 1 does not deadlock every non-emergency caller.
+ */
+export const RESERVED_TOKENS: Record<RequestPriority, number> = {
+  emergency_exit: 1,
+  open_position: 2,
+  risk: 2,
+  discovery: 3,
+  enrichment: 4,
+};
 
 export class RateLimitRefused extends Error {
   constructor(
@@ -131,10 +180,21 @@ export class RateLimiter {
     return b;
   }
 
-  /** Non-blocking. Returns false if no budget is available right now. */
-  tryAcquire(bucket: string): boolean {
+  /**
+   * Tokens this priority must find in the bucket before it may take one.
+   *
+   * Clamped to capacity so that a bucket with a burst of 1 still serves every
+   * class rather than deadlocking everything below `emergency_exit`.
+   */
+  private need(bucket: string, priority: RequestPriority): number {
     const b = this.get(bucket);
-    const ok = b.tryTake();
+    return Math.min(RESERVED_TOKENS[priority], b.capacity);
+  }
+
+  /** Non-blocking. Returns false if no budget is available for this priority. */
+  tryAcquire(bucket: string, priority: RequestPriority = 'discovery'): boolean {
+    const b = this.get(bucket);
+    const ok = b.tryTake(this.need(bucket, priority));
     if (!ok) b.refused++;
     return ok;
   }
@@ -142,16 +202,21 @@ export class RateLimiter {
   /**
    * Wait for budget, up to `maxWaitMs`. Throws RateLimitRefused rather than
    * waiting unboundedly, so a starved caller surfaces instead of hanging.
+   *
+   * `priority` decides how much of the bucket the caller must leave behind. A
+   * discovery call therefore gives up while an exit still has budget, which is
+   * the whole point: the alternative is an exit queued behind a token feed.
    */
-  async acquire(bucket: string, maxWaitMs = 30_000): Promise<void> {
+  async acquire(bucket: string, maxWaitMs = 30_000, priority: RequestPriority = 'discovery'): Promise<void> {
     const b = this.get(bucket);
+    const need = this.need(bucket, priority);
     const started = Date.now();
     for (;;) {
-      if (b.tryTake()) {
+      if (b.tryTake(need)) {
         b.waitedMs += Date.now() - started;
         return;
       }
-      const wait = b.msUntilAvailable();
+      const wait = b.msUntilAvailable(need);
       if (!Number.isFinite(wait) || Date.now() - started + wait > maxWaitMs) {
         b.refused++;
         throw new RateLimitRefused(bucket, Number.isFinite(wait) ? wait : -1);

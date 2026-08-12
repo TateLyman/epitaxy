@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { RateLimiter } from '../ratelimit.js';
 import { fetchJson, SourceFetchError } from '../http.js';
 import {
@@ -12,6 +12,9 @@ import {
   type OrderResponse,
 } from './schemas.js';
 import type { ExecutableQuote } from '../../../domain/src/types.js';
+import { parseImpact } from '../../../domain/src/impact.js';
+import type { RawInstruction } from '../../../solana/src/instructionpolicy.js';
+import type { RequestPriority } from '../ratelimit.js';
 import { lossBps } from '../../../domain/src/amounts.js';
 import { sanitizeExternal } from '../../../observability/src/log.js';
 
@@ -128,6 +131,7 @@ export class JupiterClient {
     amount: bigint;
     taker: string;
     slippageBps?: number;
+    priority?: RequestPriority;
   }): Promise<BuildOutcome | null> {
     const qs = new URLSearchParams({
       inputMint: params.inputMint,
@@ -148,28 +152,55 @@ export class JupiterClient {
         schemaVersion: SCHEMA_VERSION,
         parserVersion: PARSER_VERSION,
         headers: this.headers,
+        priority: params.priority ?? 'open_position',
       });
       const b = res.data;
-      const programIds = [
+
+      // Order matters and is the order they execute in. The policy decoder
+      // reads this array, so assembling it wrongly would validate a different
+      // transaction from the one the route describes.
+      const instructions: RawInstruction[] = [
         ...(b.computeBudgetInstructions ?? []),
         ...(b.setupInstructions ?? []),
         ...(b.swapInstruction ? [b.swapInstruction] : []),
         ...(b.cleanupInstruction ? [b.cleanupInstruction] : []),
         ...(b.otherInstructions ?? []),
-      ].map((i) => i.programId);
+      ];
+      const programIds = instructions.map((i) => i.programId);
+
+      // NOT a transaction hash. `/swap/v2/build` returns instructions, never
+      // serialized bytes, so this is a digest of the canonical instruction set:
+      // enough to prove two builds produced the same structure, and never to be
+      // reported as the hash of a transaction that existed.
+      const instructionSetHash = createHash('sha256')
+        .update(
+          JSON.stringify(
+            instructions.map((i) => [i.programId, i.data ?? null, (i.accounts ?? []).map((a) => a.pubkey)]),
+          ),
+        )
+        .digest('hex');
+
+      const expireAtRaw = b.expireAt ?? null;
+      const expireAtNum = expireAtRaw === null ? null : Number(expireAtRaw);
 
       const receivedUtcMs = res.provenance.receivedUtcMs;
       return {
         buildable: b.swapInstruction != null && (b.errorCode ?? null) === null,
         errorCode: b.errorCode ?? null,
         errorMessage: b.errorMessage ? sanitizeExternal(b.errorMessage, 120) : null,
-        instructionCount: programIds.length,
+        instructionCount: instructions.length,
+        instructions,
         programIds,
         hasSetup: (b.setupInstructions ?? []).length > 0,
         hasCleanup: b.cleanupInstruction != null,
         endpoint: '/swap/v2/build',
-        router: (b as { router?: string }).router ?? null,
-        requestId: (b as { requestId?: string }).requestId ?? null,
+        router: b.router ?? null,
+        requestId: b.requestId ?? null,
+        instructionSetHash,
+        lastValidBlockHeight: b.lastValidBlockHeight ?? b.blockhashWithMetadata?.lastValidBlockHeight ?? null,
+        expireAt: expireAtNum !== null && Number.isFinite(expireAtNum) ? expireAtNum : null,
+        contextSlot: b.contextSlot ?? null,
+        rawBody: res.rawBody,
         requestedUtcMs,
         receivedUtcMs,
         latencyMs: receivedUtcMs - requestedUtcMs,
@@ -190,6 +221,7 @@ export class JupiterClient {
     outputMint: string;
     amount: bigint;
     slippageBps?: number;
+    priority?: RequestPriority;
   }): Promise<ExecutableQuote> {
     const qs = new URLSearchParams({
       inputMint: params.inputMint,
@@ -209,8 +241,9 @@ export class JupiterClient {
       parserVersion: PARSER_VERSION,
       headers: this.headers,
       timeoutMs: 12_000,
+      priority: params.priority ?? 'discovery',
     });
-    return toExecutableQuote(res.data, requestedUtcMs, res.provenance, res.latencyMs);
+    return toExecutableQuote(res.data, requestedUtcMs, res.provenance, res.latencyMs, res.rawBody);
   }
 
   /**
@@ -223,6 +256,7 @@ export class JupiterClient {
     outputMint: string;
     amount: bigint;
     slippageBps?: number;
+    priority?: RequestPriority;
   }): Promise<{ quote: ExecutableQuote | null; providerFailure: SourceFetchError | null }> {
     try {
       return { quote: await this.quote(params), providerFailure: null };
@@ -245,6 +279,8 @@ export interface BuildOutcome {
   readonly errorCode: number | null;
   readonly errorMessage: string | null;
   readonly instructionCount: number;
+  /** The instructions themselves, for the policy decoder. */
+  readonly instructions: readonly RawInstruction[];
   readonly programIds: readonly string[];
   readonly hasSetup: boolean;
   readonly hasCleanup: boolean;
@@ -252,6 +288,17 @@ export interface BuildOutcome {
   readonly endpoint: string;
   readonly router: string | null;
   readonly requestId: string | null;
+  /**
+   * sha256 of the canonical instruction set. Stored in
+   * `build_attempts.transaction_bytes_hash`, and deliberately never called a
+   * transaction hash where it is computed: /build returns no bytes.
+   */
+  readonly instructionSetHash: string;
+  readonly lastValidBlockHeight: number | null;
+  readonly expireAt: number | null;
+  readonly contextSlot: number | null;
+  /** The exact response body, for `raw_payloads`. */
+  readonly rawBody: string;
   readonly requestedUtcMs: number;
   readonly receivedUtcMs: number;
   readonly latencyMs: number;
@@ -262,14 +309,13 @@ export function toExecutableQuote(
   requestedUtcMs: number,
   provenance: ExecutableQuote['provenance'],
   latencyMs: number,
+  rawBody: string | null = null,
 ): ExecutableQuote {
-  // Prefer the current field, fall back to the deprecated one.
-  const impact =
-    typeof o.priceImpact === 'number'
-      ? o.priceImpact / 100
-      : o.priceImpactPct !== undefined
-        ? Number(o.priceImpactPct)
-        : 0;
+  // Impact goes through the audited parser. The previous inline expression
+  // coerced an ABSENT field to 0, which is a claim of a perfect fill on a
+  // market the provider declined to describe. See packages/domain/src/impact.ts
+  // for the live trace of the sign convention.
+  const reading = parseImpact(o);
 
   const labels = o.routePlan.map((r) => r.swapInfo.label ?? r.swapInfo.ammKey.slice(0, 8));
 
@@ -285,7 +331,15 @@ export function toExecutableQuote(
     otherAmountThreshold: BigInt(o.otherAmountThreshold),
     slippageBps: o.slippageBps,
     platformFeeBps: o.feeBps ?? o.platformFee?.feeBps ?? 0,
-    priceImpactPct: Number.isFinite(impact) ? impact : 0,
+    feeMint: o.feeMint ?? o.platformFee?.feeMint ?? null,
+    platformFeeAmount: o.platformFee?.amount === undefined ? null : BigInt(o.platformFee.amount),
+    // Signed, raw, unmodified. `impact` carries the status and the non-negative
+    // adverse magnitude; consumers must read that rather than re-deriving a
+    // sign from this number.
+    priceImpactPct: reading.signedPct ?? 0,
+    impact: reading,
+    contextSlot: o.contextSlot ?? null,
+    rawBody,
     router: o.router ?? o.swapType ?? 'unknown',
     routeLabels: labels,
     signatureFeeLamports: BigInt(o.signatureFeeLamports ?? 0),

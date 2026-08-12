@@ -6,6 +6,7 @@ import { openDb } from '../../packages/storage/src/db.js';
 import type { Db } from '../../packages/storage/src/db.js';
 import { insertSnapshot, insertScreening, insertQuote, newId } from '../../packages/storage/src/repo.js';
 import type { ExecutableQuote, RoundTrip } from '../../packages/domain/src/types.js';
+import { parseImpact } from '../../packages/domain/src/impact.js';
 import { loadConfig } from '../../packages/domain/src/config.js';
 import type { AppConfig } from '../../packages/domain/src/config.js';
 import { screenCheap, finalizeScreen } from '../../packages/strategy/src/screen.js';
@@ -157,7 +158,14 @@ describe('replay rebuilds quotes from storage', () => {
       otherAmountThreshold: 18_000_000_000_000_000_000n,
       slippageBps: 100,
       platformFeeBps: 0,
+      feeMint: null,
+      platformFeeAmount: null,
       priceImpactPct: 0.4,
+      // Built through the real parser rather than hand-assembled, so a fixture
+      // can never claim a status the parser would not produce.
+      impact: parseImpact({ priceImpactPct: 0.4 }),
+      contextSlot: null,
+      rawBody: null,
       router: 'jupiter',
       routeLabels: ['Raydium', 'Orca'],
       signatureFeeLamports: 5_000n,

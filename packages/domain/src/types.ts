@@ -6,6 +6,8 @@
  * feed back into an amount, a fee, or a balance reconciliation.
  */
 
+import type { ImpactReading } from './impact.js';
+
 export type Mode = 'observe' | 'paper' | 'replay' | 'backtest' | 'canary' | 'live';
 
 export const MODES: readonly Mode[] = ['observe', 'paper', 'replay', 'backtest', 'canary', 'live'] as const;
@@ -139,7 +141,27 @@ export interface ExecutableQuote {
   readonly otherAmountThreshold: bigint;
   readonly slippageBps: number;
   readonly platformFeeBps: number;
+  /** The mint the platform fee is denominated in. Null when not reported. */
+  readonly feeMint: string | null;
+  /** Platform fee in raw units of `feeMint`. Null when not reported. */
+  readonly platformFeeAmount: bigint | null;
+  /**
+   * Raw signed impact fraction, exactly as delivered.
+   *
+   * Kept for backward compatibility with stored rows and reports. New consumers
+   * read `impact` instead: this field cannot express "the provider did not say",
+   * and a 0 here is indistinguishable from a perfect fill.
+   */
   readonly priceImpactPct: number;
+  /** The audited reading: status, adverse magnitude, and the raw string. */
+  readonly impact: ImpactReading;
+  /** Slot the router priced against, when reported. */
+  readonly contextSlot: number | null;
+  /**
+   * The exact response body, for `raw_payloads`. Null when the caller did not
+   * ask for it — never fabricated.
+   */
+  readonly rawBody: string | null;
   readonly router: string;
   readonly routeLabels: readonly string[];
   readonly signatureFeeLamports: bigint;

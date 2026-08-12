@@ -140,7 +140,7 @@ describe('rollDayIfNeeded', () => {
   it('does nothing inside the same UTC day', () => {
     closed(-10_000_000n, TODAY + 1000);
     const ledger = restoreLedger(db, config, TODAY + 2000);
-    expect(rollDayIfNeeded(db, ledger, TODAY + DAY - 1)).toBe(false);
+    expect(rollDayIfNeeded(db, ledger, TODAY + DAY - 1).rolled).toBe(false);
     expect(ledger.realizedTodayLamports).toBe(-10_000_000n);
     expect(ledger.dayStartUtcMs).toBe(TODAY);
   });
@@ -150,7 +150,7 @@ describe('rollDayIfNeeded', () => {
     const ledger = restoreLedger(db, config, TODAY + 2000);
     expect(ledger.realizedTodayLamports).toBe(-248_000_000n);
 
-    expect(rollDayIfNeeded(db, ledger, TODAY + DAY)).toBe(true);
+    expect(rollDayIfNeeded(db, ledger, TODAY + DAY).rolled).toBe(true);
     expect(ledger.dayStartUtcMs).toBe(TODAY + DAY);
     expect(ledger.realizedTodayLamports).toBe(0n);
   });
@@ -164,8 +164,8 @@ describe('rollDayIfNeeded', () => {
 
   it('rolls only once for a given day', () => {
     const ledger = restoreLedger(db, config, TODAY);
-    expect(rollDayIfNeeded(db, ledger, TODAY + DAY)).toBe(true);
-    expect(rollDayIfNeeded(db, ledger, TODAY + DAY + 3_600_000)).toBe(false);
+    expect(rollDayIfNeeded(db, ledger, TODAY + DAY).rolled).toBe(true);
+    expect(rollDayIfNeeded(db, ledger, TODAY + DAY + 3_600_000).rolled).toBe(false);
   });
 
   it('does not lose NAV across the roll — the cap resets, the money does not', () => {

@@ -4,6 +4,7 @@ import type { ExecutableQuote, RoundTrip } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import { finalizeScreen, screenCheap } from '../../strategy/src/screen.js';
 import type { ConcentrationInput } from '../../intelligence/src/gates.js';
+import { parseImpact } from '../../domain/src/impact.js';
 
 /**
  * Replay: re-decides stored snapshots and compares the result to what was
@@ -114,7 +115,15 @@ export function loadQuote(db: Db, quoteId: string | null): ExecutableQuote | nul
     otherAmountThreshold: BigInt(q['other_amount_threshold'] as string),
     slippageBps: q['slippage_bps'] as number,
     platformFeeBps: q['platform_fee_bps'] as number,
+    feeMint: (q['fee_mint'] as string | null) ?? null,
+    platformFeeAmount: q['platform_fee_amount'] == null ? null : BigInt(q['platform_fee_amount'] as string),
     priceImpactPct: q['price_impact_pct'] as number,
+    // Re-derived from the stored raw fraction rather than reconstructed by
+    // hand. Rows written before migration 7 carry no raw body, so the reading
+    // says so instead of inventing a status.
+    impact: parseImpact({ priceImpactPct: q['price_impact_pct'] as number }),
+    contextSlot: null,
+    rawBody: null,
     router: q['router'] as string,
     // Stored by insertQuote as a '>'-joined path, not JSON. Split rather than
     // parsed so replay reads back exactly what was written.

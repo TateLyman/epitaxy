@@ -90,6 +90,7 @@ export const OrderResponseSchema = z
     taker: z.string().nullish(),
     gasless: z.boolean().optional(),
 
+    contextSlot: z.number().nullish(),
     inUsdValue: z.number().optional(),
     outUsdValue: z.number().optional(),
     swapUsdValue: z.number().optional(),
@@ -241,7 +242,22 @@ export const BuildResponseSchema = z
     otherInstructions: z.array(BuildInstructionSchema).optional(),
     tipInstruction: BuildInstructionSchema.nullish(),
     addressesByLookupTableAddress: z.record(z.unknown()).nullish(),
-    blockhashWithMetadata: z.unknown().nullish(),
+    // Shape verified live 2026-08-12: { blockhash: number[] | string,
+    // lastValidBlockHeight: number, fetchedAt: {...} }. Only the field we act
+    // on is typed; the rest passes through so a provider addition is not a
+    // schema failure.
+    blockhashWithMetadata: z
+      .object({
+        blockhash: z.union([z.string(), z.array(z.number())]).nullish(),
+        lastValidBlockHeight: z.number().nullish(),
+      })
+      .passthrough()
+      .nullish(),
+    contextSlot: z.number().nullish(),
+    expireAt: z.union([z.string(), z.number()]).nullish(),
+    lastValidBlockHeight: z.number().nullish(),
+    requestId: z.string().nullish(),
+    router: z.string().nullish(),
     errorCode: z.number().nullish(),
     errorMessage: z.string().nullish(),
   })
