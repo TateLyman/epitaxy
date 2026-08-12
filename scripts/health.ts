@@ -1,4 +1,5 @@
-import { loadSecrets } from '../packages/domain/src/config.js';
+import { loadSecrets, KILL_PATHS } from '../packages/domain/src/config.js';
+import { haltState } from '../packages/domain/src/halt.js';
 import { openDb } from '../packages/storage/src/db.js';
 import type { Db } from '../packages/storage/src/db.js';
 
@@ -11,7 +12,10 @@ import type { Db } from '../packages/storage/src/db.js';
  * claim about a system that spends money.
  */
 
-type Severity = 'ok' | 'warn' | 'critical';
+// `info` exists so that history can be reported without being reported as a
+// problem. Without it, the only way to show a past halt was to call it critical,
+// which is how four permanent alarms ended up standing beside a healthy engine.
+type Severity = 'ok' | 'info' | 'warn' | 'critical';
 
 interface Check {
   readonly name: string;
@@ -125,18 +129,74 @@ function checkFillIntegrity(db: Db): Check[] {
   return out;
 }
 
+/**
+ * Halts, as a CONDITION and separately as HISTORY.
+ *
+ * This function used to select every critical `health_events` row from the last
+ * 24 hours and report each one as a current CRITICAL. So a halt that had been
+ * lifted twenty minutes ago, and a kill file that had been deleted twenty hours
+ * ago, both went on shouting — four criticals against a healthy engine that was
+ * screening normally.
+ *
+ * That is the P9 failure in its other direction. P9 is usually stated as "alive
+ * is not the same as able to trade", and the engine reporting itself healthy
+ * through a sixteen-hour outage is the famous half. This is the same conflation
+ * running the other way: an EVENT that happened is not a CONDITION that holds,
+ * and a check that cannot tell them apart produces alarms nobody can act on. An
+ * operator who learns to scroll past four permanent criticals will scroll past
+ * the fifth one too.
+ *
+ * So: the halt file is read from disk, because that is what actually decides
+ * whether entries are permitted. Past events are reported as history, at info
+ * severity, and never as the current state.
+ */
 function checkHalts(db: Db): Check[] {
+  const out: Check[] = [];
+
+  const halt = haltState(KILL_PATHS);
+  out.push(
+    halt === null
+      ? { name: 'halt.current', severity: 'ok', detail: 'no halt file present; entries are not blocked by one' }
+      : {
+          name: 'halt.current',
+          severity: 'critical',
+          detail: `${halt.mode} via ${halt.path}${halt.defaulted ? ' (mode defaulted)' : ''}`,
+        },
+  );
+
+  // An unresolved clock discontinuity blocks entries just as a halt file does,
+  // and is invisible in the halt file. Same question, different mechanism.
+  const resync = one<{ detail: string; wall_utc_ms: number }>(
+    db,
+    `SELECT detail, wall_utc_ms FROM clock_checkpoints
+     WHERE resync_required = 1 AND resync_done_utc_ms IS NULL ORDER BY wall_utc_ms DESC LIMIT 1`,
+  );
+  if (resync !== null) {
+    out.push({
+      name: 'halt.clock_resync',
+      severity: 'critical',
+      detail: `unresolved clock discontinuity since ${new Date(resync.wall_utc_ms).toISOString()}: ${resync.detail}`,
+    });
+  }
+
   const rows = all<{ kind: string; detail: string; utc_ms: number }>(
     db,
     `SELECT kind, detail, utc_ms FROM health_events
      WHERE severity = 'critical' AND utc_ms > ${Date.now() - 86_400_000} ORDER BY utc_ms DESC LIMIT 5`,
   );
-  if (rows.length === 0) return [{ name: 'halts', severity: 'ok', detail: 'no critical events in the last 24h' }];
-  return rows.map((r) => ({
-    name: `halt.${r.kind}`,
-    severity: 'critical' as const,
-    detail: `${r.detail} (${Math.round((Date.now() - r.utc_ms) / 60_000)}m ago)`,
-  }));
+  if (rows.length === 0) {
+    out.push({ name: 'halt.history', severity: 'ok', detail: 'no critical event in the last 24h' });
+  } else {
+    for (const r of rows) {
+      out.push({
+        name: `halt.history.${r.kind}`,
+        severity: 'info',
+        detail: `${r.detail} (${Math.round((Date.now() - r.utc_ms) / 60_000)}m ago)`,
+      });
+    }
+  }
+
+  return out;
 }
 
 function main(): void {
@@ -151,7 +211,7 @@ function main(): void {
     ...checkHalts(db),
   ];
 
-  const mark: Record<Severity, string> = { ok: 'OK  ', warn: 'WARN', critical: 'CRIT' };
+  const mark: Record<Severity, string> = { ok: 'OK  ', info: 'note', warn: 'WARN', critical: 'CRIT' };
   for (const c of checks) {
     console.log(`${mark[c.severity]} ${c.name.padEnd(34)} ${c.detail}`);
   }

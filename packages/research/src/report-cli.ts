@@ -189,8 +189,82 @@ function main(): void {
   console.log(`  signable returned    ${q?.buildable ?? 0}`);
   if ((q?.n ?? 0) > 0 && (q?.buildable ?? 0) === 0) {
     console.log('    expected: quote-only requests omit `taker`, so no transaction is built.');
-    console.log('    UNVERIFIED: that a signable transaction can be produced at all has');
-    console.log('    therefore never been demonstrated. Canary must prove it before live.');
+    console.log('    This number can never be anything but 0 for a quote and is NOT the');
+    console.log('    buildability measurement. See below.');
+  }
+
+  // The measurement that actually answers "could this have been traded?".
+  // Reporting the quote flag alone said UNVERIFIED forever, because a
+  // quote-only request cannot return a transaction by construction — it was
+  // measuring the request shape, not the route.
+  section('buildability (P2a.1 §P0.2)');
+  const b = one<{ n: number; ok: number; failed: number; unver: number }>(
+    db,
+    `SELECT COUNT(*) AS n,
+            COALESCE(SUM(CASE WHEN build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END),0) AS ok,
+            COALESCE(SUM(CASE WHEN build_status='BUILD_FAILED' THEN 1 ELSE 0 END),0) AS failed,
+            COALESCE(SUM(CASE WHEN build_status='UNVERIFIABLE' THEN 1 ELSE 0 END),0) AS unver
+     FROM build_attempts`,
+  );
+  console.log(`  build attempts       ${b?.n ?? 0}`);
+  if ((b?.n ?? 0) === 0) {
+    console.log('    UNMEASURED, which is not the same as failed. No /swap/v2/build call');
+    console.log('    has been made against this database yet.');
+  } else {
+    console.log(`  built                ${b?.ok ?? 0}`);
+    console.log(`  refused              ${b?.failed ?? 0}`);
+    console.log(`  request failed       ${b?.unver ?? 0}`);
+    const legs = one<{ buys: number; sells: number }>(
+      db,
+      `SELECT COALESCE(SUM(CASE WHEN side='buy'  AND build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END),0) AS buys,
+              COALESCE(SUM(CASE WHEN side='sell' AND build_status='BUILD_SUCCEEDED' THEN 1 ELSE 0 END),0) AS sells
+       FROM build_attempts`,
+    );
+    console.log(`  by leg               ${legs?.buys ?? 0} buy, ${legs?.sells ?? 0} sell`);
+    console.log('    Structural buildability only. NOT a mainnet simulation: the taker holds');
+    console.log('    no funds and, for a sell, does not hold the hypothetical tokens.');
+  }
+
+  // The number P2b turns on. A trade is only PnL-eligible when BOTH legs built.
+  const eligible = one<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM position_exits e
+     WHERE e.context_hash IS NOT NULL
+       AND e.diagnostic IS NOT NULL
+       AND e.diagnostic NOT IN ('PROVIDER_FAILURE','SCHEMA_OR_PARSER_ERROR','STALE_EXIT_QUOTE','UNVERIFIABLE','UNBUILDABLE_EXIT')
+       AND EXISTS (SELECT 1 FROM build_attempts x
+                   WHERE x.position_id = e.position_id AND x.side = 'sell' AND x.build_status = 'BUILD_SUCCEEDED')`,
+  );
+  const closed = one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM position_exits');
+  console.log(`  PnL-eligible trades  ${eligible?.n ?? 0} of ${closed?.n ?? 0} closed`);
+  if ((eligible?.n ?? 0) === 0 && (closed?.n ?? 0) > 0) {
+    console.log(`    ${closed?.n ?? 0} historical paper trades establish executable PnL: 0.`);
+    console.log('    They are development data. See docs/P2B_PREREGISTRATION.md §8.1.');
+  }
+
+  section('diagnostics (P2a.1 §P1.2)');
+  const diags = all<{ d: string; n: number }>(
+    db,
+    "SELECT COALESCE(diagnostic,'UNCLASSIFIED') AS d, COUNT(*) AS n FROM position_marks GROUP BY 1 ORDER BY n DESC",
+  );
+  if (diags.length === 0) console.log('  no marks recorded');
+  for (const d of diags) console.log(`  ${d.d.padEnd(28)} ${d.n}`);
+
+  section('data regimes (P2a.1 §P2.1)');
+  const regimes = all<{ id: string; sourceCommit: string; n: number }>(
+    db,
+    `SELECT r.data_regime_id AS id, r.source_commit AS sourceCommit, COUNT(m.mark_id) AS n
+     FROM run_contexts r LEFT JOIN position_marks m ON m.context_hash = r.context_hash
+     GROUP BY r.context_hash ORDER BY n DESC`,
+  );
+  const untagged = one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM position_marks WHERE context_hash IS NULL');
+  for (const r of regimes) {
+    console.log(`  ${r.n.toString().padStart(6)} marks  ${r.id}  @${r.sourceCommit.slice(0, 12)}${r.sourceCommit.endsWith('+dirty') ? ' DIRTY' : ''}`);
+  }
+  console.log(`  ${(untagged?.n ?? 0).toString().padStart(6)} marks  UNTAGGED (pre-migration-7; permanently development data)`);
+  if (regimes.length > 1) {
+    console.log('  REFUSING to pool: these rows were produced by different code, config or');
+    console.log('  cadence. An average across them describes no experiment that was run.');
   }
 
   section('multiple testing');
