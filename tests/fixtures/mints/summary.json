@@ -1,0 +1,80 @@
+{
+  "wsol": {
+    "mint": "So11111111111111111111111111111111111111112",
+    "slot": 438690098,
+    "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "decimals": 9,
+    "supply": "0",
+    "mintAuthority": null,
+    "freezeAuthority": null,
+    "extensions": [],
+    "transferFee": null,
+    "hostile": []
+  },
+  "usdc": {
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "slot": 438690098,
+    "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "decimals": 6,
+    "supply": "7904520933154379",
+    "mintAuthority": "BJE5MMbqXjVwjAF7oxwPYXnTXDyspzZyt4vwenNw5ruG",
+    "freezeAuthority": "7dGbd2QZcCKcTndnHcTL8q7SMVXAkp688NTQYwrRCrar",
+    "extensions": [],
+    "transferFee": null,
+    "hostile": []
+  },
+  "pyusd": {
+    "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+    "slot": 438690099,
+    "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "decimals": 6,
+    "supply": "681298834329237",
+    "mintAuthority": "8Jornc27vtAYPkwDzsZVgLQchAYyC8nD7aCNPCDV8Qk2",
+    "freezeAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+    "extensions": [
+      "3:MintCloseAuthority",
+      "12:PermanentDelegate",
+      "1:TransferFeeConfig",
+      "4:ConfidentialTransferMint",
+      "16:ConfidentialTransferFeeConfig",
+      "14:TransferHook",
+      "18:MetadataPointer",
+      "19:TokenMetadata"
+    ],
+    "transferFee": {
+      "bps": 0,
+      "max": "0"
+    },
+    "hostile": [
+      "PermanentDelegate",
+      "TransferHook"
+    ]
+  },
+  "usdg": {
+    "mint": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+    "slot": 438690099,
+    "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "decimals": 6,
+    "supply": "651323851317690",
+    "mintAuthority": "3YJL8sesK3ooPpJddypvFUhCvnvaQ1oF8This4J3bhxR",
+    "freezeAuthority": "2apBGMsS6ti9RyF5TwQTDswXBWskiJP2LD4cUEDqYJjk",
+    "extensions": [
+      "3:MintCloseAuthority",
+      "12:PermanentDelegate",
+      "1:TransferFeeConfig",
+      "4:ConfidentialTransferMint",
+      "16:ConfidentialTransferFeeConfig",
+      "14:TransferHook",
+      "18:MetadataPointer",
+      "19:TokenMetadata"
+    ],
+    "transferFee": {
+      "bps": 0,
+      "max": "0"
+    },
+    "hostile": [
+      "PermanentDelegate",
+      "TransferHook"
+    ]
+  }
+}

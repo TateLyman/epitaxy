@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Mode } from './types.js';
 import { MODES } from './types.js';
+import { loadDotEnvOnce } from './dotenv.js';
 
 /**
  * Typed, validated configuration.
@@ -51,6 +52,21 @@ export const GateConfigSchema = z.object({
 });
 export type GateConfig = z.infer<typeof GateConfigSchema>;
 
+export const ExitConfigSchema = z.object({
+  /** Loss from cost at which the position is closed unconditionally. */
+  stopLossBps: z.number().int().min(1).max(10_000),
+  /** Give-back from the peak mark that closes a winning position. */
+  trailingStopBps: z.number().int().min(1).max(10_000),
+  takeProfitBps: z.number().int().min(1),
+  /** Positions are not held indefinitely; the thesis has a shelf life. */
+  maxHoldMs: z.number().int().min(1000),
+  /** Churn guard so a single noisy mark cannot round-trip us through fees. */
+  minHoldMs: z.number().int().min(0),
+  /** Exit impact above this means the position is already trapped. */
+  maxExitImpactBps: z.number().int().min(1).max(10_000),
+});
+export type ExitConfig = z.infer<typeof ExitConfigSchema>;
+
 export const SourceLimitSchema = z.object({
   name: z.string(),
   requestsPerSecond: z.number().min(0),
@@ -64,6 +80,9 @@ export const AppConfigSchema = z.object({
   strategyVersion: z.string(),
   risk: RiskConfigSchema,
   gates: GateConfigSchema,
+  exits: ExitConfigSchema,
+  /** Starting NAV for simulated modes. Ignored by canary and live. */
+  paperStartLamports: z.coerce.bigint(),
   /** Discovery cadence, bounded by the source rate budget. */
   discoveryIntervalMs: z.number().int().min(1000),
   enrichIntervalMs: z.number().int().min(1000),
@@ -75,6 +94,20 @@ export const AppConfigSchema = z.object({
   assumedNewTokenFeeBps: z.number().int().min(0).max(10_000),
   assumedPriorityFeeLamports: z.coerce.bigint(),
   assumedAtaRentLamports: z.coerce.bigint(),
+  /** Per-signature base fee. Charged on entry and again on exit. */
+  assumedSignatureFeeLamports: z.coerce.bigint(),
+  /**
+   * Share of ATA rent expected back. Rent is refunded only when the token
+   * account is closed, which requires a zero balance — impossible while holding
+   * an unsellable token. In this population that is a common outcome, so this
+   * is well below 1 and is an assumption to be measured, not a constant.
+   */
+  assumedRentRecoveryRate: z.number().min(0).max(1),
+  /**
+   * Largest share of notional that non-recoverable round-trip cost may consume
+   * before a trade is refused as unable to clear its own overhead.
+   */
+  maxFeeFractionBps: z.number().int().min(1).max(10_000),
   /** Notional used to measure round-trip cost. Never signed, quote-only. */
   quoteProbeLamports: z.coerce.bigint(),
   /** Upper bound on round-trip quotes per discovery cycle (rate budget). */
@@ -129,6 +162,19 @@ export function assertNotLoosened(base: RiskConfig, override: Partial<RiskConfig
   }
 }
 
+/**
+ * The mode requested on the command line, if any.
+ *
+ * Entry points take the mode from an argument rather than only from MODE
+ * because `MODE=paper pnpm paper` is not portable: an inline assignment in a
+ * package.json script does nothing under cmd.exe, so the script silently ran as
+ * observe and the entry point refused to start.
+ */
+export function modeFromArgv(argv: readonly string[] = process.argv): string | undefined {
+  const arg = argv.find((a) => a.startsWith('--mode='));
+  return arg?.slice('--mode='.length);
+}
+
 export function loadConfig(modeInput?: string): AppConfig {
   const rawMode = modeInput ?? process.env['MODE'] ?? 'observe';
   const parsedMode = z.enum(MODES as unknown as [Mode, ...Mode[]]).safeParse(rawMode);
@@ -164,6 +210,13 @@ export interface Secrets {
   rpcHttp: string | null;
   rpcWs: string | null;
   rpcHttpFallback: string | null;
+  /**
+   * True when `rpcHttp` was built from `HELIUS_API_KEY` rather than read from
+   * `SOLANA_RPC_HTTP`. Doctor and the deployment gates report the difference:
+   * an operator who believes they set an endpoint and did not is a different
+   * situation from one running on a derived default.
+   */
+  rpcHttpDerivedFromHeliusKey: boolean;
   tradingKeypairPath: string | null;
   liveAckPath: string | null;
   databasePath: string;
@@ -175,14 +228,39 @@ function envOrNull(name: string): string | null {
   return v === undefined || v.trim() === '' ? null : v.trim();
 }
 
+/**
+ * Helius authenticates by query parameter, not by header, so the key becomes
+ * part of the URL. That URL must never be written to a file or a log: it is
+ * built here, held in memory, and redacted on the way out by the `api-key=`
+ * rule in `packages/observability/src/log.ts`. `scripts/secretscan.ts` has a
+ * matching rule (`helius_url_with_key`) that fails the build if the assembled
+ * form ever lands in the tree.
+ *
+ * Endpoint form per docs/SOURCE_MATRIX.csv (helius, mainnet rpc).
+ */
+export function heliusRpcUrl(apiKey: string): string {
+  return `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
+}
+
 export function loadSecrets(): Secrets {
+  // `.env` is loaded here rather than at process start so that every entry
+  // point gets it without having to remember to. Idempotent, and ambient
+  // variables always win — see packages/domain/src/dotenv.ts (O031).
+  loadDotEnvOnce();
+  const heliusApiKey = envOrNull('HELIUS_API_KEY');
+  const explicitRpcHttp = envOrNull('SOLANA_RPC_HTTP');
+  // Explicit beats derived, always. An operator who names an endpoint gets that
+  // endpoint even when a Helius key is also present, because silently
+  // preferring the key would make the configured value a lie.
+  const derived = explicitRpcHttp === null && heliusApiKey !== null;
   return {
-    heliusApiKey: envOrNull('HELIUS_API_KEY'),
+    heliusApiKey,
     jupiterApiKey: envOrNull('JUPITER_API_KEY'),
     goplusToken: envOrNull('GOPLUS_ACCESS_TOKEN'),
-    rpcHttp: envOrNull('SOLANA_RPC_HTTP'),
+    rpcHttp: explicitRpcHttp ?? (heliusApiKey === null ? null : heliusRpcUrl(heliusApiKey)),
     rpcWs: envOrNull('SOLANA_RPC_WS'),
     rpcHttpFallback: envOrNull('SOLANA_RPC_HTTP_FALLBACK'),
+    rpcHttpDerivedFromHeliusKey: derived,
     tradingKeypairPath: envOrNull('TRADING_KEYPAIR_PATH'),
     liveAckPath: envOrNull('LIVE_ACK_PATH'),
     databasePath: envOrNull('DATABASE_PATH') ?? './data/runtime.db',
@@ -198,4 +276,27 @@ export function assertSignerNotAllowed(mode: Mode): void {
 
 export function signerAllowed(mode: Mode): boolean {
   return mode === 'canary' || mode === 'live';
+}
+
+const KILL_PATHS = ['./data/KILL', './KILL'] as const;
+
+/**
+ * The kill switch, as a file rather than a signal or an API call.
+ *
+ * A file works when the process is wedged, when the operator is on a different
+ * machine with a synced directory, and when whatever would have served an HTTP
+ * endpoint is the thing that broke. It needs no running code to arm.
+ *
+ * It must be read on every cycle, not once at startup. A switch that is only
+ * consulted before the process begins cannot stop the process, which is the
+ * only situation anyone reaches for it in.
+ *
+ * Returns the path that engaged it, so the operator is told which of the two
+ * files to remove.
+ */
+export function killSwitchEngaged(): string | null {
+  for (const p of KILL_PATHS) {
+    if (existsSync(p)) return p;
+  }
+  return null;
 }

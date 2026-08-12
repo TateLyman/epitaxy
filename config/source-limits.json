@@ -1,7 +1,9 @@
 {
   "_meta": {
     "checked_at_utc": "2026-08-11T21:40:00Z",
-    "note": "Buckets mirror provider documentation. We stay strictly UNDER the documented limit. Never evade a quota by creating extra accounts."
+    "rechecked_at_utc": "2026-08-12T02:12:00Z",
+    "note": "Buckets mirror provider documentation. We stay strictly UNDER the documented limit. Never evade a quota by creating extra accounts.",
+    "recheck_note": "2026-08-12: re-verified against official pages after a Jupiter Portal key and a Helius key were obtained. Jupiter publishes a FREE KEYED tier at 1 RPS / 60 RPM that this file did not previously name; withKeyRequestsPerSecond was 1.0, i.e. exactly at the documented ceiling and in breach of the 'strictly UNDER' rule above. It had never been exercised because no key existed. Lowered to 0.8, preserving the same 0.8x headroom ratio the keyless bucket uses (0.4 of 0.5)."
   },
   "buckets": [
     {
@@ -9,9 +11,9 @@
       "bucket": "jupiter_main",
       "requestsPerSecond": 0.4,
       "burst": 2,
-      "documented": "0.5 RPS / 30 RPM keyless, per organisation, 60s sliding window. Shared across Swap, Price and Token APIs.",
-      "source": "https://developers.jup.ag/docs/portal/rate-limits.md",
-      "withKeyRequestsPerSecond": 1.0
+      "documented": "0.5 RPS / 30 RPM keyless; 1 RPS / 60 RPM on the free Portal-keyed tier. Per organisation, 60s sliding window, shared across Swap, Price and Token APIs. /swap/v2/execute has its own bucket.",
+      "source": "https://developers.jup.ag/docs/portal/rate-limits",
+      "withKeyRequestsPerSecond": 0.8
     },
     {
       "name": "jupiter_execute",
@@ -50,16 +52,16 @@
       "bucket": "solana_rpc",
       "requestsPerSecond": 8,
       "burst": 10,
-      "documented": "Free plan 10 req/s RPC, 1M credits/month. sendTransaction capped at 1/s on free.",
-      "source": "https://www.helius.dev/docs/billing/llms.txt"
+      "documented": "Free plan 10 req/s RPC, 1M credits/month at 1 credit per standard RPC call. sendTransaction capped at 1/s on free. Auth is the ?api-key= query parameter, so the key is part of the URL.",
+      "source": "https://www.helius.dev/docs/billing/rate-limits"
     },
     {
       "name": "helius_das",
       "bucket": "helius_das",
       "requestsPerSecond": 1.5,
       "burst": 2,
-      "documented": "DAS and Enhanced APIs 2 req/s on free plan; DAS methods cost 10 credits each.",
-      "source": "https://www.helius.dev/docs/billing/llms.txt"
+      "documented": "DAS and Enhanced APIs 2 req/s on free plan. Separate rate bucket from RPC but the SAME monthly credit pool, at 10 credits per DAS call against 1 for standard RPC — so DAS spends the 1M allowance ten times faster and rate headroom is not credit headroom.",
+      "source": "https://www.helius.dev/docs/billing/credits"
     },
     {
       "name": "goplus",

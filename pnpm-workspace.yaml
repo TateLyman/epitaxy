@@ -1,2 +1,10 @@
+# esbuild's postinstall is denied rather than left undecided.
+#
+# It belongs to a devDependency of the test runner, which works without it, so
+# approving it would add a postinstall script to the trust boundary for no gain.
+# The decision has to be recorded explicitly: pnpm treats an *undecided* build
+# script as an error, and while this key held its generated placeholder every
+# `pnpm <script>` failed with ERR_PNPM_IGNORED_BUILDS before the script itself
+# ran — including doctor, status, check and every gated entry point.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: false

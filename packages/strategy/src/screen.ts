@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../../domain/src/config.js';
 import type { DecisionSnapshot, RoundTrip, ScreeningOutcome } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
-import { evaluateCheapGates, evaluateQuoteGates, parseUtc, summarize } from '../../intelligence/src/gates.js';
+import {
+  evaluateCheapGates,
+  evaluateConcentrationGate,
+  evaluateQuoteGates,
+  parseUtc,
+  summarize,
+  type ConcentrationInput,
+} from '../../intelligence/src/gates.js';
 import { extractFeatures, opportunityScore } from './score.js';
 import { sanitizeExternal } from '../../observability/src/log.js';
 
@@ -44,6 +51,7 @@ export function finalizeScreen(
   cheapGates: ReturnType<typeof evaluateCheapGates>,
   roundTrip: RoundTrip | null,
   slot: number | null,
+  concentration: ConcentrationInput | null = null,
 ): ScreenResult {
   const cheapSummary = summarize(cheapGates);
   const deservesQuote = cheapSummary.passedHardGates;
@@ -51,7 +59,13 @@ export function finalizeScreen(
   // Quote gates only run when the cheap layer earned them. Otherwise the
   // absence of a quote must not be recorded as a quote failure.
   const quoteGates = deservesQuote ? evaluateQuoteGates(roundTrip, config.gates) : [];
-  const gates = [...cheapGates, ...quoteGates];
+  // Modes that commit real capital refuse an unmeasurable holder distribution;
+  // modes that only observe record it as risk and carry on.
+  const capitalAtRisk = config.mode === 'canary' || config.mode === 'live';
+  const concentrationGates = deservesQuote
+    ? evaluateConcentrationGate(concentration, config.gates, capitalAtRisk)
+    : [];
+  const gates = [...cheapGates, ...quoteGates, ...concentrationGates];
   const summary = summarize(gates);
 
   const ageMs = tokenAgeMs(info, nowUtcMs);

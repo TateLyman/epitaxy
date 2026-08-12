@@ -138,27 +138,47 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
   );
 
   // --- Creator inventory. A dev holding a large share can end the trade
-  //     unilaterally, and does so routinely. ------------------------------
+  //     unilaterally, and does so routinely.
+  //
+  //     Measured 2026-08-11: this field is absent for 81% of tokens in the
+  //     strategy's age window (n=3561). Treating absence as "the dev holds
+  //     everything" rejected the entire target population — the same mistake
+  //     already corrected for organicScore. Absence of a provider field is a
+  //     fact about the provider, not about the token, and is graded as risk.
+  //     A value that is present and bad remains an unconditional refusal.
   const devPct = audit.devBalancePercentage ?? null;
-  out.push(
-    veto(
-      'dev_balance',
-      devPct === null ? false : devPct <= config.maxDevBalancePct,
-      'dev_holds_too_much',
-      `dev balance ${devPct ?? 'unknown'}% > ${config.maxDevBalancePct}%`,
-    ),
-  );
+  if (devPct !== null) {
+    out.push(
+      veto(
+        'dev_balance',
+        devPct <= config.maxDevBalancePct,
+        'dev_holds_too_much',
+        `dev balance ${devPct}% > ${config.maxDevBalancePct}%`,
+      ),
+    );
+  } else {
+    out.push(soft('dev_balance_unavailable', 0.2, 'dev_balance_unavailable', 'provider reported no dev balance'));
+  }
 
-  // --- Top-holder concentration (raw; entity clustering refines this). -----
+  // --- Top-holder concentration, provider-reported.
+  //     This is a pre-filter only. It counts the liquidity pool as a holder,
+  //     which for a bonding-curve launch is most of the supply, so it cannot
+  //     by itself distinguish "one whale owns it" from "it has not migrated
+  //     yet". The authoritative measurement is on-chain; see
+  //     evaluateConcentrationGate.
   const topPct = audit.topHoldersPercentage ?? null;
-  out.push(
-    veto(
-      'top_holder_concentration',
-      topPct === null ? false : topPct <= config.maxTopHolderPct,
-      'concentrated_ownership',
-      `top holders ${topPct ?? 'unknown'}% > ${config.maxTopHolderPct}%`,
-    ),
-  );
+  if (topPct !== null) {
+    out.push(
+      soft(
+        'provider_top_holders',
+        topPct > config.maxTopHolderPct ? 0.3 : 0,
+        'provider_concentration_high',
+        `provider top holders ${topPct}% > ${config.maxTopHolderPct}%`,
+      ),
+    );
+  } else {
+    out.push(soft('top_holders_unavailable', 0.15, 'top_holders_unavailable', 'provider reported no top-holder share'));
+  }
 
   // --- Real trading activity, as a precondition for momentum. -------------
   const s5 = info.stats5m ?? {};
@@ -313,6 +333,61 @@ export function evaluateQuoteGates(roundTrip: RoundTrip | null, config: GateConf
   if (rt !== null) {
     // Even an allowed round trip is a headwind that must be earned back.
     out.push(soft('round_trip_drag', normalize(rt, 150, 400), 'high_round_trip', `${rt.toFixed(0)}bps round trip`));
+  }
+
+  return out;
+}
+
+export interface ConcentrationInput {
+  readonly topWalletPct: number | null;
+  readonly topTenWalletPct: number | null;
+  readonly programControlledPct: number;
+}
+
+/**
+ * Authoritative, on-chain holder concentration.
+ *
+ * Pool inventory is excluded: a bonding curve holding 90% of supply is the
+ * market we trade against, not a whale waiting to dump on us. What matters is
+ * how much supply sits in independent wallets that can sell into our exit.
+ *
+ * When the measurement could not be made, the verdict depends on what is at
+ * stake. Observing an unknown costs nothing; buying into one costs everything
+ * we put in, so modes that risk real capital refuse instead of guessing.
+ */
+export function evaluateConcentrationGate(
+  facts: ConcentrationInput | null,
+  config: GateConfig,
+  capitalAtRisk: boolean,
+  unavailableReason = 'on-chain concentration unavailable',
+): GateResult[] {
+  if (facts === null || facts.topTenWalletPct === null) {
+    if (capitalAtRisk) {
+      return [veto('holder_concentration', false, 'concentration_unknown', unavailableReason)];
+    }
+    return [soft('holder_concentration_unavailable', 0.3, 'concentration_unknown', unavailableReason)];
+  }
+
+  const out: GateResult[] = [
+    veto(
+      'holder_concentration',
+      facts.topTenWalletPct <= config.maxTopHolderPct,
+      'concentrated_ownership',
+      `top ten wallets hold ${facts.topTenWalletPct.toFixed(1)}% > ${config.maxTopHolderPct}%`,
+    ),
+  ];
+
+  if (facts.topWalletPct !== null) {
+    // A single wallet large enough to move the price alone is a different risk
+    // from ten wallets summing to the same share.
+    out.push(
+      soft(
+        'single_wallet_dominance',
+        normalize(facts.topWalletPct, config.maxTopHolderPct / 2, config.maxTopHolderPct),
+        'single_wallet_dominant',
+        `largest wallet holds ${facts.topWalletPct.toFixed(1)}%`,
+      ),
+    );
   }
 
   return out;

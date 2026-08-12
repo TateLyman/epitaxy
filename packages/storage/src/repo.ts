@@ -7,6 +7,8 @@ import type {
   ScreeningOutcome,
   Position,
   Fill,
+  TradeIntent,
+  PositionState,
 } from '../../domain/src/types.js';
 
 /**
@@ -177,6 +179,295 @@ export function recordRejectObservation(
     obs.liquidityUsd,
     obs.routeExists === null ? null : obs.routeExists ? 1 : 0,
     now - rejectedUtcMs,
+  );
+}
+
+export interface FollowUpTarget {
+  readonly mint: string;
+  /** First time this mint was ever rejected; the anchor every horizon is measured from. */
+  readonly anchorUtcMs: number;
+  readonly primaryReason: string;
+  readonly observations: number;
+}
+
+/**
+ * Mints that were rejected and are now due for a forward re-observation.
+ *
+ * Without this, `reject_tracking` only ever records the instant of rejection,
+ * and the question the table exists to answer — what did the tokens we refused
+ * actually do next — is unanswerable. A filter that looks strict is worthless
+ * unless we can show the things it removed were worth removing.
+ *
+ * Anchored on each mint's FIRST rejection so a horizon means the same thing for
+ * every row, even though an actively-screened mint is re-rejected every cycle.
+ */
+export function rejectsNeedingFollowUp(
+  db: Db,
+  nowUtcMs: number,
+  opts: { lookbackMs: number; minGapMs: number; maxObservations: number; limit: number },
+): FollowUpTarget[] {
+  // `n` counts FORWARD observations only. Counting every row would permanently
+  // exclude the mints we most want to follow: one that is re-screened each cycle
+  // accumulates dozens of zero-horizon rejection rows within minutes, and would
+  // hit any all-rows cap long before a single forward observation was taken.
+  const rows = db
+    .prepare(
+      `SELECT mint,
+              MIN(rejected_utc_ms) AS anchor,
+              MAX(CASE WHEN horizon_ms > ? THEN observed_utc_ms ELSE 0 END) AS last_forward,
+              SUM(CASE WHEN horizon_ms > ? THEN 1 ELSE 0 END) AS n
+       FROM reject_tracking
+       WHERE rejected_utc_ms >= ?
+       GROUP BY mint
+       HAVING last_forward <= ? AND n < ?
+       ORDER BY n ASC, anchor ASC
+       LIMIT ?`,
+    )
+    .all(
+      opts.minGapMs,
+      opts.minGapMs,
+      nowUtcMs - opts.lookbackMs,
+      nowUtcMs - opts.minGapMs,
+      opts.maxObservations,
+      opts.limit,
+    ) as unknown as { mint: string; anchor: number; last_forward: number; n: number }[];
+
+  if (rows.length === 0) return [];
+
+  // The reason attached to the anchor, not to whichever rejection happened last:
+  // grouping outcomes by a later reason would attribute a token's fate to a gate
+  // that fired only after the token had already changed.
+  const reasons = new Map<string, string>();
+  const placeholders = rows.map(() => '?').join(',');
+  const reasonRows = db
+    .prepare(
+      `SELECT r.mint AS mint, r.primary_reason AS reason
+       FROM reject_tracking r
+       JOIN (SELECT mint, MIN(rejected_utc_ms) AS a FROM reject_tracking
+             WHERE mint IN (${placeholders}) GROUP BY mint) f
+         ON f.mint = r.mint AND f.a = r.rejected_utc_ms`,
+    )
+    .all(...rows.map((r) => r.mint)) as unknown as { mint: string; reason: string }[];
+  for (const r of reasonRows) if (!reasons.has(r.mint)) reasons.set(r.mint, r.reason);
+
+  return rows.map((r) => ({
+    mint: r.mint,
+    anchorUtcMs: r.anchor,
+    primaryReason: reasons.get(r.mint) ?? 'unknown',
+    observations: r.n,
+  }));
+}
+
+/**
+ * Appends a forward observation against an existing rejection anchor. Kept
+ * separate from `recordRejectObservation` because the horizon here is real
+ * elapsed time rather than the few milliseconds it takes to write the initial
+ * row, and conflating the two would make every horizon statistic meaningless.
+ */
+export function recordForwardObservation(
+  db: Db,
+  target: FollowUpTarget,
+  observedUtcMs: number,
+  obs: { priceUsd: number | null; liquidityUsd: number | null; routeExists: boolean | null },
+): void {
+  db.prepare(
+    `INSERT INTO reject_tracking
+      (id,mint,rejected_utc_ms,primary_reason,observed_utc_ms,price_usd,liquidity_usd,route_exists,horizon_ms)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    newId(),
+    target.mint,
+    target.anchorUtcMs,
+    target.primaryReason,
+    observedUtcMs,
+    obs.priceUsd,
+    obs.liquidityUsd,
+    obs.routeExists === null ? null : obs.routeExists ? 1 : 0,
+    observedUtcMs - target.anchorUtcMs,
+  );
+}
+
+/**
+ * Records an intent, or returns the one already recorded under the same
+ * idempotency key.
+ *
+ * Idempotency lives in the UNIQUE constraint rather than in a read-then-write,
+ * because a read-then-write is not atomic across a crash and this is exactly
+ * the operation a crash is most likely to interrupt. The caller learns whether
+ * it created the intent or found it, and a "found" result means some earlier
+ * attempt may already be in flight.
+ */
+export function claimIntent(db: Db, intent: TradeIntent, simulated: boolean): { created: boolean; intentId: string } {
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO intents
+        (intent_id,idempotency_key,mint,side,input_mint,output_mint,max_input_amount,min_output_amount,
+         max_total_fee_lamports,max_priority_fee_lamports,deadline_utc_ms,strategy_version,risk_snapshot_hash,
+         created_utc_ms,state,simulated)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+    .run(
+      intent.intentId,
+      intent.idempotencyKey,
+      intent.mint,
+      intent.side,
+      intent.inputMint,
+      intent.outputMint,
+      intent.maxInputAmount.toString(),
+      intent.minOutputAmount.toString(),
+      intent.maxTotalFeeLamports.toString(),
+      intent.maxPriorityFeeLamports.toString(),
+      intent.deadlineUtcMs,
+      intent.strategyVersion,
+      intent.riskSnapshotHash,
+      intent.createdUtcMs,
+      'INTENT_CREATED' satisfies PositionState,
+      simulated ? 1 : 0,
+    );
+  if (result.changes === 1) return { created: true, intentId: intent.intentId };
+  const existing = db
+    .prepare('SELECT intent_id FROM intents WHERE idempotency_key = ?')
+    .get(intent.idempotencyKey) as { intent_id: string } | undefined;
+  if (existing === undefined) {
+    throw new Error(`intent ${intent.idempotencyKey} was neither inserted nor found`);
+  }
+  return { created: false, intentId: existing.intent_id };
+}
+
+export function setIntentState(db: Db, intentId: string, state: PositionState): void {
+  db.prepare('UPDATE intents SET state = ? WHERE intent_id = ?').run(state, intentId);
+}
+
+export interface IntentRow {
+  intent_id: string;
+  idempotency_key: string;
+  mint: string;
+  side: string;
+  input_mint: string;
+  output_mint: string;
+  max_input_amount: string;
+  min_output_amount: string;
+  max_total_fee_lamports: string;
+  max_priority_fee_lamports: string;
+  deadline_utc_ms: number;
+  strategy_version: string;
+  risk_snapshot_hash: string;
+  created_utc_ms: number;
+  state: string;
+  simulated: number;
+}
+
+export function intentById(db: Db, intentId: string): IntentRow | null {
+  return (db.prepare('SELECT * FROM intents WHERE intent_id = ?').get(intentId) as IntentRow | undefined) ?? null;
+}
+
+export type AttemptOutcome = 'SIGNED' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED' | 'EXPIRED' | 'UNKNOWN';
+
+export interface AttemptRow {
+  attempt_id: string;
+  intent_id: string;
+  attempt_no: number;
+  signature: string;
+  blockhash: string;
+  last_valid_height: number;
+  signed_utc_ms: number;
+  sent_utc_ms: number | null;
+  send_error: string | null;
+  outcome: string;
+  landed_slot: number | null;
+  chain_error: string | null;
+  resolved_utc_ms: number | null;
+}
+
+/**
+ * Written after signing and BEFORE sending. The signature is deterministic
+ * given the message, so it identifies the transaction whether or not the send
+ * call returns — which is the whole reason this row exists.
+ */
+export function recordAttempt(
+  db: Db,
+  a: {
+    attemptId: string;
+    intentId: string;
+    attemptNo: number;
+    signature: string;
+    blockhash: string;
+    lastValidHeight: number;
+    signedUtcMs: number;
+    simulatedOut: bigint | null;
+    simulatedIn: bigint | null;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO execution_attempts
+      (attempt_id,intent_id,attempt_no,signature,blockhash,last_valid_height,signed_utc_ms,outcome,
+       simulated_out,simulated_in)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    a.attemptId,
+    a.intentId,
+    a.attemptNo,
+    a.signature,
+    a.blockhash,
+    a.lastValidHeight,
+    a.signedUtcMs,
+    'SIGNED' satisfies AttemptOutcome,
+    a.simulatedOut === null ? null : a.simulatedOut.toString(),
+    a.simulatedIn === null ? null : a.simulatedIn.toString(),
+  );
+}
+
+export function updateAttempt(
+  db: Db,
+  attemptId: string,
+  fields: {
+    outcome?: AttemptOutcome;
+    sentUtcMs?: number;
+    sendError?: string | null;
+    landedSlot?: number | null;
+    chainError?: string | null;
+    resolvedUtcMs?: number | null;
+  },
+): void {
+  const sets: string[] = [];
+  const vals: (string | number | null)[] = [];
+  const push = (col: string, v: string | number | null): void => {
+    sets.push(`${col} = ?`);
+    vals.push(v);
+  };
+  if (fields.outcome !== undefined) push('outcome', fields.outcome);
+  if (fields.sentUtcMs !== undefined) push('sent_utc_ms', fields.sentUtcMs);
+  if (fields.sendError !== undefined) push('send_error', fields.sendError);
+  if (fields.landedSlot !== undefined) push('landed_slot', fields.landedSlot);
+  if (fields.chainError !== undefined) push('chain_error', fields.chainError);
+  if (fields.resolvedUtcMs !== undefined) push('resolved_utc_ms', fields.resolvedUtcMs);
+  if (sets.length === 0) return;
+  vals.push(attemptId);
+  db.prepare(`UPDATE execution_attempts SET ${sets.join(', ')} WHERE attempt_id = ?`).run(...vals);
+}
+
+/** Attempts whose fate is not yet known. These block any further action on their intent. */
+export function unresolvedAttempts(db: Db): AttemptRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM execution_attempts WHERE outcome IN ('SIGNED','SUBMITTED','UNKNOWN') ORDER BY signed_utc_ms`,
+    )
+    .all() as unknown as AttemptRow[];
+}
+
+export function attemptCount(db: Db, intentId: string): number {
+  const r = db.prepare('SELECT COUNT(*) AS n FROM execution_attempts WHERE intent_id = ?').get(intentId) as
+    | { n: number }
+    | undefined;
+  return r?.n ?? 0;
+}
+
+export function recordSignRefusal(db: Db, intentId: string, kind: string, detail: string): void {
+  db.prepare('INSERT INTO sign_refusals (intent_id,utc_ms,kind,detail) VALUES (?,?,?,?)').run(
+    intentId,
+    Date.now(),
+    kind,
+    detail.slice(0, 2000),
   );
 }
 

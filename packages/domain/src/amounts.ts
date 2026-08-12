@@ -88,6 +88,14 @@ function assertBps(bps: number): void {
 /**
  * Loss in basis points going from `before` to `after`.
  * Positive = you lost value. Returns null when `before` is zero.
+ *
+ * Resolution floor: the integer division truncates, so a change smaller than
+ * `before / 10_000_000` reads as exactly 0 and is indistinguishable from no
+ * change at all. On a 0.05 SOL probe that floor is 5 lamports, three orders of
+ * magnitude below the 5000-lamport signature fee, so it cannot affect a cost
+ * decision. It is documented because `lossBps(a, b) === 0` looks like it means
+ * "nothing moved" and does not: it means "nothing moved that this function can
+ * see". Do not use this to test equality — compare the bigints.
  */
 export function lossBps(before: bigint, after: bigint): number | null {
   if (before <= 0n) return null;

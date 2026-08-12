@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/*.keypair)",
+      "Read(**/*keypair*.json)",
+      "Read(**/id.json)",
+      "Read(**/wallet.json)",
+      "Read(.live-ack*)",
+      "Read(~/.live-ack*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/solana/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/AppData/Local/Google/**)",
+      "Read(~/AppData/Roaming/Mozilla/**)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Write(.live-ack*)",
+      "Write(~/.live-ack*)",
+      "Edit(.live-ack*)",
+      "Edit(~/.live-ack*)"
+    ],
+    "ask": [
+      "Edit(config/**)",
+      "Write(config/**)",
+      "Edit(packages/execution/src/gates.ts)",
+      "Edit(packages/execution/src/signer.ts)",
+      "Edit(packages/solana/src/txpolicy.ts)",
+      "Edit(.gitignore)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Bash(git push *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(npm install *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard.mjs",
+            "timeout": 10,
+            "statusMessage": "Checking command against project guard"
+          }
+        ]
+      }
+    ]
+  }
+}

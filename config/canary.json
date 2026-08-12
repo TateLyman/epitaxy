@@ -1,0 +1,61 @@
+{
+  "mode": "canary",
+  "strategyVersion": "delayed-momentum-v0.2.0",
+  "discoveryIntervalMs": 30000,
+  "enrichIntervalMs": 15000,
+  "maxClockSkewMs": 2000,
+  "maxQuoteAgeMs": 6000,
+  "assumedNewTokenFeeBps": 50,
+  "assumedPriorityFeeLamports": "200000",
+  "assumedAtaRentLamports": "2039280",
+  "assumedSignatureFeeLamports": "5000",
+  "assumedRentRecoveryRate": 0.5,
+  "maxFeeFractionBps": 1500,
+  "quoteProbeLamports": "20000000",
+  "maxQuotesPerCycle": 1,
+  "minOpportunityScore": 0.5,
+  "risk": {
+    "riskBudgetPctPerTrade": 1.5,
+    "maxNotionalPctPerPosition": 8,
+    "maxSimultaneousPositions": 1,
+    "maxAggregatePlannedLossPct": 2,
+    "dailyLossHaltPct": 3,
+    "weeklyLossHaltPct": 6,
+    "drawdownHaltPct": 8,
+    "minSolReserveLamports": "50000000",
+    "maxEntryLamports": "20000000",
+    "maxTotalExposureLamports": "40000000",
+    "dailyLossCapLamports": "20000000",
+    "maxPriorityFeeLamports": "500000",
+    "maxSlippageBps": 200
+  },
+  "gates": {
+    "minTokenAgeMs": 120000,
+    "maxTokenAgeMs": 3600000,
+    "minLiquidityUsd": 15000,
+    "minHolderCount": 100,
+    "maxTopHolderPct": 20,
+    "maxDevBalancePct": 3,
+    "maxPriceImpactBps": 100,
+    "maxRoundTripLossBps": 300,
+    "minOrganicScore": 30,
+    "maxSourceAgeMs": 45000,
+    "requireMintAuthorityDisabled": true,
+    "requireFreezeAuthorityDisabled": true,
+    "allowedTokenPrograms": [
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    ],
+    "minBuyCount5m": 20,
+    "minNetBuyers5m": 12
+  },
+  "paperStartLamports": "1000000000",
+  "exits": {
+    "stopLossBps": 2500,
+    "trailingStopBps": 3000,
+    "takeProfitBps": 6000,
+    "maxHoldMs": 1800000,
+    "minHoldMs": 60000,
+    "maxExitImpactBps": 400
+  }
+}

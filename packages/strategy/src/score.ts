@@ -16,7 +16,7 @@ import { normalize } from '../../intelligence/src/gates.js';
  * later measure which component actually predicted anything.
  */
 
-export const STRATEGY_VERSION = 'delayed-momentum-v0.1.0';
+export const STRATEGY_VERSION = 'delayed-momentum-v0.2.0';
 
 export interface ScoreResult {
   readonly score: number;

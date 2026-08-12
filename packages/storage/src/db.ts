@@ -234,6 +234,90 @@ CREATE TABLE IF NOT EXISTS regime_samples (
 );
 `,
   },
+  {
+    id: 3,
+    name: 'execution_attempts',
+    sql: `
+-- One row per broadcast. Written BEFORE the send, so a process that dies
+-- mid-flight leaves behind the signature of a transaction that may have
+-- landed. Without this, recovery cannot distinguish "never sent" from "sent
+-- and unknown", and those two states call for opposite actions.
+CREATE TABLE IF NOT EXISTS execution_attempts (
+  attempt_id        TEXT PRIMARY KEY,
+  intent_id         TEXT NOT NULL,
+  attempt_no        INTEGER NOT NULL,
+  signature         TEXT NOT NULL,
+  blockhash         TEXT NOT NULL,
+  last_valid_height INTEGER NOT NULL,
+  signed_utc_ms     INTEGER NOT NULL,
+  sent_utc_ms       INTEGER,
+  send_error        TEXT,
+  outcome           TEXT NOT NULL,
+  landed_slot       INTEGER,
+  chain_error       TEXT,
+  resolved_utc_ms   INTEGER,
+  simulated_out     TEXT,
+  simulated_in      TEXT,
+  UNIQUE (intent_id, attempt_no)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_signature ON execution_attempts(signature);
+CREATE INDEX IF NOT EXISTS idx_attempts_outcome ON execution_attempts(outcome);
+
+-- Refusals are evidence too. A signer that declines a thousand transactions
+-- and never says why is indistinguishable from one that is simply broken.
+CREATE TABLE IF NOT EXISTS sign_refusals (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  intent_id     TEXT NOT NULL,
+  utc_ms        INTEGER NOT NULL,
+  kind          TEXT NOT NULL,
+  detail        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refusals_intent ON sign_refusals(intent_id);
+`,
+  },
+  {
+    id: 4,
+    name: 'attempts_reference_intents',
+    sql: `
+-- An attempt row is the only durable record that a transaction was signed, and
+-- recovery resolves it by updating the intent it belongs to. An attempt whose
+-- intent does not exist therefore resolves into nothing: the signature is on
+-- chain, the process believes it handled it, and no intent ever changes state.
+-- Migration 3 declared intent_id NOT NULL but never constrained it, so that row
+-- was insertable. SQLite cannot add a constraint in place, hence the rebuild.
+--
+-- The INSERT below is deliberately unguarded. If an orphan already exists the
+-- migration fails and startup stops, because an unattributable signature is
+-- exactly the condition this system must never continue past.
+CREATE TABLE execution_attempts_v4 (
+  attempt_id        TEXT PRIMARY KEY,
+  intent_id         TEXT NOT NULL REFERENCES intents(intent_id),
+  attempt_no        INTEGER NOT NULL,
+  signature         TEXT NOT NULL,
+  blockhash         TEXT NOT NULL,
+  last_valid_height INTEGER NOT NULL,
+  signed_utc_ms     INTEGER NOT NULL,
+  sent_utc_ms       INTEGER,
+  send_error        TEXT,
+  outcome           TEXT NOT NULL,
+  landed_slot       INTEGER,
+  chain_error       TEXT,
+  resolved_utc_ms   INTEGER,
+  simulated_out     TEXT,
+  simulated_in      TEXT,
+  UNIQUE (intent_id, attempt_no)
+);
+INSERT INTO execution_attempts_v4 SELECT
+  attempt_id, intent_id, attempt_no, signature, blockhash, last_valid_height,
+  signed_utc_ms, sent_utc_ms, send_error, outcome, landed_slot, chain_error,
+  resolved_utc_ms, simulated_out, simulated_in
+FROM execution_attempts;
+DROP TABLE execution_attempts;
+ALTER TABLE execution_attempts_v4 RENAME TO execution_attempts;
+CREATE UNIQUE INDEX idx_attempts_signature ON execution_attempts(signature);
+CREATE INDEX idx_attempts_outcome ON execution_attempts(outcome);
+`,
+  },
 ];
 
 export interface OpenOptions {
@@ -356,11 +440,11 @@ export class ProcessLock {
   }
 }
 
-function hostnameSafe(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return process.env['COMPUTERNAME'] ?? process.env['HOSTNAME'] ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
+/**
+ * Exported so lock holders and lock reapers derive the host identically. If
+ * these two ever disagreed, `kill` would treat a local lock as foreign and
+ * refuse to clear it, or worse, treat a foreign one as local.
+ */
+export function hostnameSafe(): string {
+  return process.env['COMPUTERNAME'] ?? process.env['HOSTNAME'] ?? 'unknown';
 }

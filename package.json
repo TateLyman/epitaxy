@@ -7,8 +7,8 @@
   "engines": { "node": ">=24.0.0" },
   "scripts": {
     "doctor": "tsx scripts/doctor.ts",
-    "observe": "tsx apps/collector/src/main.ts",
-    "paper": "tsx apps/engine/src/paper.ts",
+    "observe": "tsx apps/collector/src/main.ts --mode=observe",
+    "paper": "tsx apps/engine/src/paper.ts --mode=paper",
     "replay": "tsx packages/research/src/replay-cli.ts",
     "backtest": "tsx packages/research/src/backtest-cli.ts",
     "report": "tsx packages/research/src/report-cli.ts",
@@ -18,7 +18,6 @@
     "canary": "tsx apps/executor/src/main.ts --mode=canary",
     "live": "tsx apps/executor/src/main.ts --mode=live",
     "kill": "tsx scripts/kill.ts",
-    "dashboard": "tsx apps/dashboard/src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
