@@ -220,8 +220,22 @@ export function readComputeBudget(tx: DecodedTransaction): ComputeBudgetSettings
   return { unitLimit, unitPriceMicroLamports };
 }
 
-/** Priority fee in lamports implied by the compute budget instructions. */
+/**
+ * Priority fee in lamports implied by the compute budget instructions.
+ *
+ * CEILING, not floor. The runtime charges `ceil(unit_price * limit / 1e6)`, so
+ * flooring understates the fee by up to one lamport on every transaction that
+ * does not divide evenly — which is most of them. One lamport is trivial; a
+ * cost model that is systematically one lamport optimistic on every leg is not,
+ * because it is optimistic in the same direction every time and this project is
+ * trying to measure an edge of a few hundred basis points against costs of a
+ * few thousand lamports.
+ *
+ * The boundary is mutation-tested: `(1, 1)` must be 1 lamport, not 0.
+ */
 export function priorityFeeLamports(cb: ComputeBudgetSettings): bigint {
   if (cb.unitLimit === null || cb.unitPriceMicroLamports === null) return 0n;
-  return (BigInt(cb.unitLimit) * cb.unitPriceMicroLamports) / 1_000_000n;
+  const numerator = BigInt(cb.unitLimit) * cb.unitPriceMicroLamports;
+  if (numerator === 0n) return 0n;
+  return (numerator + 999_999n) / 1_000_000n;
 }

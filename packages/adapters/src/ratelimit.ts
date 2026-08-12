@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
+import { monotonicMs } from '../../domain/src/clock.js';
 
 /**
  * Token-bucket scheduler.
@@ -46,12 +47,21 @@ class Bucket {
     readonly capacity: number,
   ) {
     this.tokens = capacity;
-    this.lastRefillMs = Date.now();
+    // §19.4 — MONOTONIC, not wall clock.
+    //
+    // Refilling against `Date.now()` means an NTP step or a resume decides how
+    // many API tokens exist. A forward jump of an hour mints a full bucket out
+    // of nothing and lets the engine burst into a 0.5 RPS limit; a backward
+    // step freezes refill entirely and starves the exit path, which is the one
+    // caller that cannot wait. Neither is a rate limit.
+    this.lastRefillMs = monotonicMs();
   }
 
   private refill(): void {
-    const now = Date.now();
+    const now = monotonicMs();
     const elapsed = (now - this.lastRefillMs) / 1000;
+    // Monotonic time cannot go backwards, so a negative elapsed would mean the
+    // platform clock is broken. Refuse to mint tokens either way.
     if (elapsed <= 0) return;
     this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.ratePerSecond);
     this.lastRefillMs = now;
@@ -210,14 +220,16 @@ export class RateLimiter {
   async acquire(bucket: string, maxWaitMs = 30_000, priority: RequestPriority = 'discovery'): Promise<void> {
     const b = this.get(bucket);
     const need = this.need(bucket, priority);
-    const started = Date.now();
+    // Monotonic here too: a wall-clock step during a wait would otherwise make
+    // a caller believe it had already waited its whole budget, or none of it.
+    const started = monotonicMs();
     for (;;) {
       if (b.tryTake(need)) {
-        b.waitedMs += Date.now() - started;
+        b.waitedMs += monotonicMs() - started;
         return;
       }
       const wait = b.msUntilAvailable(need);
-      if (!Number.isFinite(wait) || Date.now() - started + wait > maxWaitMs) {
+      if (!Number.isFinite(wait) || monotonicMs() - started + wait > maxWaitMs) {
         b.refused++;
         throw new RateLimitRefused(bucket, Number.isFinite(wait) ? wait : -1);
       }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.13.0",
+  "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -31,17 +31,24 @@
     "collapse-forensics": "tsx scripts/collapse-forensics.ts",
     "mutate": "python scripts/mutate-p2a1.py && python scripts/mutate-ledger.py && python scripts/mutate-halts.py && python scripts/mutate-drawdown.py && python scripts/mutate-replay.py",
     "release-manifest": "tsx scripts/release-manifest.ts",
-    "audit-baseline": "tsx scripts/audit-baseline.ts"
+    "audit-baseline": "tsx scripts/audit-baseline.ts",
+    "simulator:doctor": "tsx scripts/simulator-doctor.ts",
+    "simulator:parity": "tsx scripts/simulator-parity.ts",
+    "audit:state": "tsx scripts/audit-baseline.ts",
+    "shadow:status": "tsx scripts/shadow-status.ts",
+    "release:manifest": "tsx scripts/release-manifest.ts",
+    "ci:local": "pnpm typecheck && pnpm secretscan && pnpm test"
   },
   "devDependencies": {
+    "@solana/surfpool": "1.5.0",
     "@types/node": "^24.0.0",
+    "fast-check": "^3.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "fast-check": "^3.23.1"
+    "vitest": "^2.1.8"
   },
   "dependencies": {
-    "zod": "^3.24.1",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
   }
 }

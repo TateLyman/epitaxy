@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { generateKeyPairSync, createPublicKey, verify as edVerify } from 'node:crypto';
-import { writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, chmodSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Signer, SignerError, writeSignature } from '../../packages/execution/src/signer.js';
@@ -20,6 +20,28 @@ import type { EffectVerdict } from '../../packages/execution/src/effect.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'signer-'));
 
+/**
+ * Write a key fixture with permissions a real key would have.
+ *
+ * The signer refuses any keypair file that is group- or world-readable, which
+ * is correct and is not up for negotiation. `writeFileSync` honours the process
+ * umask, so on Linux these fixtures landed at mode 0644 and every test in this
+ * file died on the permission check before reaching what it meant to assert.
+ * The suite passed on Windows, where POSIX mode bits are not enforced, so the
+ * defect was invisible until CI ran on ubuntu-latest.
+ *
+ * The fix belongs in the fixture. A test that has to weaken the signer to run
+ * is a test that has stopped testing the signer. `chmod` is a no-op on Windows,
+ * which is exactly the behaviour wanted: existing behaviour there, correct
+ * behaviour on POSIX.
+ */
+function writeKeyFile(path: string, contents: string): void {
+  writeFileSync(path, contents, { mode: 0o600 });
+  // `mode` on open() is masked by the umask, so it is asserted rather than
+  // assumed. A umask of 0077 would give 0600 anyway; a umask of 0022 would not.
+  chmodSync(path, 0o600);
+}
+
 function makeKeypairFile(name: string): { path: string; pubkey: string } {
   const { privateKey } = generateKeyPairSync('ed25519');
   const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' });
@@ -27,7 +49,7 @@ function makeKeypairFile(name: string): { path: string; pubkey: string } {
   const spki = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
   const pub = spki.subarray(spki.length - 32);
   const path = join(dir, name);
-  writeFileSync(path, JSON.stringify([...seed, ...pub]));
+  writeKeyFile(path, JSON.stringify([...seed, ...pub]));
   return { path, pubkey: base58Encode(new Uint8Array(pub)) };
 }
 
@@ -129,13 +151,43 @@ describe('keypair loading', () => {
     const bytes = JSON.parse(readFileSync(path, 'utf8')) as number[];
     const swapped = [...bytes.slice(0, 32), ...base58Decode(other.pubkey)];
     const tampered = join(dir, 'tampered.json');
-    writeFileSync(tampered, JSON.stringify(swapped));
+    writeKeyFile(tampered, JSON.stringify(swapped));
     expect(() => Signer.fromFile(tampered)).toThrow(SignerError);
+  });
+
+  it('refuses a group/world-readable key on POSIX, and says which mode it saw', () => {
+    // The check that broke CI, asserted deliberately instead of by accident.
+    // Skipped on Windows because NTFS does not carry POSIX mode bits and
+    // `chmod` there is a no-op — a test that cannot fail is not a test.
+    if (process.platform === 'win32') return;
+    const loose = join(dir, 'loose.json');
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' });
+    const seed = pkcs8.subarray(pkcs8.length - 32);
+    const spki = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+    const pub = spki.subarray(spki.length - 32);
+    writeFileSync(loose, JSON.stringify([...seed, ...pub]));
+    chmodSync(loose, 0o644);
+    expect(statSync(loose).mode & 0o077).not.toBe(0);
+    expect(() => Signer.fromFile(loose)).toThrow(/group\/world accessible/);
+  });
+
+  it('accepts the same key once its permissions are correct', () => {
+    if (process.platform === 'win32') return;
+    const fixed = join(dir, 'fixed.json');
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' });
+    const seed = pkcs8.subarray(pkcs8.length - 32);
+    const spki = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+    const pub = spki.subarray(spki.length - 32);
+    writeKeyFile(fixed, JSON.stringify([...seed, ...pub]));
+    expect(statSync(fixed).mode & 0o077).toBe(0);
+    expect(() => Signer.fromFile(fixed)).not.toThrow();
   });
 
   it('refuses a file that is not 64 bytes', () => {
     const short = join(dir, 'short.json');
-    writeFileSync(short, JSON.stringify(new Array(32).fill(0)));
+    writeKeyFile(short, JSON.stringify(new Array(32).fill(0)));
     expect(() => Signer.fromFile(short)).toThrow(/64-byte/);
   });
 });

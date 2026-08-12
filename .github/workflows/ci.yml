@@ -1,14 +1,16 @@
 name: ci
 
 # Every check that decides whether this repository is telling the truth about
-# itself. It runs on every push and every pull request, and `master` is
-# protected on it.
+# itself, on both platforms it is developed and run on.
 #
-# The mutation subset is not optional decoration. This project's entire defect
-# history is code that was written, stored, listed in a schema, and read by no
-# decision — and the only thing that has ever caught that class is a mutation
-# that survives. A test suite that passes against a broken implementation is not
-# evidence.
+# Windows-only CI was not a smaller version of this — it was a different one.
+# The signer correctly refuses group/world-readable keypair files, NTFS does not
+# carry POSIX mode bits, and so a fixture bug that killed every signer test on
+# Linux was invisible for the entire life of the repository.
+#
+# The mutation subset is not decoration. This project's defect history is code
+# that was written, stored, listed in a schema, and read by no decision, and the
+# only thing that has ever caught that class is a mutation that survives.
 
 on:
   push:
@@ -23,15 +25,30 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # 11.13.0 is deprecated upstream: "This is a broken version. Please install
+  # pnpm v11.13.1 or newer" — emitted by the registry during install, visible in
+  # the run that first went red. 11.21.0 is `latest` and `latest-11`, and is not
+  # deprecated. Pinned exactly rather than to a range so a future broken release
+  # cannot arrive silently.
+  PNPM_VERSION: 11.21.0
+  NODE_VERSION: '24'
+
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      # Never cancel the other platform on one failure. The whole reason this
+      # matrix exists is that the two platforms fail differently.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
 
-    # No secrets are needed and none are exposed. Every check below runs
-    # offline: the unit, property, replay, chaos and durability suites use
-    # fixtures and temporary databases, never a provider. A CI job that needed a
-    # live API key would fail on rate limits and teach everyone to ignore it.
+    # No secrets are needed and none are exposed. Every check runs offline:
+    # the unit, property, replay, chaos and durability suites use fixtures and
+    # temporary databases, never a provider. A CI job that needed a live API key
+    # would fail on rate limits and teach everyone to ignore it.
     env:
       CI: 'true'
 
@@ -40,13 +57,13 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.13.0
+          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
-          # node:sqlite is built in from Node 24 and this repository depends on
-          # it rather than on a native addon.
-          node-version: '24'
+          # node:sqlite is built in from Node 24; this repository depends on it
+          # rather than on a native addon, which is why Windows works at all.
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: install
@@ -62,30 +79,61 @@ jobs:
         run: pnpm test
 
       - name: replay against committed fixtures
-        # Uses the test corpus, not the operator's research database, which is
-        # gitignored and must never reach CI.
+        # The `pnpm replay` CLI reads the operator's research database, which is
+        # gitignored and must never reach CI. The replay SUITE is the committed
+        # equivalent: it writes a corpus, replays it, and asserts zero
+        # divergence. That is the property the CLI checks in production.
         run: pnpm vitest run tests/replay --reporter=basic
 
-      - name: config invariants
-        # Cheap, and catches the class of change that a reviewer skims past:
-        # canary quietly becoming more permissive than live.
+      - name: durability
+        run: pnpm vitest run tests/durability --reporter=basic
+
+      - name: config and execution invariants
+        # Cheap, and catches the change a reviewer skims past: canary quietly
+        # becoming more permissive than live.
         run: pnpm vitest run tests/unit/p16-repair.test.ts --reporter=basic
+
+  simulator:
+    # Linux only. The Surfpool prebuilt binaries cover macOS and Linux x86-64;
+    # there is no supported Windows-native build, which is why the simulator
+    # work lives under WSL locally and under ubuntu-latest here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: simulator interface and deterministic fixture
+        # The fixture simulator exists precisely so this job does not depend on
+        # mainnet availability or on a native binary being downloadable.
+        run: pnpm vitest run tests/simulator --reporter=basic
+      - name: simulator doctor
+        run: pnpm simulator:doctor
 
   mutation:
     # A bounded subset, on the modules where a silent failure costs money.
-    # The full sweep is minutes of vitest restarts and belongs in a nightly job,
-    # not in the path of every PR.
+    #
+    # Its own job, and never concurrent with `check`, because the mutation
+    # scripts rewrite source files in place. Two of them running against one
+    # checkout would restore each other's originals and report nonsense.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: check
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.13.0
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - uses: actions/setup-python@v5
         with:
@@ -96,10 +144,12 @@ jobs:
         run: python scripts/mutate-p2a1.py
       - name: mutate — halts and risk caps
         run: python scripts/mutate-halts.py
+      - name: mutate — ledger and clocks
+        run: python scripts/mutate-ledger.py
 
   release-manifest:
     runs-on: ubuntu-latest
-    needs: [check, mutation]
+    needs: [check, simulator, mutation]
     if: github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
@@ -107,15 +157,18 @@ jobs:
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.13.0
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - name: install
         run: pnpm install --frozen-lockfile
       - name: build release manifest
-        run: pnpm release-manifest
+        run: pnpm release:manifest
+        env:
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         with:
           name: release-manifest

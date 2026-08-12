@@ -1,0 +1,14 @@
+{
+  "generatedUtc": "2026-08-12T23:40:29.058Z",
+  "platform": "win32/x64",
+  "node": "v24.12.0",
+  "surfpoolAvailable": false,
+  "surfpoolReason": "win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
+  "packageVersion": null,
+  "bootMs": null,
+  "runtimeVersion": null,
+  "featureSet": null,
+  "simulateReachable": false,
+  "canProduceConfirmatorySimulation": false,
+  "caveat": "A running SVM is not simulator parity. Confirmatory status additionally requires the parity corpus in docs/SIMULATOR_PARITY.md and every gate in the directive section 17."
+}
