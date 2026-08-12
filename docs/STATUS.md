@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-08-12T04:55Z
+Last updated: 2026-08-12T17:10Z
 
 ## Current state
 
@@ -636,25 +636,158 @@ The same `Math.abs(priceImpactPct)` construction exists on the **entry** side at
 gating is P5/P6, and changing it now would confound the exit measurement.
 
 
+## 2026-08-12 — P2a: the instrument, and three things it was not measuring
+
+P2 asks whether any prospective signal could have escaped the four liquidity
+collapses. P1 established that the corpus **cannot answer that**: every collapse
+did all its damage inside a single mark interval, and the mark interval was ~31s
+because open positions were only re-quoted when discovery ran. The resolution of
+the entire exit corpus was set by the discovery budget. That is a property of the
+instrument, not of the market (**O039**).
+
+Commits: `c330ace`, `75e9e54`.
+
+### What changed
+
+| Change | Was | Is |
+| --- | --- | --- |
+| mark cadence | tied to `discoveryIntervalMs` (~31s observed) | `markIntervalMs`, its own field, 10s |
+| loop tick | discovery cadence | mark cadence; discovery gates itself |
+| paper `maxSimultaneousPositions` | 3 | 1 for the measurement phase (a tightening) |
+
+Measured after restart, from `position_marks` rather than from the log: spacing
+min 10540ms, median 10555ms. The blind spot is 3x narrower. It is not gone — a
+sub-10s collapse is still one interval — and that limit stays stated rather than
+forgotten.
+
+### Three defects found while verifying it
+
+The engine was live with 145 eligible candidates and **zero open positions**, and
+had been for ~16h while reporting itself healthy.
+
+**O037 — the daily loss cap was permanent, not daily.** `dayStartUtcMs` was
+assigned once in `restoreLedger` and read by nothing, so `realizedTodayLamports`
+accumulated from process start and never released at midnight UTC. The engine was
+refusing every entry against losses realised on a previous calendar day. A cap
+that never releases is indistinguishable from a hang. Same dead-field class as
+O028, O031 and the old `maxExitImpactBps` knob — every mechanism except the one
+that uses it.
+
+**O038 — realised P&L summed through a double.** `SUM(CAST(realized_lamports AS
+INTEGER))` read back as a JS number, which is precisely what storing the column
+as TEXT exists to prevent. Latent, not yet wrong: paper NAV is far below 2^53.
+
+**O040 / O041 — risk guarantees with no enforcement.** Four risk halts
+(`drawdownHaltPct`, `dailyLossHaltPct`, `weeklyLossHaltPct`,
+`maxAggregatePlannedLossPct`) were declared in the schema and listed in
+`SAFER_WHEN_LOWER` — the tree would refuse to *loosen* four caps that nothing
+enforced. Separately, the config header claimed `assertNotLoosened` enforced that
+rule at load time; it is exported and never called, and `loadConfig` merges no env
+or CLI values at all. `drawdownHaltPct` is now implemented as the `drawdown_halt`
+refusal against peak NAV. The other three are a **named canary blocker**, not a
+silent gap.
+
+Neither `paper.ts` defect was reachable by a test, because `paper.ts` calls
+`main()` at import. The ledger helpers now live in `apps/engine/src/ledger.ts`
+for that reason alone.
+
+### O042 — decisions were not re-derivable from their snapshots
+
+This is the serious one, and it was only visible because O035 had just been fixed.
+
+`finalizeScreen` evaluated the concentration gate against an authoritative
+on-chain holder distribution and **stored none of it**. `replayOne` passed `null`
+and carried a comment saying the caller excluded rows that had a measurement;
+`replayAll` filtered on `strategy_version` and nothing else. The comment described
+a filter that did not exist.
+
+Once the running engine had written enough v0.3.0 rows for replay to actually
+execute, **28 of 1012 snapshots diverged**: `softRiskScore` on all 28, and 4 that
+lost a stored `concentrated_ownership` **hard veto** entirely.
+
+Fixed at the snapshot, not at the filter. Fixing the filter would have been O035
+again — verifying less while reporting success.
+
+| replay | replayed | divergent | unverifiable |
+| --- | --- | --- | --- |
+| v0.3.0 (current) | 1476 | **0** | 34 |
+| v0.2.0 (`--as-version=`) | 488 | **0** | 0 |
+
+The 34 cannot be repaired — the data was never collected. They are counted and
+printed as `unverifiable`, never as passes. `replayable()` fails closed on an
+unparseable row so corruption is still reported as a divergence rather than
+relabelled as an explanation it has not earned.
+
+### Risk changes — PAPER ONLY (MT014, MT015)
+
+`canary` and `live` were **not touched**.
+
+| paper | was | is |
+| --- | --- | --- |
+| `dailyLossCapLamports` | 0.06 SOL | 0.5 SOL |
+| `drawdownHaltPct` | 6 (enforced by nothing) | 50 (enforced) |
+
+The daily cap is a loosening of an enforced cap and is recorded as one. Two
+reasons, neither of them "returns improved":
+
+1. **It censored the sample precisely after losses.** Trades were missing not at
+   random — they were missing exactly following losing sequences, so the surviving
+   sample over-represents days that started with wins. For a phase whose entire
+   purpose is unbiased estimation of expectancy, that is a defect in the
+   instrument, the same class as O039.
+2. At ~2 entries/day it made P8's own preregistered 200-closed-trade gate a
+   100-day run.
+
+Paper mode holds no capital, so the cap protects nothing there; the newly enforced
+drawdown halt bounds total paper loss at 50% of NAV. **No entry gate, liquidity
+floor, position size, or exit threshold was changed.** In particular the liquidity
+floor was not lowered to manufacture trades.
+
+### Verification
+
+- 277 tests pass across 17 files; typecheck and secretscan clean; `doctor` 15/15.
+- Mutation testing: **5/5** caught on the ledger helpers, **6/6** on the drawdown
+  halt and peak NAV, **7/7** on concentration capture and the unverifiable
+  accounting. Each set includes the original defect as a mutation.
+- One mutation set caught a regression in this very change: `replayable()` ran
+  outside the caller's `try`, so a corrupt row crashed the whole replay instead of
+  being reported. Now fails closed.
+
+### State after restart
+
+Engine live, one open position, marks at 10s, concentration captured and
+round-tripping. **This does not yet answer P2's question** — that needs collapses
+observed at the new cadence, and there are none yet.
+
 ## Next
 
 1. ~~**MT011 and MT005** — why 8 of 10 exits were forced by cost.~~ **Answered
    2026-08-12.** They were not forced by cost. One label was covering four
    liquidity collapses, four ordinary cost drifts, and one position that was up
    5.7%. See the P1 section above.
-2. **P2 — resolve the 31s blind spot.** Every collapse did all its damage inside
-   a single mark interval, so the corpus cannot yet say whether a prospective
-   signal existed. 10s exact full-position quotes plus Helius WebSocket pool
-   monitoring, one open position at a time, counterfactual exits recorded at
-   every mark. This is the only thing standing between us and an answer on the
-   80% of losses, and no threshold should move before it.
-3. `pnpm reconcile` must take the process lock (O024) — a live hazard today.
-4. A backup that survives the WAL (O017).
-5. Clock-skew and sleep/resume detection (A17, D015, O012) — the last wholly
+2. ~~**P2a — resolve the 31s blind spot.**~~ **Instrument fixed 2026-08-12.**
+   Marks now land at 10.5s median, one open position at a time. The *question*
+   is still open: no collapse has been observed at the new cadence yet, so
+   whether a prospective signal exists remains unanswered. No exit threshold
+   should move before it is.
+3. **P2b — counterfactual exits at every mark** (fixed, trailing, time,
+   executable-output decay, reserve decay, dev/cluster selling), no look-ahead.
+   The existing `scripts/counterfactual-exits.ts` prices only whole positions
+   against the current rules; P2b needs a policy sweep recorded per mark.
+4. **P2c — Helius WebSocket pool monitoring and alert-mode re-quoting**, so a
+   material reserve/authority/LP change triggers a mark instead of waiting for
+   the next tick.
+5. **The three unenforced risk halts (O040)** — `dailyLossHaltPct`,
+   `weeklyLossHaltPct`, `maxAggregatePlannedLossPct`. A canary blocker: they are
+   declared in `config/live.json` and an operator would reasonably believe they
+   are active.
+6. `pnpm reconcile` must take the process lock (O024) — a live hazard today.
+7. A backup that survives the WAL (O017).
+8. Clock-skew and sleep/resume detection (A17, D015, O012) — the last wholly
    unguarded environmental assumptions.
-6. `pnpm doctor --mode=` (O023); `evidence.replayCorpus` counting divergences
+9. `pnpm doctor --mode=` (O023); `evidence.replayCorpus` counting divergences
    rather than snapshots (S022).
-7. Measure actual Helius credit burn over a week of observe mode, then decide
+10. Measure actual Helius credit burn over a week of observe mode, then decide
    whether P005/P006/P012/P013 are blocked by money or only by implementation.
    The free tier is 1M credits/month at 1 credit per standard RPC call, so the
    answer is probably "implementation" — but that is a measurement, not a guess.
