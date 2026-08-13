@@ -1323,3 +1323,72 @@ to two red ones is how a suite stops meaning anything.
 
 685 tests across 41 files. Typecheck and secretscan clean. No wallet funded, no
 canary, no live, no acknowledgement file.
+
+
+# The development simulation window is running
+
+Started 2026-08-13, on `4dc810e`, after a verified backup of the 2.5 GB corpus.
+
+```
+schema applied                 15 of 15
+simulation_jobs                 8   (4 SIMULATED_OK, 4 SIMULATION_FAILED, 0 unknown)
+observations simulated          8
+observations with exact bytes 211
+observations with blockhash    64
+shadows with a cohort          10
+rejects classified           2295
+daemon                         13 jobs, median 430ms startup + 309ms simulate
+```
+
+`dataRegimeId` moved from `.../5774139c5490` to `.../ee9d6f11c1e6`. That is the
+pooling guard working: this window cannot be averaged with the invalidated one,
+because the cost model, the simulation requirement and the route family are all
+part of the regime now.
+
+## What starting it found
+
+Three defects that no amount of reading the code would have surfaced.
+
+**The backup was broken at the size the corpus had reached.** `onlineBackup`
+hashed with `createHash().update(readFileSync(path))`, and a Node Buffer cannot
+exceed 2 GiB:
+
+```
+File size (2506678272) is greater than 2 GiB
+```
+
+Because a failed backup correctly *blocks* migration, the engine would have
+refused to start at all — the safeguard working exactly as designed, against a
+defect in the safeguard. Hashed in 8 MiB chunks now, and verified against the
+real 2,509,283,328-byte database.
+
+**A duplicate column made a fix a silent no-op.** `blockhash` was NULL on all
+22,177 rows. I added it to the INSERT column list and the arguments, and it was
+*still* NULL. The column had existed since migration 8, in the middle of the
+list, with a hardcoded `null`; my addition made it appear twice, SQLite accepted
+the duplicate without error and kept the first binding. The code read as though
+it worked.
+
+**Nothing was simulating the shadow entries.** Simulation was wired only into
+`tryEnter`, the portfolio path — and the portfolio opens almost nothing (128
+shadow entries against 0 portfolio entries over the same period). The window
+would have run at zero simulations indefinitely. The shadow entry and its
+round-trip sell are the pair that constitutes a fill, and both are simulated
+now.
+
+Marks are deliberately not simulated: a mark values a position already held, it
+runs every cycle for every open shadow, and simulating all of them would spend
+the whole budget answering a question nobody asked.
+
+## What the window is and is not
+
+It is **development** data. Every run is `DEVELOPMENT_JIT`, which fetches live
+mainnet state and is therefore not reproducible, and
+`EXECUTION_PARITY_ESTABLISHED` is still `false`. `responseIsConfirmatory()`
+refuses every one of these rows as evidence, for four separate reasons, and the
+`confirmatory` column records `0`.
+
+Four of the first eight simulations FAILED. That is not a defect — these are
+real routes against real pools, and a route that cannot execute is exactly the
+fact the simulation exists to establish. It is also why the number matters: an
+engine booking fills on unsimulated routes would have counted all eight.
