@@ -1,8 +1,8 @@
 {
-  "generatedUtc": "2026-08-12T23:48:58.419Z",
+  "generatedUtc": "2026-08-13T00:06:14.885Z",
   "source": {
-    "commit": "7ebb15f638469ac1dc6430e200546cc754cc7802+dirty",
-    "dirty": true,
+    "commit": "bc1cb81f3fce2b8a5f4d4d72023a20b7ef8ba789",
+    "dirty": false,
     "branch": "master"
   },
   "ci": {
@@ -27,26 +27,26 @@
     "accountSnapshotRegime": "none — no snapshot capture pipeline yet"
   },
   "observations": {
-    "total": 1945,
-    "policyValid": 1534,
+    "total": 2344,
+    "policyValid": 1640,
     "simulated": 0,
-    "withRawPayload": 1759,
+    "withRawPayload": 1865,
     "byPurpose": [
       {
         "purpose": "alpha_shadow_mark",
-        "n": 936
+        "n": 1130
       },
       {
         "purpose": "canary_shadow_mark",
-        "n": 923
+        "n": 1114
       },
       {
         "purpose": "canary_shadow_entry",
-        "n": 42
+        "n": 49
       },
       {
         "purpose": "alpha_shadow_entry",
-        "n": 42
+        "n": 49
       },
       {
         "purpose": "verification",
@@ -56,7 +56,7 @@
     "byFamily": [
       {
         "family": "BUILD_CUSTOM",
-        "n": 1945
+        "n": 2344
       }
     ]
   },
@@ -64,22 +64,22 @@
     {
       "book": "alpha_shadow",
       "state": "POSITION_CLOSED",
-      "n": 32
+      "n": 37
     },
     {
       "book": "alpha_shadow",
       "state": "POSITION_OPEN",
-      "n": 10
+      "n": 12
     },
     {
       "book": "canary_shadow",
       "state": "POSITION_CLOSED",
-      "n": 32
+      "n": 37
     },
     {
       "book": "canary_shadow",
       "state": "POSITION_OPEN",
-      "n": 10
+      "n": 12
     }
   ],
   "portfolioPositions": [
@@ -91,10 +91,10 @@
   "blockedPositions": 0,
   "unmanagedPositions": 0,
   "markCadence": {
-    "positionsWithMarks": 68,
-    "intervalCount": 1791,
-    "medianGapMs": 10271,
-    "p95GapMs": 15198,
+    "positionsWithMarks": 78,
+    "intervalCount": 2166,
+    "medianGapMs": 10267,
+    "p95GapMs": 15187,
     "maxGapMs": 23802
   },
   "costModel": {
@@ -143,12 +143,11 @@
     "divergences": 0,
     "run_utc_ms": 1786571844068
   },
-  "validDevelopmentTrades": 64,
+  "validDevelopmentTrades": 74,
   "validConfirmatoryTrades": 0,
   "blockers": [
-    "0 of 1945 observations are simulated. requireLocalSimulation=true and the engine books no fills; every row is DEVELOPMENT_STRUCTURAL.",
+    "0 of 2344 observations are simulated. requireLocalSimulation=true and the engine books no fills; every row is DEVELOPMENT_STRUCTURAL.",
     "no local SVM on this platform: win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
-    "working tree does not match its commit; nothing produced here is reproducible",
     "no replay run has reproduced a snapshot at the current strategy version",
     "branch protection unavailable: private repository requires GitHub Pro (operator action)",
     "§5 exact v0 transaction assembly not implemented; policy is instruction-level plus an estimate",
