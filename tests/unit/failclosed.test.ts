@@ -59,8 +59,6 @@ describe('missingBuildField', () => {
     ['MISSING_BLOCKHASH', { blockhash: '' }],
     ['MISSING_EXPIRY', { lastValidBlockHeight: null }],
     ['MISSING_EXPIRY', { lastValidBlockHeight: 0 }],
-    ['MISSING_CONTEXT_SLOT', { contextSlot: null }],
-    ['MISSING_CONTEXT_SLOT', { contextSlot: 0 }],
   ] as [string, Partial<BuildFields>][])('returns %s', (expected, over) => {
     expect(missingBuildField(complete(over), want)).toBe(expected);
   });
@@ -77,6 +75,20 @@ describe('missingBuildField', () => {
     expect(missingBuildField(complete({ inAmount: 19_999_999n }), want)).toBe('AMOUNT_MISMATCH');
     expect(missingBuildField(complete({ inAmount: 20_000_001n }), want)).toBe('AMOUNT_MISMATCH');
     expect(missingBuildField(complete({ inAmount: null }), want)).toBe('AMOUNT_MISMATCH');
+  });
+
+  it('does NOT refuse a build for a missing contextSlot', () => {
+    // MT026. Measured: context_slot is null on all 22,177 observations, because
+    // Jupiter's /build does not return it. A hard veto here refuses 100% of
+    // builds and halts collection -- the same defect as MT001 and MT002, and
+    // against the standing invariant that absence of a provider field is a fact
+    // about the PROVIDER and never hard-vetoes.
+    //
+    // The unit tests passed while this was broken, because the fixtures
+    // supplied a contextSlot on the strength of the directive saying the field
+    // existed. Only a live build caught it.
+    expect(missingBuildField(complete({ contextSlot: null }), want)).toBeNull();
+    expect(missingBuildField(complete({ contextSlot: 0 }), want)).toBeNull();
   });
 
   it('checks the mints before anything else, so the reason is the most informative one', () => {
@@ -124,5 +136,13 @@ describe('the failure taxonomy keeps its three kinds apart', () => {
     ]) {
       expect(OBSERVATION_FAILURES).toContain(f);
     }
+  });
+});
+
+describe('§6 contextSlot blocks EVIDENCE, not collection', () => {
+  it('keeps MISSING_CONTEXT_SLOT in the taxonomy for a provider that does send it', () => {
+    // Not removed: another router may populate it, and a build that claims a
+    // slot of zero is still wrong.
+    expect(OBSERVATION_FAILURES).toContain('MISSING_CONTEXT_SLOT');
   });
 });

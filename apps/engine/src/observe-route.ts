@@ -63,7 +63,15 @@ import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.j
  */
 
 /** One store for the process. Content-addressed, so concurrency is safe. */
-const blobs = new BlobStore();
+/**
+ * The default store for the process.
+ *
+ * Injectable through the request rather than only this module-level constant. A
+ * hardcoded path makes this function untestable against a temporary directory,
+ * and the first end-to-end test of the path failed for exactly that reason: it
+ * wrote to data/blobs and then looked for the blob somewhere else.
+ */
+const defaultBlobs = new BlobStore();
 
 export const SIMULATION_UNAVAILABLE =
   'a local SVM is wired and executes, but no account snapshot is captured for this route and no program ' +
@@ -90,6 +98,8 @@ export interface ObservationRequest {
   readonly broadcasterTipLamports: bigint;
   readonly priority: RequestPriority;
   readonly contextHash: string | null;
+  /** Where exact transaction bytes go. Defaults to the process store. */
+  readonly blobs?: BlobStore;
 }
 
 /**
@@ -238,7 +248,7 @@ export async function observeRoute(
       // evidence too and the bytes are how anyone would ever check the refusal
       // was right.
       try {
-        exactTransactionHash = blobs.put({
+        exactTransactionHash = (req.blobs ?? defaultBlobs).put({
           schemaVersion: EXACT_TRANSACTION_SCHEMA_VERSION,
           rawBuildResponse: built.rawBody,
           instructions: built.instructions,
@@ -347,6 +357,7 @@ export async function observeRoute(
     lookupTables: Object.keys(built.lookupTables),
     assembled,
     exactTransactionHash,
+    blockhash: built.blockhash,
   });
 
   if (built.failure !== null && built.failure !== 'NO_ROUTE') {

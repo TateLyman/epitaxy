@@ -31,6 +31,14 @@ export interface ObservationSidecar {
    */
   readonly exactTransactionHash?: string | null;
   /**
+   * The blockhash the route was built against.
+   *
+   * The column existed and was never written: NULL on all 22,177 rows. The blob
+   * carries it, but a row that cannot say which blockhash it used cannot be
+   * checked for expiry without opening a blob.
+   */
+  readonly blockhash?: string | null;
+  /**
    * The exact assembled transaction, when assembly succeeded.
    *
    * Null means no bytes existed, which is why `transaction_policy` cannot be a
@@ -64,8 +72,8 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
        instruction_policy,transaction_policy,simulation,policy_detail,simulation_detail,failure,
        requested_utc_ms,received_utc_ms,latency_ms,context_hash,
        serialized_transaction_hash,message_hash,actual_packet_bytes,fee_payer,
-       required_signature_count,static_account_keys,readonly_accounts,exact_transaction_blob)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       required_signature_count,static_account_keys,readonly_accounts,exact_transaction_blob,blockhash)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     o.observationId,
     o.family,
@@ -127,6 +135,7 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
       ? null
       : JSON.stringify(side.assembled.readonlyAccounts),
     side.exactTransactionHash ?? null,
+    side.blockhash ?? null,
   );
   return o.observationId;
 }
