@@ -1237,6 +1237,61 @@ UPDATE position_marks SET mark_source = 'ORDER_QUOTE_BENCHMARK', decision_bearin
 CREATE INDEX IF NOT EXISTS idx_marks_source ON position_marks(mark_source, decision_bearing);
 `,
   },
+  {
+    id: 19,
+    name: 'cohort_provenance',
+    sql: `
+-- P15 -- where a cohort came from, so a NULL cannot be quietly filled later.
+--
+-- 965 shadow positions carry no cohort. They are not unassigned in the sense of
+-- a missing measurement: they were opened before the cohort feature existed, and
+-- no age was recorded at their open either. The feature has assigned a cohort to
+-- every shadow opened since.
+--
+-- The distinction matters because the obvious repair is to match each old
+-- position to the nearest decision snapshot by mint and time and derive an age
+-- from it. That is inference, not re-derivation: nothing links a shadow position
+-- to the snapshot that produced it, so the join would be a guess about which
+-- screening was probably the one. A cohort assigned that way looks exactly like
+-- a measured one and is not, which is the error this whole corpus was rebuilt
+-- to remove.
+--
+-- So the rows stay NULL and say why.
+ALTER TABLE shadow_positions ADD COLUMN cohort_source TEXT
+  CHECK (cohort_source IS NULL OR cohort_source IN ('ASSIGNED_AT_OPEN','PREDATES_FEATURE'));
+
+UPDATE shadow_positions SET cohort_source = 'ASSIGNED_AT_OPEN' WHERE cohort IS NOT NULL;
+UPDATE shadow_positions SET cohort_source = 'PREDATES_FEATURE' WHERE cohort IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_shadow_cohort ON shadow_positions(cohort, cohort_source);
+`,
+  },
+  {
+    id: 20,
+    name: 'shadow_evidence_class',
+    sql: `
+-- P10 -- the evidence class a shadow qualified for AT OPEN, stored.
+--
+-- It was derived at report time by joining back to the simulation jobs. That
+-- derivation runs under whatever the code believes today, so a shadow opened
+-- when nothing was effect-verified would silently become JIT_EFFECT_VALID the
+-- moment a later run of the same observation passed. The class is a property of
+-- what was established when the position was opened, and it must not drift.
+--
+-- Never aggregated across classes. A structural shadow and an effect-verified
+-- one are not two of the same thing, and adding them gives a number that
+-- describes neither.
+ALTER TABLE shadow_positions ADD COLUMN evidence_class TEXT
+  CHECK (evidence_class IS NULL OR evidence_class IN
+    ('STRUCTURAL_ONLY','JIT_EFFECT_VALID','OFFLINE_REPRODUCIBLE','CONFIRMATORY'));
+
+-- Every existing row. All of them were opened on simulations that described no
+-- economic leg, so STRUCTURAL_ONLY is not a default here -- it is the answer.
+UPDATE shadow_positions SET evidence_class = 'STRUCTURAL_ONLY' WHERE evidence_class IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_shadow_evidence ON shadow_positions(evidence_class, book);
+`,
+  },
 ];
 
 export interface OpenOptions {

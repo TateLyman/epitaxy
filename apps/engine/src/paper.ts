@@ -43,6 +43,7 @@ import { ATA_ACCOUNTING_VERSION, settleAtaRent } from '../../../packages/domain/
 import type { AtaState } from '../../../packages/domain/src/ata.js';
 import { buildRunContext } from '../../../packages/domain/src/provenance.js';
 import { cohortOf, type CohortAssignment } from '../../../packages/domain/src/cohort.js';
+import { evidenceClassOf, type LegEvidence } from '../../../packages/domain/src/evidence.js';
 import { Cadence, detectDiscontinuity, readClock, monotonicMs } from '../../../packages/domain/src/clock.js';
 import type { ClockReading } from '../../../packages/domain/src/clock.js';
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
@@ -1018,6 +1019,40 @@ function tokenProgramFor(db: Db, blobs: BlobStore, observationId: string): strin
   }
 }
 
+/**
+ * What one leg's simulation actually established, read back from the database.
+ *
+ * Null when no job exists for the observation, which is not the same as a job
+ * that failed: one means nothing was attempted, the other means something was
+ * and did not hold. Both yield STRUCTURAL_ONLY, and they are distinguished in
+ * the job row rather than collapsed here.
+ */
+function legEvidenceOf(db: Db, observationId: string): LegEvidence | null {
+  const r = db
+    .prepare(
+      `SELECT validity, simulated_effect_ok, account_coverage_ok, mode, confirmatory
+       FROM simulation_jobs WHERE execution_observation_id = ?
+       ORDER BY requested_utc_ms DESC LIMIT 1`,
+    )
+    .get(observationId) as
+    | {
+        validity: string | null;
+        simulated_effect_ok: number | null;
+        account_coverage_ok: number | null;
+        mode: string | null;
+        confirmatory: number | null;
+      }
+    | undefined;
+  if (r === undefined) return null;
+  return {
+    validity: r.validity,
+    effectOk: r.simulated_effect_ok === 1,
+    accountCoverageOk: r.account_coverage_ok === 1,
+    offline: r.mode === 'CONFIRMATORY_OFFLINE',
+    confirmatory: r.confirmatory === 1,
+  };
+}
+
 async function openShadowBooks(
   db: Db,
   jupiter: JupiterClient,
@@ -1211,11 +1246,22 @@ async function openShadowBooks(
     // Written straight after the insert rather than threaded through the
     // repository signature, because the cohort is a property of the DECISION
     // and every other caller of openShadowPosition would have to invent one.
-    db.prepare('UPDATE shadow_positions SET cohort = ?, token_age_ms_at_open = ? WHERE shadow_position_id = ?').run(
-      cohort,
-      tokenAgeMsAtOpen,
-      id,
+    // P10 -- the evidence class this shadow qualified for AT OPEN.
+    //
+    // Stamped rather than derived later. A derivation runs under whatever the
+    // code believes at report time, so a shadow opened when nothing was
+    // effect-verified would silently become JIT_EFFECT_VALID the moment some
+    // later run of the same observation passed.
+    const evidence = evidenceClassOf(
+      legEvidenceOf(db, obs.observationId),
+      legEvidenceOf(db, exitObs.observationId),
     );
+    db.prepare(
+      `UPDATE shadow_positions
+         SET cohort = ?, token_age_ms_at_open = ?, cohort_source = 'ASSIGNED_AT_OPEN',
+             evidence_class = ?
+       WHERE shadow_position_id = ?`,
+    ).run(cohort, tokenAgeMsAtOpen, evidence, id);
     bindEpisode(db, id, episode.signalEpisodeId, exitObs.observationId, roundTripLossBps);
     log.info(
       {

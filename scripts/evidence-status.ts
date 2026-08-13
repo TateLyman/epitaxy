@@ -20,33 +20,18 @@ const db = openDb({ path: loadSecrets().databasePath, readonly: true });
 const which = process.argv[2] ?? 'all';
 
 /**
- * The evidence class a shadow position qualifies for.
+ * The evidence class a shadow position qualified for AT OPEN.
  *
- * Derived from the simulation jobs behind its own two legs, not asserted. A
- * shadow cannot be a better class than the runs that produced it.
+ * Read from the column, not re-derived. A derivation runs under whatever the
+ * code believes now, so a shadow opened when nothing was effect-verified would
+ * silently be promoted the moment a later run of the same observation passed.
  */
 const SHADOW_CLASS_SQL = `
   SELECT s.book,
-         CASE
-           WHEN je.validity IS NULL OR je.validity = 'INSTRUMENT_DEVELOPMENT'
-             OR jx.validity IS NULL OR jx.validity = 'INSTRUMENT_DEVELOPMENT'
-             THEN 'STRUCTURAL_ONLY'
-           WHEN je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
-             AND je.mode = 'CONFIRMATORY_OFFLINE' AND jx.mode = 'CONFIRMATORY_OFFLINE'
-             AND je.confirmatory = 1 AND jx.confirmatory = 1
-             THEN 'CONFIRMATORY'
-           WHEN je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
-             AND je.mode = 'CONFIRMATORY_OFFLINE' AND jx.mode = 'CONFIRMATORY_OFFLINE'
-             THEN 'OFFLINE_REPRODUCIBLE'
-           WHEN je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
-             THEN 'JIT_EFFECT_VALID'
-           ELSE 'STRUCTURAL_ONLY'
-         END AS evidence_class,
+         COALESCE(s.evidence_class, 'STRUCTURAL_ONLY') AS evidence_class,
          COUNT(*) AS n,
          SUM(CASE WHEN s.closed_utc_ms IS NOT NULL THEN 1 ELSE 0 END) AS closed
   FROM shadow_positions s
-  LEFT JOIN simulation_jobs je ON je.execution_observation_id = s.entry_observation_id
-  LEFT JOIN simulation_jobs jx ON jx.execution_observation_id = s.entry_sell_observation_id
   GROUP BY 1, 2
   ORDER BY 1, 2
 `;

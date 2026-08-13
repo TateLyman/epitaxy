@@ -226,13 +226,20 @@ Carried forward from the previous directive rounds; unchanged this session.
 
 ## 17. Age cohorts
 
-`pnpm cohort:status`. **965 of 1,079 shadow positions carry no cohort**, and the
-114 that do are all in one arm. There is no between-cohort comparison available,
-and unassigned is not a cohort: a row that cannot say which arm it belongs to
-cannot be compared against the others.
+`pnpm cohort:status`. 965 of 1,079 shadow positions carry no cohort, and the
+118 that do are all in one arm.
 
-Cohort assignment not running for 89% of shadows is an open defect. See
-`docs/COHORT_EXPERIMENT.md`.
+**The gap is historical, not a broken feature.** NULL cohorts stop at 15:42 and
+assigned ones begin at 15:45; every shadow opened since the feature landed has
+one. They are now marked `cohort_source = 'PREDATES_FEATURE'`.
+
+They are deliberately **not** backfilled. Nothing links a shadow position to the
+snapshot that produced it, so deriving an age by matching mint and time would be
+a guess about which screening was probably the one — indistinguishable from a
+measurement and not one.
+
+The real limitation is that the usable sample is 118 positions in a single arm,
+which is no comparison at all. See `docs/COHORT_EXPERIMENT.md`.
 
 ## 18. Reject panel
 
@@ -244,10 +251,17 @@ UNKNOWN           20,831    2.6%
 PROVIDER_MISSING   6,409    0.8%
 ```
 
-`EXECUTABLE_VALUE` is **zero across every rejection reason**. That is not
-evidence that the gates are right: with 96.6% unclassified, the classifier has
-barely run, and a panel that has not classified anything cannot vindicate
-anything.
+`EXECUTABLE_VALUE` is **zero across every rejection reason**, and that is not
+evidence the gates are right.
+
+The 96.6% unclassified are historical: classification began at 15:44 on
+2026-08-13 and has run continuously since, covering 29,337 rows. The older
+785,037 were recorded before the classifier existed and are correctly NULL —
+nobody looked, which is a different fact from looking and being unable to tell.
+
+So the panel is running; its classified sample is three hours old. Zero
+`EXECUTABLE_VALUE` across 29,337 classified rows is a real observation about a
+short window and not yet a statement about the gates.
 
 `reject_tracking.outcome` classifies rather than inferring from a NULL price. A
 NULL price read as zero makes every rejected token look like it went to nothing,

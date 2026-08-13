@@ -14,14 +14,38 @@ cohort            total  closed   age range at open
 AGE_2M_60M          114     106   2-59 min
 ```
 
-**965 of 1,079 shadow positions carry no cohort.** Unassigned is not a cohort: a
-row that cannot say which arm it belongs to cannot be compared against the
-others, and quietly folding it into the nearest arm would be inventing an
-assignment after seeing the outcome.
+**965 of 1,079 shadow positions carry no cohort — and the reason is historical,
+not a broken feature.**
 
-The 114 assigned rows are all in one arm, so there is currently **no
-between-cohort comparison available**. Reporting a cohort effect from this would
-be reporting the only arm that exists.
+```
+cohort set   n= 118   2026-08-13T15:45Z .. now
+cohort NULL  n= 965   2026-08-12T22:15Z .. 2026-08-13T15:42Z
+```
+
+The NULL rows stop at 15:42 and the assigned rows begin at 15:45. Cohort
+assignment has run on every shadow opened since the feature landed. They are
+marked `cohort_source = 'PREDATES_FEATURE'` rather than left ambiguous.
+
+### Why they are not backfilled
+
+The obvious repair is to match each old position to the nearest decision
+snapshot by mint and time and derive an age from it. `decision_snapshots`
+records `token_age_ms`, so the number is there.
+
+That would be inference, not re-derivation. **Nothing links a shadow position to
+the snapshot that produced it** — no snapshot id on the position, none on the
+observation — so the join would be a guess about which screening was probably
+the one. A cohort assigned that way is indistinguishable from a measured one and
+is not measured, which is the exact error the rest of this corpus was rebuilt to
+remove.
+
+So they stay NULL, and `cohort_source` says why.
+
+### The real limitation
+
+The usable sample is **118 shadows in a single arm**. That is not a small
+comparison; it is no comparison. Reporting a cohort effect from one arm would be
+reporting the only arm that exists.
 
 ## Why cohorts at all
 
@@ -63,8 +87,18 @@ is the one every other arm is measured against.
 
 None of the five currently holds.
 
-## The open defect
+## What is actually open
 
-Cohort assignment is not running for 89% of shadows. Until it does, this
-experiment has one arm and no control, and no threshold may be moved on the
-strength of it.
+Not the assignment — that runs. The open items are:
+
+1. **Only one arm has data.** `AGE_2M_60M` is the eligible window and the only
+   arm the portfolio would ever trade, so it is the only one the shadow books
+   have opened into. The out-of-window arms need shadows opened deliberately,
+   which is a change to what the books admit, not to the assignment.
+2. **118 positions is too few** to distinguish any arm from noise.
+3. **No arm has an evidence class above `STRUCTURAL_ONLY`**, so even a
+   between-arm difference would be a difference between two sets of unverified
+   simulations.
+
+No threshold may be moved on the strength of this experiment, and none has
+been.

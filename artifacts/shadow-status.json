@@ -1,30 +1,30 @@
 {
-  "generatedUtcMs": 1786645658475,
+  "generatedUtcMs": 1786646822469,
   "shadows": {
     "byClass": [
       {
         "book": "alpha_shadow",
         "evidence_class": "STRUCTURAL_ONLY",
-        "n": 556,
-        "closed": 474
+        "n": 542,
+        "closed": 460
       },
       {
         "book": "canary_shadow",
         "evidence_class": "STRUCTURAL_ONLY",
-        "n": 555,
-        "closed": 474
+        "n": 541,
+        "closed": 460
       }
     ],
     "marks": {
-      "n": 25085,
-      "routed": 2706,
-      "unpriced": 22379
+      "n": 25429,
+      "routed": 2712,
+      "unpriced": 22717
     },
     "blockedShadows": 0,
     "portfolioRefusals": [
       {
         "reason": "weekly_loss_halt",
-        "n": 983
+        "n": 987
       },
       {
         "reason": "daily_loss_halt",

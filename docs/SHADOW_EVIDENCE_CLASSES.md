@@ -52,7 +52,8 @@ would show no positions and no reason, and the absence would read as "no
 signals" rather than "the engine was halted".
 
 **89% of shadow marks are unpriced.** 22,379 of 25,085 marks have no executable
-value. Combined with the mark backlog (169 due against a capacity of 4, worst
+value. Most are marks on positions whose route no longer builds — the 4XX sell
+observations — rather than marks the scheduler skipped. Combined with the mark backlog (169 due against a capacity of 4, worst
 lag ~1,020 s), the mark series is not currently dense enough to support an exit
 rule, and it must not be read as one.
 

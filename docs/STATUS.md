@@ -1496,12 +1496,16 @@ from the System transfer as a `bigint`.
 |---|---|
 | shadows | 1,079, all `STRUCTURAL_ONLY`; **every one refused by a portfolio halt** (983 weekly, 96 daily) |
 | shadow marks | 25,085, of which 22,379 unpriced |
-| cohorts | 965 of 1,079 unassigned; the 114 assigned are all one arm |
-| rejects | 811,977 rows, 96.6% unclassified, `EXECUTABLE_VALUE` zero everywhere |
+| cohorts | 118 assigned (all one arm); 965 predate the feature and are marked as such, not backfilled |
+| rejects | 811,977 rows; 29,337 classified since the classifier landed, `EXECUTABLE_VALUE` zero in all of them |
 
 The portfolio has been halted for the entire window. That is what the shadow
 books exist to reveal: without them the corpus would show no positions and no
 reason, and the absence would read as "no signals".
 
-None of these numbers vindicates a gate. A reject panel that has classified 3.4%
-of its rows cannot vindicate anything.
+None of these numbers vindicates a gate. The classified reject sample is three
+hours old, and the cohort experiment has one arm.
+
+Correction: an earlier version of this file said cohort assignment and reject
+classification "were not running". Both run. The gaps are rows that predate the
+features, and they are marked rather than filled.
