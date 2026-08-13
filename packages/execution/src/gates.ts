@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import type { Db } from '../../storage/src/db.js';
 import { killSwitchEngaged } from '../../domain/src/config.js';
+import { buildReadiness } from '../../research/src/readiness.js';
 import type { AppConfig, Secrets } from '../../domain/src/config.js';
 import type { Mode } from '../../domain/src/types.js';
 
@@ -343,8 +344,33 @@ export function liveEvidenceGates(db: Db): GateResult[] {
   return results;
 }
 
+/**
+ * P18 — the profitability gate, folded into the deployment decision.
+ *
+ * `canaryEvidenceGates()` above asks whether the decision path was exercised
+ * honestly. It could pass after 200 losing trades, because it counted positions
+ * and never asked what they earned, and it accepted development JIT rows as
+ * evidence because it read `simulation='SIMULATED_OK'`.
+ *
+ * The readiness report asks whether there is an edge. Both must pass: honest
+ * measurement of a losing strategy is still a losing strategy, and a profitable
+ * result measured badly is not a result.
+ *
+ * A failed gate is never weakened to make a run possible. A threshold moved for
+ * that reason is not evidence about the strategy; it is evidence about whoever
+ * moved it.
+ */
+export function canaryProfitabilityGates(db: Db, config: AppConfig): GateResult[] {
+  const report = buildReadiness(db, 'unchecked', config.strategyVersion, Date.now());
+  return report.gates.map((x) => gate(`readiness.${x.id}`, x.pass, x.observed, x.required));
+}
+
 export function evaluateGates(mode: Mode, config: AppConfig, secrets: Secrets, db: Db): GateResult[] {
-  const results = [...operationalGates(config, secrets, db), ...canaryEvidenceGates(db, config)];
+  const results = [
+    ...operationalGates(config, secrets, db),
+    ...canaryEvidenceGates(db, config),
+    ...canaryProfitabilityGates(db, config),
+  ];
   if (mode === 'live') {
     results.push(...liveEvidenceGates(db));
     results.push(

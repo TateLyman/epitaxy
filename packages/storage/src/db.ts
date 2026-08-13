@@ -1101,6 +1101,142 @@ ALTER TABLE reject_tracking ADD COLUMN pool_reserves_lamports TEXT;
 CREATE INDEX IF NOT EXISTS idx_reject_outcome ON reject_tracking(outcome, horizon_ms);
 `,
   },
+  {
+    id: 16,
+    name: 'simulation_validity',
+    sql: `
+-- P1 — whether a simulation measured the market or measured the instrument.
+--
+-- Every job written before the P2 repair described no economic leg: the
+-- requested amount was the string '0' and the only balance mutation was SOL,
+-- whatever the transaction actually spent. So every BUY was funded correctly
+-- and every SELL was asked to spend an asset it had never been given. The
+-- failures were uniform -- the same error at the same instruction index, across
+-- every venue, mint and size -- which is the signature of an apparatus rather
+-- than a market.
+--
+-- The rows are kept. They are evidence about a defect that was fixed, and
+-- deleting them would erase the only proof the corpus was ever wrong. What they
+-- must never do is act as evidence about a token, a route or a threshold.
+--
+-- NULL is not permitted going forward: a job that does not say whether it is
+-- measuring anything is exactly the failure this column exists to prevent.
+ALTER TABLE simulation_jobs ADD COLUMN validity TEXT
+  CHECK (validity IS NULL OR validity IN
+    ('INSTRUMENT_DEVELOPMENT','VALID_DEVELOPMENT','VALID_CONFIRMATORY'));
+
+-- Every pre-existing row, without exception. The buys that "passed" are
+-- included: a run whose bounds were vacuous did not pass an economic test, it
+-- merely failed to violate one that was never stated.
+UPDATE simulation_jobs SET validity = 'INSTRUMENT_DEVELOPMENT' WHERE validity IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_simjobs_validity ON simulation_jobs(validity, status);
+`,
+  },
+  {
+    id: 17,
+    name: 'simulation_effect',
+    sql: `
+-- P3 -- runtime success is not economic success.
+--
+-- A Solana runtime returning no transaction error proves the instructions did
+-- not abort. It does not prove the taker received anything, that the debit was
+-- the intended one, that the fee is fully attributable, or that value did not
+-- move somewhere nobody was watching. Those are four questions, and every one
+-- of them was previously collapsed into 'SIMULATED_OK' and read as "the leg
+-- works" by the exit gate, the shadow book and the readiness check.
+--
+-- Stored rather than derived on read, because a verdict recomputed later is
+-- recomputed under whatever the code believes TODAY, and the question a job has
+-- to answer is what was actually established at the time.
+ALTER TABLE simulation_jobs ADD COLUMN runtime_ok            INTEGER;
+ALTER TABLE simulation_jobs ADD COLUMN effect_ok             INTEGER;
+ALTER TABLE simulation_jobs ADD COLUMN fee_decomposition_ok  INTEGER;
+ALTER TABLE simulation_jobs ADD COLUMN account_coverage_ok   INTEGER;
+ALTER TABLE simulation_jobs ADD COLUMN simulated_effect_ok   INTEGER;
+ALTER TABLE simulation_jobs ADD COLUMN effect_refusals       TEXT;
+
+-- The measured economics. TEXT because these are lamport and raw-unit amounts
+-- and SQLite INTEGER is 64-bit SIGNED -- a u64 near its ceiling silently
+-- becomes negative, and a negative fee is not a number this system can notice
+-- is wrong.
+ALTER TABLE simulation_jobs ADD COLUMN input_debit             TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN output_credit           TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN base_fee_lamports       TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN priority_fee_lamports   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN tip_lamports            TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN rent_created_lamports   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN rent_recovered_lamports TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN transfer_fee_lamports   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN withheld_fee_lamports   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN unexpected_movement_lamports TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN unexpected_recipients   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN unobserved_accounts     TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN bounds_violations       TEXT;
+
+-- Pre/post balances, so the verdict can be re-derived from what was seen rather
+-- than believed. A verdict nobody can re-derive is an assertion.
+ALTER TABLE simulation_jobs ADD COLUMN pre_sol_balances    TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN post_sol_balances   TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN pre_token_balances  TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN post_token_balances TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN created_accounts    TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN closed_accounts     TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_simjobs_effect ON simulation_jobs(simulated_effect_ok, validity);
+
+-- The observation's own verdict. SIMULATED_OK stays as it was -- it is still a
+-- true statement about the runtime -- and SIMULATED_EFFECT_OK is the strictly
+-- stronger claim that legIsExecutable() requires.
+--
+-- SQLite cannot alter a CHECK constraint in place, so the column is widened by
+-- rebuilding the check through a new column rather than by dropping the old
+-- constraint and losing it entirely.
+ALTER TABLE execution_observations ADD COLUMN simulation_effect TEXT
+  CHECK (simulation_effect IS NULL OR simulation_effect IN
+    ('SIMULATED_EFFECT_OK','EFFECT_REFUSED','NOT_VERIFIED'));
+ALTER TABLE execution_observations ADD COLUMN simulation_effect_refusals TEXT;
+
+-- Every pre-existing observation. Not 'EFFECT_REFUSED': nobody ran the check,
+-- which is a different fact from running it and failing.
+UPDATE execution_observations SET simulation_effect = 'NOT_VERIFIED' WHERE simulation_effect IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_obs_effect ON execution_observations(simulation_effect);
+`,
+  },
+  {
+    id: 18,
+    name: 'mark_source',
+    sql: `
+-- P9 -- what actually priced the mark that drove the decision.
+--
+-- Marks came from the /order quote: a router's opinion about a swap nobody
+-- built. Stop, trail, take-profit, collapse, peak and NAV all read it, so every
+-- exit rule in the system was reacting to a number that had never been through
+-- policy, had never been simulated, and might not correspond to a transaction
+-- that can be assembled at all.
+--
+-- /order is still recorded. It is a benchmark -- useful precisely because it is
+-- cheap and available -- and the difference between it and the executable mark
+-- is itself a measurement worth having. It is no longer decision-bearing.
+ALTER TABLE position_marks ADD COLUMN mark_source TEXT
+  CHECK (mark_source IS NULL OR mark_source IN ('BUILD_CUSTOM_SELL','PUMP_DIRECT','ORDER_QUOTE_BENCHMARK'));
+ALTER TABLE position_marks ADD COLUMN mark_observation_id TEXT;
+-- The benchmark, kept beside the executable mark so the gap can be measured
+-- rather than assumed.
+ALTER TABLE position_marks ADD COLUMN benchmark_order_lamports TEXT;
+ALTER TABLE position_marks ADD COLUMN benchmark_minus_executable_bps INTEGER;
+-- Whether this mark may drive a stop, a trail, a peak or NAV.
+ALTER TABLE position_marks ADD COLUMN decision_bearing INTEGER;
+
+-- Every existing mark. They were priced by /order and nothing else, and
+-- relabelling them as executable would be inventing evidence.
+UPDATE position_marks SET mark_source = 'ORDER_QUOTE_BENCHMARK', decision_bearing = 0
+  WHERE mark_source IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_marks_source ON position_marks(mark_source, decision_bearing);
+`,
+  },
 ];
 
 export interface OpenOptions {

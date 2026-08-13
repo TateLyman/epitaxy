@@ -209,6 +209,16 @@ export function missingBuildField(f: BuildFields, want: BuildExpectation): Obser
 export type PolicyOutcome = 'PASS' | 'FAIL' | 'NOT_RUN';
 export type SimulationOutcome = 'SIMULATED_OK' | 'SIMULATION_FAILED' | 'NOT_SIMULATED';
 
+/**
+ * P3 -- whether the ECONOMIC effect was verified, which `SimulationOutcome`
+ * never claimed and was read as claiming anyway.
+ *
+ * `NOT_VERIFIED` is an unknown and fails every gate. It is deliberately not
+ * spelled `EFFECT_REFUSED`: "nobody checked" and "somebody checked and it
+ * failed" are different facts, and only one of them is evidence about a route.
+ */
+export type SimulationEffectOutcome = 'SIMULATED_EFFECT_OK' | 'EFFECT_REFUSED' | 'NOT_VERIFIED';
+
 export interface ExecutionObservation {
   readonly observationId: string;
   readonly family: RouteFamily;
@@ -258,6 +268,14 @@ export interface ExecutionObservation {
   readonly instructionPolicy: PolicyOutcome;
   readonly transactionPolicy: PolicyOutcome;
   readonly simulation: SimulationOutcome;
+  /**
+   * P3 -- the ECONOMIC verdict, separate from the runtime one.
+   *
+   * Optional in the type only so a row written before the check existed reads
+   * back honestly as an unknown rather than as a pass. Every gate treats an
+   * absent value as NOT_VERIFIED, which fails.
+   */
+  readonly simulationEffect?: SimulationEffectOutcome | null;
   readonly policyDetail: string | null;
   readonly simulationDetail: string | null;
 
@@ -327,6 +345,13 @@ export function legIsExecutable(
   if (o.transactionPolicy !== 'PASS') reasons.push(`transaction policy ${o.transactionPolicy}`);
   if (req.requireLocalSimulation && o.simulation !== 'SIMULATED_OK') {
     reasons.push(`simulation ${o.simulation}`);
+  }
+  // P3 -- the runtime not complaining is not the trade happening. A leg backs a
+  // PnL-eligible fill only when the effect was verified: an output arrived, the
+  // debit was the intended one, the fee is fully attributable, and every
+  // writable the run touched was observed on both sides.
+  if (req.requireLocalSimulation && (o.simulationEffect ?? 'NOT_VERIFIED') !== 'SIMULATED_EFFECT_OK') {
+    reasons.push(`simulation effect ${o.simulationEffect ?? 'NOT_VERIFIED'}`);
   }
   if (o.instructionSetHash === null) reasons.push('no instruction set');
   if (o.rawPayloadHash === null) reasons.push('no retained raw payload');

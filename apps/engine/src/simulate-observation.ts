@@ -6,7 +6,9 @@ import {
   markSimulationUnknown,
   cachedSimulation,
   JobHashConflict,
+  recordSimulationEffect,
 } from '../../../packages/storage/src/simulation-repo.js';
+import { verifyEffect } from '../../../packages/simulator/src/effect.js';
 import {
   SimulationClient,
   SimulatorUnavailable,
@@ -33,17 +35,85 @@ import { recordHealth } from '../../../packages/storage/src/repo.js';
  */
 
 export type SimulationAttempt =
-  | { readonly kind: 'ok'; readonly status: string; readonly confirmatory: boolean; readonly reasons: readonly string[] }
+  | {
+      readonly kind: 'ok';
+      readonly status: string;
+      readonly confirmatory: boolean;
+      readonly reasons: readonly string[];
+      /** P3 -- whether the run's ECONOMIC effect held, not merely its runtime. */
+      readonly effectOk: boolean;
+      readonly effectRefusals: readonly string[];
+    }
   | { readonly kind: 'cached'; readonly status: string }
   | { readonly kind: 'unavailable'; readonly reason: string }
   | { readonly kind: 'skipped'; readonly reason: string };
 
+/**
+ * The economic leg a simulation is about.
+ *
+ * P2. The previous version described no leg at all: `requestedAmount` was the
+ * string '0' and the only balance mutation was SOL, whatever the transaction
+ * actually spent. Buys therefore worked and EVERY sell failed — 43 of 43, all
+ * with the identical error at the identical instruction index — because the
+ * simulator was asked to sell an asset it had never been given.
+ *
+ * That is not a route failure and not a fact about any token. It is the
+ * instrument measuring itself.
+ *
+ * A leg now says which asset it spends, how much of it, and under which token
+ * program, so the setup can fund the thing the transaction will actually debit.
+ */
 export interface SimulateOptions {
   readonly mode: SimulationMode;
-  /** Hypothetical SOL to fund the taker with inside the throwaway SVM. */
+  readonly side: 'buy' | 'sell';
+  readonly inputMint: string;
+  readonly outputMint: string;
+  /** Exact input amount. Never zero: a leg that spends nothing is not a leg. */
+  readonly inputAmount: bigint;
+  /** Token program of the INPUT asset, when the input is a token. */
+  readonly inputTokenProgram?: string | null;
+  readonly outputTokenProgram?: string | null;
+  /** Enough SOL for fees, rent and (on a buy) the input itself. */
   readonly fundingLamports: bigint;
   readonly maxLamportsSpent: bigint;
+  /** What the route said it would return. Used as an economic bound. */
+  readonly expectedOutput?: bigint | null;
+  readonly minimumOutput?: bigint | null;
   readonly contextHash: string | null;
+}
+
+/** Wrapped SOL, which is an input a buy spends as lamports rather than tokens. */
+const WSOL = 'So11111111111111111111111111111111111111112';
+
+export class InvalidSimulationSetup extends Error {
+  constructor(reason: string) {
+    super(
+      `refusing to simulate: ${reason}. A run whose setup does not match the leg cannot fail for a reason ` +
+        'that means anything, and its result would be recorded as if it did.',
+    );
+    this.name = 'InvalidSimulationSetup';
+  }
+}
+
+/**
+ * Check the setup describes the leg BEFORE anything is sent.
+ *
+ * Fails here rather than at runtime, because a runtime failure is recorded as a
+ * simulation outcome and this is not one — it is a caller defect. The 43 sells
+ * would every one of them have been refused here.
+ */
+export function validateSetup(opts: SimulateOptions): void {
+  if (opts.inputAmount <= 0n) throw new InvalidSimulationSetup('the input amount is zero');
+  if (opts.inputMint === opts.outputMint) throw new InvalidSimulationSetup('input and output mints are the same');
+  const spendsToken = opts.inputMint !== WSOL;
+  if (spendsToken && (opts.inputTokenProgram ?? null) === null) {
+    throw new InvalidSimulationSetup(
+      `a ${opts.side} spending ${opts.inputMint.slice(0, 8)} needs its token program, or the inventory cannot be provisioned`,
+    );
+  }
+  if (opts.side === 'sell' && !spendsToken) {
+    throw new InvalidSimulationSetup('a sell whose input is SOL is not a sell');
+  }
 }
 
 /**
@@ -84,6 +154,36 @@ export async function simulateObservation(
     return { kind: 'skipped', reason: `exact transaction blob unreadable: ${(e as Error).message}` };
   }
 
+  // P2 — refuse a setup that does not describe the leg, before sending it.
+  try {
+    validateSetup(opts);
+  } catch (e) {
+    recordHealth(db, 'simulation_setup_invalid', 'critical', `${observationId}: ${(e as Error).message}`);
+    return { kind: 'skipped', reason: (e as Error).message };
+  }
+
+  // Provision the asset the transaction will actually DEBIT.
+  //
+  // A buy spends lamports, so SOL funding is the whole story. A sell spends
+  // tokens, and funding it with SOL alone is what produced 43 identical
+  // failures: the token account existed with a zero balance, and the venue
+  // rejected the transfer at the same instruction every time.
+  const spendsToken = opts.inputMint !== WSOL;
+  const mutations: { kind: 'sol' | 'token'; owner: string; mint?: string; amount: string; tokenProgram?: string | null }[] =
+    [{ kind: 'sol', owner: taker, amount: opts.fundingLamports.toString() }];
+  if (spendsToken) {
+    mutations.push({
+      kind: 'token',
+      owner: taker,
+      mint: opts.inputMint,
+      // EXACTLY the hypothetical position. Funding more would let a sell
+      // succeed that the real balance could not cover; funding less would fail
+      // for a reason that is ours again.
+      amount: opts.inputAmount.toString(),
+      tokenProgram: opts.inputTokenProgram ?? null,
+    });
+  }
+
   const request = client.buildRequest({
     executionObservationId: observationId,
     mode: opts.mode,
@@ -93,14 +193,23 @@ export async function simulateObservation(
     originalBlockhash: blob.blockhash,
     originalLastValidBlockHeight: blob.lastValidBlockHeight,
     routeFamily: 'BUILD_CUSTOM',
-    requestedAmount: '0',
+    // The exact input. Zero described no leg and made every bound vacuous.
+    requestedAmount: opts.inputAmount.toString(),
     // JIT fetches its own state, so there is nothing frozen to name. A
     // confirmatory run would carry a real manifest and a real snapshot.
     targetSlot: blob.contextSlot,
     snapshotManifestHash: opts.mode === 'DEVELOPMENT_JIT' ? 'jit-no-frozen-snapshot' : blob.transactionHash,
     snapshotAccounts: [],
-    balanceMutations: [{ kind: 'sol', owner: taker, amount: opts.fundingLamports.toString() }],
-    bounds: { feePayer: taker, maxLamportsSpent: opts.maxLamportsSpent.toString() },
+    balanceMutations: mutations,
+    bounds: {
+      feePayer: taker,
+      maxLamportsSpent: opts.maxLamportsSpent.toString(),
+      // The output side of the bound, so a run that executes but delivers
+      // nothing is caught. Absent when the route did not state a minimum.
+      ...(opts.minimumOutput !== undefined && opts.minimumOutput !== null && opts.minimumOutput > 0n
+        ? { mint: opts.outputMint, minTokenDelta: opts.minimumOutput.toString() }
+        : {}),
+    },
     contextHash: opts.contextHash,
   });
 
@@ -133,16 +242,31 @@ export async function simulateObservation(
     const confirmatory = responseIsConfirmatory(res, opts.mode);
     recordSimulationResult(db, res, confirmatory, Date.now());
 
+    // P3 -- what the run actually DID, which the runtime status never said.
+    //
+    // Computed for every completed job, including failures, because a failure
+    // whose effect was never examined cannot be distinguished later from one
+    // nobody looked at.
+    const verdict = verifyEffect(request, res, {
+      taker,
+      side: opts.side,
+      inputMint: opts.inputMint,
+      outputMint: opts.outputMint,
+    });
+    recordSimulationEffect(db, request.jobId, verdict, res);
+
     // A DEVELOPMENT_JIT run that succeeded is a real execution result and is
     // written as one. It is still not confirmatory, and `confirmatory` says so
     // in its own column rather than being inferred later from the mode.
-    updateObservationSimulation(db, observationId, res.status, res.detail);
+    updateObservationSimulation(db, observationId, res.status, res.detail, verdict);
 
     return {
       kind: 'ok',
       status: res.status,
       confirmatory: confirmatory.ok,
       reasons: confirmatory.reasons,
+      effectOk: verdict.simulatedEffectOk,
+      effectRefusals: verdict.refusals,
     };
   } catch (e) {
     const reason = e instanceof IdentityMismatch ? `identity: ${e.message}` : (e as Error).message;
@@ -164,15 +288,31 @@ export async function simulateObservation(
  * outage leaves the row exactly as it was, because "we could not check" is not
  * a property of the route.
  */
-export function updateObservationSimulation(db: Db, observationId: string, status: string, detail: string): void {
+export function updateObservationSimulation(
+  db: Db,
+  observationId: string,
+  status: string,
+  detail: string,
+  verdict?: { simulatedEffectOk: boolean; refusals: readonly string[] },
+): void {
   const mapped =
     status === 'SIMULATED_OK' ? 'SIMULATED_OK' : status === 'SIMULATION_FAILED' ? 'SIMULATION_FAILURE' : null;
   if (mapped === null) return;
+  // P3 -- absent verdict stays NOT_VERIFIED. A caller that did not check does
+  // not get to leave the row looking as though the check passed.
+  const effect =
+    verdict === undefined ? 'NOT_VERIFIED' : verdict.simulatedEffectOk ? 'SIMULATED_EFFECT_OK' : 'EFFECT_REFUSED';
   db.prepare(
     `UPDATE execution_observations
-     SET simulation = ?, simulation_detail = ?
+     SET simulation = ?, simulation_detail = ?, simulation_effect = ?, simulation_effect_refusals = ?
      WHERE observation_id = ? AND simulation = 'NOT_SIMULATED'`,
-  ).run(mapped === 'SIMULATION_FAILURE' ? 'SIMULATION_FAILED' : 'SIMULATED_OK', detail.slice(0, 1000), observationId);
+  ).run(
+    mapped === 'SIMULATION_FAILURE' ? 'SIMULATION_FAILED' : 'SIMULATED_OK',
+    detail.slice(0, 1000),
+    effect,
+    verdict === undefined || verdict.refusals.length === 0 ? null : JSON.stringify(verdict.refusals).slice(0, 2000),
+    observationId,
+  );
 }
 
 export interface SimulatorHealth {

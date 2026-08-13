@@ -765,6 +765,20 @@ export interface PositionMark {
   readonly slot: number | null;
   readonly source: string;
   readonly backfilled: boolean;
+
+  /**
+   * P9 -- what priced this mark, and whether it may drive a decision.
+   *
+   * `ORDER_QUOTE_BENCHMARK` is a router's opinion about a swap nobody built.
+   * It is cheap, useful, and must never move a stop. Absent means the row
+   * predates the distinction, which is the same thing as not decision-bearing.
+   */
+  readonly markSource?: 'BUILD_CUSTOM_SELL' | 'PUMP_DIRECT' | 'ORDER_QUOTE_BENCHMARK' | null;
+  readonly markObservationId?: string | null;
+  readonly benchmarkOrderLamports?: bigint | null;
+  /** How far the cheap number sits from the executable one. Signed. */
+  readonly benchmarkMinusExecutableBps?: number | null;
+  readonly decisionBearing?: boolean;
 }
 
 /** bigint-or-null to TEXT-or-NULL. Keeps every amount out of float space. */
@@ -783,8 +797,9 @@ export function insertPositionMark(db: Db, m: PositionMark): void {
        pool_quote_reserve,pool_token_reserve,quote_reserve_change_from_entry_bps,
        quote_reserve_change_from_prev_bps,liquidity_usd,liquidity_change_from_entry_bps,
        developer_net_token_flow,clustered_insider_net_token_flow,
-       quote_requested_utc_ms,quote_received_utc_ms,quote_latency_ms,source_utc_ms,slot,source,backfilled)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       quote_requested_utc_ms,quote_received_utc_ms,quote_latency_ms,source_utc_ms,slot,source,backfilled,
+       mark_source,mark_observation_id,benchmark_order_lamports,benchmark_minus_executable_bps,decision_bearing)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(position_id,seq) DO NOTHING`,
   ).run(
     m.markId,
@@ -823,6 +838,11 @@ export function insertPositionMark(db: Db, m: PositionMark): void {
     m.slot,
     m.source,
     m.backfilled ? 1 : 0,
+    m.markSource ?? null,
+    m.markObservationId ?? null,
+    bnOrNull(m.benchmarkOrderLamports ?? null),
+    m.benchmarkMinusExecutableBps ?? null,
+    m.decisionBearing === true ? 1 : 0,
   );
 }
 

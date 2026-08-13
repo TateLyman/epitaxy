@@ -91,6 +91,10 @@ function obs(over: Partial<ExecutionObservation> = {}): ExecutionObservation {
     instructionPolicy: 'PASS',
     transactionPolicy: 'PASS',
     simulation: 'SIMULATED_OK',
+    // P3 -- a leg that the runtime accepted AND whose economic effect was
+    // verified. The two are separate claims, and the fixture has to make both
+    // or it is describing a row the engine now refuses.
+    simulationEffect: 'SIMULATED_EFFECT_OK' as const,
     policyDetail: null,
     simulationDetail: null,
     requestedUtcMs: 0,
@@ -295,6 +299,20 @@ describe('9 & 10 — a blocked exit stays managed and releases nothing', () => {
     // data without a simulator; nobody may call it confirmatory.
     expect(legIsConfirmatory(obs({ simulation: 'NOT_SIMULATED' })).ok).toBe(false);
     expect(legIsConfirmatory(obs()).ok).toBe(true);
+  });
+
+  it('P3 — runtime success alone does not make a leg executable', () => {
+    // The runtime not complaining is not the trade happening. A row that says
+    // SIMULATED_OK and nothing about its effect is exactly the row the exit
+    // gate, the shadow book and the readiness check all read as "it works".
+    expect(legIsExecutable(obs({ simulationEffect: 'NOT_VERIFIED' })).ok).toBe(false);
+    expect(legIsExecutable(obs({ simulationEffect: 'EFFECT_REFUSED' })).ok).toBe(false);
+    expect(legIsExecutable(obs({ simulationEffect: null })).ok).toBe(false);
+    expect(legIsExecutable(obs({ simulationEffect: 'SIMULATED_EFFECT_OK' })).ok).toBe(true);
+  });
+
+  it('P3 — an unverified effect is never confirmatory either', () => {
+    expect(legIsConfirmatory(obs({ simulationEffect: 'NOT_VERIFIED' })).ok).toBe(false);
   });
 });
 

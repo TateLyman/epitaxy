@@ -1,5 +1,6 @@
 import type { Db } from './db.js';
 import type { SimulationRequest, SimulationResponse } from '../../simulator/src/protocol.js';
+import type { EffectVerdict } from '../../simulator/src/effect.js';
 
 /**
  * The durable record of every simulation this engine asked for.
@@ -17,6 +18,46 @@ export class JobHashConflict extends Error {
     );
     this.name = 'JobHashConflict';
   }
+}
+
+/**
+ * Whether a job measured anything, DERIVED from the request it actually sent.
+ *
+ * Not a flag the caller passes. A caller that could assert its own validity
+ * would have asserted it for all 43 sells that failed because the simulator was
+ * never given the token they spent -- those requests said `requestedAmount` was
+ * zero and carried SOL and nothing else, and every one of them was recorded as
+ * a result about a route.
+ *
+ * So the label is computed from the bytes: a request that names no amount, or
+ * that spends a token it never provisioned, is measuring the instrument.
+ */
+export function simulationValidity(
+  req: SimulationRequest,
+): 'INSTRUMENT_DEVELOPMENT' | 'VALID_DEVELOPMENT' | 'VALID_CONFIRMATORY' {
+  let amount: bigint;
+  try {
+    amount = BigInt(req.requestedAmount);
+  } catch {
+    amount = 0n;
+  }
+  // A leg that spends nothing is not a leg, and every bound over it is vacuous.
+  if (amount <= 0n) return 'INSTRUMENT_DEVELOPMENT';
+
+  // A leg that spends a token must have been GIVEN that token. This is the
+  // exact condition the whole window failed, checked here against the request
+  // rather than against the caller's belief about the request.
+  const tokenProvisioned = req.balanceMutations.every(
+    (m) => m.kind !== 'token' || ((m.tokenProgram ?? null) !== null && m.amount !== '0'),
+  );
+  if (!tokenProvisioned) return 'INSTRUMENT_DEVELOPMENT';
+
+  // An unbounded run cannot violate an economic assertion, so it never made one.
+  if (req.bounds.feePayer.length === 0 || req.bounds.maxLamportsSpent.length === 0) {
+    return 'INSTRUMENT_DEVELOPMENT';
+  }
+
+  return req.mode === 'CONFIRMATORY_OFFLINE' ? 'VALID_CONFIRMATORY' : 'VALID_DEVELOPMENT';
 }
 
 /**
@@ -47,8 +88,9 @@ export function recordSimulationRequested(
   db.prepare(
     `INSERT INTO simulation_jobs
        (job_id,request_hash,execution_observation_id,mode,status,requested_utc_ms,
-        snapshot_manifest_hash,original_transaction_hash,original_blockhash,protocol_version,context_hash)
-     VALUES (?,?,?,?,'SIMULATION_REQUESTED',?,?,?,?,?,?)`,
+        snapshot_manifest_hash,original_transaction_hash,original_blockhash,protocol_version,context_hash,
+        validity)
+     VALUES (?,?,?,?,'SIMULATION_REQUESTED',?,?,?,?,?,?,?)`,
   ).run(
     req.jobId,
     req.requestHash,
@@ -60,6 +102,7 @@ export function recordSimulationRequested(
     req.originalBlockhash,
     req.protocolVersion,
     contextHash,
+    simulationValidity(req),
   );
   return true;
 }
@@ -155,4 +198,58 @@ export function simulationStats(db: Db): SimulationStats {
     confirmatory: rows.filter((r) => r.confirmatory === 1).length,
     medianTotalMs: times.length === 0 ? null : (times[Math.floor(times.length / 2)] ?? null),
   };
+}
+
+/**
+ * P3 -- persist the economic verdict alongside the runtime one.
+ *
+ * Written even when the verdict FAILS, and especially then. A refusal that is
+ * not recorded is indistinguishable from a check that was never run, and the
+ * whole point of separating the four checks is that "nobody looked" and
+ * "somebody looked and it did not hold" must never collapse into one value.
+ */
+export function recordSimulationEffect(db: Db, jobId: string, v: EffectVerdict, res: SimulationResponse): void {
+  const n = (b: bigint | null): string | null => (b === null ? null : b.toString());
+  db.prepare(
+    `UPDATE simulation_jobs SET
+       runtime_ok = ?, effect_ok = ?, fee_decomposition_ok = ?, account_coverage_ok = ?,
+       simulated_effect_ok = ?, effect_refusals = ?,
+       input_debit = ?, output_credit = ?,
+       base_fee_lamports = ?, priority_fee_lamports = ?, tip_lamports = ?,
+       rent_created_lamports = ?, rent_recovered_lamports = ?,
+       transfer_fee_lamports = ?, withheld_fee_lamports = ?,
+       unexpected_movement_lamports = ?, unexpected_recipients = ?,
+       unobserved_accounts = ?, bounds_violations = ?,
+       pre_sol_balances = ?, post_sol_balances = ?,
+       pre_token_balances = ?, post_token_balances = ?,
+       created_accounts = ?, closed_accounts = ?
+     WHERE job_id = ?`,
+  ).run(
+    v.checks.RUNTIME_OK ? 1 : 0,
+    v.checks.EFFECT_OK ? 1 : 0,
+    v.checks.FEE_DECOMPOSITION_OK ? 1 : 0,
+    v.checks.ACCOUNT_COVERAGE_OK ? 1 : 0,
+    v.simulatedEffectOk ? 1 : 0,
+    v.refusals.length === 0 ? null : JSON.stringify(v.refusals),
+    n(v.inputDebit),
+    n(v.outputCredit),
+    n(v.baseFeeLamports),
+    n(v.priorityFeeLamports),
+    n(v.tipLamports),
+    n(v.rentCreatedLamports),
+    n(v.rentRecoveredLamports),
+    n(v.transferFeeLamports),
+    n(v.withheldFeeLamports),
+    v.unexpectedMovementLamports.toString(),
+    v.unexpectedRecipients.length === 0 ? null : JSON.stringify(v.unexpectedRecipients),
+    v.unobservedAccounts.length === 0 ? null : JSON.stringify(v.unobservedAccounts),
+    v.boundsViolations.length === 0 ? null : JSON.stringify(v.boundsViolations),
+    JSON.stringify(res.preSolBalances),
+    JSON.stringify(res.postSolBalances),
+    JSON.stringify(res.preTokenBalances),
+    JSON.stringify(res.postTokenBalances),
+    JSON.stringify(res.createdAccounts),
+    JSON.stringify(res.closedAccounts),
+    jobId,
+  );
 }
