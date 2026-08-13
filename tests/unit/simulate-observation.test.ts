@@ -76,6 +76,10 @@ const identity = {
   featureSet: '1',
   accountSnapshotSchemaVersion: ACCOUNT_SNAPSHOT_SCHEMA_VERSION,
   platform: 'linux/x64',
+  kernel: '6.18.33.1-microsoft-standard-WSL2',
+  distro: 'Ubuntu 24.04',
+  transactionEncoderVersion: 'v0-encoder-v2-table-ordered',
+  programCaptureSchemaVersion: 1,
 };
 
 function response(over: Partial<SimulationResponse>): SimulationResponse {

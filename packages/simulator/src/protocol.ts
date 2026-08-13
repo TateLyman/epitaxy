@@ -80,7 +80,32 @@ export interface SimulatorIdentity {
   readonly featureSet: string | null;
   readonly accountSnapshotSchemaVersion: number;
   readonly platform: string;
+  /**
+   * §3.5 — the rest of what makes a run reproducible.
+   *
+   * The kernel matters because the SVM is a native binary and this one runs on
+   * WSL2, whose kernel is neither the host's nor a stock Linux; a run under a
+   * different kernel is a different environment even with identical bytes.
+   *
+   * The encoder version matters because the transaction the daemon executes was
+   * assembled by THIS repository. A change to how bytes are laid out changes
+   * what was simulated, and the daemon has no other way to notice.
+   *
+   * The program-capture schema matters because a snapshot's program entries
+   * mean something specific — ELF extracted from a loader-v3 ProgramData
+   * account behind a 45-byte header — and a change there changes what a frozen
+   * program IS.
+   */
+  readonly kernel: string | null;
+  readonly distro: string | null;
+  readonly transactionEncoderVersion: string;
+  readonly programCaptureSchemaVersion: number;
 }
+
+/** Bumped whenever the assembled bytes could differ for identical inputs. */
+export const TRANSACTION_ENCODER_VERSION = 'v0-encoder-v2-table-ordered';
+/** Bumped whenever a captured program means something different. */
+export const PROGRAM_CAPTURE_SCHEMA_VERSION = 1;
 
 export interface SnapshotBlob {
   readonly pubkey: string;
@@ -410,6 +435,9 @@ export function verifyIdentity(
     'nodeVersion',
     'runtimeVersion',
     'featureSet',
+    'kernel',
+    'transactionEncoderVersion',
+    'programCaptureSchemaVersion',
   ];
   for (const f of fields) {
     const want = expected[f];
@@ -425,5 +453,12 @@ export function identityIsConfirmatoryGrade(id: SimulatorIdentity): { ok: boolea
   if (id.surfpoolBinaryHash === null) reasons.push('native binary could not be hashed');
   if (id.runtimeVersion === null) reasons.push('runtime did not report a version');
   if (id.featureSet === null) reasons.push('runtime did not report a feature set');
+  if (id.kernel === null) reasons.push('kernel could not be read');
+  if (id.transactionEncoderVersion !== TRANSACTION_ENCODER_VERSION) {
+    reasons.push(`daemon assembled bytes with encoder ${id.transactionEncoderVersion}, this engine expects ${TRANSACTION_ENCODER_VERSION}`);
+  }
+  if (id.programCaptureSchemaVersion !== PROGRAM_CAPTURE_SCHEMA_VERSION) {
+    reasons.push('program capture schema differs, so a frozen program means something else');
+  }
   return { ok: reasons.length === 0, reasons };
 }

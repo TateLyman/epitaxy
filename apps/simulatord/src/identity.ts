@@ -3,9 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { readFileSync as readFile } from 'node:fs';
 import {
   ACCOUNT_SNAPSHOT_SCHEMA_VERSION,
   SIMULATION_PROTOCOL_VERSION,
+  TRANSACTION_ENCODER_VERSION,
+  PROGRAM_CAPTURE_SCHEMA_VERSION,
   type SimulatorIdentity,
 } from '../../../packages/simulator/src/protocol.js';
 
@@ -80,6 +83,33 @@ function surfpoolBinaryHash(): { hash: string | null; path: string | null } {
   return { hash: null, path: null };
 }
 
+/**
+ * The kernel this SVM is executing under.
+ *
+ * WSL2 runs a Microsoft-built kernel that is neither the Windows host's nor a
+ * stock Linux one. A native binary under a different kernel is a different
+ * environment even when every byte above it is identical, so it is part of what
+ * a reproducible run is reproducible ON.
+ */
+function readKernel(): string | null {
+  try {
+    return execFileSync('uname', ['-sr'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function readDistro(): string | null {
+  try {
+    const line = readFile('/etc/os-release', 'utf8')
+      .split('\n')
+      .find((l) => l.startsWith('PRETTY_NAME='));
+    return line === undefined ? null : line.slice('PRETTY_NAME='.length).replace(/"/g, '');
+  } catch {
+    return null;
+  }
+}
+
 export function computeIdentity(repoRoot: string, runtime: { version: string | null; featureSet: string | null }): SimulatorIdentity {
   if (cached !== null) {
     return { ...cached, runtimeVersion: runtime.version, featureSet: runtime.featureSet };
@@ -108,6 +138,10 @@ export function computeIdentity(repoRoot: string, runtime: { version: string | n
     featureSet: runtime.featureSet,
     accountSnapshotSchemaVersion: ACCOUNT_SNAPSHOT_SCHEMA_VERSION,
     platform: `${process.platform}/${process.arch}`,
+    kernel: readKernel(),
+    distro: readDistro(),
+    transactionEncoderVersion: TRANSACTION_ENCODER_VERSION,
+    programCaptureSchemaVersion: PROGRAM_CAPTURE_SCHEMA_VERSION,
   };
   return cached;
 }
