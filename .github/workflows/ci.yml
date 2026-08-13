@@ -145,6 +145,18 @@ jobs:
       - name: mutate — halts and risk caps
         run: python scripts/mutate-halts.py
       - name: mutate — ledger and clocks
+        # A NON-UTC timezone, deliberately.
+        #
+        # GitHub runners are UTC, where `setHours` and `setUTCHours` return the
+        # same value — so the "day boundary is local time, not UTC" mutation is
+        # undetectable there, and the suite reported it as surviving. That is
+        # the same blindness that let a Windows-only CI miss a POSIX permission
+        # bug: a check cannot catch a class of defect it cannot experience.
+        #
+        # Verified under WSL that the ledger and durability suites are green in
+        # both zones, so this hardens the check without weakening it.
+        env:
+          TZ: America/New_York
         run: python scripts/mutate-ledger.py
 
   release-manifest:
