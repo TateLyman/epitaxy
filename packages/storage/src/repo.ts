@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
+import { classifyRejectOutcome } from '../../domain/src/rejectoutcome.js';
 import type {
   Candidate,
   DecisionSnapshot,
@@ -179,13 +180,42 @@ export function recordRejectObservation(
   mint: string,
   rejectedUtcMs: number,
   primaryReason: string,
-  obs: { priceUsd: number | null; liquidityUsd: number | null; routeExists: boolean | null },
+  obs: {
+    priceUsd: number | null;
+    liquidityUsd: number | null;
+    routeExists: boolean | null;
+    /**
+     * §17 — the evidence needed to classify what actually happened.
+     *
+     * Optional so existing callers keep working, and absent evidence produces
+     * UNKNOWN rather than a guess. What it must never produce is a return: a
+     * NULL price read as a number is zero, zero means the token went to
+     * nothing, and every gate then looks brilliant for rejecting things that
+     * "went to zero" when a provider simply stopped answering.
+     */
+    providerAnswered?: boolean;
+    executableValueLamports?: bigint | null;
+    buildable?: boolean | null;
+    poolReservesLamports?: bigint | null;
+    sourceGap?: boolean;
+  },
 ): void {
   const now = Date.now();
+  const outcome = classifyRejectOutcome({
+    // A price came back at all, so somebody answered -- unless the caller says
+    // otherwise. Callers that know better pass it explicitly.
+    providerAnswered: obs.providerAnswered ?? obs.priceUsd !== null,
+    routeExists: obs.routeExists,
+    executableValueLamports: obs.executableValueLamports ?? null,
+    buildable: obs.buildable ?? null,
+    poolReservesLamports: obs.poolReservesLamports ?? null,
+    sourceGap: obs.sourceGap ?? false,
+  });
   db.prepare(
     `INSERT INTO reject_tracking
-      (id,mint,rejected_utc_ms,primary_reason,observed_utc_ms,price_usd,liquidity_usd,route_exists,horizon_ms)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+      (id,mint,rejected_utc_ms,primary_reason,observed_utc_ms,price_usd,liquidity_usd,route_exists,horizon_ms,
+       outcome,executable_value_lamports,provider_answered,buildable,pool_reserves_lamports)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     newId(),
     mint,
@@ -196,6 +226,15 @@ export function recordRejectObservation(
     obs.liquidityUsd,
     obs.routeExists === null ? null : obs.routeExists ? 1 : 0,
     now - rejectedUtcMs,
+    outcome,
+    obs.executableValueLamports === undefined || obs.executableValueLamports === null
+      ? null
+      : obs.executableValueLamports.toString(),
+    obs.providerAnswered === undefined ? null : obs.providerAnswered ? 1 : 0,
+    obs.buildable === undefined || obs.buildable === null ? null : obs.buildable ? 1 : 0,
+    obs.poolReservesLamports === undefined || obs.poolReservesLamports === null
+      ? null
+      : obs.poolReservesLamports.toString(),
   );
 }
 
