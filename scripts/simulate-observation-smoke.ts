@@ -90,6 +90,8 @@ const failRow = db
   .get(obs.observationId) as { f: string | null; d: string | null };
 console.log(`  failure           ${failRow.f ?? 'none'}`);
 console.log(`  policyDetail      ${failRow.d ?? 'none'}`);
+const bhRow = db.prepare('SELECT blockhash AS b FROM execution_observations WHERE observation_id = ?').get(obs.observationId) as { b: string | null };
+console.log(`  blockhash column  ${bhRow.b ?? 'NULL'}`);
 
 // §5 — the exact bytes must be there before anything can be simulated.
 const blobHash = exactBlobFor(db, obs.observationId);

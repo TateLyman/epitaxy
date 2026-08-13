@@ -72,8 +72,8 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
        instruction_policy,transaction_policy,simulation,policy_detail,simulation_detail,failure,
        requested_utc_ms,received_utc_ms,latency_ms,context_hash,
        serialized_transaction_hash,message_hash,actual_packet_bytes,fee_payer,
-       required_signature_count,static_account_keys,readonly_accounts,exact_transaction_blob,blockhash)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       required_signature_count,static_account_keys,readonly_accounts,exact_transaction_blob)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     o.observationId,
     o.family,
@@ -106,7 +106,12 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
     side.impactRawString,
     side.impactStatus,
     side.adverseImpactBps,
-    null,
+    // The blockhash column has existed since migration 8 and was hardcoded
+    // null here, which is why it is NULL on all 22,177 historical rows. Adding
+    // a SECOND blockhash column to the end of the list did not fix that:
+    // SQLite accepted the duplicate and kept this binding, so the value landed
+    // nowhere and the symptom was unchanged. Populated at its real position.
+    side.blockhash ?? null,
     o.lastValidBlockHeight,
     o.expireAt,
     o.contextSlot,
@@ -135,7 +140,6 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
       ? null
       : JSON.stringify(side.assembled.readonlyAccounts),
     side.exactTransactionHash ?? null,
-    side.blockhash ?? null,
   );
   return o.observationId;
 }
