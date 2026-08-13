@@ -29,6 +29,11 @@ import {
   type DecodedTransaction,
 } from '../../../packages/solana/src/transaction.js';
 import { base58Encode } from '../../../packages/solana/src/base58.js';
+import {
+  associatedTokenAddress,
+  TOKEN_PROGRAM as TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM as TOKEN_2022_PROGRAM_ID,
+} from '../../../packages/solana/src/pda.js';
 import type { ObservedTokenBalance } from '../../../packages/simulator/src/protocol.js';
 
 /**
@@ -102,7 +107,18 @@ const MAX_CACHED_JOBS = 512;
  * costs us the ability to name the priority fee, and that is recorded rather
  * than papered over.
  */
-const MAX_WATCHED_ACCOUNTS = 64;
+/**
+ * How many accounts one run reads pre and post.
+ *
+ * Raised from 64. A three-hop Pump route resolves well past that through its
+ * lookup tables, and P5 requires `truncated == 0` for a run to count as
+ * evidence — a cap that the routes we actually trade exceed is a cap that makes
+ * every one of them inadmissible.
+ *
+ * Still bounded: an unbounded read is a way to hang the daemon on a pathological
+ * transaction, and truncation is reported rather than hidden.
+ */
+const MAX_WATCHED_ACCOUNTS = 256;
 
 /** Named once. Measured against three settled mainnet transactions. */
 const BASE_FEE_LAMPORTS_PER_SIGNATURE = 5_000n;
@@ -828,9 +844,51 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       }
     }
 
+    /**
+     * The accounts the LEG is about, first.
+     *
+     * The watched list was a plain `slice(0, 64)` over an unordered union. A
+     * Pump route with lookup tables runs past 64 easily, and for a buy there is
+     * no token mutation to name the destination, so the taker's own ATA fell
+     * off the end. The pool's movement was observed, the fee payer's movement
+     * was observed, and the one account the trade exists to credit was not —
+     * reported as "output delta is missing" on a transaction that had in fact
+     * delivered.
+     *
+     * Truncation still happens and is still reported. What must never happen is
+     * truncating the accounts whose balances the verdict is computed from, so
+     * those go at the front where the cut cannot reach them.
+     */
+    const priority: string[] = [req.bounds.feePayer];
+    for (const m of req.balanceMutations) {
+      if (m.kind !== 'token' || m.mint === undefined) continue;
+      priority.push(m.owner);
+      // Both programs: the caller may not have said which, and deriving the
+      // wrong one costs a wasted slot rather than a wrong answer.
+      for (const program of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+        try {
+          priority.push(associatedTokenAddress(m.owner, m.mint, program));
+        } catch {
+          /* an address we cannot derive is one we do not watch, and the
+             coverage check below will say so rather than assume */
+        }
+      }
+    }
+    // The bound's own mint, which on a buy is the asset being credited and has
+    // no balance mutation to name it.
+    if (req.bounds.mint !== undefined) {
+      for (const program of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+        try {
+          priority.push(associatedTokenAddress(req.bounds.feePayer, req.bounds.mint, program));
+        } catch {
+          /* as above */
+        }
+      }
+    }
+
     const allWatched = [
       ...new Set([
-        req.bounds.feePayer,
+        ...priority,
         ...original.staticAccountKeys,
         ...altAccounts,
         ...loadedFromTables,

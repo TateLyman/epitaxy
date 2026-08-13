@@ -1,0 +1,735 @@
+{
+  "generatedUtcMs": 1786655269137,
+  "taker": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+  "buyLamports": "20000000",
+  "counts": {
+    "buys": 5,
+    "sells": 5,
+    "effectOk": 1,
+    "instrumentFailures": 4
+  },
+  "cases": [
+    {
+      "side": "buy",
+      "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+      "inputAmount": "20000000",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": false,
+      "refusals": [
+        "runtime succeeds but output delta is missing",
+        "runtime succeeds but input debit exceeds the requested amount: 20278400 > 20000000",
+        "asserted bounds violated: token delta 0 below the asserted minimum 1628"
+      ],
+      "inputDebit": "20278400",
+      "outputCredit": null,
+      "baseFee": "5000",
+      "priorityFee": "3820",
+      "rentCreated": "6222240",
+      "createdAccounts": [
+        "2y8HE3oowERpyWDstXe6jLdUd9VSNx3SCyA9wRNriWKn",
+        "HXEnTg3Bz8Z6zhvsYL2FV31x5z1eNAR7noe7wWiS7xtR",
+        "HyrQqHQoW1snQtorn84wGjRJ6uu2ZdDa6GPPbqigAs9z"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "2j1FfNyU16M6JHYb13varx6gsbT8uyxiNmzaFtNaQRvQ",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "20000000",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "2j1FfNyU16M6JHYb13varx6gsbT8uyxiNmzaFtNaQRvQ",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "-1679",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "1678",
+          "created": true,
+          "closed": false
+        },
+        {
+          "owner": "G5UZAVbAf46s7cKWoyKu8kYTip9DGTpbLZ2qa9Aq69dP",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "1",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092812,
+      "classification": "INSTRUMENT_MISSING_OBSERVATION"
+    },
+    {
+      "side": "sell",
+      "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+      "inputAmount": "1678",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATION_FAILED",
+      "transactionError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "effectOk": false,
+      "refusals": [
+        "runtime did not succeed: {\"InstructionError\":[2,{\"Custom\":6025}]}",
+        "fee decomposition incomplete: no priority fee reported"
+      ],
+      "inputDebit": "0",
+      "outputCredit": "5000",
+      "baseFee": "5000",
+      "priorityFee": null,
+      "rentCreated": null,
+      "createdAccounts": [],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "2j1FfNyU16M6JHYb13varx6gsbT8uyxiNmzaFtNaQRvQ",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "2j1FfNyU16M6JHYb13varx6gsbT8uyxiNmzaFtNaQRvQ",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "9rbHhJU7VsZR53Pea9oCfrveMS94eYrEgcBvp1eVpump",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092826,
+      "classification": "ROUTE_PROGRAM_REJECTION"
+    },
+    {
+      "side": "buy",
+      "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+      "inputAmount": "20000000",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": true,
+      "refusals": [],
+      "inputDebit": "20000000",
+      "outputCredit": "17815147253",
+      "baseFee": "5000",
+      "priorityFee": "6476",
+      "rentCreated": "2039280",
+      "createdAccounts": [
+        "8bjyLYJVdZM6TTw2HtivcH3T9SvnGiX2YQtAEPeeidXv"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "AVmoTthdrX6tKt4nDjco2D775W2YK3sDhxPcMmzUAmTY",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "4467189",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "4467188",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5uYJVEsYz6jQuCuA6f2A6GoUFtBmxzHDTSH9r3gUVfkF",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "20000000",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5uYJVEsYz6jQuCuA6f2A6GoUFtBmxzHDTSH9r3gUVfkF",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "-17824081630",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "17815147253",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092829,
+      "classification": "EFFECT_OK"
+    },
+    {
+      "side": "sell",
+      "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+      "inputAmount": "17768919136",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": false,
+      "refusals": [
+        "fee decomposition incomplete: no priority fee reported"
+      ],
+      "inputDebit": "17768919136",
+      "outputCredit": "19901913",
+      "baseFee": "5000",
+      "priorityFee": null,
+      "rentCreated": "4078560",
+      "createdAccounts": [
+        "GDWySEC2vwbY5FE5smcKekEFHi9hdmGYyccRoB1NRPNc",
+        "4A7qcQWNA3syPcyHR2XvsvNARfiwRj7miCzX4CSk4vR4"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "-17768919136",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5uYJVEsYz6jQuCuA6f2A6GoUFtBmxzHDTSH9r3gUVfkF",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "-19904839",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5uYJVEsYz6jQuCuA6f2A6GoUFtBmxzHDTSH9r3gUVfkF",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "17760061250",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5eHhjP8JaYkz83CWwvGU2uMUXefd3AazWGx4gpcuEEYD",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "4428943",
+          "created": true,
+          "closed": false
+        },
+        {
+          "owner": "7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ",
+          "mint": "HY3sPMdKwBzYULes1SJ9WLnCW8FUTu5fcWyxidUJoU9r",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "4428943",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092841,
+      "classification": "ROUTE_ECONOMIC_REFUSAL"
+    },
+    {
+      "side": "buy",
+      "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+      "inputAmount": "20000000",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": false,
+      "refusals": [
+        "runtime succeeds but output delta is missing",
+        "asserted bounds violated: token delta 0 below the asserted minimum 878"
+      ],
+      "inputDebit": "20000000",
+      "outputCredit": null,
+      "baseFee": "5000",
+      "priorityFee": "4060",
+      "rentCreated": "4148160",
+      "createdAccounts": [
+        "6nNFZTEmnGH2PUumPt5CawNm3hqfiKMueuqiBtfXJxoN",
+        "6afXyBt1fnG4GKJuQeLVkT4Y4Zz5817F2n6FnHfTHqjT"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "CuDGowGK6vrCQcn1gDCndc9mve4229K8rv2HxRrRV3cH",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "20000000",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "CuDGowGK6vrCQcn1gDCndc9mve4229K8rv2HxRrRV3cH",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "-906",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "905",
+          "created": true,
+          "closed": false
+        },
+        {
+          "owner": "JCRGumoE9Qi5BBgULTgdgTLjSgkCMSbF62ZZfGs84JeU",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "1",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092846,
+      "classification": "INSTRUMENT_MISSING_OBSERVATION"
+    },
+    {
+      "side": "sell",
+      "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+      "inputAmount": "905",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATION_FAILED",
+      "transactionError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "effectOk": false,
+      "refusals": [
+        "runtime did not succeed: {\"InstructionError\":[2,{\"Custom\":6025}]}",
+        "fee decomposition incomplete: no priority fee reported"
+      ],
+      "inputDebit": "0",
+      "outputCredit": "5000",
+      "baseFee": "5000",
+      "priorityFee": null,
+      "rentCreated": null,
+      "createdAccounts": [],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "CuDGowGK6vrCQcn1gDCndc9mve4229K8rv2HxRrRV3cH",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "CuDGowGK6vrCQcn1gDCndc9mve4229K8rv2HxRrRV3cH",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "GUrsAdHKt3SHAynfT8zjCFg1cm2aDgrSgna8Y4xH7U6N",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092858,
+      "classification": "ROUTE_PROGRAM_REJECTION"
+    },
+    {
+      "side": "buy",
+      "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+      "inputAmount": "20000000",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": false,
+      "refusals": [
+        "runtime succeeds but output delta is missing",
+        "asserted bounds violated: token delta 0 below the asserted minimum 10546"
+      ],
+      "inputDebit": "20000000",
+      "outputCredit": null,
+      "baseFee": "5000",
+      "priorityFee": "3928",
+      "rentCreated": "4148160",
+      "createdAccounts": [
+        "D3ZkkayrqN66azhA5TnNBR69QmSHrkPAdy3gAVwpoJDA",
+        "DFHRfowzM3pUyyAs5A5ZKEsCaEwrmZwYdZoGoExf2bUE"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "DcUJvwDZjKYeL1bNKDC7nx4Vj9KcBnKb8MNfXHAY647b",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "20000000",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "DcUJvwDZjKYeL1bNKDC7nx4Vj9KcBnKb8MNfXHAY647b",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "-10878",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "EHAAiTxcdDwQ3U4bU6YcMsQGaekdzLS3B5SmYo46kJtL",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "3",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "10872",
+          "created": true,
+          "closed": false
+        },
+        {
+          "owner": "9rPYyANsfQZw3DnDmKE3YCQF5E8oD89UXoHn9JFEhJUz",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "3",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092861,
+      "classification": "INSTRUMENT_MISSING_OBSERVATION"
+    },
+    {
+      "side": "sell",
+      "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+      "inputAmount": "10872",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATION_FAILED",
+      "transactionError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "effectOk": false,
+      "refusals": [
+        "runtime did not succeed: {\"InstructionError\":[2,{\"Custom\":6025}]}",
+        "fee decomposition incomplete: no priority fee reported"
+      ],
+      "inputDebit": "0",
+      "outputCredit": "5000",
+      "baseFee": "5000",
+      "priorityFee": null,
+      "rentCreated": null,
+      "createdAccounts": [],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "DcUJvwDZjKYeL1bNKDC7nx4Vj9KcBnKb8MNfXHAY647b",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "DcUJvwDZjKYeL1bNKDC7nx4Vj9KcBnKb8MNfXHAY647b",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HPMU32wr8ub72tWcHr7D4FvYxzoqDsJS2mKbG9zfbonk",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092874,
+      "classification": "ROUTE_PROGRAM_REJECTION"
+    },
+    {
+      "side": "buy",
+      "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+      "inputAmount": "20000000",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATED_OK",
+      "transactionError": null,
+      "effectOk": false,
+      "refusals": [
+        "runtime succeeds but output delta is missing",
+        "asserted bounds violated: token delta 0 below the asserted minimum 675"
+      ],
+      "inputDebit": "20000000",
+      "outputCredit": null,
+      "baseFee": "5000",
+      "priorityFee": "2397",
+      "rentCreated": "6222240",
+      "createdAccounts": [
+        "CTSYREPtAJH5JaykcXwKfyeFvwfNepd57XbFi6jaZ2bE",
+        "Ht1giF8bZwe3u4jtiyYzMFBQgqfCMikQ4pKhUXPFcKJd",
+        "6qAYuNfQQyKzKyLAicjP5UMoKqZpxhPoRbYz7MRpcRi3"
+      ],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "3GdofFTkH7DwebjYv9AVdkCm7ynyD8Gw6T5bSGHJxx5Z",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "20000000",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "3GdofFTkH7DwebjYv9AVdkCm7ynyD8Gw6T5bSGHJxx5Z",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "-696",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "695",
+          "created": true,
+          "closed": false
+        },
+        {
+          "owner": "7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "1",
+          "created": true,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092877,
+      "classification": "INSTRUMENT_MISSING_OBSERVATION"
+    },
+    {
+      "side": "sell",
+      "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+      "inputAmount": "695",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "routeLabels": [
+        "Pump.fun Amm"
+      ],
+      "buildable": true,
+      "runtimeStatus": "SIMULATION_FAILED",
+      "transactionError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "effectOk": false,
+      "refusals": [
+        "runtime did not succeed: {\"InstructionError\":[2,{\"Custom\":6025}]}",
+        "fee decomposition incomplete: no priority fee reported"
+      ],
+      "inputDebit": "0",
+      "outputCredit": "5000",
+      "baseFee": "5000",
+      "priorityFee": null,
+      "rentCreated": null,
+      "createdAccounts": [],
+      "closedAccounts": [],
+      "tokenDeltas": [
+        {
+          "owner": "3GdofFTkH7DwebjYv9AVdkCm7ynyD8Gw6T5bSGHJxx5Z",
+          "mint": "So11111111111111111111111111111111111111112",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "3GdofFTkH7DwebjYv9AVdkCm7ynyD8Gw6T5bSGHJxx5Z",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8N3GDaZ2iwN65oxVatKTLPNooAVUJTbfiVJ1ahyqwjSk",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        },
+        {
+          "owner": "8MNXnWvhMvzfkNrySGQiPSiTYUxs2TboM9pzXCZw7AJ3",
+          "mint": "HgSPYBvkVoKJW8xUatAZDe96Sm2GEZ52TNkNvwS1ZyGz",
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "delta": "0",
+          "created": false,
+          "closed": false
+        }
+      ],
+      "exportOmissions": [],
+      "contextSlot": 439092889,
+      "classification": "ROUTE_PROGRAM_REJECTION"
+    }
+  ]
+}
