@@ -28,6 +28,8 @@ import {
   writableStaticKeys,
   type DecodedTransaction,
 } from '../../../packages/solana/src/transaction.js';
+import { base58Encode } from '../../../packages/solana/src/base58.js';
+import type { ObservedTokenBalance } from '../../../packages/simulator/src/protocol.js';
 
 /**
  * The simulation daemon.
@@ -339,6 +341,39 @@ function tokenAmount(v: AccountView | null): bigint | null {
   if (!TOKEN_PROGRAMS.has(v.owner)) return null;
   if (v.data.length < TOKEN_AMOUNT_OFFSET + 8) return null;
   return v.data.readBigUInt64LE(TOKEN_AMOUNT_OFFSET);
+}
+
+/**
+ * P2 — decode a token account into the identity a verdict can be computed on.
+ *
+ * The SPL token account layout is fixed and the first three fields are all we
+ * need:
+ *
+ *   0..32   mint
+ *   32..64  owner
+ *   64..72  amount, u64 little-endian
+ *
+ * Token-2022 accounts share that prefix and append extensions after the base
+ * 165 bytes, so the same read is correct for both. Which PROGRAM owns the
+ * account is `v.owner` — the account's owner in the Solana sense — and it is
+ * carried explicitly because legacy Token and Token-2022 are different programs
+ * whose balances must never be summed as though they were one asset.
+ *
+ * Returns null when the account is not a token account at all. Null is not a
+ * zero balance and is not written as one.
+ */
+function observedTokenBalance(pubkey: string, v: AccountView | null): ObservedTokenBalance | null {
+  if (v === null) return null;
+  if (!TOKEN_PROGRAMS.has(v.owner)) return null;
+  // 165 is the base account size. Anything shorter is not one, whatever owns it.
+  if (v.data.length < 72) return null;
+  return {
+    tokenAccount: pubkey,
+    mint: base58Encode(v.data.subarray(0, 32)),
+    owner: base58Encode(v.data.subarray(32, 64)),
+    tokenProgram: v.owner,
+    amount: v.data.readBigUInt64LE(TOKEN_AMOUNT_OFFSET).toString(),
+  };
 }
 
 function hashView(pubkey: string, v: AccountView | null): string {
@@ -865,6 +900,8 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const postSol: Record<string, string> = {};
     const preTok: Record<string, string> = {};
     const postTok: Record<string, string> = {};
+    const preTokenAccounts: ObservedTokenBalance[] = [];
+    const postTokenAccounts: ObservedTokenBalance[] = [];
     const mutated: Record<string, string> = {};
     const created: string[] = [];
     const closed: string[] = [];
@@ -883,6 +920,14 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       // different facts and this project has been bitten by conflating them.
       if (ta !== null) preTok[k] = ta.toString();
       if (tb !== null) postTok[k] = tb.toString();
+
+      // P2 — the structured view, which says what each balance belongs to.
+      // Absence from either array is the fact that the account did not exist
+      // on that side, which a zero amount cannot express.
+      const pa = observedTokenBalance(k, a);
+      const pb = observedTokenBalance(k, b);
+      if (pa !== null) preTokenAccounts.push(pa);
+      if (pb !== null) postTokenAccounts.push(pb);
 
       const existedBefore = a !== null && a.lamports > 0n;
       const existsAfter = b !== null && b.lamports > 0n;
@@ -1055,6 +1100,8 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       postSolBalances: postSol,
       preTokenBalances: preTok,
       postTokenBalances: postTok,
+      preTokenAccounts,
+      postTokenAccounts,
       baseFeeLamports: baseFee === null ? null : baseFee.toString(),
       priorityFeeLamports: priorityFee === null ? null : priorityFee.toString(),
       // Null, not zero, when the transaction failed: nothing was applied, so
@@ -1126,6 +1173,8 @@ function fail(
     postSolBalances: {},
     preTokenBalances: {},
     postTokenBalances: {},
+    preTokenAccounts: [],
+    postTokenAccounts: [],
     baseFeeLamports: null,
     priorityFeeLamports: null,
     rentCreatedLamports: null,

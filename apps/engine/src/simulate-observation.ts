@@ -252,6 +252,11 @@ export async function simulateObservation(
       side: opts.side,
       inputMint: opts.inputMint,
       outputMint: opts.outputMint,
+      // P2 -- naming the programs turns a near-enough match into an assertion.
+      // An owner can hold one mint under both legacy Token and Token-2022, and
+      // adding those together is a balance in an asset that does not exist.
+      inputTokenProgram: opts.inputTokenProgram ?? null,
+      outputTokenProgram: opts.outputTokenProgram ?? null,
     });
     recordSimulationEffect(db, request.jobId, verdict, res);
 

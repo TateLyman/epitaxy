@@ -130,6 +130,31 @@ export interface SnapshotBlob {
   readonly programElfBase64?: string | null;
 }
 
+/**
+ * One token account, as the runtime described it.
+ *
+ * P2 — this replaces two `Record<string, string>` maps whose keys meant
+ * different things at each end. The daemon keyed them by TOKEN-ACCOUNT PUBKEY;
+ * the effect verifier looked them up by `owner:mint`. The lookup could never
+ * match, so every token delta read as unobserved and every buy that credited
+ * its ATA correctly was refused for "output delta is missing".
+ *
+ * A map key is a place for that mistake to hide. A record with named fields is
+ * not: the identity is the token account, and the owner, mint and program are
+ * carried beside it rather than encoded into a string somebody has to parse the
+ * same way at both ends.
+ */
+export interface ObservedTokenBalance {
+  /** The account address. THE identity. Two accounts are never one row. */
+  readonly tokenAccount: string;
+  readonly owner: string;
+  readonly mint: string;
+  /** Legacy Token and Token-2022 are different programs and never collapse. */
+  readonly tokenProgram: string;
+  /** Raw atoms, decimal string. Never a number. */
+  readonly amount: string;
+}
+
 export interface BalanceMutation {
   readonly kind: 'sol' | 'token';
   readonly owner: string;
@@ -208,8 +233,26 @@ export interface SimulationResponse {
 
   readonly preSolBalances: Readonly<Record<string, string>>;
   readonly postSolBalances: Readonly<Record<string, string>>;
+  /**
+   * Legacy maps, keyed by token-account pubkey. Retained for the debugging
+   * value of the raw view and for reading rows written before P2.
+   *
+   * NOTHING may compute an economic verdict from these. Use the structured
+   * arrays below, which say what each balance belongs to.
+   */
   readonly preTokenBalances: Readonly<Record<string, string>>;
   readonly postTokenBalances: Readonly<Record<string, string>>;
+
+  /**
+   * P2 — every token account the run observed, before and after.
+   *
+   * An account ABSENT from `preTokenAccounts` and present in
+   * `postTokenAccounts` was created by this transaction. Present in pre and
+   * absent from post means it was closed. Those are different facts from a
+   * zero balance, and the arrays keep them different.
+   */
+  readonly preTokenAccounts: readonly ObservedTokenBalance[];
+  readonly postTokenAccounts: readonly ObservedTokenBalance[];
 
   readonly baseFeeLamports: string | null;
   readonly priorityFeeLamports: string | null;

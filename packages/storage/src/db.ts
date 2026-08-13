@@ -1292,6 +1292,32 @@ UPDATE shadow_positions SET evidence_class = 'STRUCTURAL_ONLY' WHERE evidence_cl
 CREATE INDEX IF NOT EXISTS idx_shadow_evidence ON shadow_positions(evidence_class, book);
 `,
   },
+  {
+    id: 21,
+    name: 'structured_token_balances',
+    sql: `
+-- P2 -- token balances with their identity attached.
+--
+-- The columns being replaced held two JSON maps keyed by TOKEN-ACCOUNT PUBKEY.
+-- The effect verifier looked them up by owner:mint. Two ends of one wire,
+-- two meanings for one key, and a lookup that could never match: every token
+-- delta read as unobserved, and a buy that credited its ATA exactly as intended
+-- was refused for "output delta is missing".
+--
+-- A map key is a place for that to hide. These columns hold arrays of rows that
+-- each carry tokenAccount, owner, mint, tokenProgram and amount, so nothing
+-- downstream has to reconstruct an identity from a string.
+--
+-- The old columns are KEPT. They are the evidence of what the daemon actually
+-- sent while the defect was live, and deleting them would erase the only proof
+-- the corpus was wrong.
+ALTER TABLE simulation_jobs ADD COLUMN pre_token_accounts  TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN post_token_accounts TEXT;
+-- Resolved deltas, so a reader does not have to re-run the aggregation to see
+-- what the run concluded about each asset.
+ALTER TABLE simulation_jobs ADD COLUMN token_deltas TEXT;
+`,
+  },
 ];
 
 export interface OpenOptions {

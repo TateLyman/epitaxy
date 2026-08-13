@@ -15,6 +15,8 @@ const FEE_PAYER = TAKER;
 const WSOL = 'So11111111111111111111111111111111111111112';
 const MINT = 'Mint1111111111111111111111111111111111111111';
 const STRANGER = 'Str4nger11111111111111111111111111111111111';
+const TAKER_ATA = 'TakerAta1111111111111111111111111111111111';
+const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 function req(over: Partial<SimulationRequest> = {}): SimulationRequest {
   return {
@@ -57,8 +59,18 @@ function res(over: Partial<SimulationResponse> = {}): SimulationResponse {
     unitsConsumed: 120_000,
     preSolBalances: { [TAKER]: '200000000', [STRANGER]: '1000000' },
     postSolBalances: { [TAKER]: '179994000', [STRANGER]: '1000000' },
-    preTokenBalances: { [`${TAKER}:${MINT}`]: '0' },
-    postTokenBalances: { [`${TAKER}:${MINT}`]: '1000' },
+    // P2 — the structured view. The old fixture used a map keyed
+    // `${TAKER}:${MINT}`, which is the shape the verifier LOOKED FOR and the
+    // daemon never produced. A fixture written to the wrong shape is how a
+    // wire mismatch survives a green test suite.
+    preTokenBalances: {},
+    postTokenBalances: {},
+    preTokenAccounts: [
+      { tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '0' },
+    ],
+    postTokenAccounts: [
+      { tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '1000' },
+    ],
     baseFeeLamports: '5000',
     priorityFeeLamports: '1000',
     rentCreatedLamports: '0',
@@ -84,7 +96,13 @@ function res(over: Partial<SimulationResponse> = {}): SimulationResponse {
   } as SimulationResponse;
 }
 
-const ctx: EffectContext = { taker: TAKER, side: 'buy', inputMint: WSOL, outputMint: MINT };
+const ctx: EffectContext = {
+  taker: TAKER,
+  side: 'buy',
+  inputMint: WSOL,
+  outputMint: MINT,
+  outputTokenProgram: TOKEN_PROGRAM,
+};
 
 describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
   it('passes a buy that actually delivered', () => {
@@ -106,7 +124,7 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
   it('runtime succeeds but output delta is missing', () => {
     // The transaction ran, charged the fee, debited the input, and delivered
     // nothing. No error, so `SIMULATED_OK` — and a fill would have been booked.
-    const v = verifyEffect(req(), res({ postTokenBalances: { [`${TAKER}:${MINT}`]: '0' } }), ctx);
+    const v = verifyEffect(req(), res({ postTokenAccounts: [{ tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '0' }] }), ctx);
     expect(v.checks.RUNTIME_OK).toBe(true);
     expect(v.simulatedEffectOk).toBe(false);
     expect(v.refusals.join(' ')).toMatch(/output delta is missing/);
@@ -115,14 +133,28 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
   it('runtime succeeds but the output balance was never observed', () => {
     // Absent is not zero, and it is not "fine" either. It is unknown, and an
     // unknown output cannot support a claim that an output arrived.
-    const v = verifyEffect(req(), res({ postTokenBalances: {} }), ctx);
+    //
+    // Genuine non-observation is NO rows for that asset on either side. One
+    // pre row and no post row is a different fact -- a closed account -- and
+    // the aggregator reports it as one; see tokenbalance.test.ts.
+    const v = verifyEffect(req(), res({ preTokenAccounts: [], postTokenAccounts: [] }), ctx);
     expect(v.simulatedEffectOk).toBe(false);
     expect(v.outputCredit).toBeNull();
     expect(v.refusals.join(' ')).toMatch(/output delta is missing/);
   });
 
+  it('an output ATA closed to a zero balance is a known zero, not an unknown', () => {
+    // The distinction the directive draws: a closed ATA has one pre row and no
+    // post row. That is observed, and it says the account ended holding
+    // nothing -- which still fails, because a buy that delivers nothing fails.
+    const v = verifyEffect(req(), res({ postTokenAccounts: [] }), ctx);
+    expect(v.outputCredit).toBe(0n);
+    expect(v.simulatedEffectOk).toBe(false);
+    expect(v.refusals.join(' ')).toMatch(/output delta is missing/);
+  });
+
   it('runtime succeeds but output is below minimum', () => {
-    const v = verifyEffect(req(), res({ postTokenBalances: { [`${TAKER}:${MINT}`]: '400' } }), ctx);
+    const v = verifyEffect(req(), res({ postTokenAccounts: [{ tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '400' }] }), ctx);
     expect(v.simulatedEffectOk).toBe(false);
     expect(v.refusals.join(' ')).toMatch(/below minimum: 400 < 900/);
   });
@@ -231,12 +263,16 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
       bounds: { feePayer: FEE_PAYER, maxLamportsSpent: '20000000', minTokenDelta: '15000000' },
     });
     const sellRes = res({
-      preTokenBalances: { [`${TAKER}:${MINT}`]: '1000' },
-      postTokenBalances: { [`${TAKER}:${MINT}`]: '0' },
+      preTokenAccounts: [
+        { tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '1000' },
+      ],
+      postTokenAccounts: [
+        { tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '0' },
+      ],
       preSolBalances: { [TAKER]: '100000000', [STRANGER]: '1000000' },
       postSolBalances: { [TAKER]: '119994000', [STRANGER]: '1000000' },
     });
-    const v = verifyEffect(sellReq, sellRes, { taker: TAKER, side: 'sell', inputMint: MINT, outputMint: WSOL });
+    const v = verifyEffect(sellReq, sellRes, { taker: TAKER, side: 'sell', inputMint: MINT, outputMint: WSOL, inputTokenProgram: TOKEN_PROGRAM });
     expect(v.inputDebit).toBe(1000n);
     expect(v.outputCredit).toBe(20_000_000n);
     expect(v.simulatedEffectOk).toBe(true);
