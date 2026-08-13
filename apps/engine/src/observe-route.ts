@@ -21,7 +21,7 @@ import {
 } from '../../../packages/solana/src/encode.js';
 import { evaluateTransactionPolicy, defaultLimits } from '../../../packages/solana/src/txpolicy.js';
 import type { ExecutionObservation, RouteFamily } from '../../../packages/domain/src/execution.js';
-import { FAMILY_CONTRACTS } from '../../../packages/domain/src/execution.js';
+import { FAMILY_CONTRACTS, missingBuildField } from '../../../packages/domain/src/execution.js';
 import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.js';
 
 /**
@@ -140,7 +140,38 @@ export async function observeRoute(
     base64: string;
   } | null = null;
 
-  if (built.buildable && built.instructions.length > 0) {
+  // §6 — a build that arrived missing a load-bearing field is refused HERE,
+  // before anything downstream can read a zero out of it. The classic case is
+  // an absent otherAmountThreshold becoming a minimum output of zero, which is
+  // a transaction that accepts any fill including almost none, and which looks
+  // exactly like a route with generous slippage.
+  //
+  // The check runs on a buildable response: an unbuildable one already has its
+  // own typed failure and this must not overwrite it.
+  const incomplete =
+    built.buildable && built.failure === null
+      ? missingBuildField(
+          {
+            inputMint: req.inputMint,
+            outputMint: req.outputMint,
+            inAmount: built.inAmount,
+            outAmount: built.outAmount,
+            otherAmountThreshold: built.otherAmountThreshold,
+            routePlanEntries: built.routeLabels.length,
+            instructionCount: built.instructionCount,
+            hasSwapInstruction: built.instructions.length > 0,
+            // An unresolved table means accounts we cannot inspect, so the
+            // policy would be checking a transaction it cannot see all of.
+            lookupTablesResolved: Object.values(built.lookupTables).every((t) => t.length > 0),
+            blockhash: built.blockhash,
+            lastValidBlockHeight: built.lastValidBlockHeight,
+            contextSlot: built.contextSlot,
+          },
+          { inputMint: req.inputMint, outputMint: req.outputMint, requestedAmount: req.amount },
+        )
+      : null;
+
+  if (built.buildable && built.instructions.length > 0 && incomplete === null) {
     const ix = evaluateInstructionPolicy(
       built.instructions,
       instructionPolicyLimits(req.taker, req.maxPriorityFeeLamports),
@@ -259,7 +290,7 @@ export async function observeRoute(
     positionId: req.positionId,
     shadowPositionId: req.shadowPositionId,
     purpose: req.purpose,
-    failure: built.failure,
+    failure: incomplete ?? built.failure,
     impactStatus: built.impact.status,
     impactRawString: built.impact.rawString,
     adverseImpactBps: built.impact.adverseBps,

@@ -13,6 +13,7 @@ import {
   type ParityResponse,
 } from '../../../packages/simulator/src/protocol.js';
 import { computeIdentity, assertLinuxFilesystem } from './identity.js';
+import { chargedPriorityFee } from '../../../packages/solana/src/computebudget.js';
 import {
   programDataAddress,
   decodeProgramData,
@@ -914,7 +915,11 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       baseFee = null;
     }
     stages.mark('fee');
-    const declaredPriority = priorityFeeLamports(readComputeBudget(original));
+    // Resolves the limit the runtime will apply before pricing it. The old call
+    // returned zero for every Jupiter route, because Jupiter never sends
+    // SetComputeUnitLimit and a null limit multiplied out to nothing.
+    const charged = chargedPriorityFee(original, readComputeBudget(original));
+    const declaredPriority = charged.lamports;
 
     // The independent check: what the payer lost, minus what other watched
     // accounts gained, minus the base fee, should be the priority fee.
@@ -934,7 +939,10 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       feeNotes.push(`${unresolvedTables.length} lookup entr(ies) could not be resolved: ${unresolvedTables.slice(0, 3).join('; ')}`);
     }
     if (decompositionExact && residual !== declaredPriority) {
-      feeNotes.push(`priority fee disagreement: bytes imply ${declaredPriority}, balances imply ${residual}`);
+      feeNotes.push(
+        `priority fee disagreement: bytes imply ${declaredPriority} ` +
+          `(${charged.limit.units} units, ${charged.limit.source}), balances imply ${residual}`,
+      );
     }
     // Reported only when the transaction's own bytes and the payer's own
     // balance agree. A number two sources disagree about is not a measurement.
