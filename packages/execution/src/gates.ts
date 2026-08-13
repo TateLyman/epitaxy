@@ -154,22 +154,16 @@ export function canaryEvidenceGates(db: Db, config: AppConfig): GateResult[] {
          AND e.requested_amount = CAST(? AS TEXT) OR 1=0`,
       ['never'],
     )?.n ?? 0;
+  /**
+   * P14 -- the ONE definition, read from the view.
+   *
+   * This carried its own copy of the clauses, as did the readiness SQL,
+   * legIsConfirmatory, the report queries and the capability matrix. Five
+   * copies is five chances to drift, and the way you find out is that this gate
+   * refuses a position the report already counted.
+   */
   const eligibleStrict =
-    one<{ n: number }>(
-      db,
-      `SELECT COUNT(*) AS n FROM positions p
-       JOIN execution_observations e ON e.observation_id = p.entry_observation_id
-       JOIN execution_observations x ON x.observation_id = p.exit_observation_id
-       JOIN run_contexts c ON c.context_hash = p.context_hash
-       WHERE p.closed_utc_ms IS NOT NULL
-         AND CAST(p.token_amount AS INTEGER) = 0
-         AND c.source_commit NOT LIKE '%+dirty'
-         AND e.family = x.family
-         AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
-         AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
-         AND e.simulation = 'SIMULATED_OK' AND x.simulation = 'SIMULATED_OK'
-         AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL`,
-    )?.n ?? 0;
+    one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM confirmatory_positions_v1')?.n ?? 0;
   void eligible;
   results.push(
     gate(

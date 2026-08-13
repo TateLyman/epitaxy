@@ -1292,6 +1292,187 @@ UPDATE shadow_positions SET evidence_class = 'STRUCTURAL_ONLY' WHERE evidence_cl
 CREATE INDEX IF NOT EXISTS idx_shadow_evidence ON shadow_positions(evidence_class, book);
 `,
   },
+  {
+    id: 21,
+    name: 'structured_token_balances',
+    sql: `
+-- P2 -- token balances with their identity attached.
+--
+-- The columns being replaced held two JSON maps keyed by TOKEN-ACCOUNT PUBKEY.
+-- The effect verifier looked them up by owner:mint. Two ends of one wire,
+-- two meanings for one key, and a lookup that could never match: every token
+-- delta read as unobserved, and a buy that credited its ATA exactly as intended
+-- was refused for "output delta is missing".
+--
+-- A map key is a place for that to hide. These columns hold arrays of rows that
+-- each carry tokenAccount, owner, mint, tokenProgram and amount, so nothing
+-- downstream has to reconstruct an identity from a string.
+--
+-- The old columns are KEPT. They are the evidence of what the daemon actually
+-- sent while the defect was live, and deleting them would erase the only proof
+-- the corpus was wrong.
+ALTER TABLE simulation_jobs ADD COLUMN pre_token_accounts  TEXT;
+ALTER TABLE simulation_jobs ADD COLUMN post_token_accounts TEXT;
+-- Resolved deltas, so a reader does not have to re-run the aggregation to see
+-- what the run concluded about each asset.
+ALTER TABLE simulation_jobs ADD COLUMN token_deltas TEXT;
+`,
+  },
+  {
+    id: 22,
+    name: 'explicit_pnl_fields',
+    sql: `
+-- P12/P13 -- PnL that cannot be misread as gross proceeds.
+--
+-- realized_lamports was read two ways. The readiness gate computed
+-- realized minus cost, which subtracts the principal a SECOND time when the
+-- column already holds the net result: a position that cost 20,000,000 and
+-- returned 1,000,000 of profit scored as a 19,000,000 loss. Every gate
+-- downstream -- net PnL, profit factor, log growth, drawdown, every robustness
+-- check -- then described a strategy that does not exist.
+--
+-- A column whose meaning has to be inferred from its caller is a column that
+-- will be inferred wrongly. These say what they are.
+ALTER TABLE positions ADD COLUMN net_pnl_lamports TEXT;
+-- What it cost to EXECUTE: fees, tip, unrecovered rent, failure cost. This is
+-- what a 2x cost stress doubles. Doubling the principal is not a cost stress,
+-- it is a different trade, and it is a test no strategy can pass.
+ALTER TABLE positions ADD COLUMN execution_cost_lamports TEXT;
+-- Gross proceeds of the exit, before any cost. Kept separate so the three
+-- quantities can never collapse into one another again.
+ALTER TABLE positions ADD COLUMN gross_proceeds_lamports TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_positions_pnl ON positions(closed_utc_ms, net_pnl_lamports);
+`,
+  },
+  {
+    id: 23,
+    name: 'confirmatory_positions_v1',
+    sql: `
+-- P14 -- ONE definition of confirmatory evidence.
+--
+-- The clauses lived in five places: legIsConfirmatory, the readiness SQL,
+-- canaryEvidenceGates, the report queries and the capability matrix. Five
+-- copies of one definition is five chances to drift, and the way you discover
+-- they have drifted is that the gate refuses a position the report already
+-- counted -- or worse, the other way round.
+--
+-- A VIEW is the right shape for this because it cannot be partially adopted.
+-- A caller either reads it or does not, and one that does not is visible in a
+-- grep rather than hidden inside a WHERE clause that looks similar enough.
+--
+-- Every clause is a requirement and the joins are inner: a position missing its
+-- entry or exit observation does not partially qualify.
+CREATE VIEW IF NOT EXISTS confirmatory_positions_v1 AS
+SELECT
+  p.position_id,
+  p.mint,
+  p.cost_lamports,
+  p.realized_lamports,
+  p.net_pnl_lamports,
+  p.execution_cost_lamports,
+  p.gross_proceeds_lamports,
+  p.opened_utc_ms,
+  p.closed_utc_ms,
+  p.cohort,
+  e.family                AS family,
+  e.observation_id        AS entry_observation_id,
+  x.observation_id        AS exit_observation_id,
+  c.source_commit         AS source_commit,
+  c.context_hash          AS context_hash
+FROM positions p
+JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+JOIN run_contexts c           ON c.context_hash   = p.context_hash
+JOIN simulation_jobs je       ON je.execution_observation_id = e.observation_id
+JOIN simulation_jobs jx       ON jx.execution_observation_id = x.observation_id
+WHERE
+  -- closed, and holding nothing. A residual balance is exposure whatever the
+  -- state column says.
+  p.closed_utc_ms IS NOT NULL
+  AND CAST(p.token_amount AS INTEGER) = 0
+  -- a clean commit: a dirty tree is not reproducible
+  AND c.source_commit NOT LIKE '%+dirty'
+  -- one family from entry through exit
+  AND e.family = x.family
+  AND e.side = 'buy' AND x.side = 'sell'
+  -- both policies passed on both legs
+  AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
+  AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+  -- the ECONOMIC verdict, not merely the runtime one
+  AND e.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND x.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
+  -- reproducible: a frozen snapshot, not a moving chain
+  AND je.confirmatory = 1 AND jx.confirmatory = 1
+  AND je.validity = 'VALID_CONFIRMATORY' AND jx.validity = 'VALID_CONFIRMATORY'
+  -- every writable observed on both sides
+  AND je.account_coverage_ok = 1 AND jx.account_coverage_ok = 1
+  -- the exact bytes, retained
+  AND e.exact_transaction_blob IS NOT NULL AND x.exact_transaction_blob IS NOT NULL
+  AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL
+  -- costs known: a net PnL that has to be inferred is not a measurement
+  AND p.net_pnl_lamports IS NOT NULL
+  -- no unresolved clock discontinuity anywhere in the corpus
+  AND NOT EXISTS (
+    SELECT 1 FROM clock_checkpoints k
+    WHERE k.resync_required = 1 AND k.resync_done_utc_ms IS NULL
+  );
+`,
+  },
+  {
+    id: 24,
+    name: 'jit_snapshot_manifest',
+    sql: `
+-- P7 -- the exact state a JIT run executed against, persisted here rather than
+-- only inside the response that reported it.
+--
+-- A response is transient. The ledger is not, and an offline replay months from
+-- now has to restore what the run actually saw, not what a later read of the
+-- same accounts returns. Those are different states and the difference is the
+-- whole reason offline replay exists.
+--
+-- A successful JIT job whose snapshot could not be stored is
+-- JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE. It is real evidence about the strategy
+-- and it is not offline evidence, and the distinction is a column rather than
+-- something a reader has to infer from an absence.
+CREATE TABLE IF NOT EXISTS snapshot_manifests (
+  manifest_hash        TEXT PRIMARY KEY,
+  job_id               TEXT NOT NULL,
+  created_utc_ms       INTEGER NOT NULL,
+  -- Every account blob, content-addressed. The blob store holds the bytes.
+  account_count        INTEGER NOT NULL,
+  account_blob_hashes  TEXT NOT NULL,
+  -- Programs, their ProgramData and their ELF hashes, so a replay can redeploy
+  -- from code rather than hope the runtime happens to have it.
+  program_count        INTEGER NOT NULL,
+  program_manifest     TEXT NOT NULL,
+  -- Lookup tables: the account bytes AND the addresses they resolved to. A
+  -- table that was extended since resolves differently, which is why the
+  -- resolved list is stored rather than re-derived.
+  lookup_table_manifest TEXT,
+  -- Time. When the provider omits contextSlot this is an interval, never a
+  -- point, and a later account read is never called "the state at the build".
+  execution_slot       INTEGER,
+  build_requested_utc_ms INTEGER,
+  build_received_utc_ms  INTEGER,
+  capture_slot_low     INTEGER,
+  capture_slot_high    INTEGER,
+  max_observed_drift_slots INTEGER,
+  -- Read back and verified after writing. A blob nobody re-read is a blob
+  -- nobody knows is there.
+  readback_verified    INTEGER NOT NULL DEFAULT 0,
+  omissions            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_manifest_job ON snapshot_manifests(job_id);
+
+-- Whether this job's snapshot is durable enough to replay from.
+ALTER TABLE simulation_jobs ADD COLUMN replayable TEXT
+  CHECK (replayable IS NULL OR replayable IN
+    ('REPLAYABLE','JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE','NOT_APPLICABLE'));
+`,
+  },
 ];
 
 export interface OpenOptions {

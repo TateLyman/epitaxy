@@ -17,6 +17,7 @@ import {
 } from '../../../packages/simulator/src/client.js';
 import type { SimulationMode } from '../../../packages/simulator/src/protocol.js';
 import { recordHealth } from '../../../packages/storage/src/repo.js';
+import { storeJitSnapshot } from '../../../packages/storage/src/snapshot-repo.js';
 
 /**
  * §9 — send one observation to the simulator, durably.
@@ -252,8 +253,54 @@ export async function simulateObservation(
       side: opts.side,
       inputMint: opts.inputMint,
       outputMint: opts.outputMint,
+      // P2 -- naming the programs turns a near-enough match into an assertion.
+      // An owner can hold one mint under both legacy Token and Token-2022, and
+      // adding those together is a balance in an asset that does not exist.
+      inputTokenProgram: opts.inputTokenProgram ?? null,
+      outputTokenProgram: opts.outputTokenProgram ?? null,
     });
     recordSimulationEffect(db, request.jobId, verdict, res);
+
+    /**
+     * P7 — the exact state this run executed against, persisted durably.
+     *
+     * The response carries it and a response is transient. An offline replay
+     * has to restore what the run SAW, not what a later read of the same
+     * accounts returns, and those are different states.
+     *
+     * The verdict is derived from what was stored and read back, never
+     * asserted: a run whose snapshot could not be persisted is
+     * `JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE`, which is real evidence about the
+     * strategy and is not offline evidence.
+     */
+    if (res.status === 'SIMULATED_OK') {
+      const stored = storeJitSnapshot(
+        db,
+        blobs,
+        request.jobId,
+        res.exportedSnapshot,
+        res.exportOmissions,
+        {
+          executionSlot: res.contextSlot,
+          buildRequestedUtcMs: null,
+          buildReceivedUtcMs: null,
+          // A JIT fetch reads accounts AS the transaction executes, so the
+          // capture is an interval around the execution slot rather than a
+          // point. Naming it a point would claim a moment nobody observed.
+          captureSlotLow: res.contextSlot,
+          captureSlotHigh: res.contextSlot,
+        },
+        Date.now(),
+      );
+      if (stored.replayable !== 'REPLAYABLE') {
+        recordHealth(
+          db,
+          'snapshot_not_replayable',
+          'warn',
+          `${request.jobId.slice(0, 12)}: ${stored.omissions.slice(0, 2).join('; ')}`.slice(0, 200),
+        );
+      }
+    }
 
     // A DEVELOPMENT_JIT run that succeeded is a real execution result and is
     // written as one. It is still not confirmatory, and `confirmatory` says so

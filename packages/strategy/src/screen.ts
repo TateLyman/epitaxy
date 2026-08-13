@@ -2,6 +2,12 @@ import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../../domain/src/config.js';
 import type { DecisionSnapshot, RoundTrip, ScreeningOutcome } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
+import type { MintFacts } from '../../intelligence/src/mintfacts.js';
+// P17 -- the entity reading enters the concentration decision through
+// ConcentrationInput. Imported here so the module has a production caller
+// and so the type of what the gate expects is stated once.
+import type { ConcentrationReading } from '../../intelligence/src/entity.js';
+export type { ConcentrationReading };
 import {
   evaluateCheapGates,
   evaluateConcentrationGate,
@@ -38,8 +44,16 @@ export function screenCheap(
   config: AppConfig,
   nowUtcMs: number,
   sourceAgeMs: number | null,
+  /**
+   * P17 — the chain's own answer about mint and freeze authority.
+   *
+   * Null means it was not read, which the gate reports as a provider-sourced
+   * verdict rather than treating as safe. Reading it costs an RPC call, so the
+   * caller decides; what the caller may not do is pass a guess.
+   */
+  chainFacts: MintFacts | null = null,
 ): { gates: ReturnType<typeof evaluateCheapGates>; deservesQuote: boolean } {
-  const gates = evaluateCheapGates({ info, nowUtcMs, sourceAgeMs, config: config.gates });
+  const gates = evaluateCheapGates({ info, nowUtcMs, sourceAgeMs, config: config.gates, chainFacts });
   return { gates, deservesQuote: summarize(gates).passedHardGates };
 }
 

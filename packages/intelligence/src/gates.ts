@@ -1,5 +1,6 @@
 import type { GateConfig } from '../../domain/src/config.js';
 import type { GateResult, RoundTrip } from '../../domain/src/types.js';
+import type { FactVerdict } from './mintfacts.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 
 /**
@@ -51,8 +52,32 @@ export interface GateInputs {
  * per minute total, so a round-trip quote (2 requests) is the scarcest
  * resource we have. Anything rejectable for free must be rejected for free.
  */
-export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateResult[] {
+export function evaluateCheapGates(
+  input: Omit<GateInputs, 'roundTrip'> & {
+    /**
+     * P17 — what the CHAIN says, when it has been read.
+     *
+     * Optional because reading it costs an RPC call the discovery path cannot
+     * always afford. Absent means unread, which is different from read-and-safe
+     * and is visible in the gate's own detail string.
+     */
+    readonly chainFacts?: { mintAuthority: FactVerdict; freezeAuthority: FactVerdict } | null;
+    /**
+     * P16 — decoded Token-2022 extensions.
+     *
+     * Absent means the mint account was not read, which is different from read
+     * and found plain. The gate does not invent a verdict from an absence.
+     */
+    readonly token2022?: {
+      readonly hasMoneyCriticalBehaviour: boolean;
+      readonly hasUnknownExtension: boolean;
+      readonly transferFeeBps: number | null;
+      readonly detail: string;
+    } | null;
+  },
+): GateResult[] {
   const { info, nowUtcMs, sourceAgeMs, config } = input;
+  const chainFacts = input.chainFacts ?? null;
   const capitalAtRisk = input.capitalAtRisk === true;
   const out: GateResult[] = [];
 
@@ -100,13 +125,35 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
   // --- Authorities. Retained mint authority means supply can be inflated
   //     under us; freeze authority means our exit can be disabled. ----------
   const audit = info.audit ?? {};
+  /**
+   * P17 — the CHAIN overrides the provider.
+   *
+   * `audit.mintAuthorityDisabled` is a third party's claim about a byte in an
+   * account we can read ourselves. When both are present and they disagree, the
+   * chain wins; it is not a vote. When the chain has not been read, the
+   * provider's claim is used and the gap is visible in the detail string rather
+   * than silently indistinguishable from a measurement.
+   *
+   * A provider that is wrong about mint authority is a provider whose other
+   * fields deserve less weight, which is why `disagreements()` records it as a
+   * fact about the SOURCE rather than only about the token.
+   */
+  const chainMint = chainFacts?.mintAuthority ?? 'UNKNOWN';
+  const chainFreeze = chainFacts?.freezeAuthority ?? 'UNKNOWN';
+  const mintDisabled: boolean | null =
+    chainMint !== 'UNKNOWN' ? chainMint === 'SAFE' : (audit.mintAuthorityDisabled ?? null);
+  const freezeDisabled: boolean | null =
+    chainFreeze !== 'UNKNOWN' ? chainFreeze === 'SAFE' : (audit.freezeAuthorityDisabled ?? null);
+  const mintSource = chainMint !== 'UNKNOWN' ? 'chain' : 'provider';
+  const freezeSource = chainFreeze !== 'UNKNOWN' ? 'chain' : 'provider';
+
   if (config.requireMintAuthorityDisabled) {
     out.push(
       veto(
         'mint_authority_disabled',
-        audit.mintAuthorityDisabled === true,
+        mintDisabled === true,
         'mint_authority_live',
-        `mintAuthorityDisabled=${String(audit.mintAuthorityDisabled)}`,
+        `mintAuthorityDisabled=${String(mintDisabled)} (${mintSource})`,
       ),
     );
   }
@@ -114,9 +161,9 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
     out.push(
       veto(
         'freeze_authority_disabled',
-        audit.freezeAuthorityDisabled === true,
+        freezeDisabled === true,
         'freeze_authority_live',
-        `freezeAuthorityDisabled=${String(audit.freezeAuthorityDisabled)}`,
+        `freezeAuthorityDisabled=${String(freezeDisabled)} (${freezeSource})`,
       ),
     );
   }
@@ -282,6 +329,47 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
     );
   }
 
+  /**
+   * P16 — Token-2022 extensions that can cost the holder the position.
+   *
+   * A permanent delegate transfers at will; a transfer hook runs arbitrary code
+   * on every transfer; non-transferable means the position can never be sold;
+   * pausable means transfers can stop after entry. A mint carrying any of them
+   * is not a token with a feature — it is a token whose exit depends on
+   * somebody else's cooperation.
+   *
+   * The directive's split, exactly:
+   *
+   *   development     a separate cohort, so the behaviour can be studied
+   *   capital at risk a hard veto, because studying it is not worth the position
+   *
+   * An UNRECOGNISED extension counts as money-critical. Token-2022 is
+   * extensible, this build cannot say what an unknown type does, and "we do not
+   * know" is not "it is harmless".
+   */
+  const t22 = input.token2022 ?? null;
+  if (t22 !== null && t22.hasMoneyCriticalBehaviour) {
+    if (capitalAtRisk) {
+      out.push(veto('token2022_money_critical', false, 'token2022_money_critical', t22.detail.slice(0, 160)));
+    } else {
+      out.push(
+        soft('token2022_money_critical', 0.6, 'token2022_money_critical', t22.detail.slice(0, 160)),
+      );
+    }
+  }
+  if (t22 !== null && t22.transferFeeBps !== null && t22.transferFeeBps > 0) {
+    // A transfer fee is a real cost on both legs of a round trip, and it is
+    // charged on the way out as well as the way in.
+    out.push(
+      soft(
+        'token2022_transfer_fee',
+        normalize(t22.transferFeeBps, 0, 500),
+        'token2022_transfer_fee',
+        `transfer fee ${t22.transferFeeBps}bps, charged on entry AND exit`,
+      ),
+    );
+  }
+
   // --- Explicit third-party suspicion flag. -------------------------------
   if (audit.isSus === true) {
     out.push(veto('provider_sus_flag', false, 'provider_flagged_suspicious', 'audit.isSus = true'));
@@ -414,6 +502,26 @@ export interface ConcentrationInput {
   readonly topWalletPct: number | null;
   readonly topTenWalletPct: number | null;
   readonly programControlledPct: number;
+  /**
+   * P17 — concentration over ENTITIES, when holder links have been examined.
+   *
+   * A token whose top-ten addresses hold 18% and whose top-ten entities hold
+   * 71% is not a decentralised token that happens to be clustered; it is a
+   * token built to look decentralised. The address figure alone cannot see
+   * that, and it is the figure the gate used.
+   *
+   * Absent means the links were not examined, which is different from examined
+   * and found unrelated. `trustworthy: false` means too many holders were
+   * unexamined for the entity figure to be BETTER than the address one -- it is
+   * then a different number, not a better one, and the gate uses the worse of
+   * the two rather than preferring either.
+   */
+  readonly entity?: {
+    readonly topEntityBps: Readonly<Record<1 | 5 | 10 | 20, number>>;
+    readonly entityCount: number;
+    readonly unknownHistoryCount: number;
+    readonly trustworthy: boolean;
+  } | null;
 }
 
 /**
@@ -440,14 +548,60 @@ export function evaluateConcentrationGate(
     return [soft('holder_concentration_unavailable', 0.3, 'concentration_unknown', unavailableReason)];
   }
 
+  /**
+   * P17 — the WORSE of the address and entity readings.
+   *
+   * Not the entity reading preferentially: when `trustworthy` is false the
+   * entity figure rests on holders whose history was never fetched, and a
+   * number built on unexamined data is not automatically the better one.
+   *
+   * Taking the worse of the two is the only combination that cannot be gamed in
+   * either direction. Splitting a whale across ten wallets raises the entity
+   * figure; leaving history unexamined suppresses it; the maximum notices both.
+   */
+  const entityTopTen = facts.entity == null ? null : facts.entity.topEntityBps[10] / 100;
+  const effectiveTopTen =
+    entityTopTen === null ? facts.topTenWalletPct : Math.max(facts.topTenWalletPct, entityTopTen);
+  const readingSource =
+    entityTopTen === null
+      ? 'addresses only'
+      : entityTopTen > facts.topTenWalletPct
+        ? `entities (${facts.entity?.entityCount} from ${facts.entity?.unknownHistoryCount} unexamined)`
+        : 'addresses';
+
   const out: GateResult[] = [
     veto(
       'holder_concentration',
-      facts.topTenWalletPct <= config.maxTopHolderPct,
+      effectiveTopTen <= config.maxTopHolderPct,
       'concentrated_ownership',
-      `top ten wallets hold ${facts.topTenWalletPct.toFixed(1)}% > ${config.maxTopHolderPct}%`,
+      `top ten ${readingSource} hold ${effectiveTopTen.toFixed(1)}% > ${config.maxTopHolderPct}%`,
     ),
   ];
+
+  // The GAP is its own signal. Addresses at 18% and entities at 71% is a token
+  // that was built to look decentralised, and that is worth grading even when
+  // the absolute level passes.
+  if (entityTopTen !== null && entityTopTen > facts.topTenWalletPct) {
+    out.push(
+      soft(
+        'entity_clustering',
+        normalize(entityTopTen - facts.topTenWalletPct, 5, 40),
+        'holders_are_clustered',
+        `top ten entities hold ${entityTopTen.toFixed(1)}% against ${facts.topTenWalletPct.toFixed(1)}% by address`,
+      ),
+    );
+  }
+
+  if (facts.entity != null && !facts.entity.trustworthy) {
+    out.push(
+      soft(
+        'entity_history_incomplete',
+        0.2,
+        'entity_history_incomplete',
+        `${facts.entity.unknownHistoryCount} holder(s) unexamined, so the entity reading is not better than the address one`,
+      ),
+    );
+  }
 
   if (facts.topWalletPct !== null) {
     // A single wallet large enough to move the price alone is a different risk

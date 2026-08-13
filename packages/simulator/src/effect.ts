@@ -1,4 +1,5 @@
 import type { SimulationRequest, SimulationResponse } from './protocol.js';
+import { aggregateTokenDeltas, deltaFor, type TokenDelta } from './tokenbalance.js';
 
 /**
  * P3 — whether the intended trade actually HAPPENED.
@@ -47,6 +48,8 @@ export interface EffectVerdict {
   readonly completeAccountCoverage: boolean;
   readonly unobservedAccounts: readonly string[];
   readonly boundsViolations: readonly string[];
+  /** P2 — every token movement the run observed, with its identity intact. */
+  readonly tokenDeltas: readonly TokenDelta[];
 }
 
 const WSOL = 'So11111111111111111111111111111111111111112';
@@ -60,10 +63,19 @@ function big(v: string | null | undefined): bigint | null {
   }
 }
 
-/** Token balance keys are `owner:mint`, so a lookup names both. */
-function tokenKey(owner: string, mint: string): string {
-  return `${owner}:${mint}`;
-}
+/**
+ * REMOVED: `tokenKey(owner, mint)`.
+ *
+ * P2 — it built `${owner}:${mint}` and looked that up in a map the daemon keyed
+ * by TOKEN-ACCOUNT PUBKEY. The lookup could never match. Every token delta read
+ * as unobserved, so a buy that credited its ATA exactly as intended was refused
+ * for "output delta is missing", and eleven runtime-successful jobs were
+ * recorded as economic failures.
+ *
+ * Token deltas now come from `aggregateTokenDeltas`, which reads the structured
+ * rows and carries the account identity rather than encoding it into a string
+ * two files had to agree about.
+ */
 
 /**
  * Delta of a balance map, treating an ABSENT entry as unknown rather than zero.
@@ -96,6 +108,27 @@ export interface EffectContext {
    * Everything else gaining lamports is unexpected movement.
    */
   readonly expectedRecipients?: readonly string[];
+  /**
+   * P2 — which token program the caller expects each side under.
+   *
+   * Supplying it turns a near-enough match into an assertion: an owner can hold
+   * one mint under both legacy Token and Token-2022, and adding those together
+   * produces a balance in an asset that does not exist. Absent means the caller
+   * does not know, and the lookup then requires the mint to be unambiguous.
+   */
+  readonly inputTokenProgram?: string | null;
+  readonly outputTokenProgram?: string | null;
+  /**
+   * Rent the SETUP created rather than the trade.
+   *
+   * Provisioning a sell means opening a source token account the taker did not
+   * have. The payer carries that rent, and it lands in the same net SOL
+   * movement the sell's proceeds do. Counting it against the trade makes a
+   * correct sell look like a loss, and the smaller the position the worse the
+   * distortion: 2,039,280 lamports of ATA rent against a 0.02 SOL leg is ten
+   * percent of the notional.
+   */
+  readonly provisioningRentLamports?: bigint | null;
   /** What the caller told the broadcaster it would tip, if anything. */
   readonly declaredTipLamports?: bigint | null;
 }
@@ -125,8 +158,35 @@ export function verifyEffect(
   const inputIsSol = ctx.inputMint === WSOL;
   const outputIsSol = ctx.outputMint === WSOL;
 
-  const inTok = inputIsSol ? { value: null, observed: false } : delta(res.preTokenBalances, res.postTokenBalances, tokenKey(ctx.taker, ctx.inputMint));
-  const outTok = outputIsSol ? { value: null, observed: false } : delta(res.preTokenBalances, res.postTokenBalances, tokenKey(ctx.taker, ctx.outputMint));
+  // P2 — the structured view. One audited aggregation, one identity per row.
+  //
+  // A mismatch inside the rows (an account that changed mint, or an owner
+  // holding one mint under two token programs) throws rather than resolving to
+  // a plausible number, and the throw is caught here and reported as a refusal
+  // instead of taking the verdict down.
+  let tokenDeltas: readonly TokenDelta[] = [];
+  let tokenIdentityError: string | null = null;
+  try {
+    tokenDeltas = aggregateTokenDeltas(res.preTokenAccounts ?? [], res.postTokenAccounts ?? []);
+  } catch (e) {
+    tokenIdentityError = (e as Error).message;
+  }
+
+  const pick = (mint: string, program: string | null | undefined): { value: bigint | null; observed: boolean } => {
+    if (tokenIdentityError !== null) return { value: null, observed: false };
+    let hit: TokenDelta | null = null;
+    try {
+      hit = deltaFor(tokenDeltas, ctx.taker, mint, program ?? null);
+    } catch (e) {
+      tokenIdentityError = (e as Error).message;
+      return { value: null, observed: false };
+    }
+    if (hit === null || hit.delta === null) return { value: null, observed: false };
+    return { value: hit.delta, observed: true };
+  };
+
+  const inTok = inputIsSol ? { value: null, observed: false } : pick(ctx.inputMint, ctx.inputTokenProgram);
+  const outTok = outputIsSol ? { value: null, observed: false } : pick(ctx.outputMint, ctx.outputTokenProgram);
 
   const baseFee = big(res.baseFeeLamports);
   const priorityFee = big(res.priorityFeeLamports);
@@ -147,9 +207,30 @@ export function verifyEffect(
     inputDebit = -inTok.value;
   }
 
+  /**
+   * The output credit, in the asset the output is actually in.
+   *
+   * P3 — a token→SOL sell credits NATIVE LAMPORTS. The payer's net movement
+   * mixes three things: the swap's proceeds, the transaction's own costs, and
+   * any rent the setup created. Only the first is the trade.
+   *
+   * So the costs are added back. Rent created is added back because the payer
+   * paid it to open an account, not to trade; rent recovered is subtracted
+   * because it came back from closing one, not from the swap.
+   *
+   * `provisioningRentLamports` is the rent the SETUP created — a source token
+   * account the cheatcode had to open so the sell had something to spend. That
+   * is our cost, not the market's, and leaving it in makes a profitable sell
+   * look like a loss on small sizes.
+   */
   const outputCredit = outputIsSol
     ? solDelta.observed && solDelta.value !== null
-      ? solDelta.value + (baseFee ?? 0n) + (priorityFee ?? 0n) + (rentCreated ?? 0n) - (rentRecovered ?? 0n)
+      ? solDelta.value +
+        (baseFee ?? 0n) +
+        (priorityFee ?? 0n) +
+        (rentCreated ?? 0n) -
+        (rentRecovered ?? 0n) +
+        (ctx.provisioningRentLamports ?? 0n)
       : null
     : outTok.observed
       ? outTok.value
@@ -157,16 +238,39 @@ export function verifyEffect(
 
   // ---- EFFECT_OK ---------------------------------------------------------
   const requested = big(req.requestedAmount);
-  const minOut = big(req.bounds.minTokenDelta ?? null);
   const maxSpend = big(req.bounds.maxLamportsSpent);
+
+  /**
+   * The minimum output, read from the asset side the leg actually has.
+   *
+   * `minTokenDelta` is only consulted for a TOKEN output, and only when no
+   * asset side was supplied. On a sell it was always the wrong question, and
+   * falling back to it there would reintroduce the defect quietly.
+   */
+  const out = req.bounds.outputAsset;
+  const minOut = (() => {
+    if (out?.kind === 'native_sol') return big(out.minCreditLamports ?? null);
+    if (out?.kind === 'token') return big(out.minCreditAtoms ?? null);
+    if (outputIsSol) return null;
+    return big(req.bounds.minTokenDelta ?? null);
+  })();
 
   let effectOk = runtimeOk;
   if (runtimeOk) {
     if (outputCredit === null) {
+      // NOT OBSERVED. Nobody looked, or the account was outside the window.
+      // This is a statement about the apparatus.
       refusals.push('runtime succeeds but output delta is missing');
       effectOk = false;
     } else if (outputCredit <= 0n) {
-      refusals.push('runtime succeeds but output delta is missing');
+      // OBSERVED, and non-positive. A statement about the trade: the leg
+      // returned nothing, or returned less than it cost to execute.
+      //
+      // These were one message and one classification, so a sell whose
+      // proceeds genuinely did not cover its own mechanics was reported as a
+      // missing observation -- the market's answer filed as our failure, which
+      // is the exact inversion this whole exercise exists to prevent.
+      refusals.push(`runtime succeeds but the output credit is ${outputCredit}, which is not a gain`);
       effectOk = false;
     } else if (minOut !== null && outputCredit < minOut) {
       refusals.push(`runtime succeeds but output is below minimum: ${outputCredit} < ${minOut}`);
@@ -259,6 +363,13 @@ export function verifyEffect(
     );
   }
 
+  if (tokenIdentityError !== null) {
+    // Fails closed. A token identity we cannot resolve is not a token balance
+    // we may guess at, and guessing is what produced the defect this replaces.
+    refusals.push(`token identity could not be resolved: ${tokenIdentityError}`);
+    effectOk = false;
+  }
+
   for (const v of res.boundsViolations) refusals.push(`asserted bounds violated: ${v}`);
   if (res.boundsViolations.length > 0) effectOk = false;
 
@@ -287,5 +398,6 @@ export function verifyEffect(
     completeAccountCoverage: coverageOk,
     unobservedAccounts: unobserved,
     boundsViolations: res.boundsViolations,
+    tokenDeltas,
   };
 }

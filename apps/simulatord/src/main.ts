@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -28,6 +29,15 @@ import {
   writableStaticKeys,
   type DecodedTransaction,
 } from '../../../packages/solana/src/transaction.js';
+import { base58Encode } from '../../../packages/solana/src/base58.js';
+import { encodeTokenAccount, rentExemptLamports } from '../../../packages/solana/src/tokenaccount.js';
+import {
+  associatedTokenAddress,
+  TOKEN_PROGRAM as TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM as TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM as LEGACY_TOKEN_PROGRAM,
+} from '../../../packages/solana/src/pda.js';
+import type { ObservedTokenBalance } from '../../../packages/simulator/src/protocol.js';
 
 /**
  * The simulation daemon.
@@ -100,7 +110,27 @@ const MAX_CACHED_JOBS = 512;
  * costs us the ability to name the priority fee, and that is recorded rather
  * than papered over.
  */
-const MAX_WATCHED_ACCOUNTS = 64;
+/**
+ * How many accounts one run reads pre and post.
+ *
+ * Raised from 64. A three-hop Pump route resolves well past that through its
+ * lookup tables, and P5 requires `truncated == 0` for a run to count as
+ * evidence — a cap that the routes we actually trade exceed is a cap that makes
+ * every one of them inadmissible.
+ *
+ * Still bounded: an unbounded read is a way to hang the daemon on a pathological
+ * transaction, and truncation is reported rather than hidden.
+ */
+const MAX_WATCHED_ACCOUNTS = 256;
+
+/**
+ * Where content-addressed program ELFs live.
+ *
+ * Inside WSL rather than on the Windows mount: the native side reads these
+ * on every deploy, and a 9p round trip per read would give back what the
+ * path was chosen to avoid.
+ */
+const ELF_CACHE_DIR = process.env['SIMULATORD_ELF_CACHE'] ?? '/tmp/epitaxy-elf-cache';
 
 /** Named once. Measured against three settled mainnet transactions. */
 const BASE_FEE_LAMPORTS_PER_SIGNATURE = 5_000n;
@@ -143,6 +173,10 @@ const TOKEN_PROGRAMS = new Set([
 ]);
 /** SPL token account layout: mint(32) owner(32) amount(u64 LE) — amount at 64. */
 const TOKEN_AMOUNT_OFFSET = 64;
+/** Base SPL token account size. A legacy mint is 82 and must never decode as one. */
+const TOKEN_ACCOUNT_LEN = 165;
+/** Token-2022 `AccountType::Account`. `Mint` is 1 and is refused. */
+const TOKEN_2022_ACCOUNT_TYPE = 2;
 
 const REPO_ROOT = resolve(process.cwd());
 assertLinuxFilesystem(REPO_ROOT);
@@ -339,6 +373,61 @@ function tokenAmount(v: AccountView | null): bigint | null {
   if (!TOKEN_PROGRAMS.has(v.owner)) return null;
   if (v.data.length < TOKEN_AMOUNT_OFFSET + 8) return null;
   return v.data.readBigUInt64LE(TOKEN_AMOUNT_OFFSET);
+}
+
+/**
+ * P2 — decode a token account into the identity a verdict can be computed on.
+ *
+ * The SPL token account layout is fixed and the first three fields are all we
+ * need:
+ *
+ *   0..32   mint
+ *   32..64  owner
+ *   64..72  amount, u64 little-endian
+ *
+ * Token-2022 accounts share that prefix and append extensions after the base
+ * 165 bytes, so the same read is correct for both. Which PROGRAM owns the
+ * account is `v.owner` — the account's owner in the Solana sense — and it is
+ * carried explicitly because legacy Token and Token-2022 are different programs
+ * whose balances must never be summed as though they were one asset.
+ *
+ * Returns null when the account is not a token account at all. Null is not a
+ * zero balance and is not written as one.
+ */
+function observedTokenBalance(pubkey: string, v: AccountView | null): ObservedTokenBalance | null {
+  if (v === null) return null;
+  if (!TOKEN_PROGRAMS.has(v.owner)) return null;
+
+  // A MINT is also owned by the token program, and decoding one as an account
+  // yields a plausible-looking row with a garbage owner and mint. The first
+  // version of this checked only `length >= 72` and produced exactly that: the
+  // route's own mint accounts appeared as token balances owned by addresses
+  // that do not exist.
+  //
+  // The sizes are fixed and are the discriminator:
+  //
+  //   legacy mint            82
+  //   legacy token account  165
+  //   Token-2022            165 base, then a 1-byte account type at offset 165
+  //                         followed by TLV extensions
+  //
+  // So exactly 165 is an account; longer needs the type byte, where 1 is Mint
+  // and 2 is Account; shorter is neither.
+  if (v.data.length < TOKEN_ACCOUNT_LEN) return null;
+  if (v.data.length > TOKEN_ACCOUNT_LEN) {
+    const accountType = v.data.readUInt8(TOKEN_ACCOUNT_LEN);
+    // 2 is Account. Anything else -- a Mint with extensions, or a type this
+    // build does not know -- is refused rather than read as an account.
+    if (accountType !== TOKEN_2022_ACCOUNT_TYPE) return null;
+  }
+
+  return {
+    tokenAccount: pubkey,
+    mint: base58Encode(v.data.subarray(0, 32)),
+    owner: base58Encode(v.data.subarray(32, 64)),
+    tokenProgram: v.owner,
+    amount: v.data.readBigUInt64LE(TOKEN_AMOUNT_OFFSET).toString(),
+  };
 }
 
 function hashView(pubkey: string, v: AccountView | null): string {
@@ -676,7 +765,30 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
           throw new DeployBudgetExceeded(deployedPrograms.length + 1, elfBytesToDeploy);
         }
         deployedPrograms.push(a.pubkey);
-        net.deploy({ programId: a.pubkey, soBytes: [...Buffer.from(a.programElfBase64 ?? '', 'base64')] });
+        /**
+         * P8 Step 1 — content-addressed `.so` on disk, deployed by PATH.
+         *
+         * `soBytes` marshals the whole ELF through N-API as a JavaScript
+         * `number[]`, element by element, on the request thread. Six of those
+         * did not finish in five minutes and took `/v1/health` down with them.
+         *
+         * The file is written once per distinct ELF and reused: the programs
+         * on a Pump route are the same on every Pump route, so the second
+         * replay of the day writes nothing. Content addressing makes that safe
+         * -- a path is only reused when the bytes are identical.
+         */
+        const elf = Buffer.from(a.programElfBase64 ?? '', 'base64');
+        const digest = createHash('sha256').update(elf).digest('hex');
+        const soPath = resolve(ELF_CACHE_DIR, `${digest}.so`);
+        if (!existsSync(soPath)) {
+          mkdirSync(ELF_CACHE_DIR, { recursive: true });
+          // Written to a temporary name and renamed, so a crash mid-write
+          // cannot leave a truncated ELF at a hash that claims to be complete.
+          const partial = `${soPath}.partial`;
+          writeFileSync(partial, elf);
+          renameSync(partial, soPath);
+        }
+        net.deploy({ programId: a.pubkey, soPath });
       } else {
         net.setAccount(
           a.pubkey,
@@ -692,23 +804,55 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     // collected because they are where a swap's output actually lands, and an
     // output we do not watch is an output we cannot measure.
     const namedAtas: string[] = [];
+    /** Accounts the SETUP wrote. Their rent is ours, never the trade's. */
+    const provisionedAccounts: string[] = [];
     for (const m of req.balanceMutations) {
       if (m.kind === 'sol') {
         net.fundSol(m.owner, exactNumber(BigInt(m.amount), `SOL mutation for ${m.owner}`));
         continue;
       }
       if (m.mint === undefined) continue;
-      // Token atoms are where this actually bites: a nine-decimal memecoin with
-      // a billion supply is 10^18 atoms, three orders of magnitude past exact.
-      const atoms = exactNumber(BigInt(m.amount), `token mutation for ${m.owner}/${m.mint}`);
-      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, atoms);
-      else net.setTokenBalance(m.owner, m.mint, atoms, m.tokenProgram);
-      try {
-        namedAtas.push(m.tokenProgram == null ? net.getAta(m.owner, m.mint) : net.getAta(m.owner, m.mint, m.tokenProgram));
-      } catch {
-        /* an ATA we cannot derive is one we do not watch, and the fee
-           decomposition below will say so rather than assume */
-      }
+
+      /**
+       * P4 — the account is written byte for byte, not through the convenience
+       * API.
+       *
+       * `setTokenBalance` takes a JavaScript `number`. Refusing to round was
+       * right and it meant an ordinary fresh memecoin position could not be
+       * simulated at all: nine decimals against a billion supply is 10^18
+       * atoms, three orders of magnitude past exact.
+       *
+       * Writing it directly also removes a second problem. When the cheatcode
+       * OPENS the account, the fee payer carries its rent, and that rent lands
+       * in the same net SOL movement a sell's proceeds do — 2,039,280 lamports
+       * against a 0.02 SOL leg is ten percent of the notional. An account
+       * written here is already rent-exempt and the payer never paid for it, so
+       * the question does not arise rather than being adjusted for in two
+       * places that disagreed.
+       */
+      const program = m.tokenProgram ?? LEGACY_TOKEN_PROGRAM;
+      const ata = associatedTokenAddress(m.owner, m.mint, program);
+      const bytes = encodeTokenAccount({
+        mint: m.mint,
+        owner: m.owner,
+        amount: BigInt(m.amount),
+        // Token-2022 associated accounts carry ImmutableOwner. Legacy accounts
+        // carry no extensions at all.
+        extensions: program === TOKEN_2022_PROGRAM_ID ? [{ kind: 'immutable_owner' }] : [],
+      });
+      net.setAccount(
+        ata,
+        // Rent-exempt for THIS length, derived rather than the 165-byte
+        // constant, so an extended account is not written under-funded.
+        exactNumber(rentExemptLamports(bytes.length), `rent for ${ata}`),
+        bytes,
+        program,
+      );
+      // Verify the account we wrote is the one the transaction will read. A
+      // provisioned balance at an address the route never touches is the P2
+      // defect wearing different clothes.
+      provisionedAccounts.push(ata);
+      namedAtas.push(ata);
     }
     stages.mark('restoreAccounts');
     if (req.bounds.mint !== undefined) {
@@ -767,9 +911,51 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       }
     }
 
+    /**
+     * The accounts the LEG is about, first.
+     *
+     * The watched list was a plain `slice(0, 64)` over an unordered union. A
+     * Pump route with lookup tables runs past 64 easily, and for a buy there is
+     * no token mutation to name the destination, so the taker's own ATA fell
+     * off the end. The pool's movement was observed, the fee payer's movement
+     * was observed, and the one account the trade exists to credit was not —
+     * reported as "output delta is missing" on a transaction that had in fact
+     * delivered.
+     *
+     * Truncation still happens and is still reported. What must never happen is
+     * truncating the accounts whose balances the verdict is computed from, so
+     * those go at the front where the cut cannot reach them.
+     */
+    const priority: string[] = [req.bounds.feePayer];
+    for (const m of req.balanceMutations) {
+      if (m.kind !== 'token' || m.mint === undefined) continue;
+      priority.push(m.owner);
+      // Both programs: the caller may not have said which, and deriving the
+      // wrong one costs a wasted slot rather than a wrong answer.
+      for (const program of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+        try {
+          priority.push(associatedTokenAddress(m.owner, m.mint, program));
+        } catch {
+          /* an address we cannot derive is one we do not watch, and the
+             coverage check below will say so rather than assume */
+        }
+      }
+    }
+    // The bound's own mint, which on a buy is the asset being credited and has
+    // no balance mutation to name it.
+    if (req.bounds.mint !== undefined) {
+      for (const program of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+        try {
+          priority.push(associatedTokenAddress(req.bounds.feePayer, req.bounds.mint, program));
+        } catch {
+          /* as above */
+        }
+      }
+    }
+
     const allWatched = [
       ...new Set([
-        req.bounds.feePayer,
+        ...priority,
         ...original.staticAccountKeys,
         ...altAccounts,
         ...loadedFromTables,
@@ -865,6 +1051,8 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const postSol: Record<string, string> = {};
     const preTok: Record<string, string> = {};
     const postTok: Record<string, string> = {};
+    const preTokenAccounts: ObservedTokenBalance[] = [];
+    const postTokenAccounts: ObservedTokenBalance[] = [];
     const mutated: Record<string, string> = {};
     const created: string[] = [];
     const closed: string[] = [];
@@ -884,11 +1072,22 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       if (ta !== null) preTok[k] = ta.toString();
       if (tb !== null) postTok[k] = tb.toString();
 
+      // P2 — the structured view, which says what each balance belongs to.
+      // Absence from either array is the fact that the account did not exist
+      // on that side, which a zero amount cannot express.
+      const pa = observedTokenBalance(k, a);
+      const pb = observedTokenBalance(k, b);
+      if (pa !== null) preTokenAccounts.push(pa);
+      if (pb !== null) postTokenAccounts.push(pb);
+
       const existedBefore = a !== null && a.lamports > 0n;
       const existsAfter = b !== null && b.lamports > 0n;
       if (!existedBefore && existsAfter) {
         created.push(k);
-        rentCreated += b.lamports;
+        // S055 — an account the SETUP wrote existed before the transaction ran,
+        // so the transaction did not create it and the payer did not fund it.
+        // Counting its rent as a trade cost is what gave one sell two credits.
+        if (!provisionedAccounts.includes(k)) rentCreated += b.lamports;
       } else if (existedBefore && !existsAfter) {
         closed.push(k);
         rentRecovered += a.lamports;
@@ -944,15 +1143,85 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
           `(${charged.limit.units} units, ${charged.limit.source}), balances imply ${residual}`,
       );
     }
-    // Reported only when the transaction's own bytes and the payer's own
-    // balance agree. A number two sources disagree about is not a measurement.
-    const priorityFee = err !== null ? null : decompositionExact && residual === declaredPriority ? declaredPriority : null;
+    /**
+     * P5 — the compute-budget BYTES are the authoritative priority fee.
+     *
+     * This previously reported the fee only when a balance-derived residual
+     * agreed with the bytes exactly, and otherwise reported nothing. The
+     * intention was right and the consequence was that every run said
+     * "fee decomposition incomplete: no priority fee reported" — including
+     * every run whose fee was perfectly well known from its own instructions.
+     *
+     * The residual is not a second measurement of the same thing. It is
+     * `payer loss - others gained`, and that identity does not hold for a sell:
+     * a sell INCREASES the payer's balance, so the subtraction produces a
+     * number with no meaning and then suppresses the one that had meaning.
+     *
+     * So the bytes are reported, and the balance check is kept as independent
+     * corroboration with its disagreement recorded rather than fatal. The
+     * runtime charges on the requested limit, and the requested limit is in the
+     * transaction.
+     */
+    const priorityFee = err !== null ? null : declaredPriority;
+    /** Whether the independent balance check agreed. Recorded, not gating. */
+    const priorityFeeCorroborated = err === null && decompositionExact && residual === declaredPriority;
 
     // §6 — the caller's asserted bounds are CHECKED, not carried. A bound
     // nothing tests is a comment with a schema.
     const boundsViolations: string[] = [];
     if (err === null) {
       const spent = payerPre - payerPost;
+      /**
+       * P3 — the OUTPUT side, checked against the asset it is actually in.
+       *
+       * A token→SOL sell credits native lamports. Asking `minTokenDelta` about
+       * it inspects a token account the trade never touches, finds nothing, and
+       * reports a delta of zero on a transaction that paid out correctly.
+       */
+      const out = req.bounds.outputAsset;
+      if (out !== undefined && out.kind === 'native_sol' && out.minCreditLamports !== undefined) {
+        const payerDelta = BigInt(postSol[req.bounds.feePayer] ?? '0') - BigInt(preSol[req.bounds.feePayer] ?? '0');
+        // The payer's net movement includes what it paid to trade. The credit
+        // is that movement with the transaction's own costs added back, because
+        // those left the payer for reasons other than the swap.
+        const credit = payerDelta + (baseFee ?? 0n) + (priorityFee ?? 0n) + rentCreated - rentRecovered;
+        const min = BigInt(out.minCreditLamports);
+        if (credit < min) boundsViolations.push(`native SOL credit ${credit} below the asserted minimum ${min}`);
+      }
+      if (out !== undefined && out.kind === 'token' && out.minCreditAtoms !== undefined) {
+        const before = preTokenAccounts.find((b) => b.tokenAccount === out.tokenAccount);
+        const after = postTokenAccounts.find((b) => b.tokenAccount === out.tokenAccount);
+        if (after === undefined) {
+          boundsViolations.push(`output token account ${out.tokenAccount.slice(0, 8)} was not observed after the run`);
+        } else {
+          // Absent before means the transaction created it, and an account that
+          // did not exist held nothing. That is the one case where absence is a
+          // number.
+          const delta = BigInt(after.amount) - BigInt(before?.amount ?? '0');
+          const min = BigInt(out.minCreditAtoms);
+          if (delta < min) boundsViolations.push(`token credit ${delta} below the asserted minimum ${min}`);
+          if (after.mint !== out.mint) boundsViolations.push('output token account holds a different mint than asserted');
+          if (after.tokenProgram !== out.tokenProgram) {
+            boundsViolations.push('output token account is owned by a different token program than asserted');
+          }
+        }
+      }
+
+      // P3 — the INPUT side. An exact debit is exact.
+      const inp = req.bounds.inputAsset;
+      if (inp !== undefined && inp.kind === 'token' && inp.exactDebitAtoms !== undefined) {
+        const before = preTokenAccounts.find((b) => b.tokenAccount === inp.tokenAccount);
+        const after = postTokenAccounts.find((b) => b.tokenAccount === inp.tokenAccount);
+        if (before === undefined) {
+          boundsViolations.push(`input token account ${inp.tokenAccount.slice(0, 8)} was not observed before the run`);
+        } else {
+          // A closed source account spent everything it held.
+          const debit = BigInt(before.amount) - BigInt(after?.amount ?? '0');
+          const exact = BigInt(inp.exactDebitAtoms);
+          if (debit !== exact) boundsViolations.push(`token debit ${debit} is not the asserted exact ${exact}`);
+        }
+      }
+
       const cap = BigInt(req.bounds.maxLamportsSpent);
       if (spent > cap) boundsViolations.push(`fee payer spent ${spent} lamports, above the asserted cap of ${cap}`);
       if (req.bounds.mint !== undefined) {
@@ -1055,6 +1324,9 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       postSolBalances: postSol,
       preTokenBalances: preTok,
       postTokenBalances: postTok,
+      preTokenAccounts,
+      postTokenAccounts,
+      priorityFeeCorroborated,
       baseFeeLamports: baseFee === null ? null : baseFee.toString(),
       priorityFeeLamports: priorityFee === null ? null : priorityFee.toString(),
       // Null, not zero, when the transaction failed: nothing was applied, so
@@ -1126,6 +1398,9 @@ function fail(
     postSolBalances: {},
     preTokenBalances: {},
     postTokenBalances: {},
+    preTokenAccounts: [],
+    postTokenAccounts: [],
+    priorityFeeCorroborated: false,
     baseFeeLamports: null,
     priorityFeeLamports: null,
     rentCreatedLamports: null,

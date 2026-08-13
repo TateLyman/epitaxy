@@ -130,6 +130,31 @@ export interface SnapshotBlob {
   readonly programElfBase64?: string | null;
 }
 
+/**
+ * One token account, as the runtime described it.
+ *
+ * P2 — this replaces two `Record<string, string>` maps whose keys meant
+ * different things at each end. The daemon keyed them by TOKEN-ACCOUNT PUBKEY;
+ * the effect verifier looked them up by `owner:mint`. The lookup could never
+ * match, so every token delta read as unobserved and every buy that credited
+ * its ATA correctly was refused for "output delta is missing".
+ *
+ * A map key is a place for that mistake to hide. A record with named fields is
+ * not: the identity is the token account, and the owner, mint and program are
+ * carried beside it rather than encoded into a string somebody has to parse the
+ * same way at both ends.
+ */
+export interface ObservedTokenBalance {
+  /** The account address. THE identity. Two accounts are never one row. */
+  readonly tokenAccount: string;
+  readonly owner: string;
+  readonly mint: string;
+  /** Legacy Token and Token-2022 are different programs and never collapse. */
+  readonly tokenProgram: string;
+  /** Raw atoms, decimal string. Never a number. */
+  readonly amount: string;
+}
+
 export interface BalanceMutation {
   readonly kind: 'sol' | 'token';
   readonly owner: string;
@@ -140,10 +165,63 @@ export interface BalanceMutation {
   readonly tokenProgram?: string | null;
 }
 
+/**
+ * The asset a leg spends or receives.
+ *
+ * P3 — the previous bounds carried one generic `mint + minTokenDelta` for both
+ * directions. That is invalid for a token→SOL sell: the output is native
+ * lamports, not a delta on a wrapped-SOL token account, and checking a sell
+ * through `minTokenDelta` asks about an account the trade never credits.
+ *
+ * A discriminated union makes the wrong question unrepresentable rather than
+ * merely discouraged.
+ */
+export type AssetSide =
+  | {
+      readonly kind: 'native_sol';
+      /** The swap's own lamports, separate from fees, tip and rent. */
+      readonly exactDebitLamports?: string;
+      readonly maxTotalDebitLamports?: string;
+      readonly minCreditLamports?: string;
+      readonly expectedCreditLamports?: string | null;
+    }
+  | {
+      readonly kind: 'token';
+      readonly mint: string;
+      /** Legacy Token and Token-2022 are different assets and never collapse. */
+      readonly tokenProgram: string;
+      /** The exact account, so nothing has to re-derive it and agree. */
+      readonly tokenAccount: string;
+      readonly exactDebitAtoms?: string;
+      readonly minCreditAtoms?: string;
+      readonly expectedCreditAtoms?: string | null;
+    };
+
 /** What the caller asserts the transaction should do. Checked, not trusted. */
 export interface EconomicBounds {
   readonly feePayer: string;
+  /**
+   * Total lamports the fee payer may lose. Retained because it bounds the whole
+   * transaction including fees, which neither asset side does on its own.
+   */
   readonly maxLamportsSpent: string;
+
+  /** P3 — what the leg spends and what it receives, each named as its own asset. */
+  readonly inputAsset?: AssetSide;
+  readonly outputAsset?: AssetSide;
+
+  /** Accounts permitted to gain value, from the route model rather than hope. */
+  readonly expectedRecipients?: readonly string[];
+  readonly declaredTipLamports?: string;
+  readonly allowedCreatedAccounts?: readonly string[];
+  readonly allowedClosedAccounts?: readonly string[];
+
+  /**
+   * LEGACY, and only for reading requests written before P3.
+   *
+   * Never set on a new request. `minTokenDelta` on a sell is the defect this
+   * replaced: it asks about a token credit on a leg whose output is lamports.
+   */
   readonly minTokenDelta?: string;
   readonly maxTokenDelta?: string;
   readonly mint?: string;
@@ -208,8 +286,38 @@ export interface SimulationResponse {
 
   readonly preSolBalances: Readonly<Record<string, string>>;
   readonly postSolBalances: Readonly<Record<string, string>>;
+  /**
+   * Legacy maps, keyed by token-account pubkey. Retained for the debugging
+   * value of the raw view and for reading rows written before P2.
+   *
+   * NOTHING may compute an economic verdict from these. Use the structured
+   * arrays below, which say what each balance belongs to.
+   */
   readonly preTokenBalances: Readonly<Record<string, string>>;
   readonly postTokenBalances: Readonly<Record<string, string>>;
+
+  /**
+   * P2 — every token account the run observed, before and after.
+   *
+   * An account ABSENT from `preTokenAccounts` and present in
+   * `postTokenAccounts` was created by this transaction. Present in pre and
+   * absent from post means it was closed. Those are different facts from a
+   * zero balance, and the arrays keep them different.
+   */
+  readonly preTokenAccounts: readonly ObservedTokenBalance[];
+  readonly postTokenAccounts: readonly ObservedTokenBalance[];
+
+  /**
+   * P5 — whether the independent balance check agreed with the fee the
+   * transaction's own compute-budget bytes imply.
+   *
+   * The bytes are authoritative: the runtime charges on the requested limit and
+   * the requested limit is in the instruction. This says whether a second,
+   * weaker method agreed, and it is recorded rather than gating — the balance
+   * identity `payer loss - others gained` does not hold for a sell, which
+   * increases the payer's balance.
+   */
+  readonly priorityFeeCorroborated?: boolean;
 
   readonly baseFeeLamports: string | null;
   readonly priorityFeeLamports: string | null;

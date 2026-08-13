@@ -65,6 +65,7 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
+import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import {
   bindEntryObservation,
   bindExitObservation,
@@ -1569,15 +1570,22 @@ async function manageOpenPositions(
     // The benchmark, kept beside the executable number rather than instead of it.
     const benchmarkLamports = sell ? sell.outAmount : null;
 
-    // Executable value. Null when no BUILD_CUSTOM sell could be observed, and
-    // null is an unknown that holds the position rather than a zero that
-    // stops it out.
-    const grossProceeds = markObs === null ? null : markObs.expectedOutput > 0n ? markObs.expectedOutput : null;
-    const markLamports = grossProceeds === null ? null : grossProceeds - config.assumedPriorityFeeLamports;
-    const benchmarkGapBps =
-      benchmarkLamports === null || grossProceeds === null || grossProceeds <= 0n
-        ? null
-        : Number(((benchmarkLamports - grossProceeds) * 10_000n) / grossProceeds);
+    /**
+     * P9 — the decision comes from the CORE, not from arithmetic repeated here.
+     *
+     * `chooseDecisionMark` is the function the behavioural tests execute. This
+     * used to be a second copy of the same rules, which is how a tested
+     * function and a running process end up disagreeing without anyone editing
+     * either of them.
+     */
+    const markDecision = chooseDecisionMark({
+      executableLamports: markObs === null ? null : markObs.expectedOutput,
+      benchmarkLamports,
+      priorityFeeLamports: config.assumedPriorityFeeLamports,
+    });
+    const grossProceeds = markDecision.decisionBearing ? (markObs?.expectedOutput ?? null) : null;
+    const markLamports = markDecision.markLamports;
+    const benchmarkGapBps = markDecision.benchmarkMinusExecutableBps;
 
     const routeAvailable = sell !== null && sell.outAmount > 0n;
     const nowMs = Date.now();
@@ -1641,12 +1649,12 @@ async function manageOpenPositions(
       slot: markObs?.contextSlot ?? sell?.contextSlot ?? null,
       source: 'jupiter',
       backfilled: false,
-      markSource: markObs === null ? 'ORDER_QUOTE_BENCHMARK' : 'BUILD_CUSTOM_SELL',
+      markSource: markDecision.source,
       markObservationId: markObs?.observationId ?? null,
       benchmarkOrderLamports: benchmarkLamports,
       benchmarkMinusExecutableBps: benchmarkGapBps,
       // Only an executable mark may move a stop, a trail, a peak or NAV.
-      decisionBearing: markObs !== null && grossProceeds !== null,
+      decisionBearing: markDecision.decisionBearing,
     });
 
     // §P1.2 — mutually exclusive diagnostics, derived from economic quantities
@@ -1769,14 +1777,45 @@ async function manageOpenPositions(
       contextHash,
     });
 
-    const exitExecutable = legIsExecutable(
+    /**
+     * P9 — the exit admission comes from the CORE.
+     *
+     * `admitPortfolioExit` simulates the leg and then judges it, in that order,
+     * which is the whole point: the previous code tested the observation for
+     * simulation without ever having simulated it.
+     */
+    const exitAdmission = await admitPortfolioExit(
       {
-        ...exitObs,
-        simulation: simulationStatusOf(db, exitObs.observationId),
-        simulationEffect: simulationEffectOf(db, exitObs.observationId),
+        simulator: {
+          simulate: async (observationId, leg) => {
+            await simulateLeg(db, blobs, simulator, observationId, taker, {
+              mode: 'DEVELOPMENT_JIT',
+              side: leg.side,
+              inputMint: leg.inputMint,
+              outputMint: leg.outputMint,
+              inputAmount: leg.inputAmount,
+              inputTokenProgram: tokenProgramFor(db, blobs, observationId),
+              fundingLamports: 100_000_000n,
+              maxLamportsSpent: 20_000_000n,
+              expectedOutput: leg.expectedOutput,
+              minimumOutput: leg.minimumOutput,
+              contextHash,
+            });
+            return {
+              simulation: simulationStatusOf(db, observationId),
+              effect: simulationEffectOf(db, observationId),
+            };
+          },
+        },
       },
-      { requireLocalSimulation: config.requireLocalSimulation },
+      {
+        exit: exitObs,
+        mint: row.mint,
+        tokenAmount,
+        requireLocalSimulation: config.requireLocalSimulation,
+      },
     );
+    const exitExecutable = { ok: exitAdmission.ok, reasons: exitAdmission.reasons };
     if (!exitExecutable.ok) {
       // §4.2 — THE repair. The previous code recorded the failure, closed the
       // position, realized the PnL and returned the capital to the free

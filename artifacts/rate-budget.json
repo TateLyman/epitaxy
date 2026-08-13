@@ -1,0 +1,25 @@
+{
+  "generatedUtcMs": 1786660694965,
+  "windowMs": 3600000,
+  "totalCalls": 0,
+  "callsPerSecond": 0,
+  "duplicateGroups": 0,
+  "byPurpose": [],
+  "markLagMs": {
+    "p50": null,
+    "p95": null,
+    "max": null,
+    "samples": 0
+  },
+  "rateLimitEvents": 0,
+  "backlogWarnings": 0,
+  "admissionsRefused": 0,
+  "effectVerifiedLabels": 0,
+  "labelsPerDay": 0,
+  "upgrade": {
+    "generatorCorrect": false,
+    "duplicatesEliminated": true,
+    "limitBinds": false,
+    "justified": false
+  }
+}

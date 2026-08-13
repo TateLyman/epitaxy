@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { summarize } from '../../packages/intelligence/src/gates.js';
+import { summarize, evaluateCheapGates } from '../../packages/intelligence/src/gates.js';
 import { opportunityScore } from '../../packages/strategy/src/score.js';
 import type { GateResult } from '../../packages/domain/src/types.js';
+import { readFileSync } from 'node:fs';
+import { AppConfigSchema } from '../../packages/domain/src/config.js';
+
+// The real shipped config, parsed by the real schema. A hand-built one would
+// let these pass against thresholds the engine does not actually run.
+const paper = AppConfigSchema.parse(JSON.parse(readFileSync('config/paper.json', 'utf8')));
 
 /**
  * P17 — the score's mathematical defects, fixed without tuning it.
@@ -128,5 +134,50 @@ describe('P17 — an unknown component is unknown, not zero', () => {
       5 * 60_000,
     );
     expect(risky.score).toBeCloseTo(clean.score * 0.5, 3);
+  });
+});
+
+describe('P17 — the chain overrides the provider', () => {
+  const base = {
+    info: { mintAuthorityDisabled: false, freezeAuthorityDisabled: false } as never,
+    nowUtcMs: 1_760_000_000_000,
+    sourceAgeMs: 1_000,
+    config: paper.gates,
+  };
+  const gateNamed = (gates: readonly GateResult[], name: string): GateResult | undefined =>
+    gates.find((g) => g.gate === name);
+
+  it('a chain SAFE verdict passes a gate the provider would have failed', () => {
+    // The provider says the mint authority is live; the chain says it is
+    // disabled. The chain is a byte we read ourselves and it wins -- it is not
+    // a vote.
+    const gates = evaluateCheapGates({
+      ...base,
+      chainFacts: { mintAuthority: 'SAFE', freezeAuthority: 'SAFE' } as never,
+    });
+    const mint = gateNamed(gates, 'mint_authority_disabled');
+    expect(mint?.passed).toBe(true);
+    expect(mint?.detail).toContain('chain');
+  });
+
+  it('a chain HOSTILE verdict fails a gate the provider would have passed', () => {
+    // A provider wrong in THIS direction is the dangerous one: it says safe
+    // about a mint that can still be inflated.
+    const gates = evaluateCheapGates({
+      info: { mintAuthorityDisabled: true, freezeAuthorityDisabled: true } as never,
+      nowUtcMs: base.nowUtcMs,
+      sourceAgeMs: base.sourceAgeMs,
+      config: base.config,
+      chainFacts: { mintAuthority: 'HOSTILE', freezeAuthority: 'SAFE' } as never,
+    });
+    expect(gateNamed(gates, 'mint_authority_disabled')?.passed).toBe(false);
+  });
+
+  it('an unread chain falls back to the provider and says which source it used', () => {
+    // Absent is not safe and is not hostile. It is unread, and the detail
+    // string names the source so a reader cannot mistake a provider claim for
+    // a measurement.
+    const gates = evaluateCheapGates({ ...base, chainFacts: null });
+    expect(gateNamed(gates, 'mint_authority_disabled')?.detail).toContain('provider');
   });
 });

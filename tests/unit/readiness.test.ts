@@ -26,6 +26,14 @@ let db: DatabaseSync;
  * reproducible, clean commit. Everything the strictest clause asks for, so a
  * test that fails does so on economics and not on paperwork.
  */
+/**
+ * One confirmatory position.
+ *
+ * P13 — `realizedLamports` here is GROSS proceeds, and the net PnL is written
+ * explicitly. That is the whole repair: the readiness gate used to compute
+ * `realized - cost` against a column that already held the net, subtracting the
+ * principal a second time, so a winning position scored as a large loss.
+ */
 function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOffset = 0, mint = `Mint${i}`): void {
   const ctx = 'ctx-1';
   const entry = `obs-e-${i}`;
@@ -93,7 +101,13 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
       },
     );
     db.prepare(
-      `UPDATE execution_observations SET simulation_effect = 'SIMULATED_EFFECT_OK' WHERE observation_id = ?`,
+      `UPDATE execution_observations
+         SET simulation_effect = 'SIMULATED_EFFECT_OK',
+             -- P14: the view requires the EXACT bytes to have been retained.
+             -- A confirmatory position that cannot produce the transaction it
+             -- was built from is not reproducible, whatever else is right.
+             exact_transaction_blob = 'blob-hash'
+       WHERE observation_id = ?`,
     ).run(id);
     db.prepare(
       `INSERT INTO simulation_jobs
@@ -107,14 +121,20 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
   obs(exit, 'sell');
   db.prepare(
     `INSERT INTO positions
-       (position_id,mint,state,token_amount,cost_lamports,realized_lamports,opened_utc_ms,
+       (position_id,mint,state,token_amount,cost_lamports,realized_lamports,net_pnl_lamports,
+        execution_cost_lamports,opened_utc_ms,
         closed_utc_ms,strategy_version,simulated,context_hash,entry_observation_id,exit_observation_id)
-     VALUES (?,?, 'CLOSED','0',?,?,?,?,'v1',1,?,?,?)`,
+     VALUES (?,?, 'CLOSED','0',?,?,?,?,?,?,'v1',1,?,?,?)`,
   ).run(
     `pos-${i}`,
     mint,
     costLamports.toString(),
     realizedLamports.toString(),
+    // The net, stated rather than derived.
+    (realizedLamports - costLamports).toString(),
+    // What it cost to EXECUTE: base fee, priority fee, unrecovered rent. A 2x
+    // stress doubles THIS, not the principal.
+    '13000',
     T0 + dayOffset * DAY,
     T0 + dayOffset * DAY + 3_600_000,
     ctx,
@@ -232,11 +252,34 @@ describe('P18 — profitability is a gate, not a footnote', () => {
   });
 
   it('refuses a thin edge that dies under doubled costs', () => {
-    // +2% per trade on a 5% all-in cost basis. Live costs are worse than
-    // modelled costs, every time.
-    for (let i = 0; i < 250; i += 1) trade(i, 20_000_000n, 20_400_000n, i % 30);
+    // An edge of 10,000 lamports per trade against 13,000 of execution cost.
+    // Doubling the cost removes 13,000 more and the edge is gone.
+    //
+    // The stress doubles the COST, not the principal. Subtracting the whole
+    // 20,000,000 basis a second time was a test no strategy could pass, which
+    // is not a conservative test but a broken one: a stress that always fails
+    // carries no information about robustness.
+    for (let i = 0; i < 250; i += 1) trade(i, 20_000_000n, 20_010_000n, i % 30);
     expect(gateOf('pnl.netPositive').pass).toBe(true);
     expect(gateOf('stress.doubleCosts').pass).toBe(false);
+  });
+
+  it('a genuinely robust edge SURVIVES doubled costs', () => {
+    // The other half, and the one the old implementation could never show:
+    // 2,000,000 of edge against 13,000 of cost is not troubled by another
+    // 13,000. If this cannot pass, the gate is a wall.
+    for (let i = 0; i < 250; i += 1) trade(i, 20_000_000n, 22_000_000n, i % 30);
+    expect(gateOf('pnl.netPositive').pass).toBe(true);
+    expect(gateOf('stress.doubleCosts').pass).toBe(true);
+  });
+
+  it('P13 — net PnL is read, not re-derived from gross', () => {
+    // A position that cost 20,000,000 and returned 21,000,000 gross made
+    // 1,000,000. The old computation scored it as a 19,000,000 LOSS.
+    trade(1, 20_000_000n, 21_000_000n);
+    const r = run();
+    expect(r.confirmatoryTrades).toBe(1);
+    expect(gateOf('pnl.netPositive').observed).toContain('1000000');
   });
 
   it('refuses when the edge stopped working recently', () => {
@@ -245,11 +288,21 @@ describe('P18 — profitability is a gate, not a footnote', () => {
     expect(gateOf('robustness.recent50').pass).toBe(false);
   });
 
-  it('refuses a sample drawn from too few calendar days', () => {
+  it('refuses a sample drawn from too few DISTINCT calendar days', () => {
     for (let i = 0; i < 250; i += 1) trade(i, 20_000_000n, 30_000_000n, i % 3);
     // A memecoin regime lasts days. Three days is one regime.
     expect(gateOf('sample.calendarDays').pass).toBe(false);
     expect(run().verdict).toBe('NOT_READY');
+  });
+
+  it('P13 — counts distinct UTC days, not elapsed span', () => {
+    // Two trades 30 days apart span 30 days and observe two. The old gate
+    // passed on the span, which is one regime observed twice.
+    trade(1, 20_000_000n, 30_000_000n, 0);
+    trade(2, 20_000_000n, 30_000_000n, 30);
+    const gate = gateOf('sample.calendarDays');
+    expect(gate.pass).toBe(false);
+    expect(gate.observed).toContain('2 distinct');
   });
 
   it('counts a total loss as catastrophic and holds the incidence down', () => {

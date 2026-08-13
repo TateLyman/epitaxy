@@ -1,4 +1,9 @@
-# Offline replay: the Pump blocker
+# Offline Pump parity
+
+P8/P28. The canonical record of whether a Pump route can be replayed
+offline. It cannot, and the cause is now located precisely rather than
+suspected.
+
 
 P4 / P5. Measured 2026-08-13 by `pnpm simulator:effect-parity` against a live
 `Pump.fun Amm` route.

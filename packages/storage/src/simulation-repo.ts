@@ -222,6 +222,7 @@ export function recordSimulationEffect(db: Db, jobId: string, v: EffectVerdict, 
        unobserved_accounts = ?, bounds_violations = ?,
        pre_sol_balances = ?, post_sol_balances = ?,
        pre_token_balances = ?, post_token_balances = ?,
+       pre_token_accounts = ?, post_token_accounts = ?, token_deltas = ?,
        created_accounts = ?, closed_accounts = ?
      WHERE job_id = ?`,
   ).run(
@@ -248,6 +249,23 @@ export function recordSimulationEffect(db: Db, jobId: string, v: EffectVerdict, 
     JSON.stringify(res.postSolBalances),
     JSON.stringify(res.preTokenBalances),
     JSON.stringify(res.postTokenBalances),
+    JSON.stringify(res.preTokenAccounts ?? []),
+    JSON.stringify(res.postTokenAccounts ?? []),
+    // bigint deltas are stringified: a token amount through JSON.stringify's
+    // default number path would round past 2^53 and look fine doing it.
+    JSON.stringify(
+      v.tokenDeltas.map((d) => ({
+        owner: d.owner,
+        mint: d.mint,
+        tokenProgram: d.tokenProgram,
+        accounts: d.accounts,
+        preAtoms: d.preAtoms === null ? null : d.preAtoms.toString(),
+        postAtoms: d.postAtoms === null ? null : d.postAtoms.toString(),
+        delta: d.delta === null ? null : d.delta.toString(),
+        created: d.created,
+        closed: d.closed,
+      })),
+    ),
     JSON.stringify(res.createdAccounts),
     JSON.stringify(res.closedAccounts),
     jobId,

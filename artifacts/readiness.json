@@ -1,6 +1,6 @@
 {
-  "generatedUtcMs": 1786646142675,
-  "sourceCommit": "2db97f71d12646df0fa103ba692ae16da4e76820+dirty",
+  "generatedUtcMs": 1786659734061,
+  "sourceCommit": "0aed90e7250768aae9ab29345cea4491c1d17360+dirty",
   "strategyVersion": "delayed-momentum-v0.4.0",
   "confirmatoryTrades": 0,
   "validDevelopmentTrades": 0,
@@ -15,9 +15,9 @@
     {
       "id": "sample.calendarDays",
       "pass": false,
-      "observed": "0.0 days across 0 distinct days",
-      "required": "at least 21 days",
-      "rationale": "A memecoin regime lasts days. A sample from one week is a sample from one regime."
+      "observed": "0 distinct UTC days (0.0 elapsed)",
+      "required": "at least 21 DISTINCT UTC days",
+      "rationale": "A memecoin regime lasts days. Elapsed span can be 21 days with every trade in the first hour and the last, which is one regime observed twice."
     },
     {
       "id": "pnl.netPositive",
@@ -162,7 +162,7 @@
     {
       "id": "shadow.canarySizePositive",
       "pass": false,
-      "observed": "459 closed canary-shadow positions, net -8540885788",
+      "observed": "463 closed canary-shadow positions, net -8567576023",
       "required": "positive at canary size",
       "rationale": "The portfolio result is at portfolio size. Canary runs at a fixed small size, and small size has its own cost structure."
     }
@@ -171,7 +171,7 @@
   "verdict": "NOT_READY",
   "blockers": [
     "sample.validCompletedPositions: observed 0 confirmatory positions, requires at least 200",
-    "sample.calendarDays: observed 0.0 days across 0 distinct days, requires at least 21 days",
+    "sample.calendarDays: observed 0 distinct UTC days (0.0 elapsed), requires at least 21 DISTINCT UTC days",
     "pnl.netPositive: observed 0 lamports net, requires greater than zero",
     "pnl.expectedLogGrowth: observed unknown, requires greater than zero",
     "pnl.lowerConfidenceBound: observed unknown, requires greater than zero",
@@ -189,12 +189,12 @@
     "concentration.noDayOverTwentyFivePercent: observed n/a%, requires at most 25% of positive PnL from one day",
     "stress.doubleCosts: observed 0 lamports at 2x costs, requires still positive",
     "evidence.zeroReplayDivergence: observed no replay results divergences, requires exactly 0",
-    "shadow.canarySizePositive: observed 459 closed canary-shadow positions, net -8540885788, requires positive at canary size"
+    "shadow.canarySizePositive: observed 463 closed canary-shadow positions, net -8567576023, requires positive at canary size"
   ],
   "benchmarks": {
     "noTradeLamports": 0,
     "holdSolLamports": 0,
     "strategyNetLamports": 0,
-    "canaryShadowNetLamports": -8540885788
+    "canaryShadowNetLamports": -8567576023
   }
 }
