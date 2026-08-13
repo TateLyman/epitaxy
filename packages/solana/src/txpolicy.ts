@@ -1,11 +1,11 @@
 import {
   decodeTransaction,
-  readComputeBudget,
   priorityFeeLamports,
   COMPUTE_BUDGET_PROGRAM,
   TxDecodeError,
   type DecodedTransaction,
 } from './transaction.js';
+import { evaluateComputeBudget } from './instructionpolicy.js';
 import { TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from './mint.js';
 
 /**
@@ -138,19 +138,24 @@ export function evaluateTransactionPolicy(raw: Uint8Array, limits: PolicyLimits)
     });
   }
 
-  const cb = readComputeBudget(decoded);
-  const fee = priorityFeeLamports(cb);
-  if (cb.unitLimit === null) {
-    // Without an explicit unit limit the transaction is charged at the default
-    // ceiling, which makes the fee we modelled a fiction.
-    violations.push({ violation: 'compute_limit_missing', detail: 'no SetComputeUnitLimit instruction' });
-  }
-  if (fee > limits.maxPriorityFeeLamports) {
-    violations.push({
-      violation: 'priority_fee_too_high',
-      detail: `${fee} > ${limits.maxPriorityFeeLamports} lamports`,
-    });
-  }
+  // The compute-budget question is asked in exactly one place, by
+  // `evaluateComputeBudget`, so the byte-level and instruction-level policies
+  // cannot drift apart. Reimplementing it here is how two definitions of the
+  // same rule get committed and then disagree in production.
+  //
+  // The decoded instructions are re-expressed in the shape that function takes.
+  // `data` round-trips through base64 because that is how /build delivers it,
+  // and using one representation everywhere is cheaper than two.
+  const cbInstructions = decoded.instructions.map((ix) => ({
+    programId: decoded.staticAccountKeys[ix.programIdIndex] ?? '',
+    data: Buffer.from(ix.data).toString('base64'),
+  }));
+  const cb = evaluateComputeBudget(cbInstructions, limits.maxPriorityFeeLamports);
+  if (cb.violation !== null) violations.push(cb.violation);
+  const fee = priorityFeeLamports({
+    unitLimit: cb.unitLimit ?? cb.affordableUnitLimit,
+    unitPriceMicroLamports: cb.unitPriceMicroLamports,
+  });
 
   if (decoded.recentBlockhash === '1'.repeat(32)) {
     violations.push({ violation: 'blockhash_missing', detail: 'all-zero recent blockhash' });

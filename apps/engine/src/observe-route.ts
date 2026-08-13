@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Db } from '../../../packages/storage/src/db.js';
 import { recordHealth } from '../../../packages/storage/src/repo.js';
 import { storeRawPayload } from '../../../packages/storage/src/provenance-repo.js';
@@ -13,6 +13,13 @@ import {
   evaluateBuildPolicy,
   buildPolicyStatusLabel,
 } from '../../../packages/solana/src/buildpolicy.js';
+import {
+  compileMessage,
+  encodeMessage,
+  encodeUnsignedTransaction,
+  EncodeError,
+} from '../../../packages/solana/src/encode.js';
+import { evaluateTransactionPolicy, defaultLimits } from '../../../packages/solana/src/txpolicy.js';
 import type { ExecutionObservation, RouteFamily } from '../../../packages/domain/src/execution.js';
 import { FAMILY_CONTRACTS } from '../../../packages/domain/src/execution.js';
 import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.js';
@@ -111,6 +118,17 @@ export async function observeRoute(
   let computeUnitLimit: number | null = null;
   let estimatedBytes: number | null = null;
   let writableAccounts: readonly string[] = [];
+  let assembled: {
+    serializedHash: string;
+    messageHash: string;
+    packetBytes: number;
+    feePayer: string;
+    requiredSignatures: number;
+    staticAccountKeys: readonly string[];
+    writableAccounts: readonly string[];
+    readonlyAccounts: readonly string[];
+    base64: string;
+  } | null = null;
 
   if (built.buildable && built.instructions.length > 0) {
     const ix = evaluateInstructionPolicy(
@@ -128,13 +146,58 @@ export async function observeRoute(
       },
       buildPolicyLimits(req.taker, req.maxPriorityFeeLamports),
     );
-    transactionPolicy = tx.allowed ? 'PASS' : 'FAIL';
     // The response's own limit, which is null on every observed route. The
     // affordable ceiling is OUR number and is not stored as if it were theirs.
     computeUnitLimit = tx.computeUnitLimit;
-    estimatedBytes = tx.estimatedBytes;
     writableAccounts = tx.writableAccounts;
-    policyDetail = `${ix.allowed ? 'IX_PASS' : `IX_FAIL(${ix.violations.map((v) => v.violation).join(',')})`} ${buildPolicyStatusLabel(tx)}`;
+
+    // §5 — assemble the EXACT bytes and run the strict byte-level policy over
+    // them. Everything above reasons about instructions and estimates a packet
+    // size; none of it can see the fee payer's compiled position, the real
+    // signature count, or the true packet length, and a simulator cannot be
+    // handed an estimate.
+    //
+    // A missing decision-bearing field fails explicitly here rather than
+    // becoming a zero — that is the whole reason EncodeError carries a code.
+    try {
+      const message = compileMessage(
+        built.instructions,
+        req.taker,
+        built.blockhash ?? '',
+        built.lookupTables,
+      );
+      const bytes = encodeUnsignedTransaction(message);
+      assembled = {
+        serializedHash: createHash('sha256').update(bytes).digest('hex'),
+        messageHash: createHash('sha256').update(encodeMessage(message)).digest('hex'),
+        packetBytes: bytes.length,
+        feePayer: message.feePayer,
+        requiredSignatures: message.numRequiredSignatures,
+        staticAccountKeys: message.staticAccountKeys,
+        writableAccounts: message.writableAccounts,
+        readonlyAccounts: message.readonlyAccounts,
+        base64: Buffer.from(bytes).toString('base64'),
+      };
+      // The real thing: the same function the signer relies on, over real bytes.
+      const byteLevel = evaluateTransactionPolicy(
+        bytes,
+        defaultLimits(req.taker, req.maxPriorityFeeLamports),
+      );
+      transactionPolicy = byteLevel.allowed ? 'PASS' : 'FAIL';
+      estimatedBytes = bytes.length;
+      policyDetail =
+        `${ix.allowed ? 'IX_PASS' : `IX_FAIL(${ix.violations.map((v) => v.violation).join(',')})`} ` +
+        `${buildPolicyStatusLabel(tx)} ` +
+        `${byteLevel.allowed ? 'BYTES_PASS' : `BYTES_FAIL(${byteLevel.violations.map((v) => v.violation).join(',')})`}`;
+    } catch (e) {
+      // Assembly failed, so there are no bytes and there is no transaction
+      // policy result. NOT_RUN, never a pass.
+      transactionPolicy = 'FAIL';
+      estimatedBytes = tx.estimatedBytes;
+      const code = e instanceof EncodeError ? e.code : 'ASSEMBLY_FAILED';
+      policyDetail =
+        `${ix.allowed ? 'IX_PASS' : 'IX_FAIL'} ${buildPolicyStatusLabel(tx)} BYTES_FAIL(${code}: ${(e as Error).message.slice(0, 100)})`;
+    }
   }
 
   const contract = FAMILY_CONTRACTS[req.family];
@@ -190,8 +253,9 @@ export async function observeRoute(
     impactStatus: built.impact.status,
     impactRawString: built.impact.rawString,
     adverseImpactBps: built.impact.adverseBps,
-    writableAccounts,
+    writableAccounts: assembled?.writableAccounts ?? writableAccounts,
     lookupTables: Object.keys(built.lookupTables),
+    assembled,
   });
 
   if (built.failure !== null && built.failure !== 'NO_ROUTE') {

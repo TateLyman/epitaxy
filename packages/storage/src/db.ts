@@ -898,6 +898,30 @@ CREATE TABLE IF NOT EXISTS replay_runs (
 CREATE INDEX IF NOT EXISTS idx_replay_runs_time ON replay_runs(run_utc_ms);
 `,
   },
+  {
+    id: 10,
+    name: 'exact_transaction_assembly',
+    sql: `
+-- §5 — proof that exact bytes existed, not that an estimate was plausible.
+--
+-- Every column here is a property of the ASSEMBLED message and none of it can
+-- be read off a list of instructions: the fee payer's compiled position, the
+-- real signature count, the true packet length, and the account set once
+-- address lookup tables are resolved. The previous policy estimated the packet
+-- size from the response's structure and could not see any of it.
+--
+-- \`serialized_transaction_hash\` is a hash of real bytes. It is not a signature,
+-- nothing here is signed, and the transaction is never sent.
+ALTER TABLE execution_observations ADD COLUMN serialized_transaction_hash TEXT;
+ALTER TABLE execution_observations ADD COLUMN message_hash TEXT;
+ALTER TABLE execution_observations ADD COLUMN actual_packet_bytes INTEGER;
+ALTER TABLE execution_observations ADD COLUMN fee_payer TEXT;
+ALTER TABLE execution_observations ADD COLUMN required_signature_count INTEGER;
+ALTER TABLE execution_observations ADD COLUMN static_account_keys TEXT;
+ALTER TABLE execution_observations ADD COLUMN readonly_accounts TEXT;
+ALTER TABLE execution_observations ADD COLUMN assembly_error TEXT;
+`,
+  },
 ];
 
 export interface OpenOptions {
