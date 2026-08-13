@@ -1420,6 +1420,59 @@ WHERE
   );
 `,
   },
+  {
+    id: 24,
+    name: 'jit_snapshot_manifest',
+    sql: `
+-- P7 -- the exact state a JIT run executed against, persisted here rather than
+-- only inside the response that reported it.
+--
+-- A response is transient. The ledger is not, and an offline replay months from
+-- now has to restore what the run actually saw, not what a later read of the
+-- same accounts returns. Those are different states and the difference is the
+-- whole reason offline replay exists.
+--
+-- A successful JIT job whose snapshot could not be stored is
+-- JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE. It is real evidence about the strategy
+-- and it is not offline evidence, and the distinction is a column rather than
+-- something a reader has to infer from an absence.
+CREATE TABLE IF NOT EXISTS snapshot_manifests (
+  manifest_hash        TEXT PRIMARY KEY,
+  job_id               TEXT NOT NULL,
+  created_utc_ms       INTEGER NOT NULL,
+  -- Every account blob, content-addressed. The blob store holds the bytes.
+  account_count        INTEGER NOT NULL,
+  account_blob_hashes  TEXT NOT NULL,
+  -- Programs, their ProgramData and their ELF hashes, so a replay can redeploy
+  -- from code rather than hope the runtime happens to have it.
+  program_count        INTEGER NOT NULL,
+  program_manifest     TEXT NOT NULL,
+  -- Lookup tables: the account bytes AND the addresses they resolved to. A
+  -- table that was extended since resolves differently, which is why the
+  -- resolved list is stored rather than re-derived.
+  lookup_table_manifest TEXT,
+  -- Time. When the provider omits contextSlot this is an interval, never a
+  -- point, and a later account read is never called "the state at the build".
+  execution_slot       INTEGER,
+  build_requested_utc_ms INTEGER,
+  build_received_utc_ms  INTEGER,
+  capture_slot_low     INTEGER,
+  capture_slot_high    INTEGER,
+  max_observed_drift_slots INTEGER,
+  -- Read back and verified after writing. A blob nobody re-read is a blob
+  -- nobody knows is there.
+  readback_verified    INTEGER NOT NULL DEFAULT 0,
+  omissions            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_manifest_job ON snapshot_manifests(job_id);
+
+-- Whether this job's snapshot is durable enough to replay from.
+ALTER TABLE simulation_jobs ADD COLUMN replayable TEXT
+  CHECK (replayable IS NULL OR replayable IN
+    ('REPLAYABLE','JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE','NOT_APPLICABLE'));
+`,
+  },
 ];
 
 export interface OpenOptions {
