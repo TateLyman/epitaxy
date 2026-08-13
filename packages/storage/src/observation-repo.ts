@@ -24,6 +24,13 @@ export interface ObservationSidecar {
   readonly writableAccounts: readonly string[];
   readonly lookupTables: readonly string[];
   /**
+   * §5 — key into the blob store holding the exact transaction.
+   *
+   * Null means the bytes were never captured, which is the condition that must
+   * stop this leg ever counting as confirmatory. It is not a cache miss.
+   */
+  readonly exactTransactionHash?: string | null;
+  /**
    * The exact assembled transaction, when assembly succeeded.
    *
    * Null means no bytes existed, which is why `transaction_policy` cannot be a
@@ -57,8 +64,8 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
        instruction_policy,transaction_policy,simulation,policy_detail,simulation_detail,failure,
        requested_utc_ms,received_utc_ms,latency_ms,context_hash,
        serialized_transaction_hash,message_hash,actual_packet_bytes,fee_payer,
-       required_signature_count,static_account_keys,readonly_accounts)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       required_signature_count,static_account_keys,readonly_accounts,exact_transaction_blob)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     o.observationId,
     o.family,
@@ -119,6 +126,7 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
     side.assembled === null || side.assembled === undefined
       ? null
       : JSON.stringify(side.assembled.readonlyAccounts),
+    side.exactTransactionHash ?? null,
   );
   return o.observationId;
 }
