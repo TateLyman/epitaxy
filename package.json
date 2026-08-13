@@ -51,10 +51,12 @@
     "@solana/kit": "^4.0.0",
     "@solana/surfpool": "1.5.0",
     "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
     "fast-check": "^3.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "ws": "^8.21.3"
   },
   "dependencies": {
     "pino": "^9.5.0",
