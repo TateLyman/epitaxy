@@ -1129,3 +1129,106 @@ unmeasured margin**, and no threshold should be tuned against them.
 - **No reject-tracking repair** (§8) — provider disappearance is still treated
   as total loss in the reject backtest.
 - **No age-cohort collection** (§10).
+
+
+# 4890af0 truth directive: thirteen merged repairs
+
+Local HEAD matched the audited `4890af0` exactly at the start. Verified WAL-safe
+backup taken before any semantic change: 1.6 GB, sha256 `11c7e00e4c54…`,
+`integrity ok`, staleness bounded `249295 ≤ 249295 ≤ 249395`. The window is
+closed as development data in `docs/4890AF0_WINDOW_INVALIDATION.md`.
+
+## The one that changes the economics
+
+`assumedPriorityFeeLamports` was **200,000**. Measured from four live routes'
+own bytes it is **2,651–3,837** — a phantom **99 bps per leg and 198 bps per
+round trip** at the 0.02 SOL size, charged against every paper trade this
+project has ever booked.
+
+The cause: `priorityFeeLamports()` computes `ceil(price × limit / 1e6)`, and
+Jupiter's `/build` returns `SetComputeUnitPrice` but **never**
+`SetComputeUnitLimit`. The limit was null, the product was zero, and the
+function reported that every leg pays no priority fee at all. The config
+compensated with a flat number nothing had measured.
+
+The rule, measured against a live SVM by reading the fee off the payer's balance
+at exactly one lamport per unit:
+
+| transaction | charged | model |
+|---|---|---|
+| 2 builtins | 6,000 | 6,000 |
+| 3 builtins | 9,000 | 9,000 |
+| explicit 50,000 | 50,000 | 50,000 |
+| explicit 2,000,000 | 1,400,000 | 1,400,000 |
+
+Every real Jupiter route derives to exactly **1,006,000** units — 7 instructions,
+2 builtin at 3,000 and 5 BPF at 200,000 — and a live route logged `consumed 183
+of 1000499 compute units`, which is 1,006,000 less the early instructions.
+Recorded as MT025 before the change landed.
+
+**Consequence.** `feeBps` on the size surface falls from ~714 to 10. The minimum
+viable NAV at 0.02 SOL falls to about 2.05 SOL. The earlier claim that the
+strategy **could not size a viable trade** at the committed NAV, needing ~11.4
+SOL, was computed with the phantom and is **withdrawn**. Being able to size a
+trade is not evidence that sizing one is a good idea.
+
+## Silent defects repaired
+
+| defect | what it produced |
+|---|---|
+| multi-table ALT ordering built from meta arrival | every instruction index past the static keys named a **different account**, in a transaction that encoded, passed the packet check, and looked like a swap |
+| shadows opened only on portfolio refusal | both books held exactly the signals the portfolio **rejected** |
+| `EXIT_BLOCKED` / `RECONCILING` omitted from exposure | capital behind a position that could not be sold was reported as **free** |
+| `copyFileSync` of a WAL database, failure swallowed | migrations ran with **nothing behind them** |
+| missing `otherAmountThreshold` → minimum output 0 | a transaction accepting **any** fill, indistinguishable from generous slippage |
+| failed simulation read as post-state | the fee payer booked as **closed**, its whole balance as rent recovered |
+| `null` post-account read as "closed" | a read-only program booked as closed, its lamport as rent recovered |
+| `strategyConfigHash` covering 16 of 31 fields | two windows under different policies reporting **identical provenance** |
+| provider disappearance in reject tracking | a NULL price read as zero, so every gate looked brilliant |
+
+## The simulator
+
+A real three-hop Jupiter route executes in the local SVM: `SIMULATED_OK`,
+172,268 CU, 46 accounts exported with 6 program ELFs and zero omissions.
+
+**One route replayed with exact execution parity** — JIT and offline both
+returning `SIMULATION_FAILED`, the identical error `[5, Custom 14]`, and the
+identical **40,829** compute units. A second route did not reproduce. The
+mechanism is real; the restore is not yet faithful for every route.
+
+Three assumptions had to be corrected to get there. An offline replay must
+reproduce the **clock** — a table extended at slot 438,000,000 is unresolvable at
+slot 33. Account coverage is not the static keys — the pools live in the lookup
+tables. And `deploy()` panics when the program already exists, because a fresh
+Surfnet preloads System, ComputeBudget, SPL Token, Token-2022 and ATA.
+
+`EXECUTION_PARITY_ESTABLISHED` remains **false**, and `responseIsConfirmatory()`
+reads it. One route reproducing is not a corpus.
+
+## Independently verified
+
+- The encoder matches `@solana/kit` **byte for byte** on five cases including
+  both multi-table ones. Checked out the pre-fix encoder: both multi-table cases
+  fail, the other four pass.
+- PDA derivation produces `HoQ6taGg5d5iwDip7Fs8fVUMmV1XyjS9BCDjuWwwu6ZV`, the
+  exact account the Solana runtime created inside surfpool during every parity
+  run this session.
+- Pump bonding curves decoded from bytes read off mainnet, which corrected the
+  account from a remembered 81 bytes to a real 115 **and** 151 behind one
+  discriminator. Two invariants held exactly on every live curve: virtual minus
+  real SOL is 30 SOL, virtual minus real token is 279,900,000,000,000.
+- Three settled mainnet transactions still reproduce their fees to the lamport.
+
+## Still not done
+
+- **§7.4** mainnet current-state cross-check; **§10.5** Token-2022 transfer fees;
+  **§12.4** the due-time scheduler; **§14** WSS triggers; **§15** entity and
+  fraud features; **§13**'s exact quoter proved against the official SDK.
+- **§17**'s classifier exists and is not yet wired into collection; the 467,993
+  existing rows are not backfilled.
+- **§18** development simulation has **not** been started. 0 of ~6,700
+  observations are simulated.
+- Roughly 30 of §22's 54 required tests exist.
+
+663 tests across 40 files. Typecheck and secretscan clean. No wallet funded, no
+canary, no live, no acknowledgement file.
