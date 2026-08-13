@@ -95,3 +95,96 @@ PRAGMA foreign_key_check 0 violations
 Nothing about the strategy. It establishes what existed before the repair, so
 that any later claim about improvement has a fixed point to be measured
 against, and so that a repair which loses data can be identified as one.
+
+---
+
+# Final report
+
+## What was repaired
+
+Fourteen defects. Every one was found by running the system, not by reading it.
+
+| id | defect |
+|---|---|
+| `S052` | Token balances keyed by account pubkey at one end, `owner:mint` at the other |
+| `S053` | A mint decoded as a token account (`>= 72` bytes; a legacy mint is 82) |
+| `S054` | The taker's own ATA truncated out of the 64-account watch window |
+| `S055` | The sell credit had two values |
+| P3 | A token→SOL sell checked through `minTokenDelta` |
+| P4 | Amounts above 2^53 could not be simulated at all |
+| P5 | The priority fee suppressed on **every** run |
+| P7 | JIT snapshots exported and never persisted |
+| P9 | `paper.ts` and `paper-core.ts` were two implementations |
+| P13 | Readiness subtracted the principal twice; its cost stress subtracted it again |
+| P14 | One definition of confirmatory living in five places |
+| P16 | Token-2022 extensions treated as though they did not exist |
+| P17 | Three decision-bearing modules with no caller |
+| P18 | Three of four cohort arms could never receive data |
+
+## P6 is satisfied
+
+```
+buys 5, effect-ok 4 · sells 5, effect-ok 4 · 8/10
+INSTRUMENT failures 0   (required: 0)
+```
+
+Eight verify; two refuse with complete, specific explanations. At the start of
+this session there were **zero** effect-verified legs in this repository's
+history.
+
+## The two that would have mattered most
+
+**Readiness was describing a strategy that does not exist.** `realized_lamports`
+already holds the net result and the gate computed `realized - cost`. A position
+that cost 20,000,000 and made 1,000,000 scored as a **19,000,000 loss** — and
+profit factor, log growth, drawdown and every robustness check inherited it. Its
+2× cost stress removed the whole basis rather than the 13,000 of execution cost,
+so no strategy could ever have passed it.
+
+**`paper.ts` never imported `paper-core.ts`.** The behavioural tests executed one
+implementation and the engine executed another, with nothing to report the
+divergence. That is the source-substring failure arriving from the other
+direction.
+
+## Corrections made to my own earlier claims
+
+- The **80.7% immediate round-trip loss** was double-counted rent. It was
+  arithmetic of mine, not a measurement, and must not be quoted.
+- "Output delta is missing" fired for both *unobserved* and
+  *observed-but-negative*, filing the market's answer as our failure.
+- One commit landed with a recycled message about "preregistering P2b"; amended.
+
+## Open
+
+**`S050`** — Pump offline replay. `soPath` landed and the failure was unchanged,
+which **rules out** N-API marshalling and the 38.5 MiB body. It is
+`surfnet_writeProgram` dropping its RPC on a 10.5 MB program, one layer below
+this daemon. Needs a pinned Rust Surfpool worker or LiteSVM. Until then Pump is
+capped at `JIT_EFFECT_VALID` and `CONFIRMATORY` is unreachable for it.
+
+**Not done:** P10, P11, P15, P19–P24.
+
+## Numbers
+
+| | |
+|---|---|
+| tests | 976 pass, 4 skipped, 62 files |
+| secretscan | clean |
+| schema | v24 |
+| backup | `275266cb…`, integrity ok, witness bounds tight |
+| confirmatory positions | 0 |
+| effect-verified legs | 8 (proof harness) |
+
+## State
+
+```
+MEASUREMENT_REPAIR_REQUIRED
+```
+
+The repair succeeded and P6 is met. The state is not `VALID_EFFECT_LABELS_RUNNING`
+because no evidence window has been started on the repaired instrument, and not
+`PUMP_CONFIRMATORY_COLLECTION_STARTED` because `S050` makes confirmatory
+collection impossible for Pump today.
+
+Nothing was funded, signed, submitted, or run as canary or live. No threshold was
+tuned on invalid labels. No NAV was raised and no risk cap loosened.
