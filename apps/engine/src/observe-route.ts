@@ -3,6 +3,7 @@ import type { Db } from '../../../packages/storage/src/db.js';
 import { recordHealth } from '../../../packages/storage/src/repo.js';
 import { storeRawPayload } from '../../../packages/storage/src/provenance-repo.js';
 import { insertObservation } from '../../../packages/storage/src/observation-repo.js';
+import { BlobStore, EXACT_TRANSACTION_SCHEMA_VERSION } from '../../../packages/storage/src/blobstore.js';
 import type { JupiterClient } from '../../../packages/adapters/src/jupiter/client.js';
 import {
   evaluateInstructionPolicy,
@@ -60,6 +61,9 @@ import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.j
  * produce a confident answer about a chain state that never existed, which is
  * worse than answering nothing.
  */
+
+/** One store for the process. Content-addressed, so concurrency is safe. */
+const blobs = new BlobStore();
 
 export const SIMULATION_UNAVAILABLE =
   'a local SVM is wired and executes, but no account snapshot is captured for this route and no program ' +
@@ -127,6 +131,8 @@ export async function observeRoute(
   let policyDetail: string | null = null;
   let computeUnitLimit: number | null = null;
   let estimatedBytes: number | null = null;
+  let exactTransactionHash: string | null = null;
+  let blobFailure: string | null = null;
   let writableAccounts: readonly string[] = [];
   let assembled: {
     serializedHash: string;
@@ -219,6 +225,48 @@ export async function observeRoute(
         readonlyAccounts: message.readonlyAccounts,
         base64: Buffer.from(bytes).toString('base64'),
       };
+
+      // §5 — the EXACT bytes, content-addressed, outside SQLite.
+      //
+      // A row holding an instruction hash, a blockhash and an account list
+      // DESCRIBES a transaction; it is not one. Rebuilding from those fields
+      // later, against a different encoder, gives bytes that are probably
+      // identical and provably nothing -- and a simulation of probably-
+      // identical bytes is not evidence about the leg that was policy-checked.
+      //
+      // Stored even when the byte-level policy fails, because a refusal is
+      // evidence too and the bytes are how anyone would ever check the refusal
+      // was right.
+      try {
+        exactTransactionHash = blobs.put({
+          schemaVersion: EXACT_TRANSACTION_SCHEMA_VERSION,
+          rawBuildResponse: built.rawBody,
+          instructions: built.instructions,
+          lookupTables: built.lookupTables,
+          transactionBase64: assembled.base64,
+          messageBase64: Buffer.from(encodeMessage(message)).toString('base64'),
+          messageHash: assembled.messageHash,
+          transactionHash: assembled.serializedHash,
+          blockhash: built.blockhash ?? '',
+          lastValidBlockHeight: built.lastValidBlockHeight,
+          contextSlot: built.contextSlot,
+          packetBytes: bytes.length,
+          feePayer: message.feePayer,
+          requiredSignatures: message.numRequiredSignatures,
+          staticAccountKeys: message.staticAccountKeys,
+          loadedAddresses: message.writableAccounts
+            .concat(message.readonlyAccounts)
+            .filter((a) => !message.staticAccountKeys.includes(a)),
+          writableAccounts: message.writableAccounts,
+          readonlyAccounts: message.readonlyAccounts,
+          capturedUtcMs: built.receivedUtcMs,
+        }).hash;
+      } catch (e) {
+        // A blob we could not store is a leg we cannot later prove anything
+        // about. Recorded, not swallowed -- but it does not fail the
+        // observation, because the row is still worth having.
+        blobFailure = (e as Error).message.slice(0, 200);
+      }
       // The real thing: the same function the signer relies on, over real bytes.
       const byteLevel = evaluateTransactionPolicy(
         bytes,
@@ -278,7 +326,8 @@ export async function observeRoute(
     instructionPolicy,
     transactionPolicy,
     simulation: 'NOT_SIMULATED',
-    policyDetail,
+    policyDetail:
+      blobFailure === null ? policyDetail : `${policyDetail ?? ''} BLOB_FAIL(${blobFailure})`,
     simulationDetail: SIMULATION_UNAVAILABLE,
     requestedUtcMs: built.requestedUtcMs,
     receivedUtcMs: built.receivedUtcMs,
@@ -297,6 +346,7 @@ export async function observeRoute(
     writableAccounts: assembled?.writableAccounts ?? writableAccounts,
     lookupTables: Object.keys(built.lookupTables),
     assembled,
+    exactTransactionHash,
   });
 
   if (built.failure !== null && built.failure !== 'NO_ROUTE') {

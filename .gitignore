@@ -30,3 +30,4 @@ coverage/
 /all.json
 /vr.json
 data/backups/
+data/blobs/

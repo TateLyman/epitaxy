@@ -1022,6 +1022,31 @@ CREATE INDEX IF NOT EXISTS idx_simjobs_status ON simulation_jobs(status, request
 CREATE UNIQUE INDEX IF NOT EXISTS idx_simjobs_jobid ON simulation_jobs(job_id);
 `,
   },
+  {
+    id: 13,
+    name: 'exact_transaction_blob',
+    sql: `
+-- §5 — the reference to the EXACT bytes a leg was policy-checked against.
+--
+-- The row already carries serialized_transaction_hash, which proves the bytes
+-- have not changed. It does not let anyone GET them. A hash answers "is this
+-- the same transaction"; it cannot answer "what was the transaction", and a
+-- simulation needs the second question answered.
+--
+-- The blob lives outside SQLite under data/blobs/, content-addressed and
+-- gzipped. Multi-megabyte payloads in a WAL database make every checkpoint
+-- expensive and every backup slower, and this one is already 1.6 GB.
+--
+-- Nullable, because assembly can legitimately fail and a refusal is still a row
+-- worth keeping. A NULL here means the bytes were never captured, which is
+-- exactly the condition that must stop a leg being confirmatory.
+ALTER TABLE execution_observations ADD COLUMN exact_transaction_blob TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_obs_exact_blob
+  ON execution_observations(exact_transaction_blob)
+  WHERE exact_transaction_blob IS NOT NULL;
+`,
+  },
 ];
 
 export interface OpenOptions {
