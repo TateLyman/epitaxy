@@ -546,6 +546,31 @@ async function tryEnter(
 
   const sizing = sizePosition(state, config, result.outcome.opportunityScore ?? 0);
 
+  // §12.1 — EVERY structurally eligible signal opens both books, before the
+  // portfolio has any say and whatever it says.
+  //
+  // This used to run only in the refusal branch, which reintroduced the exact
+  // censoring it was written to remove, from the other side. Shadows existed
+  // only for signals the portfolio had REJECTED, so the books systematically
+  // excluded everything it liked, and comparing shadow performance against
+  // portfolio performance compared the trades we turned down against the trades
+  // we took. Neither population is the strategy.
+  //
+  // An accepted portfolio trade is not a substitute for a fixed shadow either:
+  // the portfolio sizes by risk budget and free capital, so its notional moves
+  // with NAV and the number of open positions. A book whose position size
+  // depends on how the last few trades went cannot answer what the signal was
+  // worth. The shadows are fixed notional for exactly that reason.
+  await openShadowBooks(
+    db,
+    jupiter,
+    config,
+    taker,
+    mint,
+    contextHash,
+    sizing.allowed ? 'accepted_by_portfolio' : (sizing.refusal ?? 'unknown'),
+  );
+
   // The shadow ledger records what the SIGNAL said, before the portfolio had
   // its say. Without this the corpus is censored by our own losses: the engine
   // stops entering after a bad day, so the observations that follow a loss are
@@ -590,9 +615,9 @@ async function tryEnter(
     // absent and every estimate built on the survivors is biased. A row saying
     // "we did not take this" is not a substitute for tracking what it did.
     //
-    // Both books open here, at their own frozen notionals, with no shared NAV
-    // and no capital check. They are never summed with the realizable wallet.
-    await openShadowBooks(db, jupiter, config, taker, mint, contextHash, sizing.refusal ?? 'unknown');
+    // The books were already opened above, for every eligible signal rather
+    // than only for refused ones. This branch records WHY the portfolio said
+    // no; it does not open anything.
     return;
   }
 
@@ -788,6 +813,20 @@ async function openShadowBooks(
     { book: 'canary_shadow', notional: config.canaryShadowNotionalLamports },
   ];
 
+  // §12.3 — one fact, one API call.
+  //
+  // Both books run at the same notional in every shipped config, and each was
+  // taking its own /build for the same mint, size, family and context. That is
+  // two calls describing one fact, out of a rate budget that also has to
+  // maintain the mark SLA -- and the two answers can differ, which would make
+  // the books incomparable for a reason that has nothing to do with either.
+  //
+  // The observation is taken once per DISTINCT notional and referenced by every
+  // book that asked for that size. Different notionals are different facts and
+  // still cost a call each.
+  const sharedEntry = new Map<string, Awaited<ReturnType<typeof observeRoute>>>();
+  const sharedExit = new Map<string, Awaited<ReturnType<typeof observeRoute>>>();
+
   for (const { book, notional } of books) {
     if (notional <= 0n) continue;
 
@@ -798,13 +837,20 @@ async function openShadowBooks(
     const episode = claimSignalEpisode(db, mint, book, Date.now(), contextHash);
     if (!episode.isNew) continue;
 
-    const obs = await observeRoute(db, jupiter, {
+    const sizeKey = notional.toString();
+    const cachedEntry = sharedEntry.get(sizeKey);
+    const obs =
+      cachedEntry ??
+      (await observeRoute(db, jupiter, {
       family: config.primaryRouteFamily as 'BUILD_CUSTOM',
       mint,
       side: 'buy',
       positionId: null,
       shadowPositionId: null,
-      purpose: `${book}_entry`,
+      // Named for the size rather than the book, because the row is shared and
+      // labelling it with whichever book happened to ask first would be a lie
+      // to whoever reads the corpus later.
+      purpose: `shadow_entry`,
       inputMint: WSOL_MINT,
       outputMint: mint,
       amount: notional,
@@ -814,7 +860,8 @@ async function openShadowBooks(
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
       priority: 'enrichment',
       contextHash,
-    });
+    }));
+    sharedEntry.set(sizeKey, obs);
 
     // The shadow book records what the SIGNAL was worth, so it is not gated on
     // simulation the way a paper fill is — but it inherits every other
@@ -832,13 +879,17 @@ async function openShadowBooks(
     // at ANY price. That is the same defect as booking a fill against a quote
     // nobody could build, moved one step later. The sell is requested here, at
     // the exact token amount the buy would produce, in the same family.
-    const exitObs = await observeRoute(db, jupiter, {
+    const exitKey = `${sizeKey}:${tokensIn.toString()}`;
+    const cachedExit = sharedExit.get(exitKey);
+    const exitObs =
+      cachedExit ??
+      (await observeRoute(db, jupiter, {
       family: config.primaryRouteFamily as 'BUILD_CUSTOM',
       mint,
       side: 'sell',
       positionId: null,
       shadowPositionId: null,
-      purpose: `${book}_entry_roundtrip`,
+      purpose: `shadow_entry_roundtrip`,
       inputMint: mint,
       outputMint: WSOL_MINT,
       amount: tokensIn,
@@ -848,7 +899,8 @@ async function openShadowBooks(
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
       priority: 'enrichment',
       contextHash,
-    });
+    }));
+    sharedExit.set(exitKey, exitObs);
 
     if (exitObs.instructionSetHash === null || exitObs.expectedOutput <= 0n) {
       recordHealth(
