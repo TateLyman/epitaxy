@@ -33,6 +33,7 @@ param(
   [string]$Distro = 'Ubuntu-24.04',
   [string]$RepoPath = '$HOME/epitaxy',
   [int]$Port = 8787,
+  [string]$RemoteRpc = 'https://api.mainnet-beta.solana.com',
   [switch]$Remove
 )
 
@@ -63,7 +64,7 @@ $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
 if ($pwshCmd) { $shell = $pwshCmd.Source } else { $shell = (Get-Command powershell).Source }
 
 $argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$supervisor`" " +
-            "-Distro `"$Distro`" -RepoPath `"$RepoPath`" -Port $Port"
+            "-Distro `"$Distro`" -RepoPath `"$RepoPath`" -Port $Port -RemoteRpc `"$RemoteRpc`""
 
 $action = New-ScheduledTaskAction -Execute $shell -Argument $argument
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

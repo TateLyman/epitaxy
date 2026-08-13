@@ -101,6 +101,7 @@ const common = {
   originalLastValidBlockHeight: built.lastValidBlockHeight,
   routeFamily: 'BUILD_CUSTOM',
   requestedAmount: AMOUNT.toString(),
+  targetSlot: null,
   // Enough SOL to cover the swap, the fee and any rent the route creates. This
   // is hypothetical funding inside a throwaway SVM, not a wallet.
   balanceMutations: [{ kind: 'sol' as const, owner: taker, amount: (AMOUNT * 10n).toString() }],
@@ -130,6 +131,7 @@ console.log(`  priorityFee       ${jit.priorityFeeLamports ?? 'unknown'}`);
 console.log(`  rentCreated       ${jit.rentCreatedLamports ?? 'unknown'}`);
 console.log(`  created/closed    ${jit.createdAccounts.length}/${jit.closedAccounts.length}`);
 console.log(`  startup/sim       ${jit.startupMs}ms / ${jit.simulateMs}ms`);
+console.log(`  contextSlot       ${jit.contextSlot ?? 'unknown'}`);
 console.log(`  exported accounts ${jit.exportedSnapshot.length}`);
 console.log(`  with program ELF  ${jit.exportedSnapshot.filter((a) => (a.programElfBase64 ?? null) !== null).length}`);
 console.log(`  omissions         ${jit.exportOmissions.length}`);
@@ -153,9 +155,17 @@ const offlineReq = client.buildRequest({
   ...common,
   executionObservationId: 'prospective-parity-offline',
   mode: 'CONFIRMATORY_OFFLINE',
+  // Stand where the JIT run stood. Without this the replay sits at slot 33 of a
+  // fresh chain and refuses to resolve any lookup table extended since.
+  targetSlot: jit.contextSlot,
   snapshotManifestHash: manifest,
   snapshotAccounts: snapshot,
 });
+// The snapshot carries program code, so the request is large. Printed because
+// a body limit is a thing you want to see coming rather than discover as a
+// timeout with no status.
+const requestBytes = Buffer.byteLength(JSON.stringify(offlineReq));
+console.log(`  request size      ${(requestBytes / 1024 / 1024).toFixed(1)} MiB`);
 const offline = await client.simulate(offlineReq);
 console.log(`  status            ${offline.status}`);
 console.log(`  error             ${offline.transactionError ?? 'none'}`);
@@ -167,14 +177,20 @@ for (const l of offline.logs.slice(0, 6)) console.log(`    | ${l}`);
 // --------------------------------------------------------------- the verdict
 const verdict = compareRuns(jit, offline);
 console.log(`\n--- parity ---`);
-console.log(`  agrees            ${verdict.agrees ? 'YES' : 'NO'}`);
+console.log(`  EXECUTION agrees  ${verdict.executionAgrees ? 'YES' : 'NO'}   (status, error, units, logs, fees, rent, created/closed)`);
+for (const d of verdict.executionDiffs) console.log(`    ! ${d.field}: jit=${d.jit.slice(0, 70)} offline=${d.offline.slice(0, 70)}`);
+console.log(`  full state agrees ${verdict.agrees ? 'YES' : 'NO'}`);
+console.log(`  program-account balance diffs (deploy does not preserve lamports): ${verdict.programAccountDiffs.length}`);
 for (const d of verdict.diffs.slice(0, 25)) {
   console.log(`    ${d.field}: jit=${d.jit.slice(0, 60)} offline=${d.offline.slice(0, 60)}`);
 }
 if (verdict.diffs.length > 25) console.log(`    ... and ${verdict.diffs.length - 25} more`);
 for (const d of verdict.disqualifiers) console.log(`  DISQUALIFIED      ${d}`);
 
-const established = verdict.agrees && verdict.disqualifiers.length === 0;
+// Execution parity is the claim. Full-state parity is reported and not claimed,
+// because the differences in it are ours -- a redeploy rewriting a program
+// account's balance -- and cannot change what the transaction did.
+const established = verdict.executionAgrees && verdict.disqualifiers.length === 0;
 console.log(`\n  execution parity  ${established ? 'ESTABLISHED for this route' : 'NOT ESTABLISHED'}`);
 
 mkdirSync('artifacts', { recursive: true });
@@ -195,6 +211,9 @@ writeFileSync(
       programsWithElf: snapshot.filter((a) => (a.programElfBase64 ?? null) !== null).length,
       omissions: jit.exportOmissions,
       agrees: verdict.agrees,
+      executionAgrees: verdict.executionAgrees,
+      executionDiffs: verdict.executionDiffs,
+      programAccountDiffs: verdict.programAccountDiffs.length,
       diffs: verdict.diffs.slice(0, 50),
       disqualifiers: verdict.disqualifiers,
       executionParityEstablished: established,

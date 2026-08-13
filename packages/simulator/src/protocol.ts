@@ -31,7 +31,7 @@ import { createHash } from 'node:crypto';
  * SIMULATOR_UNAVAILABLE — a fact about our infrastructure — and never a fact
  * about the token being simulated.
  */
-export const SIMULATION_PROTOCOL_VERSION = 3;
+export const SIMULATION_PROTOCOL_VERSION = 4;
 
 /**
  * Has this build been shown to reproduce the EXECUTION of transactions the
@@ -53,7 +53,7 @@ export const SIMULATION_PROTOCOL_VERSION = 3;
 export const EXECUTION_PARITY_ESTABLISHED = false;
 
 /** Schema of the frozen account snapshot. Changing it changes what a run means. */
-export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 3;
+export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 4;
 
 export type SimulationMode =
   /** Offline, from a frozen snapshot. The only mode that can be confirmatory. */
@@ -143,6 +143,20 @@ export interface SimulationRequest {
   readonly routeFamily: string;
   readonly requestedAmount: string;
 
+  /**
+   * The slot the frozen state came from, so an offline replay can stand at the
+   * same point in time rather than at slot 33 of a fresh chain.
+   *
+   * This is not cosmetic. Address lookup tables record the slot they were
+   * extended at, and the runtime refuses to resolve entries that were added at
+   * a slot in its own future -- "Address lookup ... contains an invalid index".
+   * A snapshot restored onto a fresh instance is exactly that case: perfect
+   * account state, wrong clock, and every table-loaded pool unreachable.
+   *
+   * Null means the caller did not record one, and the replay runs at whatever
+   * slot the instance starts at. That is permitted and is not confirmatory.
+   */
+  readonly targetSlot: number | null;
   readonly snapshotManifestHash: string;
   readonly snapshotAccounts: readonly SnapshotBlob[];
   readonly balanceMutations: readonly BalanceMutation[];
@@ -211,6 +225,8 @@ export interface SimulationResponse {
   } | null;
 
   /** Digest of the runtime event stream, so two runs can be compared cheaply. */
+  /** The slot this run actually executed at. Feed it back to replay offline. */
+  readonly contextSlot: number | null;
   readonly runtimeEventDigest: string | null;
   /**
    * §7.1 — the PRE-TRANSACTION state of every account the run touched.
@@ -318,6 +334,7 @@ export function computeRequestHash(
     originalLastValidBlockHeight: r.originalLastValidBlockHeight,
     routeFamily: r.routeFamily,
     requestedAmount: r.requestedAmount,
+    targetSlot: r.targetSlot,
     snapshotManifestHash: r.snapshotManifestHash,
     accounts: [...r.snapshotAccounts]
       .sort((a, b) => (a.pubkey < b.pubkey ? -1 : 1))

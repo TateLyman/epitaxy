@@ -174,6 +174,7 @@ describe('the protocol carries what changes meaning', () => {
     originalLastValidBlockHeight: null,
     routeFamily: 'BUILD_CUSTOM',
     requestedAmount: '1',
+    targetSlot: null,
     snapshotManifestHash: 'snap',
     snapshotAccounts: accounts,
     balanceMutations: [],
@@ -200,8 +201,8 @@ describe('the protocol carries what changes meaning', () => {
     // Bumped again to 3 when the snapshot gained exported program code and the
     // response gained exportedSnapshot. The literal is the point: a version
     // that drifts without anyone noticing is a version that proves nothing.
-    expect(SIMULATION_PROTOCOL_VERSION).toBe(3);
-    expect(ACCOUNT_SNAPSHOT_SCHEMA_VERSION).toBe(3);
+    expect(SIMULATION_PROTOCOL_VERSION).toBe(4);
+    expect(ACCOUNT_SNAPSHOT_SCHEMA_VERSION).toBe(4);
   });
 });
 
@@ -245,6 +246,7 @@ describe('a successful run is not automatically evidence', () => {
       blockhashReplacement: null,
       runtimeEventDigest: 'd',
       jitFetchedAccounts: [],
+      contextSlot: 123,
       queueWaitMs: 0,
       startupMs: 20,
       simulateMs: 2,
