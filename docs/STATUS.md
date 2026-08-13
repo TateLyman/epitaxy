@@ -1392,3 +1392,72 @@ Four of the first eight simulations FAILED. That is not a defect — these are
 real routes against real pools, and a route that cannot execute is exactly the
 fact the simulation exists to establish. It is also why the number matters: an
 engine booking fills on unsimulated routes would have counted all eight.
+
+---
+
+# 2026-08-13 — the 2617bb7 profitability directive
+
+## What changed
+
+**The simulator was measuring itself.** Every simulation job this repository had
+ever produced described no economic leg: `requestedAmount` was the string `'0'`
+and the only balance mutation was SOL, whatever the transaction spent. Buys were
+funded correctly and executed; sells were asked to spend a token the simulator
+had never been given, and 43 of 43 failed with the identical error at the
+identical instruction index across every venue, mint and size.
+
+That uniformity is the signature of an apparatus, not a market.
+
+## Operational
+
+| | |
+|---|---|
+| mode | paper (observe + paper only; neither imports `packages/execution/`) |
+| tests | **772 pass**, 4 skipped, 48 files, ~5 s |
+| schema | v18 |
+| corpus | 26,515 observations, 108 simulation jobs, 603 marks |
+| backup | `runtime.db.backup-2026-08-13T17-54-57-293Z`, sha256 `7edd0e0c…`, integrity ok, witness bounds `[26515, 26515]` |
+| canary readiness | **NOT_READY** — 0 confirmatory positions, every economic gate failing |
+
+## Now enforced
+
+- **`SIMULATED_EFFECT_OK`** — runtime success is not economic success.
+  `RUNTIME_OK` + `EFFECT_OK` + `FEE_DECOMPOSITION_OK` + `ACCOUNT_COVERAGE_OK`,
+  required by `legIsExecutable()`. See `docs/SIMULATION_EFFECTS.md`.
+- **Leg-shaped simulation setup** — `validateSetup()` refuses a zero amount, a
+  sell with no token program, a sell whose input is SOL, and a leg whose input
+  and output are the same asset, *before* anything is sent.
+- **Derived validity** — `simulationValidity()` reads the request bytes rather
+  than trusting the caller. A caller that could assert its own validity would
+  have asserted it for all 43.
+- **Portfolio entry requires a verified same-family sell** at the exact acquired
+  amount. A buy alone is not an entry.
+- **Marks are executable** — an exact full-balance `BUILD_CUSTOM` sell. `/order`
+  is stored as a benchmark and moves no stop, trail, peak or NAV.
+- **Exits are simulated before they are judged.** The previous code tested the
+  exit observation for simulation without ever simulating it.
+- **Profitability is a canary gate.** The previous gate passed after 200 losing
+  trades; `tests/unit/readiness.test.ts` builds that corpus and asserts refusal.
+
+## Invalidated
+
+All 108 simulation jobs are `INSTRUMENT_DEVELOPMENT`. All 26,515 observations
+are `NOT_VERIFIED`. All 603 marks are `ORDER_QUOTE_BENCHMARK` and
+`decision_bearing = 0`.
+
+Rows are preserved. **No threshold, weight or model may be fitted on any of
+them.**
+
+## Unproven
+
+- No leg has passed effect verification. Zero valid development, offline
+  reproducible, or confirmatory positions.
+- Every route fingerprint is `STRUCTURAL_ONLY`.
+- Offline reproducibility is blocked for most rows by a NULL `context_slot`.
+- The mark backlog is ~40x capacity (169 due against 4), worst lag ~1,020 s.
+- 92 `HTTP_4XX` sell observations in 15 minutes: routes that do not exist.
+
+This is not production ready and no part of it is. The measurement apparatus was
+repaired today and the first window that could mean anything is minutes old.
+
+Full report: `docs/AUDIT_HEAD_2617BB7.md`.

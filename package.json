@@ -47,7 +47,10 @@
     "simulator:crosscheck": "tsx scripts/simulator-mainnet-crosscheck.ts",
     "pump:parity": "tsx scripts/pump-parity.ts",
     "simulation:audit": "tsx scripts/simulation-audit.ts",
-    "readiness": "tsx scripts/readiness.ts"
+    "readiness": "tsx scripts/readiness.ts",
+    "capability:matrix": "tsx scripts/capability-matrix.ts",
+    "simulation:sell-proof": "tsx scripts/sell-repair-proof.ts",
+    "db:migrate": "tsx scripts/migrate-and-backup.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

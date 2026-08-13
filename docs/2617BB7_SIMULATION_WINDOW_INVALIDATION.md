@@ -95,3 +95,49 @@ runtime failure as though it were a simulation outcome.
   — runtime success is not economic-effect success, and these were never
   effect-verified
 - no threshold, weight or model may be fitted on any of it
+
+## What the repair experiment actually showed
+
+`pnpm simulation:sell-proof` re-ran eight of the failed sells through the
+repaired setup, against the same stored bytes.
+
+```
+now SIMULATED_OK   1
+still failed       7
+```
+
+Two things follow, and only two.
+
+**The provisioning works.** The runtime logs show the taker's associated token
+account for the mint -- `5WwuMzak...`, derived independently and matched against
+the address the transaction uses -- holding exactly `1653146653` atoms, the
+exact sell amount. The account the transaction spends from is funded with the
+amount it spends. That was the defect, and it is fixed.
+
+**The uniformity is gone.** Forty-three identical failures became a mixture. A
+mixture is what a market produces; an identical error at an identical
+instruction index across every venue, mint and size is what an apparatus
+produces. The original window is invalid on that ground alone, independent of
+what the replays now do.
+
+## What it did NOT show
+
+The seven that still fail cannot be attributed. They are stale transactions --
+built days earlier, replayed just-in-time against today's chain -- and
+`context_slot` is NULL on these rows, so there is no point in time for the
+replay to stand at. Jupiter rejects them after 1,160 compute units, before any
+AMM is invoked, which is consistent with a route whose pool has since moved and
+inconsistent with a slippage outcome.
+
+That is a **different** confound, and it does not restore the original
+conclusion. It means this experiment is the wrong instrument for the residual
+question, not that the residual question has been answered.
+
+The decisive test is a sell built now and simulated now, which is what the
+restarted engine produces. Until that window exists, the honest statement is:
+
+- the setup defect was real, is understood, and is repaired;
+- the 108 pre-repair jobs remain `INSTRUMENT_DEVELOPMENT` and are not evidence;
+- whether these specific routes were sellable at the time they were observed is
+  **not established and is not going to be**, because the state they were
+  observed in no longer exists.

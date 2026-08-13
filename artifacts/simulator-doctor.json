@@ -1,10 +1,10 @@
 {
-  "generatedUtc": "2026-08-12T23:40:29.058Z",
+  "generatedUtc": "2026-08-13T17:57:06.598Z",
   "platform": "win32/x64",
   "node": "v24.12.0",
   "surfpoolAvailable": false,
   "surfpoolReason": "win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
-  "packageVersion": null,
+  "packageVersion": "1.5.0",
   "bootMs": null,
   "runtimeVersion": null,
   "featureSet": null,
