@@ -8,7 +8,7 @@
   "maxClockSkewMs": 2000,
   "maxQuoteAgeMs": 8000,
   "assumedNewTokenFeeBps": 50,
-  "assumedPriorityFeeLamports": "200000",
+  "assumedPriorityFeeLamports": "8000",
   "assumedAtaRentLamports": "2039280",
   "assumedSignatureFeeLamports": "5000",
   "assumedRentRecoveryRate": 0.5,
