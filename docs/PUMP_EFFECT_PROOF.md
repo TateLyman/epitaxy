@@ -246,3 +246,79 @@ all economic.
 Four of ten effect-verified. No sell verifies, because on these positions no
 sell is a gain. That is a result about size and liquidity rather than about the
 apparatus, and it is five cases.
+
+
+---
+
+# After P5 — P6 IS SATISFIED
+
+```
+buys        5   effect-ok 4
+sells       5   effect-ok 4
+effect OK   8/10
+INSTRUMENT failures 0   (required: 0)
+
+EFFECT_OK               8
+ROUTE_ECONOMIC_REFUSAL  2
+```
+
+P6's bar is **not** ten passes. It is:
+
+> 10/10 either `SIMULATED_EFFECT_OK` or a token/program/route-specific failure
+> with a complete explanation — 0 instrument failures, 0 missing-output
+> artifacts, 0 unsafe-number artifacts.
+
+Eight verify. Two refuse, each with a complete and specific explanation. Zero
+instrument failures. **The bar is met.**
+
+## What moved it from 4 to 8
+
+One line. Every run reported `fee decomposition incomplete: no priority fee
+reported`, including every run whose fee was perfectly well known from its own
+compute-budget instructions, because the fee was suppressed unless a
+balance-derived residual agreed with the bytes exactly.
+
+That residual is not a second measurement of the same thing. It is
+`payer loss - others gained`, and the identity does not hold for a sell — a sell
+*increases* the payer's balance, so the subtraction produces a number with no
+meaning and then suppresses the one that had meaning.
+
+The runtime charges on the requested limit and the requested limit is in the
+transaction. The bytes are authoritative; the balance check is corroboration,
+recorded on `priorityFeeCorroborated` rather than gating.
+
+## The two refusals
+
+**`buy 9rbHhJU7Vs` — the route spent more than it was given.**
+
+```
+requested 20,000,000    actual debit 20,278,400    excess 278,400
+```
+
+Net of base fee, priority fee and rent. 278,400 lamports — 139 bps of the
+notional — leaves the payer for something the cost model does not name. Worth
+pursuing: an unmodelled cost of that size is exactly what turns a positive
+backtest into a negative account.
+
+**`sell 9rbHhJU7Vs` — the position is worth less than it costs to sell.**
+
+```
+input 1,678 atoms    output credit -277,839 lamports
+```
+
+Two independent sources agree: the effect verifier computes -277,839, and the
+daemon's own bounds check reports the same figure against the route's stated
+545-lamport minimum. Not an artifact — a dust position whose exit does not cover
+its own mechanics.
+
+## Coverage
+
+| requirement | status |
+|---|---|
+| legacy SPL Token mint | yes |
+| Token-2022 mint | yes, four of five |
+| native SOL output | yes, all five sells, four verified |
+| ATA creation | yes |
+| amount above 2^53 | not in this sample; the encoder is tested to u64 max |
+| pre-existing ATA | not isolated |
+| transfer-fee extension | none encountered |
