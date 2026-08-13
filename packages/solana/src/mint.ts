@@ -85,6 +85,59 @@ export interface ExtensionEntry {
 export interface TransferFee {
   readonly basisPoints: number;
   readonly maximumFee: bigint;
+  /** The epoch this schedule takes effect from. */
+  readonly epoch: bigint;
+}
+
+/**
+ * Both halves of a Token-2022 transfer fee config, and which one applies.
+ *
+ * §10.5. The config holds an OLDER and a NEWER schedule, each with the epoch it
+ * takes effect from, and `get_epoch_fee(e)` returns the newer only when
+ * `e >= newer.epoch`. Reading the newer unconditionally is wrong in exactly the
+ * direction that matters: a mint can advertise 0 bps effective next epoch while
+ * charging 1,000 bps today, and a decoder that reads only the newer reports a
+ * free transfer on a token taking a tenth of every trade.
+ *
+ * The epoch is not in the mint account, so this decoder cannot say on its own
+ * which applies. It reports both and a worst case, and the caller either
+ * supplies an epoch or accepts the worst case. It never silently picks one.
+ */
+export interface TransferFeeConfig {
+  readonly older: TransferFee;
+  readonly newer: TransferFee;
+  /** Fees already withheld in the mint, awaiting withdrawal. */
+  readonly withheldAmount: bigint;
+}
+
+/** The schedule in force at a given epoch. */
+export function transferFeeAtEpoch(config: TransferFeeConfig, epoch: bigint): TransferFee {
+  return epoch >= config.newer.epoch ? config.newer : config.older;
+}
+
+/**
+ * The dearer of the two schedules.
+ *
+ * What to use when the epoch is unknown. Overstating a cost refuses a trade
+ * that might have been fine; understating one takes a trade that was not.
+ */
+export function worstCaseTransferFee(config: TransferFeeConfig): TransferFee {
+  const a = config.older;
+  const b = config.newer;
+  if (a.basisPoints !== b.basisPoints) return a.basisPoints > b.basisPoints ? a : b;
+  return a.maximumFee >= b.maximumFee ? a : b;
+}
+
+/**
+ * Tokens actually received after the transfer fee.
+ *
+ * ceil on the fee, so the recipient is never credited a token the fee took.
+ */
+export function amountAfterTransferFee(amount: bigint, fee: TransferFee): bigint {
+  if (amount <= 0n || fee.basisPoints <= 0) return amount;
+  const raw = (amount * BigInt(fee.basisPoints) + 9_999n) / 10_000n;
+  const charged = raw > fee.maximumFee ? fee.maximumFee : raw;
+  return amount - charged;
 }
 
 export interface DecodedMint {
@@ -97,6 +150,8 @@ export interface DecodedMint {
   readonly extensions: readonly ExtensionEntry[];
   /** Fee applied to every transfer, including our exit. */
   readonly transferFee: TransferFee | null;
+  /** Both schedules and the withheld amount, when the extension is present. */
+  readonly transferFeeConfig: TransferFeeConfig | null;
   readonly hostileExtensions: readonly string[];
 }
 
@@ -173,6 +228,7 @@ export function decodeMint(data: Uint8Array, programId: string): DecodedMint {
 
   const extensions: ExtensionEntry[] = [];
   let transferFee: TransferFee | null = null;
+  let transferFeeConfig: TransferFeeConfig | null = null;
 
   if (programId === TOKEN_2022_PROGRAM && data.length > BASE_MINT_LEN) {
     if (data.length <= ACCOUNT_TYPE_OFFSET) {
@@ -221,11 +277,28 @@ export function decodeMint(data: Uint8Array, programId: string): DecodedMint {
       //   (18), each fee being epoch(8) maximumFee(8) basisPoints(2).
       // The newer config is what a transfer today pays.
       if (discriminant === 1 && length >= 108) {
-        const newerOffset = valueStart + 32 + 32 + 8 + 18;
-        transferFee = {
-          maximumFee: readU64LE(data, newerOffset + 8),
-          basisPoints: readU16LE(data, newerOffset + 16),
+        // config authority (32) + withdraw authority (32) + withheld (8),
+        // then older(18) then newer(18), each epoch(8) maximumFee(8) bps(2).
+        const withheldOffset = valueStart + 32 + 32;
+        const olderOffset = withheldOffset + 8;
+        const newerOffset = olderOffset + 18;
+        transferFeeConfig = {
+          withheldAmount: readU64LE(data, withheldOffset),
+          older: {
+            epoch: readU64LE(data, olderOffset),
+            maximumFee: readU64LE(data, olderOffset + 8),
+            basisPoints: readU16LE(data, olderOffset + 16),
+          },
+          newer: {
+            epoch: readU64LE(data, newerOffset),
+            maximumFee: readU64LE(data, newerOffset + 8),
+            basisPoints: readU16LE(data, newerOffset + 16),
+          },
         };
+        // Kept for callers that only ever asked "is there a fee". It is the
+        // WORST case now, not the newer schedule -- the old behaviour reported a
+        // free transfer on a mint charging a tenth of every trade today.
+        transferFee = worstCaseTransferFee(transferFeeConfig);
       }
 
       cursor = valueStart + length;
@@ -245,6 +318,7 @@ export function decodeMint(data: Uint8Array, programId: string): DecodedMint {
     freezeAuthority,
     extensions,
     transferFee,
+    transferFeeConfig,
     hostileExtensions,
   };
 }
