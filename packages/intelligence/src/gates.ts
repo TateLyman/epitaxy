@@ -62,6 +62,18 @@ export function evaluateCheapGates(
      * and is visible in the gate's own detail string.
      */
     readonly chainFacts?: { mintAuthority: FactVerdict; freezeAuthority: FactVerdict } | null;
+    /**
+     * P16 — decoded Token-2022 extensions.
+     *
+     * Absent means the mint account was not read, which is different from read
+     * and found plain. The gate does not invent a verdict from an absence.
+     */
+    readonly token2022?: {
+      readonly hasMoneyCriticalBehaviour: boolean;
+      readonly hasUnknownExtension: boolean;
+      readonly transferFeeBps: number | null;
+      readonly detail: string;
+    } | null;
   },
 ): GateResult[] {
   const { info, nowUtcMs, sourceAgeMs, config } = input;
@@ -313,6 +325,47 @@ export function evaluateCheapGates(
         0.25,
         'organic_score_unavailable',
         `organicScore ${organic ?? 'null'} — not yet computed for this age`,
+      ),
+    );
+  }
+
+  /**
+   * P16 — Token-2022 extensions that can cost the holder the position.
+   *
+   * A permanent delegate transfers at will; a transfer hook runs arbitrary code
+   * on every transfer; non-transferable means the position can never be sold;
+   * pausable means transfers can stop after entry. A mint carrying any of them
+   * is not a token with a feature — it is a token whose exit depends on
+   * somebody else's cooperation.
+   *
+   * The directive's split, exactly:
+   *
+   *   development     a separate cohort, so the behaviour can be studied
+   *   capital at risk a hard veto, because studying it is not worth the position
+   *
+   * An UNRECOGNISED extension counts as money-critical. Token-2022 is
+   * extensible, this build cannot say what an unknown type does, and "we do not
+   * know" is not "it is harmless".
+   */
+  const t22 = input.token2022 ?? null;
+  if (t22 !== null && t22.hasMoneyCriticalBehaviour) {
+    if (capitalAtRisk) {
+      out.push(veto('token2022_money_critical', false, 'token2022_money_critical', t22.detail.slice(0, 160)));
+    } else {
+      out.push(
+        soft('token2022_money_critical', 0.6, 'token2022_money_critical', t22.detail.slice(0, 160)),
+      );
+    }
+  }
+  if (t22 !== null && t22.transferFeeBps !== null && t22.transferFeeBps > 0) {
+    // A transfer fee is a real cost on both legs of a round trip, and it is
+    // charged on the way out as well as the way in.
+    out.push(
+      soft(
+        'token2022_transfer_fee',
+        normalize(t22.transferFeeBps, 0, 500),
+        'token2022_transfer_fee',
+        `transfer fee ${t22.transferFeeBps}bps, charged on entry AND exit`,
       ),
     );
   }
