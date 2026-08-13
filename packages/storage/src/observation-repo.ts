@@ -23,6 +23,23 @@ export interface ObservationSidecar {
   readonly adverseImpactBps: number | null;
   readonly writableAccounts: readonly string[];
   readonly lookupTables: readonly string[];
+  /**
+   * The exact assembled transaction, when assembly succeeded.
+   *
+   * Null means no bytes existed, which is why `transaction_policy` cannot be a
+   * pass in that case: there was nothing for the byte-level policy to read.
+   */
+  readonly assembled?: {
+    readonly serializedHash: string;
+    readonly messageHash: string;
+    readonly packetBytes: number;
+    readonly feePayer: string;
+    readonly requiredSignatures: number;
+    readonly staticAccountKeys: readonly string[];
+    readonly writableAccounts: readonly string[];
+    readonly readonlyAccounts: readonly string[];
+    readonly base64: string;
+  } | null;
 }
 
 export function insertObservation(db: Db, o: ExecutionObservation, side: ObservationSidecar): string {
@@ -38,8 +55,10 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
        blockhash,last_valid_block_height,expire_at,context_slot,
        raw_payload_hash,endpoint,request_id,
        instruction_policy,transaction_policy,simulation,policy_detail,simulation_detail,failure,
-       requested_utc_ms,received_utc_ms,latency_ms,context_hash)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       requested_utc_ms,received_utc_ms,latency_ms,context_hash,
+       serialized_transaction_hash,message_hash,actual_packet_bytes,fee_payer,
+       required_signature_count,static_account_keys,readonly_accounts)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     o.observationId,
     o.family,
@@ -89,6 +108,17 @@ export function insertObservation(db: Db, o: ExecutionObservation, side: Observa
     o.receivedUtcMs,
     o.latencyMs,
     o.contextHash,
+    side.assembled?.serializedHash ?? null,
+    side.assembled?.messageHash ?? null,
+    side.assembled?.packetBytes ?? null,
+    side.assembled?.feePayer ?? null,
+    side.assembled?.requiredSignatures ?? null,
+    side.assembled === null || side.assembled === undefined
+      ? null
+      : JSON.stringify(side.assembled.staticAccountKeys),
+    side.assembled === null || side.assembled === undefined
+      ? null
+      : JSON.stringify(side.assembled.readonlyAccounts),
   );
   return o.observationId;
 }
@@ -100,6 +130,8 @@ export interface ObservationStats {
   readonly simulated: number;
   readonly providerFailures: number;
   readonly noRoute: number;
+  /** Observations for which exact transaction bytes were produced. */
+  readonly assembled: number;
 }
 
 export function observationStats(db: Db, sinceUtcMs: number | null): ObservationStats {
@@ -112,7 +144,8 @@ export function observationStats(db: Db, sinceUtcMs: number | null): Observation
               COALESCE(SUM(CASE WHEN instruction_policy='PASS' AND transaction_policy='PASS' THEN 1 ELSE 0 END),0) AS policyPass,
               COALESCE(SUM(CASE WHEN simulation='SIMULATED_OK' THEN 1 ELSE 0 END),0) AS simulated,
               COALESCE(SUM(CASE WHEN failure IN ('HTTP_429','HTTP_4XX','HTTP_5XX','TIMEOUT','SCHEMA_DRIFT') THEN 1 ELSE 0 END),0) AS providerFailures,
-              COALESCE(SUM(CASE WHEN failure='NO_ROUTE' THEN 1 ELSE 0 END),0) AS noRoute
+              COALESCE(SUM(CASE WHEN failure='NO_ROUTE' THEN 1 ELSE 0 END),0) AS noRoute,
+              COALESCE(SUM(CASE WHEN serialized_transaction_hash IS NOT NULL THEN 1 ELSE 0 END),0) AS assembled
        FROM execution_observations${where}`,
     )
     .get(...(args as never[])) as Record<string, number>;
@@ -123,6 +156,7 @@ export function observationStats(db: Db, sinceUtcMs: number | null): Observation
     simulated: r['simulated'] ?? 0,
     providerFailures: r['providerFailures'] ?? 0,
     noRoute: r['noRoute'] ?? 0,
+    assembled: r['assembled'] ?? 0,
   };
 }
 
