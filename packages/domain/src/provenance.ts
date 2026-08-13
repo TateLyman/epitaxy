@@ -24,7 +24,7 @@ import type { AppConfig } from './config.js';
  * pools two regimes has to join through a key that makes the pooling visible.
  */
 
-export const PROVENANCE_VERSION = 'provenance-v1';
+export const PROVENANCE_VERSION = 'provenance-v2';
 
 export interface RunContext {
   /** sha256 of the eight fields below. The join key. */
@@ -121,26 +121,77 @@ export function sourceCommit(cwd?: string): string {
  * hash a lie, so `tests/unit/provenance.test.ts` enumerates the schema and
  * fails on anything unaccounted for.
  */
+/**
+ * §21.1 — every config field, classified.
+ *
+ * A field that changes a decision or an economic number belongs in the hash. A
+ * field that does not must say WHY, in writing, here. There is no third
+ * category, and the enumeration test fails when a new field appears in neither
+ * list.
+ *
+ * The mechanism exists because the failure it prevents is silent and total: add
+ * a decision-bearing knob, forget the hash, and two windows run under different
+ * policies while reporting the same provenance. Every comparison between them
+ * is then meaningless and nothing anywhere says so.
+ */
+export const DECISION_BEARING_CONFIG_FIELDS: readonly string[] = [
+  'strategyVersion',
+  'gates',
+  'exits',
+  'minOpportunityScore',
+  'quoteProbeLamports',
+  'maxQuoteAgeMs',
+  'maxFeeFractionBps',
+  'assumedNewTokenFeeBps',
+  'assumedPriorityFeeLamports',
+  'assumedSignatureFeeLamports',
+  'assumedAtaRentLamports',
+  'assumedRentRecoveryRate',
+  'assumedBroadcasterTipLamports',
+  'assumedFailedAttemptLamports',
+  'requireBuildableFill',
+  'requireExactSizeBuild',
+  'requireLocalSimulation',
+  'primaryRouteFamily',
+  'catastrophicLossFloorPct',
+  'latencyStressBps',
+  'alphaShadowNotionalLamports',
+  'canaryShadowNotionalLamports',
+  'markIntervalMs',
+  'discoveryIntervalMs',
+  'risk',
+];
+
+/** Fields that do not change any decision, each with the reason it does not. */
+export const NON_DECISION_CONFIG_FIELDS: Readonly<Record<string, string>> = {
+  mode: 'names which gates are active, and is already part of the context row and every mode-specific hash',
+  paperStartLamports:
+    'the starting bankroll scales sizing but is not a policy: two windows at different NAV are the same strategy, and NAV is recorded per run',
+  enrichIntervalMs: 'how often metadata is refreshed; affects freshness, which is measured per observation rather than assumed',
+  maxClockSkewMs: 'a refusal threshold for our own clock, not a property of any trade',
+  maxQuotesPerCycle: 'a rate-budget ceiling; it changes how MANY observations are taken, never what any one of them means',
+  maxShadowMarksPerCycle: 'as above, for shadow marks; lag is recorded per mark so a budget change is visible in the data',
+};
+
+/**
+ * The version of the cost calculation itself.
+ *
+ * Separate from the config values it consumes: the same
+ * `assumedPriorityFeeLamports` means something different once the applied
+ * compute limit is derived rather than assumed, and a corpus spanning that
+ * change must not pool.
+ */
+export const COST_ACCOUNTING_VERSION = 'cost-accounting-v2-derived-compute-limit';
+
 export function strategyConfigHash(config: AppConfig): string {
-  return sha256Hex(
-    canonicalJson({
-      strategyVersion: config.strategyVersion,
-      gates: config.gates,
-      exits: config.exits,
-      minOpportunityScore: config.minOpportunityScore,
-      quoteProbeLamports: config.quoteProbeLamports,
-      maxQuoteAgeMs: config.maxQuoteAgeMs,
-      maxFeeFractionBps: config.maxFeeFractionBps,
-      assumedNewTokenFeeBps: config.assumedNewTokenFeeBps,
-      assumedPriorityFeeLamports: config.assumedPriorityFeeLamports,
-      assumedSignatureFeeLamports: config.assumedSignatureFeeLamports,
-      assumedAtaRentLamports: config.assumedAtaRentLamports,
-      assumedRentRecoveryRate: config.assumedRentRecoveryRate,
-      requireBuildableFill: config.requireBuildableFill,
-      markIntervalMs: config.markIntervalMs,
-      discoveryIntervalMs: config.discoveryIntervalMs,
-    }),
-  );
+  const record = config as unknown as Record<string, unknown>;
+  const picked: Record<string, unknown> = { costAccountingVersion: COST_ACCOUNTING_VERSION };
+  // Built by iterating the CLASSIFICATION rather than by hand, so the list above
+  // is the single place a field can be added and the hash cannot drift from it.
+  for (const key of DECISION_BEARING_CONFIG_FIELDS) {
+    if (key in record) picked[key] = record[key];
+  }
+  return sha256Hex(canonicalJson(picked));
 }
 
 /** The risk policy alone, so a risk change shows up without a strategy change. */
@@ -162,6 +213,12 @@ export function dataRegimeId(config: AppConfig, schemaVersion: string): string {
     strategyVersion: config.strategyVersion,
     markIntervalSec: Math.round(config.markIntervalMs / 1000),
     requireBuildableFill: config.requireBuildableFill,
+    // A window collected with simulation required is not the same regime as one
+    // collected without it, however identical the thresholds.
+    requireLocalSimulation: config.requireLocalSimulation,
+    requireExactSizeBuild: config.requireExactSizeBuild,
+    primaryRouteFamily: config.primaryRouteFamily,
+    costAccountingVersion: COST_ACCOUNTING_VERSION,
     riskPolicyHash: riskPolicyHash(config),
     schemaVersion,
   };
