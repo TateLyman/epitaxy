@@ -52,6 +52,7 @@ import { SourceFetchError } from '../../../packages/adapters/src/http.js';
 import { SolanaRpc } from '../../../packages/solana/src/rpc.js';
 import { emptyStats, runCycle } from '../../../packages/pipeline/src/cycle.js';
 import { decideExit } from '../../../packages/strategy/src/exits.js';
+import { scheduleMarks, assessBacklog } from '../../../packages/strategy/src/markscheduler.js';
 import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
@@ -984,6 +985,26 @@ async function openShadowBooks(
  * an accumulating shadow book cannot starve the realizable wallet of rate
  * budget — the wallet is the thing that could actually lose money.
  */
+/**
+ * Is this position close enough to a decision that a mark still matters?
+ *
+ * Uses the last recorded mark against the stop level. Deliberately crude: the
+ * point is to prioritise the marks that can change an outcome, and a position
+ * with no mark at all counts as near-trigger because we do not know where it is.
+ */
+function nearTrigger(
+  row: { peak_value_lamports: string | null; cost_lamports: string },
+  config: AppConfig,
+): boolean {
+  const peak = row.peak_value_lamports === null ? null : BigInt(row.peak_value_lamports);
+  if (peak === null) return true;
+  const cost = BigInt(row.cost_lamports);
+  if (cost <= 0n) return true;
+  const stopLevel = (cost * BigInt(10_000 - config.exits.stopLossBps)) / 10_000n;
+  const band = (cost * BigInt(config.exits.stopLossBps)) / 50_000n;
+  return peak <= stopLevel + band;
+}
+
 async function manageShadowBooks(
   db: Db,
   jupiter: JupiterClient,
@@ -992,7 +1013,50 @@ async function manageShadowBooks(
   contextHash: string,
 ): Promise<number> {
   if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
-  const open = openShadowPositions(db).slice(0, config.maxShadowMarksPerCycle);
+
+  // §12.4 — by urgency, not by age.
+  //
+  // This used to be `.slice(0, cap)` over a query ordered by opened_utc_ms. With
+  // 179 open shadows and a per-cycle cap, the same oldest positions were marked
+  // every cycle and the newest were never marked at all -- and a position with
+  // no marks looks exactly like a position whose value did not move.
+  const all = openShadowPositions(db);
+  const byId = new Map(all.map((r) => [r.shadow_position_id, r]));
+  const lastMarks = new Map(
+    (
+      db
+        .prepare('SELECT shadow_position_id AS id, MAX(observed_utc_ms) AS t FROM shadow_marks GROUP BY shadow_position_id')
+        .all() as { id: string; t: number }[]
+    ).map((r) => [r.id, Number(r.t)]),
+  );
+
+  const nowForSchedule = Date.now();
+  const ranked = scheduleMarks(
+    all.map((r) => ({
+      id: r.shadow_position_id,
+      openedUtcMs: Number(r.opened_utc_ms),
+      lastMarkUtcMs: lastMarks.get(r.shadow_position_id) ?? null,
+      // A shadow whose exit could not be built is the one that most needs
+      // watching, not the one to deprioritise.
+      blocked: r.state === 'EXIT_BLOCKED',
+      // Within a fifth of the stop distance of the stop. A mark here can still
+      // change what happens; one on a position sitting mid-range cannot.
+      nearTrigger: nearTrigger(r, config),
+    })),
+    config.markIntervalMs,
+    nowForSchedule,
+  );
+
+  const backlog = assessBacklog(ranked, config.maxShadowMarksPerCycle, nowForSchedule);
+  if (backlog.overCapacity) {
+    recordHealth(db, 'shadow_mark_backlog', 'warn', backlog.detail);
+  }
+
+  const open = ranked
+    .filter((m) => m.urgency !== 'NOT_DUE')
+    .slice(0, config.maxShadowMarksPerCycle)
+    .map((m) => byId.get(m.id))
+    .filter((r): r is NonNullable<typeof r> => r !== undefined);
   let closed = 0;
 
   for (const row of open) {
