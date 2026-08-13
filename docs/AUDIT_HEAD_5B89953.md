@@ -102,7 +102,7 @@ against, and so that a repair which loses data can be identified as one.
 
 ## What was repaired
 
-Fourteen defects. Every one was found by running the system, not by reading it.
+Seventeen defects. Every one was found by running the system, not by reading it.
 
 | id | defect |
 |---|---|
@@ -120,6 +120,9 @@ Fourteen defects. Every one was found by running the system, not by reading it.
 | P16 | Token-2022 extensions treated as though they did not exist |
 | P17 | Three decision-bearing modules with no caller |
 | P18 | Three of four cohort arms could never receive data |
+| P10 | The trigger observation was its own fill |
+| P11 | A shadow could close at its trigger; evidence could be rewritten |
+| P19 | Every unquoted token counted as −100% |
 
 ## P6 is satisfied
 
@@ -162,13 +165,13 @@ which **rules out** N-API marshalling and the 38.5 MiB body. It is
 this daemon. Needs a pinned Rust Surfpool worker or LiteSVM. Until then Pump is
 capped at `JIT_EFFECT_VALID` and `CONFIRMATORY` is unreachable for it.
 
-**Not done:** P10, P11, P15, P19–P24.
+**Not done:** P15 (PumpSwap canonical-pool parity), P20–P24.
 
 ## Numbers
 
 | | |
 |---|---|
-| tests | 976 pass, 4 skipped, 62 files |
+| tests | 1,005 pass, 4 skipped, 64 files |
 | secretscan | clean |
 | schema | v24 |
 | backup | `275266cb…`, integrity ok, witness bounds tight |
@@ -188,3 +191,35 @@ collection impossible for Pump today.
 
 Nothing was funded, signed, submitted, or run as canary or live. No threshold was
 tuned on invalid labels. No NAV was raised and no risk cap loosened.
+
+## Three more, added after the report above was first written
+
+**P10 — the trigger observation was its own fill.** A stop that triggers at T
+and fills at T's price is a backtest that reacts instantly and at no cost. The
+bias runs one way: the faster the price falls, the larger the gap, so filling at
+the trigger made every stop look like it worked and every collapse look
+survivable. Fills now take the first later observation past a frozen 1,200 ms
+latency that is same-family, effect-valid in its own right, and priced.
+`lookAheadBiasLamports` reports what the instant fill would have been worth, so
+the bias has a size rather than a reputation.
+
+**P11 — a shadow could close at its trigger, and evidence could be rewritten.**
+The state machine now makes the first unrepresentable. The second mattered more:
+a shadow opened when nothing was effect-verified would silently become valid the
+moment a later run of the same observation passed, and the corpus would improve
+its own past. Evidence is appended; a demotion is refused outright, because an
+earlier claim being wrong is a correction and must be made deliberately.
+
+`nearTrigger` was peak alone — which made the position *least* likely to need
+attention look the most urgent. It now takes the minimum distance to stop,
+trail, take-profit and maximum hold, with an unpriced position sorting first: one
+nobody can value is one nobody can exit.
+
+**P19 — every unquoted token counted as −100%.** The reasoning was survivor
+bias and the concern is real, but it fixed one bias by installing its mirror
+image. A pool that drained and a provider that went quiet are different events;
+only the first three outcomes are losses. `PROVIDER_MISSING` and `SOURCE_GAP` are
+now excluded and reported beside the distribution. Reading an outage as a total
+loss makes every gate look brilliant — the things it rejected all "went to
+zero" — and the error is largest exactly where the data is thinnest, which is
+where a rejected token is most likely to be.

@@ -1629,4 +1629,20 @@ Not because the repair failed — it succeeded and P6 is met — but because no
 evidence window has started and no confirmatory trade exists. `CONFIRMATORY` is
 unreachable for Pump while `S050` is open, so canary cannot be approached.
 
-903 tests, 57 files, secretscan clean.
+1,005 tests, 64 files, secretscan clean.
+
+## Also landed (P7, P9, P10, P11, P14, P16, P17, P18, P19)
+
+- **P7** JIT snapshots persisted and read back; a run whose snapshot could not
+  be stored is `JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE`, a column rather than an
+  inference from an absence.
+- **P9** `paper.ts` calls `paper-core.ts`. The tested code and the running code
+  were two implementations with nothing to report the divergence.
+- **P10** the trigger observation is never its own fill.
+- **P11** a shadow cannot close at its trigger; evidence is appended, never
+  edited; `nearTrigger` uses distance to every boundary rather than peak alone.
+- **P14** `confirmatory_positions_v1` — one definition, nineteen mutation tests.
+- **P16** Token-2022 extensions decoded; an unknown extension is money-critical.
+- **P17** all three dead modules wired; `KNOWN_INERT` is empty.
+- **P18** retained candidate queues, so the other three cohort arms can exist.
+- **P19** an unquoted token is no longer automatically −100%.
