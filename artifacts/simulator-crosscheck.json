@@ -1,0 +1,30 @@
+{
+  "takenAtUtcMs": 1786632679631,
+  "route": [
+    "HumidiFi",
+    "SolFi V2"
+  ],
+  "packetBytes": 859,
+  "mainnet": {
+    "slot": 439038790,
+    "err": "AccountNotFound",
+    "unitsConsumed": 0,
+    "programs": []
+  },
+  "local": {
+    "status": "SIMULATION_FAILED",
+    "err": "{\"InstructionError\":[5,{\"Custom\":1027565}]}",
+    "unitsConsumed": 35161,
+    "programs": [
+      "ComputeBudget111111111111111111111111111111",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "11111111111111111111111111111111",
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+      "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    ]
+  },
+  "mainnetRefusedOnWallet": true,
+  "crossCheckEstablishable": false,
+  "agreements": []
+}

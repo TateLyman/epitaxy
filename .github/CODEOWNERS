@@ -1,0 +1,38 @@
+# §21.4 — an independent review on the parts that can lose money or invalidate
+# the corpus.
+#
+# GitHub only enforces this when "Require review from Code Owners" is on in the
+# ruleset AND a reviewer other than the author exists. On a single-maintainer
+# repository it therefore documents intent rather than blocking anything, and
+# that is worth stating plainly rather than implying a gate that is not there.
+#
+# The list is deliberately narrow. Marking everything as owned means every
+# change carries the same weight, which is the same as marking nothing.
+
+# Anything that can sign, spend, or decide to trade.
+/packages/execution/        @TateLyman
+/apps/executor/             @TateLyman
+/packages/domain/src/config.ts        @TateLyman
+/config/                    @TateLyman
+
+# Risk and the gates that stop a trade.
+/packages/strategy/src/sizing.ts      @TateLyman
+/packages/strategy/src/portfolio.ts   @TateLyman
+/packages/intelligence/     @TateLyman
+
+# Schema migrations rewrite the only copy of a corpus that cannot be regenerated.
+/packages/storage/src/db.ts           @TateLyman
+/packages/storage/src/backup.ts       @TateLyman
+
+# The bytes that would be signed, and the policy over them.
+/packages/solana/src/encode.ts        @TateLyman
+/packages/solana/src/txpolicy.ts      @TateLyman
+
+# What counts as evidence.
+/packages/simulator/src/client.ts     @TateLyman
+/packages/simulator/src/protocol.ts   @TateLyman
+/docs/MULTIPLE_TESTING_LEDGER.csv     @TateLyman
+
+# CI and the hooks that block canary and live.
+/.github/workflows/         @TateLyman
+/.claude/hooks/             @TateLyman
