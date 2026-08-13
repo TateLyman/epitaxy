@@ -1,6 +1,6 @@
 {
-  "generatedUtcMs": 1786643226126,
-  "sourceCommit": "2617bb7b8d3e16502cd5d4c4b08e9543dca6b887+dirty",
+  "generatedUtcMs": 1786646142675,
+  "sourceCommit": "2db97f71d12646df0fa103ba692ae16da4e76820+dirty",
   "strategyVersion": "delayed-momentum-v0.4.0",
   "confirmatoryTrades": 0,
   "validDevelopmentTrades": 0,
@@ -162,7 +162,7 @@
     {
       "id": "shadow.canarySizePositive",
       "pass": false,
-      "observed": "447 closed canary-shadow positions, net -8390027293",
+      "observed": "459 closed canary-shadow positions, net -8540885788",
       "required": "positive at canary size",
       "rationale": "The portfolio result is at portfolio size. Canary runs at a fixed small size, and small size has its own cost structure."
     }
@@ -189,12 +189,12 @@
     "concentration.noDayOverTwentyFivePercent: observed n/a%, requires at most 25% of positive PnL from one day",
     "stress.doubleCosts: observed 0 lamports at 2x costs, requires still positive",
     "evidence.zeroReplayDivergence: observed no replay results divergences, requires exactly 0",
-    "shadow.canarySizePositive: observed 447 closed canary-shadow positions, net -8390027293, requires positive at canary size"
+    "shadow.canarySizePositive: observed 459 closed canary-shadow positions, net -8540885788, requires positive at canary size"
   ],
   "benchmarks": {
     "noTradeLamports": 0,
     "holdSolLamports": 0,
     "strategyNetLamports": 0,
-    "canaryShadowNetLamports": -8390027293
+    "canaryShadowNetLamports": -8540885788
   }
 }

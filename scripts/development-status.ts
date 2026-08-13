@@ -87,6 +87,39 @@ const replay = (() => {
 const sim = surfpoolAvailable();
 
 // Blockers, derived. Anything that would stop a row becoming confirmatory.
+/**
+ * Closed shadows whose BOTH legs were effect-verified, by evidence class.
+ *
+ * Inner joins on purpose: a position missing a job on either leg does not
+ * partially qualify.
+ */
+function countValid(mode: 'jit' | 'offline'): number {
+  const modeClause =
+    mode === 'offline'
+      ? "AND je.mode = 'CONFIRMATORY_OFFLINE' AND jx.mode = 'CONFIRMATORY_OFFLINE' AND je.confirmatory = 1 AND jx.confirmatory = 1"
+      : '';
+  try {
+    const r = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM shadow_positions s
+         JOIN simulation_jobs je ON je.execution_observation_id = s.entry_observation_id
+         JOIN simulation_jobs jx ON jx.execution_observation_id = s.entry_sell_observation_id
+         WHERE s.closed_utc_ms IS NOT NULL
+           AND je.validity LIKE 'VALID_%' AND jx.validity LIKE 'VALID_%'
+           AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
+           ${modeClause}`,
+      )
+      .get() as { n: number } | undefined;
+    return r?.n ?? 0;
+  } catch {
+    // A query that cannot run has established nothing, and nothing is zero.
+    return 0;
+  }
+}
+
+const validDevelopment = countValid('jit');
+const validConfirmatory = countValid('offline');
+
 const blockers: string[] = [];
 if (obs.simulated === 0) {
   blockers.push(
@@ -101,12 +134,71 @@ if (unmanaged > 0) blockers.push(`${unmanaged} position(s) hold tokens outside t
 if (replay === null || replay.replayed === 0) {
   blockers.push('no replay run has reproduced a snapshot at the current strategy version');
 }
-blockers.push('branch protection unavailable: private repository requires GitHub Pro (operator action)');
-blockers.push('§5 exact v0 transaction assembly not implemented; policy is instruction-level plus an estimate');
-blockers.push('§6.7 simulator parity corpus does not exist');
-blockers.push('§7 entry does not request a linked BUILD_CUSTOM buy+sell round-trip pair');
-blockers.push('§9.2 signal-episode identity not implemented; rescreens may duplicate a signal');
-blockers.push('§9.4 due-time shadow scheduler not implemented; selection is oldest-first');
+/**
+ * P22 -- blockers are MEASURED, not hardcoded.
+ *
+ * Six were printed unconditionally, and by this session four of them had been
+ * false for some time: exact v0 assembly is implemented and 1,033 observations
+ * carry an exact transaction blob; entry does request a linked same-family
+ * buy and sell; signal episodes have identity; the due-time scheduler exists.
+ *
+ * A status report that lists fixed problems is worse than one that lists none:
+ * it trains its reader to skim, and the one real blocker in the list gets
+ * skimmed with the rest.
+ */
+const measured = <T>(sql: string, fallback: T): T => {
+  try {
+    return (db.prepare(sql).get() as T) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const exactBlobs = measured<{ n: number }>(
+  'SELECT COUNT(*) AS n FROM execution_observations WHERE exact_transaction_blob IS NOT NULL',
+  { n: 0 },
+).n;
+if (exactBlobs === 0) {
+  blockers.push('no exact transaction blob has ever been captured; policy is instruction-level only');
+}
+
+const roundTrips = measured<{ n: number }>(
+  "SELECT COUNT(*) AS n FROM execution_observations WHERE purpose = 'entry_roundtrip'",
+  { n: 0 },
+).n;
+if (roundTrips === 0) {
+  blockers.push('entry has never requested a linked same-family buy and sell');
+}
+
+const episodes = measured<{ n: number }>(
+  'SELECT COUNT(*) AS n FROM shadow_positions WHERE signal_episode_id IS NOT NULL',
+  { n: 0 },
+).n;
+if (episodes === 0) blockers.push('signal-episode identity is not being recorded; rescreens may duplicate a signal');
+
+const instrumentOnly = measured<{ n: number }>(
+  "SELECT COUNT(*) AS n FROM simulation_jobs WHERE validity = 'INSTRUMENT_DEVELOPMENT'",
+  { n: 0 },
+).n;
+if (validDevelopment === 0) {
+  blockers.push(
+    `no effect-verified round trip exists yet (${instrumentOnly} simulation job(s) are INSTRUMENT_DEVELOPMENT and are not evidence)`,
+  );
+}
+
+const parityCorpus = measured<{ n: number }>(
+  "SELECT COUNT(*) AS n FROM simulation_jobs WHERE mode = 'CONFIRMATORY_OFFLINE'",
+  { n: 0 },
+).n;
+if (parityCorpus === 0) blockers.push('no offline confirmatory run exists; reproducibility is unestablished');
+
+const unassignedCohort = measured<{ n: number }>(
+  'SELECT COUNT(*) AS n FROM shadow_positions WHERE cohort IS NULL',
+  { n: 0 },
+).n;
+if (unassignedCohort > 0) {
+  blockers.push(`${unassignedCohort} shadow position(s) carry no cohort, so the age experiment has no control arm`);
+}
 
 const status = {
   generatedUtc: new Date().toISOString(),
@@ -116,7 +208,7 @@ const status = {
   },
   branchProtection: {
     enabled: false,
-    reason: 'private repository requires GitHub Pro for branch protection',
+    reason: 'branch protection not configured (operator action; the repository is not required to be private)',
   },
   hashes: {
     strategyVersion: config.strategyVersion,
@@ -163,10 +255,23 @@ const status = {
   },
   contexts,
   replay,
-  validDevelopmentTrades: shadows
+  /**
+   * P22 -- a closed shadow is NOT a valid development trade.
+   *
+   * This counted every closed shadow position and reported 918. All 918 were
+   * `STRUCTURAL_ONLY`: an exact buildable buy and sell existed, and nothing was
+   * ever simulated with a request that described an economic leg. Reporting
+   * them as valid development overstated the evidence by 918.
+   *
+   * A trade is valid development only when BOTH of its legs were
+   * effect-verified by a job whose request described the leg. Derived here
+   * rather than assumed, and it is allowed to be zero.
+   */
+  validDevelopmentTrades: validDevelopment,
+  structuralOnlyClosedShadows: shadows
     .filter((s) => s.state === 'POSITION_CLOSED')
     .reduce((a, s) => a + s.n, 0),
-  validConfirmatoryTrades: 0,
+  validConfirmatoryTrades: validConfirmatory,
   blockers,
 };
 

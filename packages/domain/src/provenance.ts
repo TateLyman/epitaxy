@@ -24,7 +24,7 @@ import type { AppConfig } from './config.js';
  * pools two regimes has to join through a key that makes the pooling visible.
  */
 
-export const PROVENANCE_VERSION = 'provenance-v2';
+export const PROVENANCE_VERSION = 'provenance-v3';
 
 export interface RunContext {
   /** sha256 of the eight fields below. The join key. */
@@ -61,8 +61,8 @@ export interface RunContext {
  * quote-adapter-v2 — impact parsed through packages/domain/src/impact.ts, with
  *   absence recorded as unknown instead of 0.
  */
-export const PAPER_ENGINE_VERSION = 'paper-engine-v3';
-export const QUOTE_ADAPTER_VERSION = 'quote-adapter-v2';
+export const PAPER_ENGINE_VERSION = 'paper-engine-v4';
+export const QUOTE_ADAPTER_VERSION = 'quote-adapter-v3';
 
 /** Stable JSON: keys sorted at every level, bigints as decimal strings. */
 export function canonicalJson(value: unknown): string {
@@ -181,7 +181,23 @@ export const NON_DECISION_CONFIG_FIELDS: Readonly<Record<string, string>> = {
  * compute limit is derived rather than assumed, and a corpus spanning that
  * change must not pool.
  */
-export const COST_ACCOUNTING_VERSION = 'cost-accounting-v2-derived-compute-limit';
+export const COST_ACCOUNTING_VERSION = 'cost-accounting-v3-unified-cashflow';
+
+/**
+ * P22 -- the simulator and the effect verifier, versioned separately.
+ *
+ * They answer different questions and they change independently. A window
+ * collected before economic effect was verified is not the same regime as one
+ * collected after it, however identical the thresholds, because
+ * `SIMULATED_OK` meant something different on either side of the change.
+ *
+ * `EFFECT_VERIFICATION_VERSION` bumps when the CONTENT of the four checks
+ * changes -- not when a message is reworded. It moved to `-v2` when the
+ * unexpected-movement check stopped refusing on movement nobody had modelled,
+ * because that changed which runs pass.
+ */
+export const SIMULATOR_VERSION = 'simulator-v2-leg-shaped-request';
+export const EFFECT_VERIFICATION_VERSION = 'effect-verification-v2-stated-recipients';
 
 export function strategyConfigHash(config: AppConfig): string {
   const record = config as unknown as Record<string, unknown>;
@@ -219,6 +235,12 @@ export function dataRegimeId(config: AppConfig, schemaVersion: string): string {
     requireExactSizeBuild: config.requireExactSizeBuild,
     primaryRouteFamily: config.primaryRouteFamily,
     costAccountingVersion: COST_ACCOUNTING_VERSION,
+    // P22 -- a window collected before the simulation described an economic leg
+    // does not pool with one collected after. The pre-repair jobs were measuring
+    // the instrument, and pooling them with real measurements would put the
+    // artifact back into every aggregate it was removed from.
+    simulatorVersion: SIMULATOR_VERSION,
+    effectVerificationVersion: EFFECT_VERIFICATION_VERSION,
     riskPolicyHash: riskPolicyHash(config),
     schemaVersion,
   };
@@ -251,6 +273,10 @@ export function buildRunContext(config: AppConfig, opts: ContextOptions): RunCon
     paperEngineVersion: PAPER_ENGINE_VERSION,
     quoteAdapterVersion: quoteAdapter,
     dataRegimeId: regime,
+    // Named in the context hash, so a row can always say which measurement
+    // apparatus produced it rather than leaving it to be inferred from a date.
+    simulatorVersion: SIMULATOR_VERSION,
+    effectVerificationVersion: EFFECT_VERIFICATION_VERSION,
   };
 
   return {
