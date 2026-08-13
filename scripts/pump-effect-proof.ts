@@ -220,12 +220,42 @@ async function proveLeg(
     bounds: {
       feePayer: taker,
       maxLamportsSpent: side === 'buy' ? (amount * 2n).toString() : '30000000',
-      // The route's own floor, bound only when the route stated one. A null
-      // threshold is an unknown and is not turned into a zero minimum, which
-      // would assert that any output at all is acceptable.
-      ...(side === 'buy' && built.otherAmountThreshold !== null && built.otherAmountThreshold > 0n
-        ? { mint: outputMint, minTokenDelta: built.otherAmountThreshold.toString() }
-        : {}),
+      // P3 — each side named as the asset it actually is. A token->SOL sell
+      // credits native lamports, and asking `minTokenDelta` about it inspects
+      // an account the trade never touches.
+      inputAsset:
+        side === 'buy'
+          ? { kind: 'native_sol', exactDebitLamports: amount.toString(), maxTotalDebitLamports: (amount * 2n).toString() }
+          : {
+              kind: 'token',
+              mint,
+              tokenProgram,
+              tokenAccount: associatedTokenAddress(taker, mint, tokenProgram),
+              exactDebitAtoms: amount.toString(),
+            },
+      outputAsset:
+        side === 'buy'
+          ? {
+              kind: 'token',
+              mint: outputMint,
+              tokenProgram,
+              tokenAccount: associatedTokenAddress(taker, outputMint, tokenProgram),
+              // The route's own floor, bound only when the route stated one. A
+              // null threshold is an unknown and is not turned into a zero
+              // minimum, which would assert that any output is acceptable.
+              ...(built.otherAmountThreshold !== null && built.otherAmountThreshold > 0n
+                ? { minCreditAtoms: built.otherAmountThreshold.toString() }
+                : {}),
+              expectedCreditAtoms: built.outAmount.toString(),
+            }
+          : {
+              kind: 'native_sol',
+              ...(built.otherAmountThreshold !== null && built.otherAmountThreshold > 0n
+                ? { minCreditLamports: built.otherAmountThreshold.toString() }
+                : {}),
+              expectedCreditLamports: built.outAmount.toString(),
+            },
+      declaredTipLamports: '0',
     },
     contextHash: 'pump-effect-proof',
   });
@@ -238,6 +268,10 @@ async function proveLeg(
     outputMint,
     inputTokenProgram: side === 'sell' ? tokenProgram : null,
     outputTokenProgram: side === 'buy' ? tokenProgram : null,
+    // A sell's source account has to be opened before it can be spent, and the
+    // payer carries that rent. It is our setup cost, not the market's, and
+    // against a 0.02 SOL leg it is ten percent of the notional.
+    provisioningRentLamports: side === 'sell' ? BigInt(res.rentCreatedLamports ?? '0') : 0n,
   });
 
   const partial: Omit<ProofCase, 'classification'> = {

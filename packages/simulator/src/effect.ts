@@ -118,6 +118,17 @@ export interface EffectContext {
    */
   readonly inputTokenProgram?: string | null;
   readonly outputTokenProgram?: string | null;
+  /**
+   * Rent the SETUP created rather than the trade.
+   *
+   * Provisioning a sell means opening a source token account the taker did not
+   * have. The payer carries that rent, and it lands in the same net SOL
+   * movement the sell's proceeds do. Counting it against the trade makes a
+   * correct sell look like a loss, and the smaller the position the worse the
+   * distortion: 2,039,280 lamports of ATA rent against a 0.02 SOL leg is ten
+   * percent of the notional.
+   */
+  readonly provisioningRentLamports?: bigint | null;
   /** What the caller told the broadcaster it would tip, if anything. */
   readonly declaredTipLamports?: bigint | null;
 }
@@ -196,9 +207,30 @@ export function verifyEffect(
     inputDebit = -inTok.value;
   }
 
+  /**
+   * The output credit, in the asset the output is actually in.
+   *
+   * P3 — a token→SOL sell credits NATIVE LAMPORTS. The payer's net movement
+   * mixes three things: the swap's proceeds, the transaction's own costs, and
+   * any rent the setup created. Only the first is the trade.
+   *
+   * So the costs are added back. Rent created is added back because the payer
+   * paid it to open an account, not to trade; rent recovered is subtracted
+   * because it came back from closing one, not from the swap.
+   *
+   * `provisioningRentLamports` is the rent the SETUP created — a source token
+   * account the cheatcode had to open so the sell had something to spend. That
+   * is our cost, not the market's, and leaving it in makes a profitable sell
+   * look like a loss on small sizes.
+   */
   const outputCredit = outputIsSol
     ? solDelta.observed && solDelta.value !== null
-      ? solDelta.value + (baseFee ?? 0n) + (priorityFee ?? 0n) + (rentCreated ?? 0n) - (rentRecovered ?? 0n)
+      ? solDelta.value +
+        (baseFee ?? 0n) +
+        (priorityFee ?? 0n) +
+        (rentCreated ?? 0n) -
+        (rentRecovered ?? 0n) +
+        (ctx.provisioningRentLamports ?? 0n)
       : null
     : outTok.observed
       ? outTok.value
@@ -206,8 +238,22 @@ export function verifyEffect(
 
   // ---- EFFECT_OK ---------------------------------------------------------
   const requested = big(req.requestedAmount);
-  const minOut = big(req.bounds.minTokenDelta ?? null);
   const maxSpend = big(req.bounds.maxLamportsSpent);
+
+  /**
+   * The minimum output, read from the asset side the leg actually has.
+   *
+   * `minTokenDelta` is only consulted for a TOKEN output, and only when no
+   * asset side was supplied. On a sell it was always the wrong question, and
+   * falling back to it there would reintroduce the defect quietly.
+   */
+  const out = req.bounds.outputAsset;
+  const minOut = (() => {
+    if (out?.kind === 'native_sol') return big(out.minCreditLamports ?? null);
+    if (out?.kind === 'token') return big(out.minCreditAtoms ?? null);
+    if (outputIsSol) return null;
+    return big(req.bounds.minTokenDelta ?? null);
+  })();
 
   let effectOk = runtimeOk;
   if (runtimeOk) {

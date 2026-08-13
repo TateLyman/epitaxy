@@ -1082,6 +1082,57 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const boundsViolations: string[] = [];
     if (err === null) {
       const spent = payerPre - payerPost;
+      /**
+       * P3 — the OUTPUT side, checked against the asset it is actually in.
+       *
+       * A token→SOL sell credits native lamports. Asking `minTokenDelta` about
+       * it inspects a token account the trade never touches, finds nothing, and
+       * reports a delta of zero on a transaction that paid out correctly.
+       */
+      const out = req.bounds.outputAsset;
+      if (out !== undefined && out.kind === 'native_sol' && out.minCreditLamports !== undefined) {
+        const payerDelta = BigInt(postSol[req.bounds.feePayer] ?? '0') - BigInt(preSol[req.bounds.feePayer] ?? '0');
+        // The payer's net movement includes what it paid to trade. The credit
+        // is that movement with the transaction's own costs added back, because
+        // those left the payer for reasons other than the swap.
+        const credit = payerDelta + (baseFee ?? 0n) + (priorityFee ?? 0n) + rentCreated - rentRecovered;
+        const min = BigInt(out.minCreditLamports);
+        if (credit < min) boundsViolations.push(`native SOL credit ${credit} below the asserted minimum ${min}`);
+      }
+      if (out !== undefined && out.kind === 'token' && out.minCreditAtoms !== undefined) {
+        const before = preTokenAccounts.find((b) => b.tokenAccount === out.tokenAccount);
+        const after = postTokenAccounts.find((b) => b.tokenAccount === out.tokenAccount);
+        if (after === undefined) {
+          boundsViolations.push(`output token account ${out.tokenAccount.slice(0, 8)} was not observed after the run`);
+        } else {
+          // Absent before means the transaction created it, and an account that
+          // did not exist held nothing. That is the one case where absence is a
+          // number.
+          const delta = BigInt(after.amount) - BigInt(before?.amount ?? '0');
+          const min = BigInt(out.minCreditAtoms);
+          if (delta < min) boundsViolations.push(`token credit ${delta} below the asserted minimum ${min}`);
+          if (after.mint !== out.mint) boundsViolations.push('output token account holds a different mint than asserted');
+          if (after.tokenProgram !== out.tokenProgram) {
+            boundsViolations.push('output token account is owned by a different token program than asserted');
+          }
+        }
+      }
+
+      // P3 — the INPUT side. An exact debit is exact.
+      const inp = req.bounds.inputAsset;
+      if (inp !== undefined && inp.kind === 'token' && inp.exactDebitAtoms !== undefined) {
+        const before = preTokenAccounts.find((b) => b.tokenAccount === inp.tokenAccount);
+        const after = postTokenAccounts.find((b) => b.tokenAccount === inp.tokenAccount);
+        if (before === undefined) {
+          boundsViolations.push(`input token account ${inp.tokenAccount.slice(0, 8)} was not observed before the run`);
+        } else {
+          // A closed source account spent everything it held.
+          const debit = BigInt(before.amount) - BigInt(after?.amount ?? '0');
+          const exact = BigInt(inp.exactDebitAtoms);
+          if (debit !== exact) boundsViolations.push(`token debit ${debit} is not the asserted exact ${exact}`);
+        }
+      }
+
       const cap = BigInt(req.bounds.maxLamportsSpent);
       if (spent > cap) boundsViolations.push(`fee payer spent ${spent} lamports, above the asserted cap of ${cap}`);
       if (req.bounds.mint !== undefined) {
