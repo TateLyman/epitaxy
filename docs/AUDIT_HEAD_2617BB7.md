@@ -286,9 +286,42 @@ times safer than the model said. Both now use the same function.
 Not computable. It requires a measured edge distribution, and there are zero
 effect-verified positions.
 
-## 15-16. On-chain facts and WSS alarms
+## 15-16. On-chain facts and WSS alarms — implemented and INERT
 
-Carried forward from the previous directive rounds; unchanged this session.
+Checked rather than assumed, and the answer is worse than "carried forward".
+
+```
+packages/intelligence/src/mintfacts.ts    0 non-test importers
+packages/intelligence/src/entity.ts       0 non-test importers
+packages/adapters/src/accountwatch.ts     0 non-test importers
+```
+
+All three are complete and tested. Nothing calls them.
+
+This is the repository's recurring defect — a field declared, stored, listed in
+a schema, and read by no decision — at module scale, and at module scale it is
+worse: a dead module has passing tests, so it counts as working capability in
+every report that counts files or tests. Three phases looked delivered and
+decide nothing.
+
+What IS wired: holder concentration reaches the screening decision through
+`evaluateConcentrationGate` in `packages/strategy/src/screen.ts`, called from
+`runCycle`. So P13 is partly live — the concentration half — and the decoded
+mint/freeze authority and entity clustering halves are not.
+
+`tests/unit/no-dead-modules.test.ts` now counts live importers for every
+decision-bearing module. The `KNOWN_INERT` list holds exactly these three, each
+naming the phase that would wire it, and it can only shrink: a module that gains
+a caller fails the test until its entry is deleted, and a NEW dead module fails
+on the day it is written rather than a directive later.
+
+Recorded as `S051`, OPEN.
+
+## 16a. Signal episodes (P11)
+
+Wired. `claimSignalEpisode` and `bindEpisode` are called on the live shadow
+path, and `idx_shadow_episode` makes a duplicate book/episode pair a database
+refusal rather than a thing the engine has to remember not to do.
 
 ## 17. Age cohorts
 

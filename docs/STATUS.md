@@ -1413,7 +1413,7 @@ That uniformity is the signature of an apparatus, not a market.
 | | |
 |---|---|
 | mode | paper (observe + paper only; neither imports `packages/execution/`) |
-| tests | **811 pass**, 4 skipped, 51 files, ~5 s |
+| tests | **862 pass**, 4 skipped, 55 files, ~5 s |
 | schema | v18 |
 | corpus | 26,515 observations, 108 simulation jobs, 603 marks |
 | backup | `runtime.db.backup-2026-08-13T17-54-57-293Z`, sha256 `7edd0e0c…`, integrity ok, witness bounds `[26515, 26515]` |
@@ -1509,3 +1509,40 @@ hours old, and the cohort experiment has one arm.
 Correction: an earlier version of this file said cohort assignment and reject
 classification "were not running". Both run. The gaps are rows that predate the
 features, and they are marked rather than filled.
+
+## Three modules that decide nothing
+
+Checked, not assumed:
+
+```
+packages/intelligence/src/mintfacts.ts    0 non-test importers
+packages/intelligence/src/entity.ts       0 non-test importers
+packages/adapters/src/accountwatch.ts     0 non-test importers
+```
+
+Complete, tested, and called by nothing. This is the dead-field defect at module
+scale, and at that scale it is worse: a dead module has passing tests, so it
+counts as working capability in every report that counts files.
+
+`tests/unit/no-dead-modules.test.ts` counts live importers per decision-bearing
+module. The list can only shrink.
+
+## The binding constraint
+
+`S050` — offline replay cannot restore a six-program Pump route, because
+`net.deploy()` is a synchronous napi call on the request path. Pump is therefore
+capped at `JIT_EFFECT_VALID`, `CONFIRMATORY` is unreachable for it, and the
+readiness gate's 200 confirmatory positions cannot reach one.
+
+Everything else on the blocker list is downstream of collecting more data.
+This one is not.
+
+## What a working day looks like from here
+
+1. `pnpm db:migrate` — backup, then apply pending migrations
+2. `pnpm paper` — collect on a clean commit
+3. `pnpm window:status` — what the repaired instrument has measured
+4. `pnpm capability:matrix` — which route shapes have advanced
+5. `pnpm readiness` — the gate, which will say NOT_READY for a long time
+
+Nothing above starts canary or live.
