@@ -1,5 +1,5 @@
 {
-  "generatedUtcMs": 1786646266523,
+  "generatedUtcMs": 1786647519720,
   "bySide": [
     {
       "side": "buy",
@@ -67,16 +67,16 @@
   ],
   "contexts": [
     {
+      "source_commit": "c69adf61942dbe08be4d8eefc157162b1df0a6b5+dirty",
+      "last_seen_utc_ms": 1786646959548
+    },
+    {
       "source_commit": "6bfdda89e66c0194e0158008206984c131f849c3",
       "last_seen_utc_ms": 1786646249880
     },
     {
       "source_commit": "c11d76d51cd82d2cf552c0f9760a6079ab18962b",
       "last_seen_utc_ms": 1786644703407
-    },
-    {
-      "source_commit": "84541123ce9adcff437a5d10db303b18731bd503+dirty",
-      "last_seen_utc_ms": 1786644196876
     }
   ]
 }
