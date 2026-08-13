@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -121,6 +122,15 @@ const MAX_CACHED_JOBS = 512;
  * transaction, and truncation is reported rather than hidden.
  */
 const MAX_WATCHED_ACCOUNTS = 256;
+
+/**
+ * Where content-addressed program ELFs live.
+ *
+ * Inside WSL rather than on the Windows mount: the native side reads these
+ * on every deploy, and a 9p round trip per read would give back what the
+ * path was chosen to avoid.
+ */
+const ELF_CACHE_DIR = process.env['SIMULATORD_ELF_CACHE'] ?? '/tmp/epitaxy-elf-cache';
 
 /** Named once. Measured against three settled mainnet transactions. */
 const BASE_FEE_LAMPORTS_PER_SIGNATURE = 5_000n;
@@ -755,7 +765,30 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
           throw new DeployBudgetExceeded(deployedPrograms.length + 1, elfBytesToDeploy);
         }
         deployedPrograms.push(a.pubkey);
-        net.deploy({ programId: a.pubkey, soBytes: [...Buffer.from(a.programElfBase64 ?? '', 'base64')] });
+        /**
+         * P8 Step 1 — content-addressed `.so` on disk, deployed by PATH.
+         *
+         * `soBytes` marshals the whole ELF through N-API as a JavaScript
+         * `number[]`, element by element, on the request thread. Six of those
+         * did not finish in five minutes and took `/v1/health` down with them.
+         *
+         * The file is written once per distinct ELF and reused: the programs
+         * on a Pump route are the same on every Pump route, so the second
+         * replay of the day writes nothing. Content addressing makes that safe
+         * -- a path is only reused when the bytes are identical.
+         */
+        const elf = Buffer.from(a.programElfBase64 ?? '', 'base64');
+        const digest = createHash('sha256').update(elf).digest('hex');
+        const soPath = resolve(ELF_CACHE_DIR, `${digest}.so`);
+        if (!existsSync(soPath)) {
+          mkdirSync(ELF_CACHE_DIR, { recursive: true });
+          // Written to a temporary name and renamed, so a crash mid-write
+          // cannot leave a truncated ELF at a hash that claims to be complete.
+          const partial = `${soPath}.partial`;
+          writeFileSync(partial, elf);
+          renameSync(partial, soPath);
+        }
+        net.deploy({ programId: a.pubkey, soPath });
       } else {
         net.setAccount(
           a.pubkey,
