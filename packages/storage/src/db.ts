@@ -922,6 +922,46 @@ ALTER TABLE execution_observations ADD COLUMN readonly_accounts TEXT;
 ALTER TABLE execution_observations ADD COLUMN assembly_error TEXT;
 `,
   },
+  {
+    id: 11,
+    name: 'signal_episodes',
+    sql: `
+-- §9.2 — one signal is one episode, not one per rescreen.
+--
+-- Discovery rescreens the same mint every cycle. Each rescreen produced an
+-- independent shadow position, so a token eligible for ten minutes became
+-- dozens of "trades" that are the same trade observed repeatedly. Averaging
+-- over them counts one opinion many times and understates the standard error
+-- of everything downstream.
+--
+-- An episode is (mint, book, cooldown bucket). A genuinely new opportunity in
+-- the same mint after the cooldown is a new episode; a rescreen thirty seconds
+-- later is not. The UNIQUE constraint makes the duplicate impossible rather
+-- than merely discouraged -- the previous defence was that nobody had written
+-- the code to duplicate, which is not a defence.
+CREATE TABLE IF NOT EXISTS signal_episodes (
+  signal_episode_id  TEXT PRIMARY KEY,
+  mint               TEXT NOT NULL,
+  book               TEXT NOT NULL,
+  opened_utc_ms      INTEGER NOT NULL,
+  cooldown_bucket    INTEGER NOT NULL,
+  screenings_seen    INTEGER NOT NULL DEFAULT 1,
+  last_seen_utc_ms   INTEGER NOT NULL,
+  context_hash       TEXT,
+  UNIQUE (mint, book, cooldown_bucket)
+);
+CREATE INDEX IF NOT EXISTS idx_episode_mint ON signal_episodes(mint, opened_utc_ms);
+
+ALTER TABLE shadow_positions ADD COLUMN signal_episode_id TEXT;
+-- §7 — a buy without a same-family sell is not an entry. Both observations are
+-- named on the position, so a row that never proved it could be exited is
+-- identifiable rather than merely suspected.
+ALTER TABLE shadow_positions ADD COLUMN entry_sell_observation_id TEXT;
+ALTER TABLE shadow_positions ADD COLUMN entry_round_trip_loss_bps INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shadow_episode ON shadow_positions(book, signal_episode_id)
+  WHERE signal_episode_id IS NOT NULL;
+`,
+  },
 ];
 
 export interface OpenOptions {

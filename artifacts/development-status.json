@@ -1,7 +1,7 @@
 {
-  "generatedUtc": "2026-08-13T00:06:14.885Z",
+  "generatedUtc": "2026-08-13T00:41:15.964Z",
   "source": {
-    "commit": "bc1cb81f3fce2b8a5f4d4d72023a20b7ef8ba789",
+    "commit": "2be233d9fe71ac399f95f089826374741e9020ba",
     "dirty": false,
     "branch": "master"
   },
@@ -27,36 +27,36 @@
     "accountSnapshotRegime": "none — no snapshot capture pipeline yet"
   },
   "observations": {
-    "total": 2344,
-    "policyValid": 1640,
+    "total": 3147,
+    "policyValid": 1671,
     "simulated": 0,
-    "withRawPayload": 1865,
+    "withRawPayload": 1897,
     "byPurpose": [
       {
         "purpose": "alpha_shadow_mark",
-        "n": 1130
+        "n": 1515
       },
       {
         "purpose": "canary_shadow_mark",
-        "n": 1114
+        "n": 1500
       },
       {
         "purpose": "canary_shadow_entry",
-        "n": 49
+        "n": 64
       },
       {
         "purpose": "alpha_shadow_entry",
-        "n": 49
+        "n": 64
       },
       {
         "purpose": "verification",
-        "n": 2
+        "n": 4
       }
     ],
     "byFamily": [
       {
         "family": "BUILD_CUSTOM",
-        "n": 2344
+        "n": 3147
       }
     ]
   },
@@ -69,7 +69,7 @@
     {
       "book": "alpha_shadow",
       "state": "POSITION_OPEN",
-      "n": 12
+      "n": 27
     },
     {
       "book": "canary_shadow",
@@ -79,7 +79,7 @@
     {
       "book": "canary_shadow",
       "state": "POSITION_OPEN",
-      "n": 12
+      "n": 27
     }
   ],
   "portfolioPositions": [
@@ -92,9 +92,9 @@
   "unmanagedPositions": 0,
   "markCadence": {
     "positionsWithMarks": 78,
-    "intervalCount": 2166,
-    "medianGapMs": 10267,
-    "p95GapMs": 15187,
+    "intervalCount": 2937,
+    "medianGapMs": 10274,
+    "p95GapMs": 15207,
     "maxGapMs": 23802
   },
   "costModel": {
@@ -135,6 +135,11 @@
       "context_hash": "7952072ac025f4ebe26f83f2421ccea51aed145ccec1a2f19848892a81a932c7",
       "data_regime_id": "delayed-momentum-v0.4.0/10s/build/52d37d3bbcd3",
       "source_commit": "a5680d76bbd430953bf7368663f67d62dec95f76"
+    },
+    {
+      "context_hash": "5b299dd539fa856bf98e575ba842016d93fcc3fc26d868625e2f3dc9249247c9",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/2fea13b301e7",
+      "source_commit": "ee0a87479f7805b26858e512a8e44c313b6b1192+dirty"
     }
   ],
   "replay": {
@@ -146,7 +151,7 @@
   "validDevelopmentTrades": 74,
   "validConfirmatoryTrades": 0,
   "blockers": [
-    "0 of 2344 observations are simulated. requireLocalSimulation=true and the engine books no fills; every row is DEVELOPMENT_STRUCTURAL.",
+    "0 of 3147 observations are simulated. requireLocalSimulation=true and the engine books no fills; every row is DEVELOPMENT_STRUCTURAL.",
     "no local SVM on this platform: win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
     "no replay run has reproduced a snapshot at the current strategy version",
     "branch protection unavailable: private repository requires GitHub Pro (operator action)",

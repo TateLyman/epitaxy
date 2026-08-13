@@ -69,6 +69,8 @@ import {
   closeShadowPosition,
   updateShadowPeak,
   unmanagedPositions,
+  claimSignalEpisode,
+  bindEpisode,
 } from '../../../packages/storage/src/observation-repo.js';
 import {
   legIsExecutable,
@@ -788,6 +790,14 @@ async function openShadowBooks(
 
   for (const { book, notional } of books) {
     if (notional <= 0n) continue;
+
+    // §9.2 — one signal is one episode. Discovery rescreens the same mint every
+    // cycle, and each rescreen used to open its own position, so a token
+    // eligible for ten minutes became dozens of "trades" that were the same
+    // trade observed repeatedly.
+    const episode = claimSignalEpisode(db, mint, book, Date.now(), contextHash);
+    if (!episode.isNew) continue;
+
     const obs = await observeRoute(db, jupiter, {
       family: config.primaryRouteFamily as 'BUILD_CUSTOM',
       mint,
@@ -812,6 +822,51 @@ async function openShadowBooks(
     // book gets to ignore.
     if (obs.instructionSetHash === null || obs.expectedOutput <= 0n) continue;
 
+    const tokensIn = netMinimumOutput(obs);
+    if (tokensIn <= 0n) continue;
+
+    // §7 — a BUILD_CUSTOM buy without a BUILD_CUSTOM sell is not an entry.
+    //
+    // The exit was previously never requested until a rule wanted out, so a
+    // position could exist whose sell had never been shown to be constructible
+    // at ANY price. That is the same defect as booking a fill against a quote
+    // nobody could build, moved one step later. The sell is requested here, at
+    // the exact token amount the buy would produce, in the same family.
+    const exitObs = await observeRoute(db, jupiter, {
+      family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+      mint,
+      side: 'sell',
+      positionId: null,
+      shadowPositionId: null,
+      purpose: `${book}_entry_roundtrip`,
+      inputMint: mint,
+      outputMint: WSOL_MINT,
+      amount: tokensIn,
+      taker,
+      slippageBps: config.risk.maxSlippageBps,
+      maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+      broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+      priority: 'enrichment',
+      contextHash,
+    });
+
+    if (exitObs.instructionSetHash === null || exitObs.expectedOutput <= 0n) {
+      recordHealth(
+        db,
+        'shadow_entry_refused_no_exit',
+        'info',
+        `${book} ${mint.slice(0, 12)}: buy builds, sell does not; not an entry`,
+      );
+      continue;
+    }
+
+    // The round trip, measured on the pair that would actually be traded
+    // rather than on a probe. Recorded whether or not it is favourable — a
+    // corpus that stores only the cheap round trips cannot say what the
+    // expensive ones cost.
+    const back = netExpectedOutput(exitObs);
+    const roundTripLossBps = Number(((notional - back) * 10_000n) / notional);
+
     const cost =
       notional +
       config.assumedSignatureFeeLamports +
@@ -825,7 +880,7 @@ async function openShadowBooks(
       mint,
       state: 'POSITION_OPEN',
       notionalLamports: notional,
-      tokenAmount: netMinimumOutput(obs),
+      tokenAmount: tokensIn,
       costLamports: cost,
       entryObservationId: obs.observationId,
       openedUtcMs: Date.now(),
@@ -833,7 +888,18 @@ async function openShadowBooks(
       strategyVersion: config.strategyVersion,
       contextHash,
     });
-    log.info({ book, mint, shadowPositionId: id, refusal }, 'shadow position opened on a refused signal');
+    bindEpisode(db, id, episode.signalEpisodeId, exitObs.observationId, roundTripLossBps);
+    log.info(
+      {
+        book,
+        mint,
+        shadowPositionId: id,
+        episode: episode.signalEpisodeId,
+        roundTripLossBps,
+        refusal,
+      },
+      'shadow position opened — buy AND sell both build at this exact size',
+    );
   }
 }
 

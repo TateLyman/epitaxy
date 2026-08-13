@@ -417,3 +417,105 @@ export function shadowSummary(db: Db, book: ShadowBook): ShadowSummary {
   }
   return { book, opened: rows.length, closed, stillOpen, realizedLamports: realized, openedAfterRefusal: afterRefusal };
 }
+
+// ---------------------------------------------------------------------------
+// signal episodes
+// ---------------------------------------------------------------------------
+
+/**
+ * Milliseconds after which the same mint counts as a NEW opportunity.
+ *
+ * Fifteen minutes. Long enough that a token rescreened every discovery cycle
+ * stays one episode, short enough that a genuinely fresh setup hours later is
+ * not silently merged into an old one. Frozen before collection; changing it
+ * changes what "a trade" means and belongs in the multiple-testing ledger.
+ */
+export const EPISODE_COOLDOWN_MS = 900_000;
+
+export interface EpisodeClaim {
+  readonly signalEpisodeId: string;
+  /** False when this mint is already an open episode for this book. */
+  readonly isNew: boolean;
+}
+
+/**
+ * Claim an episode for (mint, book).
+ *
+ * Returns `isNew: false` when the same mint in the same cooldown bucket has
+ * already been claimed, which is the case a rescreen hits. The caller must not
+ * open a second position on a `false`.
+ *
+ * The bucket is derived from wall time rather than stored state so the claim is
+ * idempotent across restarts: the same rescreen after a crash lands in the same
+ * bucket and is still refused.
+ */
+export function claimSignalEpisode(
+  db: Db,
+  mint: string,
+  book: string,
+  nowUtcMs: number,
+  contextHash: string | null,
+): EpisodeClaim {
+  const bucket = Math.floor(nowUtcMs / EPISODE_COOLDOWN_MS);
+  const id = `${book}:${mint}:${bucket}`;
+  const existing = db
+    .prepare('SELECT signal_episode_id FROM signal_episodes WHERE mint = ? AND book = ? AND cooldown_bucket = ?')
+    .get(mint, book, bucket) as { signal_episode_id: string } | undefined;
+
+  if (existing !== undefined) {
+    db.prepare(
+      'UPDATE signal_episodes SET screenings_seen = screenings_seen + 1, last_seen_utc_ms = ? WHERE signal_episode_id = ?',
+    ).run(nowUtcMs, existing.signal_episode_id);
+    return { signalEpisodeId: existing.signal_episode_id, isNew: false };
+  }
+
+  db.prepare(
+    `INSERT INTO signal_episodes
+       (signal_episode_id,mint,book,opened_utc_ms,cooldown_bucket,screenings_seen,last_seen_utc_ms,context_hash)
+     VALUES (?,?,?,?,?,1,?,?)`,
+  ).run(id, mint, book, nowUtcMs, bucket, nowUtcMs, contextHash);
+  return { signalEpisodeId: id, isNew: true };
+}
+
+export function bindEpisode(
+  db: Db,
+  shadowPositionId: string,
+  signalEpisodeId: string,
+  sellObservationId: string | null,
+  roundTripLossBps: number | null,
+): void {
+  db.prepare(
+    `UPDATE shadow_positions
+     SET signal_episode_id = ?, entry_sell_observation_id = ?, entry_round_trip_loss_bps = ?
+     WHERE shadow_position_id = ?`,
+  ).run(signalEpisodeId, sellObservationId, roundTripLossBps, shadowPositionId);
+}
+
+export interface EpisodeStats {
+  readonly episodes: number;
+  readonly rescreensAbsorbed: number;
+  readonly maxScreeningsPerEpisode: number;
+}
+
+/**
+ * How much duplication the episode key prevented.
+ *
+ * `rescreensAbsorbed` is the number of screenings that would each have become
+ * their own shadow position under the old behaviour. It is the size of the
+ * defect, measured rather than asserted.
+ */
+export function episodeStats(db: Db): EpisodeStats {
+  const r = db
+    .prepare(
+      `SELECT COUNT(*) AS episodes,
+              COALESCE(SUM(screenings_seen - 1),0) AS absorbed,
+              COALESCE(MAX(screenings_seen),0) AS maxSeen
+       FROM signal_episodes`,
+    )
+    .get() as Record<string, number>;
+  return {
+    episodes: r['episodes'] ?? 0,
+    rescreensAbsorbed: r['absorbed'] ?? 0,
+    maxScreeningsPerEpisode: r['maxSeen'] ?? 0,
+  };
+}
