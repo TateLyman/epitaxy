@@ -31,10 +31,10 @@ import { createHash } from 'node:crypto';
  * SIMULATOR_UNAVAILABLE — a fact about our infrastructure — and never a fact
  * about the token being simulated.
  */
-export const SIMULATION_PROTOCOL_VERSION = 1;
+export const SIMULATION_PROTOCOL_VERSION = 2;
 
 /** Schema of the frozen account snapshot. Changing it changes what a run means. */
-export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 1;
+export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 2;
 
 export type SimulationMode =
   /** Offline, from a frozen snapshot. The only mode that can be confirmatory. */
@@ -70,6 +70,20 @@ export interface SnapshotBlob {
   readonly dataBase64: string;
   readonly executable: boolean;
   readonly slot: number;
+  /**
+   * The program's ELF, required when this account is executable.
+   *
+   * Measured against @solana/surfpool 1.5.0: setAccount(address, lamports,
+   * data, owner) has no executable parameter, so a program restored through it
+   * comes back non-executable and every route through it fails with an
+   * invalid-program error -- an error that looks like a fact about the token
+   * and is a fact about us. Programs go through deploy(), which needs the ELF,
+   * and a snapshot naming an executable account without one is refused.
+   *
+   * Note this is the ELF, not the account data: for a loader-v3 program the
+   * account at this address holds a pointer to its programdata, not the code.
+   */
+  readonly programElfBase64?: string | null;
 }
 
 export interface BalanceMutation {
@@ -148,6 +162,16 @@ export interface SimulationResponse {
 
   readonly createdAccounts: readonly string[];
   readonly closedAccounts: readonly string[];
+  /**
+   * Where the run disagreed with what the caller asserted it would do.
+   *
+   * The caller sends bounds; the daemon CHECKS them. A bound that is carried
+   * and never tested is a comment with a schema, and this project has found
+   * that defect often enough to stop writing it. Non-empty means the
+   * simulation ran and did something other than what was claimed, which is not
+   * evidence for the claim.
+   */
+  readonly boundsViolations: readonly string[];
   /** pubkey -> sha256 of post-state, for every account the run touched. */
   readonly mutatedAccountHashes: Readonly<Record<string, string>>;
 
@@ -180,6 +204,61 @@ export interface SimulationResponse {
 }
 
 /**
+ * A transaction the chain has already settled, and what it settled at.
+ *
+ * §15 -- a simulator that agrees with nothing external is an expensive way to
+ * restate your own assumptions. Parity is checked against outcomes we did not
+ * produce and cannot influence.
+ */
+export interface ParityCase {
+  readonly signature: string;
+  readonly transactionBase64: string;
+  /** What the chain actually charged. */
+  readonly observedFeeLamports: string;
+  /** What the chain actually consumed, when it reported it. */
+  readonly observedComputeUnits: number | null;
+  readonly observedErr: unknown;
+}
+
+export interface ParityRequest {
+  readonly protocolVersion: number;
+  readonly cases: readonly ParityCase[];
+}
+
+/**
+ * Execution parity is deliberately NOT claimed.
+ *
+ * Replaying a settled transaction requires the accounts as they stood at its
+ * slot. That needs an archival node this project does not have, and running it
+ * against today's pools would be a different experiment wearing the same
+ * signature. Saying so is the point: an unestablished result reported as
+ * established is exactly how a simulator starts laundering assumptions.
+ */
+export type ExecutionParityVerdict = 'NOT_ESTABLISHABLE_WITHOUT_ARCHIVAL_STATE';
+
+export interface ParityCaseResult {
+  readonly signature: string;
+  readonly numRequiredSignatures: number;
+  readonly unitLimit: number | null;
+  readonly unitPriceMicroLamports: string | null;
+  readonly observedFeeLamports: string;
+  readonly modelBaseFeeLamports: string;
+  readonly modelPriorityFeeLamports: string;
+  readonly modelTotalFeeLamports: string;
+  readonly feeParity: boolean;
+  readonly executionParity: ExecutionParityVerdict;
+  readonly detail: string;
+}
+
+export interface ParityResponse {
+  readonly protocolVersion: number;
+  readonly identity: SimulatorIdentity;
+  readonly cases: readonly ParityCaseResult[];
+  readonly allFeesAgree: boolean;
+  readonly detail: string;
+}
+
+/**
  * The idempotency key.
  *
  * Covers every field that changes what the simulation MEANS and nothing that
@@ -204,7 +283,17 @@ export function computeRequestHash(
     snapshotManifestHash: r.snapshotManifestHash,
     accounts: [...r.snapshotAccounts]
       .sort((a, b) => (a.pubkey < b.pubkey ? -1 : 1))
-      .map((a) => [a.pubkey, a.slot, a.owner, a.lamports, a.executable ? 1 : 0, a.dataBase64]),
+      .map((a) => [
+        a.pubkey,
+        a.slot,
+        a.owner,
+        a.lamports,
+        a.executable ? 1 : 0,
+        a.dataBase64,
+        // Two runs against different program code are two experiments, so the
+        // ELF is part of what the request MEANS and belongs in the key.
+        a.programElfBase64 ?? null,
+      ]),
     mutations: [...r.balanceMutations]
       .map((m) => [m.kind, m.owner, m.mint ?? null, m.amount, m.tokenProgram ?? null])
       .sort(),

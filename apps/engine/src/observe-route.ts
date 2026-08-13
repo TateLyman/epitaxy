@@ -42,21 +42,31 @@ import type { RequestPriority } from '../../../packages/adapters/src/ratelimit.j
  *                       accounts — the questions that need the whole message
  *   simulation          NOT RUN. See below.
  *
- * On simulation, plainly: this system cannot simulate either leg today. A
- * mainnet `simulateTransaction` for the buy fails because the taker holds no
- * SOL; for the sell it fails because the taker holds none of the hypothetical
- * tokens. Both failures would be about the wallet, not the route, so reporting
- * either as evidence would be worse than reporting nothing. The instrument that
- * would work is a local SVM fork with captured mainnet accounts and a synthetic
- * balance, and it is not wired. Every observation therefore carries
- * `NOT_SIMULATED` with that reason attached, and `config.requireLocalSimulation`
- * turns that into a refusal rather than a footnote.
+ * On simulation, plainly. A mainnet `simulateTransaction` cannot validate either
+ * leg here: the buy fails because the taker holds no SOL, the sell because it
+ * holds none of the hypothetical tokens, and both failures would describe the
+ * wallet rather than the route.
+ *
+ * The instrument that CAN answer it now exists. The WSL daemon runs a local SVM,
+ * executes transactions, and reproduces settled mainnet fees to the lamport.
+ * What is still missing is what to feed it: an account-snapshot capture pipeline,
+ * and the program ELFs a route's programs have to be deployed from -- measured
+ * against surfpool 1.5.0, `setAccount` has no executable parameter, so a program
+ * cannot be restored from a snapshot at all.
+ *
+ * Until both exist, every observation carries `NOT_SIMULATED` with that reason
+ * attached, and `config.requireLocalSimulation` turns it into a refusal rather
+ * than a footnote. Sending a route to the daemon without its snapshot would
+ * produce a confident answer about a chain state that never existed, which is
+ * worse than answering nothing.
  */
 
 export const SIMULATION_UNAVAILABLE =
-  'no local SVM fixture is wired. A mainnet simulateTransaction cannot validate either leg here: the ' +
-  'taker holds no SOL so a buy fails on funding, and holds none of the hypothetical tokens so a sell ' +
-  'fails on balance. Both failures would describe the wallet rather than the route.';
+  'a local SVM is wired and executes, but no account snapshot is captured for this route and no program ' +
+  'ELFs are available to deploy its programs from, so there is nothing to simulate it against. A mainnet ' +
+  'simulateTransaction cannot substitute: the taker holds no SOL so a buy fails on funding, and holds none ' +
+  'of the hypothetical tokens so a sell fails on balance, and both failures describe the wallet rather ' +
+  'than the route. See docs/SIMULATOR_PARITY.md.';
 
 export interface ObservationRequest {
   readonly family: RouteFamily;
