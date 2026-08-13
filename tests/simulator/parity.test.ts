@@ -4,7 +4,7 @@ import { decodeTransaction, readComputeBudget, priorityFeeLamports, writableStat
 import { compileMessage, encodeUnsignedTransaction } from '../../packages/solana/src/encode.js';
 import { SYSTEM_PROGRAM } from '../../packages/solana/src/txpolicy.js';
 import { base58Encode } from '../../packages/solana/src/base58.js';
-import { computeRequestHash, SIMULATION_PROTOCOL_VERSION, ACCOUNT_SNAPSHOT_SCHEMA_VERSION } from '../../packages/simulator/src/protocol.js';
+import { computeRequestHash, SIMULATION_PROTOCOL_VERSION, ACCOUNT_SNAPSHOT_SCHEMA_VERSION, EXECUTION_PARITY_ESTABLISHED } from '../../packages/simulator/src/protocol.js';
 import { responseIsConfirmatory } from '../../packages/simulator/src/client.js';
 import type { SimulationRequest, SimulationResponse, SnapshotBlob } from '../../packages/simulator/src/protocol.js';
 
@@ -250,8 +250,20 @@ describe('a successful run is not automatically evidence', () => {
       ...over,
     }) as SimulationResponse;
 
-  it('accepts a clean offline run', () => {
-    expect(responseIsConfirmatory(ok(), 'CONFIRMATORY_OFFLINE').ok).toBe(true);
+  it('refuses even a spotless offline run while execution parity is unestablished', () => {
+    // §15 is an ordering: parity first, evidence second. This is the test that
+    // stops the gate opening by accident the day a snapshot pipeline lands.
+    const v = responseIsConfirmatory(ok(), 'CONFIRMATORY_OFFLINE');
+    expect(EXECUTION_PARITY_ESTABLISHED).toBe(false);
+    expect(v.ok).toBe(false);
+    expect(v.reasons).toContain('execution parity against settled mainnet transactions has not been established');
+  });
+
+  it('has nothing else wrong with a spotless run, so flipping parity is the only thing standing in the way', () => {
+    // If this ever grows a second reason, the gate is refusing for a cause
+    // nobody wrote down, and the parity constant is not what is actually
+    // blocking evidence.
+    expect(responseIsConfirmatory(ok(), 'CONFIRMATORY_OFFLINE').reasons).toHaveLength(1);
   });
 
   it('refuses a run that violated the bounds the caller asserted', () => {
