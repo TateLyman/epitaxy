@@ -57,7 +57,8 @@
     "evidence:status": "tsx scripts/evidence-status.ts all",
     "simulator:effect-parity": "tsx scripts/simulator-prospective-parity.ts",
     "baseline": "tsx scripts/baseline-5b89953.ts",
-    "pump:effect-proof": "tsx scripts/pump-effect-proof.ts"
+    "pump:effect-proof": "tsx scripts/pump-effect-proof.ts",
+    "rate:budget": "tsx scripts/rate-budget.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
