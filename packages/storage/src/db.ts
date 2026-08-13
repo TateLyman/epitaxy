@@ -1047,6 +1047,60 @@ CREATE INDEX IF NOT EXISTS idx_obs_exact_blob
   WHERE exact_transaction_blob IS NOT NULL;
 `,
   },
+  {
+    id: 14,
+    name: 'age_cohorts',
+    sql: `
+-- §16 — the age cohort a position was opened in, frozen at open time.
+--
+-- Frozen deliberately. A position opened at four minutes old is a four-minute
+-- experiment for its whole life; recomputing the cohort later from the token's
+-- current age would migrate it into an older bucket while it is still running
+-- and silently change what the bucket means.
+--
+-- Cohorts are never pooled. A token four minutes old and one four days old are
+-- different populations: the older one has SURVIVED, and conditioning on
+-- survival changes the holder set, the creator's demonstrated behaviour, and
+-- whether the liquidity has been tested by anyone but us.
+--
+-- AGE_UNKNOWN is its own value and is not the youngest cohort. Absent is not
+-- young.
+ALTER TABLE shadow_positions ADD COLUMN cohort TEXT;
+ALTER TABLE positions        ADD COLUMN cohort TEXT;
+ALTER TABLE shadow_positions ADD COLUMN token_age_ms_at_open INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_shadow_cohort ON shadow_positions(cohort, state);
+`,
+  },
+  {
+    id: 15,
+    name: 'reject_outcome_classification',
+    sql: `
+-- §17 — what actually happened, classified, rather than inferred from a NULL.
+--
+-- price_usd is nullable, and a NULL price read as a number is zero, and zero
+-- means the token went to nothing. Every gate then looks brilliant: the things
+-- it rejected all "went to zero", when what happened is a provider stopped
+-- answering about them.
+--
+-- That error always flatters the gates, and it is largest exactly where the
+-- data is thinnest, so it survives any check that asks whether the numbers look
+-- plausible.
+--
+-- NULL outcome means a row predates the classifier. It is NOT 'UNKNOWN': one
+-- says nobody has looked, the other says somebody looked and could not tell.
+ALTER TABLE reject_tracking ADD COLUMN outcome TEXT
+  CHECK (outcome IS NULL OR outcome IN
+    ('EXECUTABLE_VALUE','NO_ROUTE_CONFIRMED','POOL_DRAIN_CONFIRMED',
+     'PROVIDER_MISSING','SOURCE_GAP','UNBUILDABLE','UNKNOWN'));
+ALTER TABLE reject_tracking ADD COLUMN executable_value_lamports TEXT;
+ALTER TABLE reject_tracking ADD COLUMN provider_answered INTEGER;
+ALTER TABLE reject_tracking ADD COLUMN buildable INTEGER;
+ALTER TABLE reject_tracking ADD COLUMN pool_reserves_lamports TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_reject_outcome ON reject_tracking(outcome, horizon_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {
