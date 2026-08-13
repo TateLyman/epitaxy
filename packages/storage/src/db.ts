@@ -962,6 +962,65 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_shadow_episode ON shadow_positions(book, s
   WHERE signal_episode_id IS NOT NULL;
 `,
   },
+  {
+    id: 12,
+    name: 'simulation_jobs',
+    sql: `
+-- The durable record of every simulation this engine asked for.
+--
+-- Windows remains the only SQLite writer and the authoritative ledger. The
+-- daemon keeps a small in-memory cache for retries; it is not a ledger and it
+-- does not survive a restart. This table does.
+--
+-- SIMULATION_REQUESTED is written BEFORE the request leaves, so a crash between
+-- send and reply leaves evidence that a job was in flight rather than silence.
+-- A row stuck in REQUESTED is a known unknown; a missing row is an unknown
+-- unknown, and only one of those can be reconciled.
+--
+-- (job_id, request_hash) is UNIQUE together: the same job with the same bytes
+-- is idempotent, and the same job id with DIFFERENT bytes is a caller defect
+-- the database refuses rather than reconciles.
+CREATE TABLE IF NOT EXISTS simulation_jobs (
+  job_id                   TEXT NOT NULL,
+  request_hash             TEXT NOT NULL,
+  execution_observation_id TEXT,
+  mode                     TEXT NOT NULL,
+  status                   TEXT NOT NULL
+    CHECK (status IN ('SIMULATION_REQUESTED','SIMULATED_OK','SIMULATION_FAILED',
+                      'SIMULATOR_UNAVAILABLE','SIMULATION_UNKNOWN')),
+  requested_utc_ms         INTEGER NOT NULL,
+  completed_utc_ms         INTEGER,
+
+  snapshot_manifest_hash   TEXT,
+  original_transaction_hash TEXT,
+  original_blockhash       TEXT,
+  blockhash_replaced       INTEGER,
+  blockhash_proof_ok       INTEGER,
+
+  simulator_source_sha     TEXT,
+  simulator_binary_hash    TEXT,
+  simulator_runtime        TEXT,
+  simulator_feature_set    TEXT,
+  protocol_version         INTEGER,
+
+  units_consumed           INTEGER,
+  transaction_error        TEXT,
+  runtime_event_digest     TEXT,
+  startup_ms               INTEGER,
+  simulate_ms              INTEGER,
+  total_ms                 INTEGER,
+  confirmatory             INTEGER NOT NULL DEFAULT 0,
+  confirmatory_refusal     TEXT,
+  detail                   TEXT,
+  context_hash             TEXT,
+
+  PRIMARY KEY (job_id, request_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_simjobs_obs ON simulation_jobs(execution_observation_id);
+CREATE INDEX IF NOT EXISTS idx_simjobs_status ON simulation_jobs(status, requested_utc_ms);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_simjobs_jobid ON simulation_jobs(job_id);
+`,
+  },
 ];
 
 export interface OpenOptions {
