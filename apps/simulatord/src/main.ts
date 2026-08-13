@@ -145,6 +145,10 @@ const TOKEN_PROGRAMS = new Set([
 ]);
 /** SPL token account layout: mint(32) owner(32) amount(u64 LE) — amount at 64. */
 const TOKEN_AMOUNT_OFFSET = 64;
+/** Base SPL token account size. A legacy mint is 82 and must never decode as one. */
+const TOKEN_ACCOUNT_LEN = 165;
+/** Token-2022 `AccountType::Account`. `Mint` is 1 and is refused. */
+const TOKEN_2022_ACCOUNT_TYPE = 2;
 
 const REPO_ROOT = resolve(process.cwd());
 assertLinuxFilesystem(REPO_ROOT);
@@ -365,8 +369,30 @@ function tokenAmount(v: AccountView | null): bigint | null {
 function observedTokenBalance(pubkey: string, v: AccountView | null): ObservedTokenBalance | null {
   if (v === null) return null;
   if (!TOKEN_PROGRAMS.has(v.owner)) return null;
-  // 165 is the base account size. Anything shorter is not one, whatever owns it.
-  if (v.data.length < 72) return null;
+
+  // A MINT is also owned by the token program, and decoding one as an account
+  // yields a plausible-looking row with a garbage owner and mint. The first
+  // version of this checked only `length >= 72` and produced exactly that: the
+  // route's own mint accounts appeared as token balances owned by addresses
+  // that do not exist.
+  //
+  // The sizes are fixed and are the discriminator:
+  //
+  //   legacy mint            82
+  //   legacy token account  165
+  //   Token-2022            165 base, then a 1-byte account type at offset 165
+  //                         followed by TLV extensions
+  //
+  // So exactly 165 is an account; longer needs the type byte, where 1 is Mint
+  // and 2 is Account; shorter is neither.
+  if (v.data.length < TOKEN_ACCOUNT_LEN) return null;
+  if (v.data.length > TOKEN_ACCOUNT_LEN) {
+    const accountType = v.data.readUInt8(TOKEN_ACCOUNT_LEN);
+    // 2 is Account. Anything else -- a Mint with extensions, or a type this
+    // build does not know -- is refused rather than read as an account.
+    if (accountType !== TOKEN_2022_ACCOUNT_TYPE) return null;
+  }
+
   return {
     tokenAccount: pubkey,
     mint: base58Encode(v.data.subarray(0, 32)),
