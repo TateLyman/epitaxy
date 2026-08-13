@@ -127,7 +127,8 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
     const v = verifyEffect(req(), res({ postTokenAccounts: [{ tokenAccount: TAKER_ATA, owner: TAKER, mint: MINT, tokenProgram: TOKEN_PROGRAM, amount: '0' }] }), ctx);
     expect(v.checks.RUNTIME_OK).toBe(true);
     expect(v.simulatedEffectOk).toBe(false);
-    expect(v.refusals.join(' ')).toMatch(/output delta is missing/);
+    // OBSERVED and non-positive. A statement about the trade, not about us.
+    expect(v.refusals.join(' ')).toMatch(/output credit is 0, which is not a gain/);
   });
 
   it('runtime succeeds but the output balance was never observed', () => {
@@ -150,7 +151,7 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
     const v = verifyEffect(req(), res({ postTokenAccounts: [] }), ctx);
     expect(v.outputCredit).toBe(0n);
     expect(v.simulatedEffectOk).toBe(false);
-    expect(v.refusals.join(' ')).toMatch(/output delta is missing/);
+    expect(v.refusals.join(' ')).toMatch(/not a gain/);
   });
 
   it('runtime succeeds but output is below minimum', () => {

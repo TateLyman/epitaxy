@@ -258,10 +258,19 @@ export function verifyEffect(
   let effectOk = runtimeOk;
   if (runtimeOk) {
     if (outputCredit === null) {
+      // NOT OBSERVED. Nobody looked, or the account was outside the window.
+      // This is a statement about the apparatus.
       refusals.push('runtime succeeds but output delta is missing');
       effectOk = false;
     } else if (outputCredit <= 0n) {
-      refusals.push('runtime succeeds but output delta is missing');
+      // OBSERVED, and non-positive. A statement about the trade: the leg
+      // returned nothing, or returned less than it cost to execute.
+      //
+      // These were one message and one classification, so a sell whose
+      // proceeds genuinely did not cover its own mechanics was reported as a
+      // missing observation -- the market's answer filed as our failure, which
+      // is the exact inversion this whole exercise exists to prevent.
+      refusals.push(`runtime succeeds but the output credit is ${outputCredit}, which is not a gain`);
       effectOk = false;
     } else if (minOut !== null && outputCredit < minOut) {
       refusals.push(`runtime succeeds but output is below minimum: ${outputCredit} < ${minOut}`);

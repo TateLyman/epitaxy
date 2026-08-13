@@ -115,6 +115,8 @@ function classify(c: Omit<ProofCase, 'classification'>): string {
   if (c.exportOmissions.length > 0) return 'INSTRUMENT_INCOMPLETE_CAPTURE';
   const refusals = c.refusals.join(' ');
   if (/token identity could not be resolved/.test(refusals)) return 'INSTRUMENT_TOKEN_IDENTITY';
+  // Only a genuinely UNOBSERVED value is the apparatus. An observed
+  // non-gain is the market's answer and is classified as one.
   if (/could not be measured|delta is missing/.test(refusals) && c.runtimeStatus === 'SIMULATED_OK') {
     return 'INSTRUMENT_MISSING_OBSERVATION';
   }
@@ -268,10 +270,11 @@ async function proveLeg(
     outputMint,
     inputTokenProgram: side === 'sell' ? tokenProgram : null,
     outputTokenProgram: side === 'buy' ? tokenProgram : null,
-    // A sell's source account has to be opened before it can be spent, and the
-    // payer carries that rent. It is our setup cost, not the market's, and
-    // against a 0.02 SOL leg it is ten percent of the notional.
-    provisioningRentLamports: side === 'sell' ? BigInt(res.rentCreatedLamports ?? '0') : 0n,
+    // P4 closed this: the source account is written directly, rent-exempt, so
+    // the payer never funds it and there is no setup rent to compensate for.
+    // Left at zero rather than removed, so the field's absence is a decision
+    // somebody made rather than something that fell out.
+    provisioningRentLamports: 0n,
   });
 
   const partial: Omit<ProofCase, 'classification'> = {

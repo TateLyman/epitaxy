@@ -179,3 +179,70 @@ writing the token account directly, rent-exempt, rather than having the
 transaction open it.
 
 Until then a sell's credit has two values, and neither is quoted as the answer.
+
+
+---
+
+# After P4 — exact bytes, and a number of mine corrected
+
+```
+buys        5   effect-ok 4
+sells       5   effect-ok 0
+effect OK   4/10
+INSTRUMENT failures 0   (required: 0)
+
+ROUTE_ECONOMIC_REFUSAL  6
+EFFECT_OK               4
+```
+
+## S055 is closed by removing the question, not by adjusting for it
+
+The source token account is now written byte for byte, rent-exempt, by the
+setup. The fee payer never funds it, so there is no provisioning rent to
+compensate for in one place and forget in another. Accounts the setup wrote are
+also excluded from `rentCreated`, because they existed before the transaction
+ran.
+
+## A number in the previous section was wrong
+
+That section reported sell credits of 3,868,516 / 2,071,739 / 2,084,821 /
+4,146,740 lamports and called the round trip an 80.7% loss.
+
+**Those were double-counting rent.** The verifier's formula already adds
+`rentCreated` back, and the harness was passing the same figure again as
+`provisioningRentLamports`. The honest numbers:
+
+| leg | rent created by the tx | output credit |
+|---|---|---|
+| sell `EVULoNF4De` | 0 | **19,488,023** |
+| sell `HPMU32wr8u` | 2,074,080 | 10,948 |
+| sell `GUrsAdHKt3` | 2,074,080 | -3,676 |
+| sell `HgSPYBvkVo` | 4,148,160 | -2,404 |
+| sell `9rbHhJU7Vs` | 4,148,160 | -282,404 |
+
+`EVULoNF4De` is the shape a real sell has: no account creation, 19.5M lamports
+back on a 0.02 SOL position. The others are dust positions whose proceeds do not
+cover their own mechanics.
+
+The 80.7% round-trip figure should not be quoted. It was arithmetic of mine, not
+a market measurement.
+
+## Unobserved and non-positive were one message
+
+Both produced "output delta is missing", so a sell whose proceeds genuinely did
+not cover its mechanics was classified as an instrument failure -- the market's
+answer filed as our own, which is the exact inversion this exercise exists to
+prevent.
+
+They are now different: `null` is unobserved and remains an apparatus failure;
+an observed credit of zero or less is `the output credit is N, which is not a
+gain` and is the trade's answer.
+
+With that separated, **instrument failures are zero** and the six refusals are
+all economic.
+
+## P6 is still not satisfied
+
+Four of ten effect-verified. No sell verifies, because on these positions no
+sell is a gain. That is a result about size and liquidity rather than about the
+apparatus, and it is five cases.
