@@ -33,6 +33,25 @@ import { createHash } from 'node:crypto';
  */
 export const SIMULATION_PROTOCOL_VERSION = 2;
 
+/**
+ * Has this build been shown to reproduce the EXECUTION of transactions the
+ * chain already settled?
+ *
+ * No, and §15 makes that ordering binding: parity comes before SIMULATED_OK can
+ * count as evidence. Fee parity is established -- three settled Jupiter swaps
+ * reproduce to the lamport -- but execution parity is not, because replaying a
+ * settled transaction needs the account state at its slot and that needs an
+ * archival node this project does not have.
+ *
+ * This is a constant rather than a comment because the alternative is a gate
+ * that opens by accident. Without it, the first route observation that arrived
+ * with a frozen snapshot would be graded confirmatory on the strength of a
+ * simulator whose execution had never been checked against anything. Flipping it
+ * is a deliberate act that requires the parity corpus in docs/SIMULATOR_PARITY.md
+ * to actually pass end to end.
+ */
+export const EXECUTION_PARITY_ESTABLISHED = false;
+
 /** Schema of the frozen account snapshot. Changing it changes what a run means. */
 export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 2;
 

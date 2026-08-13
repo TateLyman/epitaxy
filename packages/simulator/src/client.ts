@@ -5,6 +5,7 @@ import {
   verifyIdentity,
   IdentityMismatch,
   identityIsConfirmatoryGrade,
+  EXECUTION_PARITY_ESTABLISHED,
   type SimulationRequest,
   type SimulationResponse,
   type SimulatorIdentity,
@@ -144,6 +145,12 @@ export function responseIsConfirmatory(
   mode: SimulationRequest['mode'],
 ): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
+  // §15 is an ORDERING, not a wish: parity first, evidence second. A simulator
+  // whose execution has never been checked against an outcome it did not
+  // produce cannot confirm anything, however cleanly a given run went.
+  if (!EXECUTION_PARITY_ESTABLISHED) {
+    reasons.push('execution parity against settled mainnet transactions has not been established');
+  }
   if (res.status !== 'SIMULATED_OK') reasons.push(`status ${res.status}`);
   if (mode !== 'CONFIRMATORY_OFFLINE') reasons.push(`mode ${mode} is not reproducible`);
   if (res.jitFetchedAccounts.length > 0) reasons.push('accounts were fetched during the run and are not frozen');
