@@ -26,7 +26,45 @@ export interface ParityVerdict {
   readonly comparedFields: number;
   /** Reasons this comparison could not establish anything, even if it agreed. */
   readonly disqualifiers: readonly string[];
+  /**
+   * Did the two runs EXECUTE the same?
+   *
+   * Separated from full-state agreement deliberately. Restoring a program
+   * through `deploy()` does not preserve the program account's lamport balance
+   * -- measured: Jupiter's account holds 6,700,253,691 lamports on mainnet and
+   * comes back at the rent-exempt 1,141,440 after a redeploy -- and the
+   * ProgramData accounts a deploy creates are watched on one side and not the
+   * other. Neither difference can change what the transaction did.
+   *
+   * Reporting one number for both questions would mean either failing a replay
+   * that reproduced the economics exactly, or passing one that did not. So both
+   * are reported, and only the execution one is claimed.
+   */
+  readonly executionAgrees: boolean;
+  readonly executionDiffs: readonly FieldDiff[];
+  /** Balance differences confined to program and programdata accounts. */
+  readonly programAccountDiffs: readonly FieldDiff[];
 }
+
+/**
+ * Fields that describe what the transaction DID, as opposed to what the
+ * surrounding chain looked like.
+ */
+const EXECUTION_FIELDS = new Set([
+  'status',
+  'transactionError',
+  'unitsConsumed',
+  'logs',
+  'baseFeeLamports',
+  'priorityFeeLamports',
+  'rentCreatedLamports',
+  'rentRecoveredLamports',
+  'transferFeeLamports',
+  'withheldFeeLamports',
+  'createdAccounts',
+  'closedAccounts',
+  'boundsViolations',
+]);
 
 function mapDiffs(field: string, a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): FieldDiff[] {
   const out: FieldDiff[] = [];
@@ -79,10 +117,27 @@ export function compareRuns(jit: SimulationResponse, offline: SimulationResponse
   if (jit.exportedSnapshot.length === 0) disqualifiers.push('the JIT run exported no snapshot');
   if ((jit.unitsConsumed ?? 0) <= 0) disqualifiers.push('no compute units were consumed, so no program ran');
 
+  // A balance difference on an account that only exists because we redeployed a
+  // program into it is a fact about the restore, not about the transaction.
+  const programAccounts = new Set<string>();
+  for (const a of [...jit.exportedSnapshot, ...offline.exportedSnapshot]) {
+    if (a.executable || (a.programElfBase64 ?? null) !== null) programAccounts.add(a.pubkey);
+  }
+  const isProgramBalance = (field: string): boolean => {
+    const m = /^(preSol|postSol|mutated)\[(.+)\]$/.exec(field);
+    return m !== null && m[2] !== undefined && programAccounts.has(m[2]);
+  };
+
+  const executionDiffs = diffs.filter((d) => EXECUTION_FIELDS.has(d.field));
+  const programAccountDiffs = diffs.filter((d) => isProgramBalance(d.field));
+
   return {
     agrees: diffs.length === 0,
     diffs,
     comparedFields: 18,
     disqualifiers,
+    executionAgrees: executionDiffs.length === 0,
+    executionDiffs,
+    programAccountDiffs,
   };
 }

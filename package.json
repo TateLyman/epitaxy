@@ -38,7 +38,10 @@
     "shadow:status": "tsx scripts/shadow-status.ts",
     "release:manifest": "tsx scripts/release-manifest.ts",
     "ci:local": "pnpm typecheck && pnpm secretscan && pnpm test",
-    "dev:status": "tsx scripts/development-status.ts --mode=paper"
+    "dev:status": "tsx scripts/development-status.ts --mode=paper",
+    "simulator:smoke": "tsx scripts/simulator-smoke.ts",
+    "simulator:prospective-parity": "tsx scripts/simulator-prospective-parity.ts",
+    "simulator:parity-corpus": "tsx scripts/capture-parity-corpus.ts"
   },
   "devDependencies": {
     "@solana/surfpool": "1.5.0",

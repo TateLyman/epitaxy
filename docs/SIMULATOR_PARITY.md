@@ -94,3 +94,62 @@ assumed.
    `err`, and every balance delta against the settled meta already recorded in
    the corpus file — which is why `observedComputeUnits` is captured now, ahead
    of anything being able to check it.
+
+
+## Prospective parity (section 7): the mechanism works, fidelity is not yet universal
+
+Run it with:
+
+```bash
+pnpm simulator:prospective-parity
+```
+
+Build a route against the chain as it is now, simulate with JIT fetching, freeze
+everything the fetch touched, replay offline from the freeze, compare.
+
+**A real Jupiter route executes in the local SVM.** Measured across several
+routes: 7 instructions, 1-3 lookup tables, 560-1014 packet bytes, 40k-172k
+compute units, an ATA created for 2,039,280 lamports of rent. Exports run 17-46
+accounts with 3-6 program ELFs and zero omissions.
+
+**One route replayed with exact execution parity.** JIT and offline both
+returned `SIMULATION_FAILED`, the identical error `[5, Custom 14]`, and the
+identical **40,829** compute units. **Another route did not**: JIT succeeded
+while the offline replay failed with `[5, Custom 6050]` at 45,227 units. So the
+mechanism is real and the restore is not yet faithful for every route.
+
+Three things had to be true before any of it worked, and each was a separate
+wrong assumption:
+
+1. **An offline replay must reproduce the CLOCK, not just the accounts.** A
+   lookup table records the slot it was extended at, and the runtime refuses to
+   resolve entries added at a slot in its own future. A fresh instance starts
+   near slot 33; a mainnet table was extended around slot 438,000,000. Perfect
+   account state on the wrong clock gives *"Address lookup ... contains an
+   invalid index"*, which reads like a corrupt snapshot and is a clock that was
+   never set. The request now carries `targetSlot` and the daemon time-travels
+   before restoring.
+
+2. **Account coverage is not the static keys.** Everything a lookup table loads
+   is an account the transaction touches, and on a Jupiter route that is where
+   the pools are.
+
+3. **`deploy()` panics when the program already exists.** A fresh offline
+   Surfnet preloads System, ComputeBudget, SPL Token, Token-2022 and ATA;
+   Jupiter, Pump and PumpSwap are absent. Deploy what is missing, leave what is
+   there.
+
+### What is claimed, and what is not
+
+`compareRuns()` reports **execution parity** (status, error, units, logs, fees,
+rent, created/closed) separately from full-state parity, and only the first is
+claimed. The difference is not a convenience: restoring a program through
+`deploy()` does not preserve its lamport balance -- Jupiter's account holds
+6,700,253,691 lamports on mainnet and comes back at the rent-exempt 1,141,440 --
+and the ProgramData accounts a deploy creates are watched on one side only.
+Neither can change what the transaction did. Folding both into one verdict would
+mean either failing a replay that reproduced the economics exactly, or passing
+one that did not.
+
+`EXECUTION_PARITY_ESTABLISHED` remains **false**. One route reproducing is not a
+corpus, and a second route did not.

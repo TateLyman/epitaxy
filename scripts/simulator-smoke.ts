@@ -82,6 +82,7 @@ const request = client.buildRequest({
   originalLastValidBlockHeight: null,
   routeFamily: 'BUILD_CUSTOM',
   requestedAmount: '1000000',
+  targetSlot: null,
   snapshotManifestHash: 'smoke-transfer-snapshot-v1',
   snapshotAccounts: [
     {

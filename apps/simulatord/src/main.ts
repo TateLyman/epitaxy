@@ -53,7 +53,19 @@ import {
 const HOST = '127.0.0.1';
 const PORT = Number(process.env['SIMULATORD_PORT'] ?? 8787);
 const TOKEN = process.env['SIMULATORD_TOKEN'] ?? '';
-const MAX_BODY_BYTES = 8 * 1024 * 1024;
+/**
+ * Big enough for a snapshot that carries program code.
+ *
+ * 8 MiB was a sensible bound for a transaction and an account list, and far too
+ * small once the snapshot started carrying ELFs: a five-program Jupiter route
+ * base64-encodes to well past it. The failure was not a clean rejection either
+ * -- the stream was destroyed mid-write, so the client saw its own timeout and
+ * an abort with no status, which is the worst possible way to learn a limit.
+ *
+ * Sized to the deploy budget: 48 MiB of ELF is about 64 MiB of base64 plus the
+ * account data around it.
+ */
+const MAX_BODY_BYTES = 96 * 1024 * 1024;
 /**
  * Long enough to deploy a route's programs from frozen ELF.
  *
@@ -95,22 +107,30 @@ const BASE_FEE_LAMPORTS_PER_SIGNATURE = 5_000n;
 /**
  * How much program code one offline restore may deploy.
  *
- * Not a preference. `deploy()` is synchronous and blocks the daemon's event
- * loop, and a six-program restore did not finish in five minutes while
- * /v1/health stopped answering. These bounds turn that into a refusal with a
- * reason. Raising them without first making the restore asynchronous just
- * lengthens the hang.
+ * MEASURED, after an earlier guess got this wrong. deploy() is synchronous and
+ * does hold the event loop, so a bound belongs here -- but it is cheap:
+ *
+ *      16 KiB    1 ms       512 KiB   37 ms      1536 KiB  107 ms
+ *     128 KiB    8 ms      1024 KiB   78 ms
+ *
+ * Linear at roughly 70 microseconds per KiB. A six-program route restores in
+ * well under a second, so the five-minute restore that prompted the first
+ * version of this bound was never the deploy: it was WSL2 localhost forwarding
+ * wedged, which makes a healthy daemon look like a hung one.
+ *
+ * The bound stays, because a synchronous call on the request path should be
+ * bounded. It is now set from the measurement rather than from the fear.
  */
-const MAX_DEPLOY_PROGRAMS = 3;
-const MAX_DEPLOY_BYTES = 4 * 1024 * 1024;
+const MAX_DEPLOY_PROGRAMS = 24;
+const MAX_DEPLOY_BYTES = 48 * 1024 * 1024;
 
 class DeployBudgetExceeded extends Error {
   constructor(programs: number, bytes: number) {
     super(
       `restoring this snapshot needs ${programs} program deploy(s) totalling about ${bytes} bytes, above the ` +
         `budget of ${MAX_DEPLOY_PROGRAMS} programs / ${MAX_DEPLOY_BYTES} bytes. deploy() is synchronous and ` +
-        'blocks the daemon, so a larger restore stops it answering health checks and eventually times the ' +
-        'caller out with nothing to diagnose. Refusing instead.',
+        'holds the daemon for roughly 70 microseconds per KiB, so an unbounded restore would stall every ' +
+        'other job queued behind it. Refusing instead.',
     );
     this.name = 'DeployBudgetExceeded';
   }
@@ -151,6 +171,7 @@ interface SurfnetInstance {
   readonly rpcUrl: string;
   readonly payer: string;
   stop(): void;
+  timeTravelToSlot(slot: number): unknown;
   drainEvents(): { kind: string; message?: string; computeUnitsConsumed?: number; fee?: number }[];
   fundSol(address: string, lamports: number): void;
   setTokenBalance(owner: string, mint: string, amount: number, tokenProgram?: string): void;
@@ -459,6 +480,31 @@ function blobOf(pubkey: string, v: AccountView, elf: string | null): SnapshotBlo
   };
 }
 
+/**
+ * Per-stage timing, reported on every job.
+ *
+ * A job that is slow without saying WHICH part was slow is a job you diagnose
+ * by guessing. `startupMs` and `simulateMs` cover two stages out of eight, and
+ * the six they leave out are where restores actually spend their time.
+ */
+class Stages {
+  private readonly marks: [string, number][] = [];
+  private last = Date.now();
+  mark(name: string): void {
+    const now = Date.now();
+    this.marks.push([name, now - this.last]);
+    this.last = now;
+  }
+  summary(): string {
+    return this.marks.map(([n, ms]) => `${n}=${ms}ms`).join(' ');
+  }
+  slowest(): string {
+    let worst: [string, number] = ['none', -1];
+    for (const m of this.marks) if (m[1] > worst[1]) worst = m;
+    return `${worst[0]}=${worst[1]}ms`;
+  }
+}
+
 async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<SimulationResponse> {
   const t0 = Date.now();
   const jit = req.mode === 'DEVELOPMENT_JIT';
@@ -542,11 +588,38 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     : surfpool.Surfnet.start();
   const startupMs = Date.now() - t0;
 
+  // Stand at the right point in time BEFORE restoring anything.
+  //
+  // A lookup table records the slot it was extended at, and the runtime will
+  // not resolve entries added at a slot in its own future. A fresh instance
+  // starts near slot 33; a mainnet table was extended around slot 438,000,000.
+  // Restore perfect account state onto that and every table-loaded pool is
+  // unreachable with "contains an invalid index" -- which reads like a corrupt
+  // snapshot and is actually a clock that was never set.
+  let slotTravelled: number | null = null;
+  if (req.targetSlot !== null && req.targetSlot > 0) {
+    try {
+      net.timeTravelToSlot(req.targetSlot);
+      slotTravelled = req.targetSlot;
+    } catch (e) {
+      return fail(
+        req,
+        'SIMULATOR_UNAVAILABLE',
+        `could not move the instance to slot ${req.targetSlot}: ${(e as Error).message}`,
+        t0,
+        queueWaitMs,
+        startupMs,
+        0,
+      );
+    }
+  }
+
   // Which programs this run deployed, and which it found already there. Both
   // are provenance: a replay is only reproducible if the same code ran.
   const deployedPrograms: string[] = [];
   const preloadedPrograms: string[] = [];
   let elfBytesToDeploy = 0;
+  const stages = new Stages();
 
   try {
     // Which programs does this instance ALREADY have?
@@ -570,6 +643,7 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       );
       for (const [pubkey, v] of existing) if (v !== null && v.executable) alreadyPresent.add(pubkey);
     }
+    stages.mark('probeExisting');
 
     // §13 — typed methods, not raw pokes.
     for (const a of req.snapshotAccounts) {
@@ -635,6 +709,7 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
            decomposition below will say so rather than assume */
       }
     }
+    stages.mark('restoreAccounts');
     if (req.bounds.mint !== undefined) {
       try {
         namedAtas.push(net.getAta(req.bounds.feePayer, req.bounds.mint));
@@ -704,7 +779,9 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const watched = allWatched.slice(0, MAX_WATCHED_ACCOUNTS);
     const truncated = allWatched.length - watched.length;
 
+    stages.mark('resolveLookups');
     const pre = await readAccounts(net.rpcUrl, watched);
+    stages.mark('readPre');
 
     // §14 — the ORIGINAL bytes are preserved. The local SVM has never produced
     // the mainnet blockhash, so a substitution is genuinely required; asking the
@@ -728,7 +805,10 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       },
     ])) as Record<string, unknown> | null;
     const simulateMs = Date.now() - simStart;
+    stages.mark('simulate');
 
+    const contextSlotRaw = (raw?.['context'] as Record<string, unknown> | undefined)?.['slot'];
+    const contextSlot = typeof contextSlotRaw === 'number' ? contextSlotRaw : null;
     const value = (raw?.['value'] ?? null) as Record<string, unknown> | null;
     const err = value?.['err'] ?? null;
     const logs = Array.isArray(value?.['logs']) ? (value['logs'] as string[]) : [];
@@ -833,6 +913,7 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     } catch {
       baseFee = null;
     }
+    stages.mark('fee');
     const declaredPriority = priorityFeeLamports(readComputeBudget(original));
 
     // The independent check: what the payer lost, minus what other watched
@@ -919,14 +1000,30 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       feeNotes.push(`${preloadedPrograms.length} program(s) were already present in the runtime and were not redeployed`);
     }
 
+    stages.mark('exportSnapshot');
     const events = net.drainEvents();
     const identity = computeIdentity(REPO_ROOT, { version: runtimeVersion, featureSet });
     const total = Date.now() - t0;
+    console.log(
+      JSON.stringify({
+        msg: 'job complete',
+        jobId: req.jobId,
+        mode: req.mode,
+        status: err === null ? 'ok' : 'failed',
+        totalMs: total,
+        slowest: stages.slowest(),
+        stages: stages.summary(),
+      }),
+    );
     const notes = [
       jit
         ? 'DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory'
         : `offline from snapshot ${req.snapshotManifestHash.slice(0, 12)}; original transaction bytes unmodified`,
       ...feeNotes,
+      slotTravelled === null
+        ? 'no target slot was given, so this ran at the instance default slot'
+        : `moved to slot ${slotTravelled} before restoring, so lookup tables resolve`,
+      `stage timing: ${stages.summary()}`,
       'transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero',
     ];
     if (noPostState) {
@@ -965,6 +1062,7 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       mutatedAccountHashes: mutated,
       boundsViolations,
       blockhashReplacement: replacement,
+      contextSlot,
       runtimeEventDigest: createHash('sha256')
         .update(JSON.stringify({ logs, events: events.map((e) => e.kind) }))
         .digest('hex'),
@@ -1032,6 +1130,7 @@ function fail(
     boundsViolations: [],
     exportedSnapshot: [],
     exportOmissions: [],
+    contextSlot: null,
     blockhashReplacement: null,
     runtimeEventDigest: null,
     jitFetchedAccounts: [],
@@ -1119,20 +1218,39 @@ function send(res: ServerResponse, code: number, body: unknown): void {
   res.end(payload);
 }
 
+class BodyTooLarge extends Error {
+  constructor(readonly bytes: number) {
+    super(`request body is ${bytes} bytes, above the ${MAX_BODY_BYTES} byte limit`);
+    this.name = 'BodyTooLarge';
+  }
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   return await new Promise((ok, no) => {
     let size = 0;
     const parts: Buffer[] = [];
+    let over = false;
     req.on('data', (c: Buffer) => {
       size += c.length;
-      if (size > MAX_BODY_BYTES) {
-        no(new Error(`body exceeds ${MAX_BODY_BYTES} bytes`));
-        req.destroy();
+      if (size > MAX_BODY_BYTES && !over) {
+        over = true;
+        // Stop accumulating, but keep DRAINING. Destroying the socket while the
+        // client is still writing means the response never arrives and the
+        // caller times out with no status at all -- it learns nothing, slowly.
+        // Reading to the end costs a little bandwidth and buys a real 413.
+        parts.length = 0;
         return;
       }
-      parts.push(c);
+      if (!over) parts.push(c);
     });
-    req.on('end', () => ok(Buffer.concat(parts).toString('utf8')));
+    req.on('aborted', () => no(new Error('the client aborted while sending the body')));
+    req.on('end', () => {
+      if (over) {
+        no(new BodyTooLarge(size));
+        return;
+      }
+      ok(Buffer.concat(parts).toString('utf8'));
+    });
     req.on('error', no);
   });
 }
@@ -1159,6 +1277,11 @@ const server = createServer((req, res) => {
         medianSimulationMs: median(simulateSamples),
         maxActiveSurfnets: MAX_ACTIVE_SURFNETS,
         queueLimit: MAX_QUEUED,
+        // Whether DEVELOPMENT_JIT can work at all. Without a remote there is
+        // nowhere to fetch from, and every JIT job fails fast -- correct, and
+        // impossible to diagnose from outside without saying so here. The URL
+        // itself is not reported; only whether one is configured.
+        jitCapable: (process.env['SIMULATORD_REMOTE_RPC'] ?? '').length > 0,
       });
       return;
     }
@@ -1204,6 +1327,10 @@ const server = createServer((req, res) => {
       try {
         parsed = JSON.parse(await readBody(req)) as SimulationRequest;
       } catch (e) {
+        if (e instanceof BodyTooLarge) {
+          send(res, 413, { error: e.message, limitBytes: MAX_BODY_BYTES, receivedBytes: e.bytes });
+          return;
+        }
         send(res, 400, { error: `bad body: ${(e as Error).message}` });
         return;
       }
