@@ -30,12 +30,7 @@ import { join } from 'node:path';
  * adding an entry is a statement that a decision-bearing module is inert on
  * purpose, and it belongs in the failure register too.
  */
-const KNOWN_INERT: Readonly<Record<string, string>> = {
-  'packages/intelligence/src/entity.ts':
-    'P13 — entity clustering must enter the concentration decision',
-  'packages/adapters/src/accountwatch.ts':
-    'P14 — the WSS reserve watcher must drive an emergency exit alarm',
-};
+const KNOWN_INERT: Readonly<Record<string, string>> = {};
 
 /** Every .ts file under the source roots, excluding tests and type-only files. */
 function sources(dir: string, out: string[] = []): string[] {
@@ -118,7 +113,8 @@ describe('a decision-bearing module must be consulted by something', () => {
   it('the inert list is small and every entry names the phase that would wire it', () => {
     // Growing this list is a statement that a decision-bearing module is inert
     // on purpose. That belongs in the failure register, not in a test file.
-    expect(Object.keys(KNOWN_INERT).length).toBeLessThanOrEqual(2);
+    // Empty. Every decision-bearing module now has a live caller.
+    expect(Object.keys(KNOWN_INERT).length).toBe(0);
     for (const [mod, why] of Object.entries(KNOWN_INERT)) {
       expect(why, mod).toMatch(/^P\d+ —/);
     }

@@ -449,6 +449,26 @@ export interface ConcentrationInput {
   readonly topWalletPct: number | null;
   readonly topTenWalletPct: number | null;
   readonly programControlledPct: number;
+  /**
+   * P17 — concentration over ENTITIES, when holder links have been examined.
+   *
+   * A token whose top-ten addresses hold 18% and whose top-ten entities hold
+   * 71% is not a decentralised token that happens to be clustered; it is a
+   * token built to look decentralised. The address figure alone cannot see
+   * that, and it is the figure the gate used.
+   *
+   * Absent means the links were not examined, which is different from examined
+   * and found unrelated. `trustworthy: false` means too many holders were
+   * unexamined for the entity figure to be BETTER than the address one -- it is
+   * then a different number, not a better one, and the gate uses the worse of
+   * the two rather than preferring either.
+   */
+  readonly entity?: {
+    readonly topEntityBps: Readonly<Record<1 | 5 | 10 | 20, number>>;
+    readonly entityCount: number;
+    readonly unknownHistoryCount: number;
+    readonly trustworthy: boolean;
+  } | null;
 }
 
 /**
@@ -475,14 +495,60 @@ export function evaluateConcentrationGate(
     return [soft('holder_concentration_unavailable', 0.3, 'concentration_unknown', unavailableReason)];
   }
 
+  /**
+   * P17 — the WORSE of the address and entity readings.
+   *
+   * Not the entity reading preferentially: when `trustworthy` is false the
+   * entity figure rests on holders whose history was never fetched, and a
+   * number built on unexamined data is not automatically the better one.
+   *
+   * Taking the worse of the two is the only combination that cannot be gamed in
+   * either direction. Splitting a whale across ten wallets raises the entity
+   * figure; leaving history unexamined suppresses it; the maximum notices both.
+   */
+  const entityTopTen = facts.entity == null ? null : facts.entity.topEntityBps[10] / 100;
+  const effectiveTopTen =
+    entityTopTen === null ? facts.topTenWalletPct : Math.max(facts.topTenWalletPct, entityTopTen);
+  const readingSource =
+    entityTopTen === null
+      ? 'addresses only'
+      : entityTopTen > facts.topTenWalletPct
+        ? `entities (${facts.entity?.entityCount} from ${facts.entity?.unknownHistoryCount} unexamined)`
+        : 'addresses';
+
   const out: GateResult[] = [
     veto(
       'holder_concentration',
-      facts.topTenWalletPct <= config.maxTopHolderPct,
+      effectiveTopTen <= config.maxTopHolderPct,
       'concentrated_ownership',
-      `top ten wallets hold ${facts.topTenWalletPct.toFixed(1)}% > ${config.maxTopHolderPct}%`,
+      `top ten ${readingSource} hold ${effectiveTopTen.toFixed(1)}% > ${config.maxTopHolderPct}%`,
     ),
   ];
+
+  // The GAP is its own signal. Addresses at 18% and entities at 71% is a token
+  // that was built to look decentralised, and that is worth grading even when
+  // the absolute level passes.
+  if (entityTopTen !== null && entityTopTen > facts.topTenWalletPct) {
+    out.push(
+      soft(
+        'entity_clustering',
+        normalize(entityTopTen - facts.topTenWalletPct, 5, 40),
+        'holders_are_clustered',
+        `top ten entities hold ${entityTopTen.toFixed(1)}% against ${facts.topTenWalletPct.toFixed(1)}% by address`,
+      ),
+    );
+  }
+
+  if (facts.entity != null && !facts.entity.trustworthy) {
+    out.push(
+      soft(
+        'entity_history_incomplete',
+        0.2,
+        'entity_history_incomplete',
+        `${facts.entity.unknownHistoryCount} holder(s) unexamined, so the entity reading is not better than the address one`,
+      ),
+    );
+  }
 
   if (facts.topWalletPct !== null) {
     // A single wallet large enough to move the price alone is a different risk

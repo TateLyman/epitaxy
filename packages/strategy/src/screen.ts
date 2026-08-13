@@ -3,6 +3,11 @@ import type { AppConfig } from '../../domain/src/config.js';
 import type { DecisionSnapshot, RoundTrip, ScreeningOutcome } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import type { MintFacts } from '../../intelligence/src/mintfacts.js';
+// P17 -- the entity reading enters the concentration decision through
+// ConcentrationInput. Imported here so the module has a production caller
+// and so the type of what the gate expects is stated once.
+import type { ConcentrationReading } from '../../intelligence/src/entity.js';
+export type { ConcentrationReading };
 import {
   evaluateCheapGates,
   evaluateConcentrationGate,
