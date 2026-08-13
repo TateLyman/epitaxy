@@ -42,6 +42,7 @@ import { diagnoseExit, executableValueRatioBps } from '../../../packages/domain/
 import { ATA_ACCOUNTING_VERSION, settleAtaRent } from '../../../packages/domain/src/ata.js';
 import type { AtaState } from '../../../packages/domain/src/ata.js';
 import { buildRunContext } from '../../../packages/domain/src/provenance.js';
+import { cohortOf, type CohortAssignment } from '../../../packages/domain/src/cohort.js';
 import { Cadence, detectDiscontinuity, readClock, monotonicMs } from '../../../packages/domain/src/clock.js';
 import type { ClockReading } from '../../../packages/domain/src/clock.js';
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
@@ -561,6 +562,14 @@ async function tryEnter(
   // with NAV and the number of open positions. A book whose position size
   // depends on how the last few trades went cannot answer what the signal was
   // worth. The shadows are fixed notional for exactly that reason.
+  // §16 — the cohort is frozen at open time, not recomputed later.
+  //
+  // A position opened at four minutes old is a four-minute experiment for its
+  // whole life. Recomputing from the token's current age would migrate a
+  // running position into an older bucket and silently change what the bucket
+  // means. AGE_UNKNOWN is its own value: absent is not young.
+  const cohort = cohortOf(result.snapshot.tokenAgeMs ?? null);
+
   await openShadowBooks(
     db,
     jupiter,
@@ -569,6 +578,8 @@ async function tryEnter(
     mint,
     contextHash,
     sizing.allowed ? 'accepted_by_portfolio' : (sizing.refusal ?? 'unknown'),
+    cohort,
+    result.snapshot.tokenAgeMs ?? null,
   );
 
   // The shadow ledger records what the SIGNAL said, before the portfolio had
@@ -806,6 +817,8 @@ async function openShadowBooks(
   mint: string,
   contextHash: string,
   refusal: string,
+  cohort: CohortAssignment,
+  tokenAgeMsAtOpen: number | null,
 ): Promise<void> {
   if (taker === null) return;
   const books: { book: 'alpha_shadow' | 'canary_shadow'; notional: bigint }[] = [
@@ -940,6 +953,15 @@ async function openShadowBooks(
       strategyVersion: config.strategyVersion,
       contextHash,
     });
+
+    // Written straight after the insert rather than threaded through the
+    // repository signature, because the cohort is a property of the DECISION
+    // and every other caller of openShadowPosition would have to invent one.
+    db.prepare('UPDATE shadow_positions SET cohort = ?, token_age_ms_at_open = ? WHERE shadow_position_id = ?').run(
+      cohort,
+      tokenAgeMsAtOpen,
+      id,
+    );
     bindEpisode(db, id, episode.signalEpisodeId, exitObs.observationId, roundTripLossBps);
     log.info(
       {
