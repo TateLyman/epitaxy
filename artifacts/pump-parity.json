@@ -1,0 +1,45 @@
+{
+  "takenAtUtcMs": 1786634760846,
+  "rows": [
+    {
+      "mint": "8NLcNjjNVAEtvD8LCB4K99YZCVPtGsUe7NEfRtvkpump",
+      "lamportsIn": "20000000",
+      "curveTokens": "106641265685",
+      "routerTokens": "103896332068",
+      "residualBps": 257,
+      "routerBeatCurve": false,
+      "route": "Pump.fun"
+    },
+    {
+      "mint": "FKf68eQHCpTJnuZHPwBdqUA24BC5cTeKERoktpTppump",
+      "lamportsIn": "10000000",
+      "curveTokens": "357335127425",
+      "routerTokens": "352924955151",
+      "residualBps": 123,
+      "routerBeatCurve": false,
+      "route": "Pump.fun"
+    },
+    {
+      "mint": "FKf68eQHCpTJnuZHPwBdqUA24BC5cTeKERoktpTppump",
+      "lamportsIn": "20000000",
+      "curveTokens": "714432260812",
+      "routerTokens": "705617825024",
+      "residualBps": 123,
+      "routerBeatCurve": false,
+      "route": "Pump.fun"
+    },
+    {
+      "mint": "FKf68eQHCpTJnuZHPwBdqUA24BC5cTeKERoktpTppump",
+      "lamportsIn": "50000000",
+      "curveTokens": "1784298072028",
+      "routerTokens": "1762305818119",
+      "residualBps": 123,
+      "routerBeatCurve": false,
+      "route": "Pump.fun"
+    }
+  ],
+  "residualSpreadBps": 134,
+  "routerBeatCurveCount": 0,
+  "skippedBecauseCurveMoved": 4,
+  "skippedNonStandard": 0
+}

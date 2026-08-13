@@ -44,7 +44,8 @@
     "simulator:parity-corpus": "tsx scripts/capture-parity-corpus.ts",
     "cost:surface": "tsx scripts/cost-surface.ts",
     "simulator:observation-smoke": "tsx scripts/simulate-observation-smoke.ts",
-    "simulator:crosscheck": "tsx scripts/simulator-mainnet-crosscheck.ts"
+    "simulator:crosscheck": "tsx scripts/simulator-mainnet-crosscheck.ts",
+    "pump:parity": "tsx scripts/pump-parity.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
