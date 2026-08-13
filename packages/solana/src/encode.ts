@@ -222,21 +222,14 @@ export function compileMessage(
     );
   }
 
-  // Lookup entries, in table order, split by privilege.
+  // Lookup entries, grouped by table.
   const usedAlt = new Map<string, { writable: number[]; readonly: number[] }>();
-  const altOrderWritable: string[] = [];
-  const altOrderReadonly: string[] = [];
   for (const [pubkey, meta] of metas) {
     const hit = altAddresses.get(pubkey);
     if (hit === undefined || meta.isSigner || programIds.has(pubkey)) continue;
     const entry = usedAlt.get(hit.table) ?? { writable: [], readonly: [] };
-    if (meta.isWritable) {
-      entry.writable.push(hit.index);
-      altOrderWritable.push(pubkey);
-    } else {
-      entry.readonly.push(hit.index);
-      altOrderReadonly.push(pubkey);
-    }
+    if (meta.isWritable) entry.writable.push(hit.index);
+    else entry.readonly.push(hit.index);
     usedAlt.set(hit.table, entry);
   }
 
@@ -248,13 +241,53 @@ export function compileMessage(
       readonlyIndexes: v.readonly,
     }));
 
-  // Runtime index space: static keys, then ALL writable ALT addresses, then all
-  // readonly ALT addresses. Instruction indexes must be resolved against that.
+  // Runtime index space, derived FROM the lookups we just emitted rather than
+  // from the order the instruction metas happened to arrive in.
+  //
+  // The runtime resolves loaded addresses by walking the message's lookup list
+  // in order, taking every writable index of every table first, then every
+  // readonly index of every table. It does NOT interleave tables. Building the
+  // order from meta insertion order does, and the two disagree the moment a
+  // second table is involved:
+  //
+  //   table A = [A1, A2], table B = [B1, B2], metas arrive A1, B1, A2, B2
+  //     meta order    -> A1, B1, A2, B2
+  //     runtime order -> A1, A2, B1, B2
+  //
+  // Every instruction index past the static keys would then name a different
+  // account than the one intended, in a transaction that still encodes, still
+  // passes a packet-size check, and still looks entirely ordinary. Single-table
+  // routes are unaffected, which is why the existing tests did not catch it.
+  //
+  // Deriving the order from `addressTableLookups` makes the two constructions
+  // the same construction, so they cannot drift apart again.
   const indexOf = new Map<string, number>();
   staticAccountKeys.forEach((k, i) => indexOf.set(k, i));
   let next = staticAccountKeys.length;
-  for (const k of altOrderWritable) if (!indexOf.has(k)) indexOf.set(k, next++);
-  for (const k of altOrderReadonly) if (!indexOf.has(k)) indexOf.set(k, next++);
+  const resolveEntry = (table: string, index: number): string | undefined => lookupTables[table]?.[index];
+  // The resolved loaded addresses, in runtime order. These are also what the
+  // account policy inspects: a policy that checked a different set than the
+  // runtime loads would be checking a different transaction.
+  const altOrderWritable: string[] = [];
+  const altOrderReadonly: string[] = [];
+  for (const lut of addressTableLookups) {
+    for (const i of lut.writableIndexes) {
+      const k = resolveEntry(lut.accountKey, i);
+      if (k !== undefined && !indexOf.has(k)) {
+        indexOf.set(k, next++);
+        altOrderWritable.push(k);
+      }
+    }
+  }
+  for (const lut of addressTableLookups) {
+    for (const i of lut.readonlyIndexes) {
+      const k = resolveEntry(lut.accountKey, i);
+      if (k !== undefined && !indexOf.has(k)) {
+        indexOf.set(k, next++);
+        altOrderReadonly.push(k);
+      }
+    }
+  }
 
   const compiled = instructions.map((ix) => {
     const programIdIndex = indexOf.get(ix.programId);

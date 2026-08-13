@@ -47,7 +47,21 @@ const PORT = Number(process.env['SIMULATORD_PORT'] ?? 8787);
 const TOKEN = process.env['SIMULATORD_TOKEN'] ?? '';
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 60_000;
-const MAX_QUEUE = 16;
+
+/**
+ * §3.1 — one Surfnet at a time, and do not optimise this yet.
+ *
+ * The daemon documented "fresh instance per job" and then permitted sixteen at
+ * once, each starting its own SVM and binding its own ports. Isolation was
+ * asserted by the comment and not enforced by anything. Startup was measured at
+ * 23-24 ms, so serialising costs almost nothing, and a bounded warm pool is a
+ * thing to build when measured throughput demands it rather than in advance.
+ */
+const MAX_ACTIVE_SURFNETS = 1;
+/** Bounded FIFO. A queue that can grow without limit is a memory leak with a plan. */
+const MAX_QUEUED = 16;
+/** Bounded retry memory: a cache for retries, not a ledger. Windows holds that. */
+const MAX_CACHED_JOBS = 512;
 
 /**
  * How many accounts we ask the runtime to return post-simulation state for.
@@ -113,11 +127,64 @@ const surfpool = require('@solana/surfpool') as SurfnetModule;
 
 let runtimeVersion: string | null = null;
 let featureSet: string | null = null;
-let inFlight = 0;
+let active = 0;
 let jobsRun = 0;
+let jobsFailed = 0;
+let jobsUnknown = 0;
+const startupSamples: number[] = [];
+const simulateSamples: number[] = [];
 
 /** jobId -> {requestHash, response}. Idempotency, and refusal on a mismatch. */
 const completed = new Map<string, { requestHash: string; response: SimulationResponse }>();
+
+/**
+ * §3.2 — in-flight idempotency.
+ *
+ * The completed-job cache could not help a job that was still running, so a
+ * client timeout at 60 s followed by a retry started a SECOND simulation of the
+ * same work under the same job id. Two Surfnets, two answers, one job id, and
+ * whichever finished last won. A retry has to ATTACH to the work already in
+ * progress, not race it.
+ */
+const inFlight = new Map<string, { requestHash: string; promise: Promise<SimulationResponse>; startedUtcMs: number }>();
+
+/**
+ * The bounded FIFO. Each entry waits for its turn to be the single active job.
+ *
+ * Queue position is taken before the work starts and released in a finally, so
+ * a throwing job cannot wedge the queue closed.
+ */
+const waiting: { enqueuedUtcMs: number; release: () => void }[] = [];
+
+async function acquireSlot(): Promise<{ queueWaitMs: number; release: () => void }> {
+  const enqueuedUtcMs = Date.now();
+  if (active < MAX_ACTIVE_SURFNETS) {
+    active += 1;
+    return { queueWaitMs: 0, release: releaseSlot };
+  }
+  await new Promise<void>((resolve) => {
+    waiting.push({ enqueuedUtcMs, release: resolve });
+  });
+  active += 1;
+  return { queueWaitMs: Date.now() - enqueuedUtcMs, release: releaseSlot };
+}
+
+function releaseSlot(): void {
+  active -= 1;
+  const next = waiting.shift();
+  if (next !== undefined) next.release();
+}
+
+function median(xs: readonly number[]): number | null {
+  if (xs.length === 0) return null;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? null;
+}
+
+function sample(into: number[], value: number): void {
+  into.push(value);
+  if (into.length > 200) into.shift();
+}
 
 async function rpc(url: string, method: string, params: unknown[]): Promise<unknown> {
   const res = await fetch(url, {
@@ -140,6 +207,47 @@ async function probeRuntime(): Promise<void> {
   } finally {
     net.stop();
   }
+}
+
+/**
+ * §3.4 — cross a bigint into a native binding that only accepts JS numbers, or
+ * refuse. Never round.
+ *
+ * @solana/surfpool 1.5.0 types every amount as `number`: fundSol(lamports),
+ * setTokenBalance(amount), setAccount(lamports). There is no bigint transport
+ * in this version, so the choice is exactness or refusal, and silent rounding
+ * is not on the list.
+ *
+ * This is not hypothetical. A fresh memecoin with a one-billion supply and nine
+ * decimals is 10^18 atoms; 2^53-1 is about 9.007 x 10^15. Ordinary positions in
+ * exactly the tokens this system trades exceed the safe integer range by three
+ * orders of magnitude, and `Number()` on one of them changes the size of the
+ * position without saying so.
+ *
+ * SOL amounts are safe in practice -- 2^53-1 lamports is roughly nine million
+ * SOL -- but the guard applies to both, because the reason it holds for SOL is
+ * a fact about how small our positions are, not a property of the type.
+ */
+export class UnsafeAmount extends Error {
+  constructor(
+    readonly field: string,
+    readonly value: bigint,
+  ) {
+    super(
+      `${field} is ${value.toString()}, above Number.MAX_SAFE_INTEGER (${Number.MAX_SAFE_INTEGER}). ` +
+        'The Surfpool binding accepts only JS numbers, so this value cannot be passed exactly. ' +
+        'Refusing rather than rounding: a token amount that changes when it crosses a boundary is ' +
+        'a position of a different size.',
+    );
+    this.name = 'UnsafeAmount';
+  }
+}
+
+export function exactNumber(value: bigint, field: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < -BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new UnsafeAmount(field, value);
+  }
+  return Number(value);
 }
 
 /** An account as the runtime describes it, or absent. Absent is not zero. */
@@ -244,6 +352,23 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     return fail(req, 'SIMULATOR_UNAVAILABLE', `transaction bytes did not decode: ${(e as Error).message}`, t0, queueWaitMs, 0, 0);
   }
 
+  // Checked BEFORE a Surfnet is started. An amount we cannot pass exactly is a
+  // fact about the request, and starting an SVM to discover it wastes the slot.
+  for (const a of req.snapshotAccounts) {
+    try {
+      exactNumber(BigInt(a.lamports), `snapshot lamports for ${a.pubkey}`);
+    } catch (e) {
+      return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+    }
+  }
+  for (const m of req.balanceMutations) {
+    try {
+      exactNumber(BigInt(m.amount), `${m.kind} mutation for ${m.owner}`);
+    } catch (e) {
+      return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+    }
+  }
+
   // §13 — measured against @solana/surfpool 1.5.0: `setAccount` has no
   // `executable` parameter, so a program account restored through it comes back
   // NON-executable and every route through it fails with an invalid-program
@@ -275,7 +400,12 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       if (a.executable) {
         net.deploy({ programId: a.pubkey, soBytes: [...Buffer.from(a.programElfBase64 ?? '', 'base64')] });
       } else {
-        net.setAccount(a.pubkey, Number(a.lamports), new Uint8Array(Buffer.from(a.dataBase64, 'base64')), a.owner);
+        net.setAccount(
+          a.pubkey,
+          exactNumber(BigInt(a.lamports), `snapshot lamports for ${a.pubkey}`),
+          new Uint8Array(Buffer.from(a.dataBase64, 'base64')),
+          a.owner,
+        );
       }
     }
 
@@ -286,12 +416,15 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const namedAtas: string[] = [];
     for (const m of req.balanceMutations) {
       if (m.kind === 'sol') {
-        net.fundSol(m.owner, Number(m.amount));
+        net.fundSol(m.owner, exactNumber(BigInt(m.amount), `SOL mutation for ${m.owner}`));
         continue;
       }
       if (m.mint === undefined) continue;
-      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, Number(m.amount));
-      else net.setTokenBalance(m.owner, m.mint, Number(m.amount), m.tokenProgram);
+      // Token atoms are where this actually bites: a nine-decimal memecoin with
+      // a billion supply is 10^18 atoms, three orders of magnitude past exact.
+      const atoms = exactNumber(BigInt(m.amount), `token mutation for ${m.owner}/${m.mint}`);
+      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, atoms);
+      else net.setTokenBalance(m.owner, m.mint, atoms, m.tokenProgram);
       try {
         namedAtas.push(m.tokenProgram == null ? net.getAta(m.owner, m.mint) : net.getAta(m.owner, m.mint, m.tokenProgram));
       } catch {
@@ -713,7 +846,23 @@ const server = createServer((req, res) => {
     const url = req.url ?? '';
 
     if (req.method === 'GET' && url === '/v1/health') {
-      send(res, 200, { ok: true, inFlight, jobsRun, queueLimit: MAX_QUEUE });
+      // §3.3 — the numbers an operator needs to know whether the mark SLA is
+      // survivable, not a liveness bit.
+      const oldest = waiting[0];
+      send(res, 200, {
+        ok: true,
+        active,
+        queued: waiting.length,
+        inFlightJobs: inFlight.size,
+        oldestQueueAgeMs: oldest === undefined ? 0 : Date.now() - oldest.enqueuedUtcMs,
+        jobsCompleted: jobsRun,
+        jobsFailed,
+        jobsUnknown,
+        medianStartupMs: median(startupSamples),
+        medianSimulationMs: median(simulateSamples),
+        maxActiveSurfnets: MAX_ACTIVE_SURFNETS,
+        queueLimit: MAX_QUEUED,
+      });
       return;
     }
 
@@ -750,9 +899,8 @@ const server = createServer((req, res) => {
     }
 
     if (req.method === 'POST' && url === '/v1/simulate') {
-      const arrived = Date.now();
-      if (inFlight >= MAX_QUEUE) {
-        send(res, 503, { error: 'queue full', queueLimit: MAX_QUEUE });
+      if (waiting.length >= MAX_QUEUED) {
+        send(res, 503, { error: 'queue full', queued: waiting.length, queueLimit: MAX_QUEUED });
         return;
       }
       let parsed: SimulationRequest;
@@ -785,21 +933,54 @@ const server = createServer((req, res) => {
         return;
       }
 
-      inFlight += 1;
+      // §3.2 — a request for work already running ATTACHES to it. The hash is
+      // checked first: a different hash under a running job id is refused
+      // immediately, without waiting for the job it disagrees with.
+      const running = inFlight.get(parsed.jobId);
+      if (running !== undefined) {
+        if (running.requestHash !== parsed.requestHash) {
+          send(res, 409, {
+            error: 'jobId is in flight with a different request hash',
+            priorHash: running.requestHash,
+            runningForMs: Date.now() - running.startedUtcMs,
+          });
+          return;
+        }
+        try {
+          send(res, 200, await running.promise);
+        } catch (e) {
+          send(res, 200, fail(parsed, 'SIMULATION_UNKNOWN', (e as Error).message.slice(0, 300), Date.now(), 0, 0, 0));
+        }
+        return;
+      }
+
+      const work = (async (): Promise<SimulationResponse> => {
+        const slot = await acquireSlot();
+        try {
+          return await runJob(parsed, slot.queueWaitMs);
+        } finally {
+          slot.release();
+        }
+      })();
+      inFlight.set(parsed.jobId, { requestHash: parsed.requestHash, promise: work, startedUtcMs: Date.now() });
+
       try {
-        const response = await runJob(parsed, Date.now() - arrived);
+        const response = await work;
         completed.set(parsed.jobId, { requestHash: parsed.requestHash, response });
-        // Bounded memory: this is a cache for retries, not a ledger. Windows
-        // holds the durable record.
-        if (completed.size > 512) completed.delete(completed.keys().next().value as string);
+        if (response.status === 'SIMULATION_FAILED') jobsFailed += 1;
+        if (response.status === 'SIMULATION_UNKNOWN') jobsUnknown += 1;
+        if (response.startupMs > 0) sample(startupSamples, response.startupMs);
+        if (response.simulateMs > 0) sample(simulateSamples, response.simulateMs);
+        if (completed.size > MAX_CACHED_JOBS) completed.delete(completed.keys().next().value as string);
         send(res, 200, response);
       } catch (e) {
         // The reason is the whole value of a failure. It goes in `detail` and
         // it goes in the log, because a status with no cause is a mystery.
         console.error(JSON.stringify({ msg: 'job threw', jobId: parsed.jobId, error: (e as Error).stack ?? String(e) }));
+        jobsUnknown += 1;
         send(res, 200, fail(parsed, 'SIMULATION_UNKNOWN', (e as Error).message.slice(0, 300), Date.now(), 0, 0, 0));
       } finally {
-        inFlight -= 1;
+        inFlight.delete(parsed.jobId);
       }
       return;
     }

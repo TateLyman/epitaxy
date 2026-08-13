@@ -1,5 +1,5 @@
 import type { Db } from '../../../packages/storage/src/db.js';
-import { openPositions } from '../../../packages/storage/src/repo.js';
+import { summariseExposure } from '../../../packages/storage/src/exposure.js';
 import { recordDay, dayRecord } from '../../../packages/storage/src/provenance-repo.js';
 import type { AppConfig } from '../../../packages/domain/src/config.js';
 import { utcDayStart, utcDateKey, utcDaysBetween } from '../../../packages/domain/src/clock.js';
@@ -101,22 +101,39 @@ export function peakNav(db: Db, startLamports: bigint): bigint {
  * silently reset the experiment to a fresh, flattering starting balance.
  */
 export function restoreLedger(db: Db, config: AppConfig, nowUtcMs: number): Ledger {
-  const open = openPositions(db);
-  const exposure = open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n);
+  // Exposure is reconstructed from what is HELD, not from a list of states we
+  // remembered to name. `openPositions()` asks for POSITION_OPEN and
+  // EXIT_INTENT, which silently omitted EXIT_BLOCKED and RECONCILING -- and a
+  // position whose exit could not be built is precisely the one most likely to
+  // still be holding something. Omitted, its cost was not exposure and its rent
+  // was not locked, so the capital behind a position we could not sell was
+  // reported as free and available to open another.
+  const exposure = summariseExposure(db);
   const nav = config.paperStartLamports + sumRealized(db, null);
   const dayStart = utcDayStart(nowUtcMs);
   return {
     navLamports: nav,
-    freeLamports: nav - exposure,
+    freeLamports: nav - exposure.totalCostLamports,
     realizedTodayLamports: realizedForDay(db, dayStart).realized,
     dayStartUtcMs: dayStart,
     utcDate: utcDateKey(nowUtcMs),
     peakNavLamports: peakNav(db, config.paperStartLamports),
-    // One ATA per open position. Paper does not observe whether the account
+    // One ATA per held position. Paper does not observe whether the account
     // already existed, so this is the upper bound, which is the conservative
     // direction for a number that reduces free capital.
-    lockedRentLamports: BigInt(open.length) * config.assumedAtaRentLamports,
+    lockedRentLamports: BigInt(exposure.ataCount) * config.assumedAtaRentLamports,
   };
+}
+
+/**
+ * The startup invariant: every nonzero, nonclosed position is accounted for.
+ *
+ * Returns the reason entries must be blocked, or null. A position held in a
+ * state this build cannot manage is not a warning to log and move past -- we do
+ * not know how it exits, so we must not open anything else.
+ */
+export function exposureBlockingEntries(db: Db): string | null {
+  return summariseExposure(db).reason;
 }
 
 /** Milliseconds in seven days, for the trailing weekly loss halt. */
