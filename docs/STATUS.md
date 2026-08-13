@@ -1392,3 +1392,157 @@ Four of the first eight simulations FAILED. That is not a defect — these are
 real routes against real pools, and a route that cannot execute is exactly the
 fact the simulation exists to establish. It is also why the number matters: an
 engine booking fills on unsimulated routes would have counted all eight.
+
+---
+
+# 2026-08-13 — the 2617bb7 profitability directive
+
+## What changed
+
+**The simulator was measuring itself.** Every simulation job this repository had
+ever produced described no economic leg: `requestedAmount` was the string `'0'`
+and the only balance mutation was SOL, whatever the transaction spent. Buys were
+funded correctly and executed; sells were asked to spend a token the simulator
+had never been given, and 43 of 43 failed with the identical error at the
+identical instruction index across every venue, mint and size.
+
+That uniformity is the signature of an apparatus, not a market.
+
+## Operational
+
+| | |
+|---|---|
+| mode | paper (observe + paper only; neither imports `packages/execution/`) |
+| tests | **862 pass**, 4 skipped, 55 files, ~5 s |
+| schema | v18 |
+| corpus | 26,515 observations, 108 simulation jobs, 603 marks |
+| backup | `runtime.db.backup-2026-08-13T17-54-57-293Z`, sha256 `7edd0e0c…`, integrity ok, witness bounds `[26515, 26515]` |
+| canary readiness | **NOT_READY** — 0 confirmatory positions, every economic gate failing |
+
+## Now enforced
+
+- **`SIMULATED_EFFECT_OK`** — runtime success is not economic success.
+  `RUNTIME_OK` + `EFFECT_OK` + `FEE_DECOMPOSITION_OK` + `ACCOUNT_COVERAGE_OK`,
+  required by `legIsExecutable()`. See `docs/SIMULATION_EFFECTS.md`.
+- **Leg-shaped simulation setup** — `validateSetup()` refuses a zero amount, a
+  sell with no token program, a sell whose input is SOL, and a leg whose input
+  and output are the same asset, *before* anything is sent.
+- **Derived validity** — `simulationValidity()` reads the request bytes rather
+  than trusting the caller. A caller that could assert its own validity would
+  have asserted it for all 43.
+- **Portfolio entry requires a verified same-family sell** at the exact acquired
+  amount. A buy alone is not an entry.
+- **Marks are executable** — an exact full-balance `BUILD_CUSTOM` sell. `/order`
+  is stored as a benchmark and moves no stop, trail, peak or NAV.
+- **Exits are simulated before they are judged.** The previous code tested the
+  exit observation for simulation without ever simulating it.
+- **Profitability is a canary gate.** The previous gate passed after 200 losing
+  trades; `tests/unit/readiness.test.ts` builds that corpus and asserts refusal.
+
+## Invalidated
+
+All 108 simulation jobs are `INSTRUMENT_DEVELOPMENT`. All 26,515 observations
+are `NOT_VERIFIED`. All 603 marks are `ORDER_QUOTE_BENCHMARK` and
+`decision_bearing = 0`.
+
+Rows are preserved. **No threshold, weight or model may be fitted on any of
+them.**
+
+## Unproven
+
+- No leg has passed effect verification. Zero valid development, offline
+  reproducible, or confirmatory positions.
+- Every route fingerprint is `STRUCTURAL_ONLY`.
+- Offline reproducibility is blocked for most rows by a NULL `context_slot`.
+- The mark backlog is ~40x capacity (169 due against 4), worst lag ~1,020 s.
+- 92 `HTTP_4XX` sell observations in 15 minutes: routes that do not exist.
+
+This is not production ready and no part of it is. The measurement apparatus was
+repaired today and the first window that could mean anything is minutes old.
+
+Full report: `docs/AUDIT_HEAD_2617BB7.md`.
+
+## Also landed this session (P7, P12, P17)
+
+**One accounting implementation.** `accounting.ts` gained `entryCashOut()` and
+`exitCashIn()`; `totalEntryCost` and `netExitProceeds` — which are what the
+runtime actually called — now delegate to them. An unobserved transfer or
+platform fee makes a quote incomplete rather than zero. The failure model is an
+upper bound from the attempt record, not one flat charge: 3-in-10 and
+300-in-1000 share a point estimate and are very different evidence.
+
+**The risk contradiction.** A proposed trade was charged the catastrophic floor
+(100%) while existing positions in the same aggregate cap were charged the
+nominal 2,500 bps stop. The cap read the book as four times safer than the model
+said. Both now use `plannedLossFractionBps()`.
+
+**Soft risk cannot be diluted.** It was the mean of its components, so adding a
+gate that reported *no* risk halved every existing risk. Now
+`max(primary) + bounded secondary`.
+
+**Net buyers are never replaced with gross buys.** A wash trader running a
+hundred round trips through two wallets produces an enormous gross buy count and
+a net buyer count near zero, so the old fallback handed the anti-wash gate the
+one number wash trading inflates.
+
+**Jupiter build composition.** `otherInstructions` ran *after* cleanup closed the
+wrapped-SOL account; `tipInstruction` was parsed and dropped. Order is now
+compute → setup → swap → other → cleanup → tip, and the tip amount is decoded
+from the System transfer as a `bigint`.
+
+## What the evidence scripts now report
+
+| | |
+|---|---|
+| shadows | 1,079, all `STRUCTURAL_ONLY`; **every one refused by a portfolio halt** (983 weekly, 96 daily) |
+| shadow marks | 25,085, of which 22,379 unpriced |
+| cohorts | 118 assigned (all one arm); 965 predate the feature and are marked as such, not backfilled |
+| rejects | 811,977 rows; 29,337 classified since the classifier landed, `EXECUTABLE_VALUE` zero in all of them |
+
+The portfolio has been halted for the entire window. That is what the shadow
+books exist to reveal: without them the corpus would show no positions and no
+reason, and the absence would read as "no signals".
+
+None of these numbers vindicates a gate. The classified reject sample is three
+hours old, and the cohort experiment has one arm.
+
+Correction: an earlier version of this file said cohort assignment and reject
+classification "were not running". Both run. The gaps are rows that predate the
+features, and they are marked rather than filled.
+
+## Three modules that decide nothing
+
+Checked, not assumed:
+
+```
+packages/intelligence/src/mintfacts.ts    0 non-test importers
+packages/intelligence/src/entity.ts       0 non-test importers
+packages/adapters/src/accountwatch.ts     0 non-test importers
+```
+
+Complete, tested, and called by nothing. This is the dead-field defect at module
+scale, and at that scale it is worse: a dead module has passing tests, so it
+counts as working capability in every report that counts files.
+
+`tests/unit/no-dead-modules.test.ts` counts live importers per decision-bearing
+module. The list can only shrink.
+
+## The binding constraint
+
+`S050` — offline replay cannot restore a six-program Pump route, because
+`net.deploy()` is a synchronous napi call on the request path. Pump is therefore
+capped at `JIT_EFFECT_VALID`, `CONFIRMATORY` is unreachable for it, and the
+readiness gate's 200 confirmatory positions cannot reach one.
+
+Everything else on the blocker list is downstream of collecting more data.
+This one is not.
+
+## What a working day looks like from here
+
+1. `pnpm db:migrate` — backup, then apply pending migrations
+2. `pnpm paper` — collect on a clean commit
+3. `pnpm window:status` — what the repaired instrument has measured
+4. `pnpm capability:matrix` — which route shapes have advanced
+5. `pnpm readiness` — the gate, which will say NOT_READY for a long time
+
+Nothing above starts canary or live.

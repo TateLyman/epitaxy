@@ -7,6 +7,8 @@ import {
   DECISION_BEARING_CONFIG_FIELDS,
   NON_DECISION_CONFIG_FIELDS,
   COST_ACCOUNTING_VERSION,
+  SIMULATOR_VERSION,
+  EFFECT_VERIFICATION_VERSION,
   PROVENANCE_VERSION,
 } from '../../packages/domain/src/provenance.js';
 import type { AppConfig } from '../../packages/domain/src/config.js';
@@ -95,13 +97,26 @@ describe('the hash actually moves when a decision-bearing field moves', () => {
     expect(strategyConfigHash(record as unknown as AppConfig)).toBe(base);
   });
 
-  it('changes when the cost accounting version changes', () => {
-    // The same assumedPriorityFeeLamports means something different once the
-    // applied compute limit is derived rather than assumed, so a corpus
-    // spanning that change must not pool.
-    expect(base).toContain('');
-    expect(COST_ACCOUNTING_VERSION).toContain('derived-compute-limit');
-    expect(PROVENANCE_VERSION).toBe('provenance-v2');
+  it('names the cost accounting the runtime actually uses', () => {
+    // P22 -- this string must describe the code that runs, not the code that
+    // ran when someone last remembered to edit it. It moved to v3 when
+    // `totalEntryCost` and `netExitProceeds` stopped re-deriving their own sums
+    // and started delegating to `accounting.ts`, because the same
+    // `assumedPriorityFeeLamports` means something different once every leg is
+    // priced by one implementation.
+    expect(COST_ACCOUNTING_VERSION).toContain('v3');
+    expect(COST_ACCOUNTING_VERSION).toContain('unified-cashflow');
+    expect(PROVENANCE_VERSION).toBe('provenance-v3');
+  });
+
+  it('separates windows measured by different apparatus', () => {
+    // The pre-repair jobs were measuring the instrument. Pooling them with real
+    // measurements would put the artifact back into every aggregate it was
+    // removed from, which is the whole reason the invalidation exists.
+    expect(SIMULATOR_VERSION).toContain('leg-shaped');
+    expect(EFFECT_VERIFICATION_VERSION).toContain('effect-verification');
+    const regime = dataRegimeId(config as unknown as AppConfig, 'schema-v18');
+    expect(regime.length).toBeGreaterThan(0);
   });
 });
 

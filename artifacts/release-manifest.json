@@ -1,17 +1,17 @@
 {
-  "generatedUtc": "2026-08-12T22:27:06.825Z",
+  "generatedUtc": "2026-08-13T18:35:40.255Z",
   "source": {
-    "commit": "1ea251688a48ab2fe84ab801affc660c4948a94f+dirty",
+    "commit": "2db97f71d12646df0fa103ba692ae16da4e76820+dirty",
     "dirty": true,
     "branch": "master",
-    "describe": "1ea2516-dirty",
+    "describe": "2db97f7-dirty",
     "remote": "https://github.com/TateLyman/epitaxy.git"
   },
   "toolchain": {
     "node": "v24.12.0",
-    "pnpm": "11.13.0",
-    "lockfileSha256": "1ec88063a45bfbcc5d527d2a3b7f64ba556d1a916c1522bb1c90653f617c7636",
-    "packageJsonSha256": "b2077baaf6c88582abea9ac2eb9ecb80bac3377351e59b9cde28c69bbbfe038a",
+    "pnpm": "11.21.0",
+    "lockfileSha256": "214ef825c7fc1995b6d963a72843caf610d36aefdb29b3dfbd7b5bfb3d846f5c",
+    "packageJsonSha256": "1d677893b58fc35d4fe31bcc3fd7d76d55ce79b8f8a81d649063cff0c78d4208",
     "tsconfigSha256": "a9b66ab18c143b138ab979fd1154c7c1fb9e528a89c1c8ea60bf8541e6bc4800"
   },
   "configs": [
@@ -21,9 +21,9 @@
       "primaryRouteFamily": "QUOTE_ONLY_BENCHMARK",
       "requireLocalSimulation": false,
       "requireExactSizeBuild": false,
-      "strategyConfigHash": "718670ab0478544bd79b78b26fb0bd57580579e9cc42be65f3a430972eb2a56d",
+      "strategyConfigHash": "794db2d868b4524d11346b54d584b3db49ce7d013d34f4a8bc0eb7b590e8d0e9",
       "riskPolicyHash": "d92d5ce47d3c668ce161c3f36a4b019b58e7b2f42264ddd7bc90602077d59ef4",
-      "fileSha256": "eab2a1d467d36776ab0a68e86a764b50d31b6eb7f6119451bd672c889453eb49"
+      "fileSha256": "f45c13bac7a049212ab7e94e3da5a1568881ef2544ffac97b1f450e01da67a54"
     },
     {
       "mode": "paper",
@@ -31,9 +31,9 @@
       "primaryRouteFamily": "BUILD_CUSTOM",
       "requireLocalSimulation": true,
       "requireExactSizeBuild": true,
-      "strategyConfigHash": "718670ab0478544bd79b78b26fb0bd57580579e9cc42be65f3a430972eb2a56d",
+      "strategyConfigHash": "daa1607d9a43090fb09d51ee646a386d3156dfbee5266dc1771efcc826c25bd6",
       "riskPolicyHash": "ffc23e18a594a61ab5cd2ee8ed970514830f70172a0e3b6afcd7508e94ea67e2",
-      "fileSha256": "d092d9dd853dec6974396483559b19e5c2c1340f3e46be560850d9b90fd714ef"
+      "fileSha256": "e4195653c97cb0710753109929d33d817f4224237cd9370f2c54fb3195c078b8"
     },
     {
       "mode": "canary",
@@ -41,9 +41,9 @@
       "primaryRouteFamily": "BUILD_CUSTOM",
       "requireLocalSimulation": true,
       "requireExactSizeBuild": true,
-      "strategyConfigHash": "f9b60c87baf9bf554edf774424d8b52d9d44cd4d6de63fee2e4944160c8e8029",
+      "strategyConfigHash": "b53f638d4c83666b6254e11f41bdfbcff3b348a665386cd52db7179ebc14a4b7",
       "riskPolicyHash": "ba4730fa5072cd2b67aa73b7393b9e0e0787f727cd126fb12f589736d444aa77",
-      "fileSha256": "3151e89ef004f4bee5d048b61f8a7da006c7484e0844f33f1238eff5bf99c9bf"
+      "fileSha256": "98889466e04b6df892427a2172d9e4b19f828c3e410ae8c1ec5022ed80f810ea"
     },
     {
       "mode": "live",
@@ -51,9 +51,9 @@
       "primaryRouteFamily": "BUILD_CUSTOM",
       "requireLocalSimulation": true,
       "requireExactSizeBuild": true,
-      "strategyConfigHash": "8ae93dc3d3dfa2a3dfbb299034161af69452a5a111ada5394f8a1a3e6a4d5a3f",
+      "strategyConfigHash": "21574a20d0e5637f1e05bb49372628600c04389310c60b53580bfa205724ee8a",
       "riskPolicyHash": "30ae102f11f0d2ba17c2b92762bc412b216f009489a12c6f61eaea3800fe01c6",
-      "fileSha256": "64076b8659242dd1289f5841f2a45538cdb8e6a2baa5c11a44075c3ef2c24d1d"
+      "fileSha256": "36dc01633a6108cdf61c94383003d558efe5c3976ce02dfed8a7835e0a54cf75"
     }
   ],
   "programsAllowlistSha256": "7f2572664931ad44989ce5952a345fedb22941e098d72b17d9197c31d03e0920",
@@ -61,7 +61,7 @@
   "docs": {
     "auditBaseline": "72600e1711be1c57dc26a3391f0bd56b427852c61b9aad99c4b107c38af046f1",
     "invalidation": "e3c1e9c2ae45965f6cc2ea34a3fbbe94a9f70a6cedaa4fb5d7add34bd766cb31",
-    "multipleTestingLedger": "167f0c6f85d737c16582d40b8647924bdcf511c91e6d8d7e54b6a1dc3a8d1c09"
+    "multipleTestingLedger": "22df44ef967d68e0f23d7b7d68a524f1cbbd3871ecc9dfdd2e8f1ff51ef395c7"
   },
   "knownBlockers": [
     "requireLocalSimulation is true and no local SVM fixture is wired, so paper mode books no fills. This is deliberate: a mainnet simulateTransaction cannot validate either leg for an unfunded taker that holds none of the hypothetical tokens.",

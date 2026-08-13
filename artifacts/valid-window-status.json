@@ -1,0 +1,82 @@
+{
+  "generatedUtcMs": 1786647519720,
+  "bySide": [
+    {
+      "side": "buy",
+      "status": "SIMULATED_OK",
+      "effect": 0,
+      "n": 4
+    },
+    {
+      "side": "sell",
+      "status": "SIMULATED_OK",
+      "effect": 0,
+      "n": 3
+    },
+    {
+      "side": "sell",
+      "status": "SIMULATION_FAILED",
+      "effect": 0,
+      "n": 9
+    }
+  ],
+  "totals": [
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "n": 116,
+      "effect_ok": 0
+    },
+    {
+      "validity": "VALID_DEVELOPMENT",
+      "n": 16,
+      "effect_ok": 0
+    }
+  ],
+  "refusals": [
+    {
+      "effect_refusals": "[\"runtime did not succeed: {\\\"InstructionError\\\":[2,{\\\"Custom\\\":6025}]}\",\"fee decomposition incomplete: no priority fee reported\"]",
+      "n": 7
+    },
+    {
+      "effect_refusals": "[\"runtime did not succeed: {\\\"InstructionError\\\":[2,{\\\"Custom\\\":6001}]}\",\"fee decomposition incomplete: no priority fee reported\"]",
+      "n": 2
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but the input debit could not be measured\",\"runtime succeeds but an unexpected writable receives value: H3q9cjxs1dsN4s42f6xDSQzJjhfHNzsw5itdfHjbNyRa, HiSiEFZuXLX8xENeA7S7PjWMtjbdwzykUoCds9MCdxKp\",\"fee decomposition incomplete: no priority fee reported\",\"asserted bounds violated: token delta 0 below the asserted minimum 19010213\"]",
+      "n": 1
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but the input debit could not be measured\",\"runtime succeeds but an unexpected writable receives value: GajFWsepxfwEqeWjoMn9hzu46J5KeHTFRxWq1LMqRyRm\",\"fee decomposition incomplete: no priority fee reported\",\"asserted bounds violated: token delta 0 below the asserted minimum 18719272\"]",
+      "n": 1
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but the input debit could not be measured\",\"runtime succeeds but an unexpected writable receives value: 6dEtCGYb5xrr7zrWDrvJCDrNYP7t2ZaMGrYzVLbVxMo4, AsqMhmLTWs2BEhstEQptfZkjdDcEbDmesNXiSiRLmEZv\",\"fee decomposition incomplete: no priority fee reported\",\"asserted bounds violated: token delta 0 below the asserted minimum 18757050\"]",
+      "n": 1
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but output delta is missing\",\"runtime succeeds but input debit exceeds the requested amount: 20278400 > 20000000\",\"runtime succeeds but an unexpected writable receives value: D3ZkkayrqN66azhA5TnNBR69QmSHrkPAdy3gAVwpoJDA, DcUJvwDZjKYeL1bNKDC7nx4Vj9KcBnKb8MNfXHAY647b, CANkNdHbMAFnXeGN92eyAryJe7Nh2FtGdLtw1aw5Kz1Z, 4Po2P6dkU4P8epworajb7sFL3Y568ZWNroi1EZWac6Lk\",\"asserted bounds violated: token delta 0 below the asserted minimum 32246766\"]",
+      "n": 1
+    }
+  ],
+  "marks": [
+    {
+      "mark_source": "ORDER_QUOTE_BENCHMARK",
+      "decision_bearing": 0,
+      "n": 603
+    }
+  ],
+  "contexts": [
+    {
+      "source_commit": "c69adf61942dbe08be4d8eefc157162b1df0a6b5+dirty",
+      "last_seen_utc_ms": 1786646959548
+    },
+    {
+      "source_commit": "6bfdda89e66c0194e0158008206984c131f849c3",
+      "last_seen_utc_ms": 1786646249880
+    },
+    {
+      "source_commit": "c11d76d51cd82d2cf552c0f9760a6079ab18962b",
+      "last_seen_utc_ms": 1786644703407
+    }
+  ]
+}

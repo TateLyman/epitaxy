@@ -43,6 +43,7 @@ import { ATA_ACCOUNTING_VERSION, settleAtaRent } from '../../../packages/domain/
 import type { AtaState } from '../../../packages/domain/src/ata.js';
 import { buildRunContext } from '../../../packages/domain/src/provenance.js';
 import { cohortOf, type CohortAssignment } from '../../../packages/domain/src/cohort.js';
+import { evidenceClassOf, type LegEvidence } from '../../../packages/domain/src/evidence.js';
 import { Cadence, detectDiscontinuity, readClock, monotonicMs } from '../../../packages/domain/src/clock.js';
 import type { ClockReading } from '../../../packages/domain/src/clock.js';
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
@@ -53,11 +54,11 @@ import { SolanaRpc } from '../../../packages/solana/src/rpc.js';
 import { emptyStats, runCycle } from '../../../packages/pipeline/src/cycle.js';
 import { decideExit } from '../../../packages/strategy/src/exits.js';
 import { scheduleMarks, assessBacklog } from '../../../packages/strategy/src/markscheduler.js';
-import { BlobStore } from '../../../packages/storage/src/blobstore.js';
+import { BlobStore, type ExactTransactionBlob } from '../../../packages/storage/src/blobstore.js';
 import { SimulationClient } from '../../../packages/simulator/src/client.js';
 import { resolveSimulatorToken } from '../../../packages/simulator/src/token.js';
-import { simulateLeg, simulatorHealth } from './simulate-observation.js';
-import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
+import { simulateLeg, simulatorHealth, exactBlobFor } from './simulate-observation.js';
+import { sizePosition, plannedLossFractionBps } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
@@ -84,6 +85,7 @@ import {
   netMinimumOutput,
   totalEntryCost,
   netExitProceeds,
+  type SimulationEffectOutcome,
 } from '../../../packages/domain/src/execution.js';
 
 /**
@@ -387,7 +389,7 @@ async function main(): Promise<void> {
     // P4 that is enforced by the rate limiter as well as by ordering.
     let exits = 0;
     try {
-      exits = await manageOpenPositions(db, jupiter, config, ledger, taker, contextHash);
+      exits = await manageOpenPositions(db, jupiter, config, ledger, taker, contextHash, blobs, simulator);
     } catch (e) {
       log.error({ err: (e as Error).message }, 'exit management failed');
       recordHealth(db, 'exit_management_error', 'critical', (e as Error).message);
@@ -584,10 +586,19 @@ async function tryEnter(
     // Null until valid observations exist. Null means the catastrophic floor
     // governs sizing, not that risk is zero.
     observedSevereLossBps: null,
-    // Planned loss across the open book: each position's cost times the stop
-    // distance, i.e. what the book loses if every stop fills at its level.
+    // P12 -- the SAME loss model for existing and proposed positions.
+    //
+    // This charged existing positions the nominal stop distance while
+    // `sizePosition` charged a proposed one `plannedLossFractionBps()`, which
+    // is the max of the stop, the observed severe loss and the catastrophic
+    // floor. With no valid observations the floor is 100%, so a new trade was
+    // charged four times what an identical existing one was, and the aggregate
+    // cap read the book as four times safer than the model said it was.
+    //
+    // A stop is a hope about where the exit fills. In a token that goes to
+    // zero, no stop fills anywhere.
     plannedLossLamports: open.reduce(
-      (a, p) => a + (BigInt(p.cost_lamports) * BigInt(config.exits.stopLossBps)) / 10_000n,
+      (a, p) => a + (BigInt(p.cost_lamports) * BigInt(plannedLossFractionBps(config, null))) / 10_000n,
       0n,
     ),
   };
@@ -724,10 +735,16 @@ async function tryEnter(
   // for a simulation that was never attempted. That is what has been happening.
   await simulateLeg(db, blobs, simulator, entry.observationId, taker, {
     mode: 'DEVELOPMENT_JIT',
+    side: 'buy',
+    inputMint: WSOL_MINT,
+    outputMint: mint,
+    inputAmount: lamportsIn,
     // Enough hypothetical SOL to cover the leg, its fees and any rent it
     // creates, inside a throwaway SVM. Not a wallet.
     fundingLamports: lamportsIn * 10n,
     maxLamportsSpent: lamportsIn * 2n,
+    expectedOutput: entry.expectedOutput,
+    minimumOutput: entry.minimumOutput,
     contextHash,
   });
   // Re-read: the simulation wrote onto the row, and the in-memory observation
@@ -737,7 +754,7 @@ async function tryEnter(
   // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
   // entered, against the response that priced it.
   const executable = legIsExecutable(
-    { ...entry, simulation: simulated },
+    { ...entry, simulation: simulated, simulationEffect: simulationEffectOf(db, entry.observationId) },
     { requireLocalSimulation: config.requireLocalSimulation },
   );
   if (!executable.ok) {
@@ -765,6 +782,87 @@ async function tryEnter(
   const tokensReceived = netMinimumOutput(entry);
   if (tokensReceived <= 0n) return;
 
+  // P9 — a buy without a verified same-family sell is not a portfolio entry.
+  //
+  // The exit half, at the EXACT amount this buy would leave us holding,
+  // observed on the SAME family, policy-checked and effect-verified. A position
+  // opened on a buy alone is a position whose exit has never been shown to
+  // exist, and capital has already been booked into one of those.
+  const entrySell = await observeRoute(db, jupiter, {
+    family: entry.family,
+    mint,
+    side: 'sell',
+    positionId: null,
+    shadowPositionId: null,
+    purpose: 'entry_roundtrip',
+    inputMint: mint,
+    outputMint: WSOL_MINT,
+    amount: tokensReceived,
+    taker,
+    slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+    priority: 'risk',
+    contextHash,
+  }).catch(() => null);
+
+  if (entrySell === null) {
+    recordHealth(
+      db,
+      'entry_without_exit',
+      'warn',
+      `${mint.slice(0, 12)}: the entry buy is executable and no same-family sell could be observed. ` +
+        'Not entered: an entry whose exit does not exist is not an entry.',
+    );
+    return;
+  }
+
+  await simulateLeg(db, blobs, simulator, entrySell.observationId, taker, {
+    mode: 'DEVELOPMENT_JIT',
+    side: 'sell',
+    inputMint: mint,
+    outputMint: WSOL_MINT,
+    inputAmount: tokensReceived,
+    inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId),
+    fundingLamports: 100_000_000n,
+    maxLamportsSpent: 20_000_000n,
+    expectedOutput: entrySell.expectedOutput,
+    minimumOutput: entrySell.minimumOutput,
+    contextHash,
+  });
+
+  const sellExecutable = legIsExecutable(
+    {
+      ...entrySell,
+      simulation: simulationStatusOf(db, entrySell.observationId),
+      simulationEffect: simulationEffectOf(db, entrySell.observationId),
+    },
+    { requireLocalSimulation: config.requireLocalSimulation },
+  );
+  if (!sellExecutable.ok) {
+    recordHealth(
+      db,
+      'entry_without_exit',
+      'warn',
+      `${mint.slice(0, 12)}: the exit half is not executable — ${sellExecutable.reasons.join('; ')}`,
+    );
+    log.info(
+      { mint, symbol, reasons: sellExecutable.reasons },
+      'entry refused — the round trip does not close',
+    );
+    return;
+  }
+  if (entrySell.family !== entry.family) {
+    recordHealth(
+      db,
+      'entry_without_exit',
+      'critical',
+      `${mint.slice(0, 12)}: entry family ${entry.family} but exit family ${entrySell.family}. ` +
+        'Two families are two markets and their difference is not a round trip.',
+    );
+    return;
+  }
+
   // §3.4 — every fixed cost, charged once each, nothing omitted for being
   // small. The signature fee is 5000 lamports; against the 0.02 SOL canary cap
   // that is 2.5 bps, and the whole question is whether a few hundred bps of
@@ -789,6 +887,19 @@ async function tryEnter(
     assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
   };
   const costLamports = totalEntryCost(entryCosts);
+
+  // What this round trip actually costs, measured rather than assumed. It is
+  // the number that decides whether an edge has to clear 200 bps or 1,400.
+  const entryRoundTripLossBps =
+    costLamports <= 0n ? null : Number(((costLamports - entrySell.expectedOutput) * 10_000n) / costLamports);
+  if (entryRoundTripLossBps !== null) {
+    recordHealth(
+      db,
+      'entry_round_trip',
+      'info',
+      `${mint.slice(0, 12)}: buy then immediate same-family sell loses ${entryRoundTripLossBps} bps all-in`,
+    );
+  }
 
   const positionId = randomUUID();
   const position: Position = {
@@ -878,6 +989,70 @@ async function tryEnter(
  * a 0.02 SOL shadow is not a 0.05 SOL result divided by 2.5, because impact is
  * not linear and that is the same error §3.1 removed from entries.
  */
+/**
+ * Which token program the input asset uses.
+ *
+ * Token and Token-2022 are different programs with different account layouts,
+ * and provisioning inventory under the wrong one creates an account the
+ * transaction will not find. Read from the accounts the route actually names,
+ * so it is the route's answer rather than a default.
+ *
+ * Falls back to legacy Token, which is what the overwhelming majority of these
+ * mints use, and the fallback is visible in the observation's own account list
+ * if it is ever wrong.
+ */
+const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+function tokenProgramFor(db: Db, blobs: BlobStore, observationId: string): string {
+  try {
+    const hash = exactBlobFor(db, observationId);
+    if (hash === null) return LEGACY_TOKEN_PROGRAM;
+    const blob = blobs.get<ExactTransactionBlob>(hash);
+    const keys = [...blob.staticAccountKeys, ...blob.loadedAddresses];
+    return keys.includes(TOKEN_2022_PROGRAM) ? TOKEN_2022_PROGRAM : LEGACY_TOKEN_PROGRAM;
+  } catch {
+    // An unreadable blob is not a reason to guess Token-2022; the legacy
+    // program is what the overwhelming majority of these mints use, and a wrong
+    // guess here creates inventory the transaction will not find.
+    return LEGACY_TOKEN_PROGRAM;
+  }
+}
+
+/**
+ * What one leg's simulation actually established, read back from the database.
+ *
+ * Null when no job exists for the observation, which is not the same as a job
+ * that failed: one means nothing was attempted, the other means something was
+ * and did not hold. Both yield STRUCTURAL_ONLY, and they are distinguished in
+ * the job row rather than collapsed here.
+ */
+function legEvidenceOf(db: Db, observationId: string): LegEvidence | null {
+  const r = db
+    .prepare(
+      `SELECT validity, simulated_effect_ok, account_coverage_ok, mode, confirmatory
+       FROM simulation_jobs WHERE execution_observation_id = ?
+       ORDER BY requested_utc_ms DESC LIMIT 1`,
+    )
+    .get(observationId) as
+    | {
+        validity: string | null;
+        simulated_effect_ok: number | null;
+        account_coverage_ok: number | null;
+        mode: string | null;
+        confirmatory: number | null;
+      }
+    | undefined;
+  if (r === undefined) return null;
+  return {
+    validity: r.validity,
+    effectOk: r.simulated_effect_ok === 1,
+    accountCoverageOk: r.account_coverage_ok === 1,
+    offline: r.mode === 'CONFIRMATORY_OFFLINE',
+    confirmatory: r.confirmatory === 1,
+  };
+}
+
 async function openShadowBooks(
   db: Db,
   jupiter: JupiterClient,
@@ -969,8 +1144,14 @@ async function openShadowBooks(
     // "0 observations simulated" into a number.
     await simulateLeg(db, blobs, simulator, obs.observationId, taker, {
       mode: 'DEVELOPMENT_JIT',
+      side: 'buy',
+      inputMint: WSOL_MINT,
+      outputMint: mint,
+      inputAmount: notional,
       fundingLamports: notional * 10n,
       maxLamportsSpent: notional * 2n,
+      expectedOutput: obs.expectedOutput,
+      minimumOutput: obs.minimumOutput,
       contextHash,
     });
 
@@ -1014,10 +1195,22 @@ async function openShadowBooks(
       continue;
     }
 
+    // THE leg that was broken. It spends TOKENS, so the setup must provision
+    // tokens -- funding it with SOL alone is what made 43 of 43 sells fail with
+    // the identical error at the identical instruction.
     await simulateLeg(db, blobs, simulator, exitObs.observationId, taker, {
       mode: 'DEVELOPMENT_JIT',
-      fundingLamports: notional * 10n,
+      side: 'sell',
+      inputMint: mint,
+      outputMint: WSOL_MINT,
+      // Exactly the amount the buy would have acquired: the hypothetical
+      // position, not a convenient number.
+      inputAmount: tokensIn,
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      fundingLamports: notional,
       maxLamportsSpent: notional * 2n,
+      expectedOutput: exitObs.expectedOutput,
+      minimumOutput: exitObs.minimumOutput,
       contextHash,
     });
 
@@ -1053,11 +1246,22 @@ async function openShadowBooks(
     // Written straight after the insert rather than threaded through the
     // repository signature, because the cohort is a property of the DECISION
     // and every other caller of openShadowPosition would have to invent one.
-    db.prepare('UPDATE shadow_positions SET cohort = ?, token_age_ms_at_open = ? WHERE shadow_position_id = ?').run(
-      cohort,
-      tokenAgeMsAtOpen,
-      id,
+    // P10 -- the evidence class this shadow qualified for AT OPEN.
+    //
+    // Stamped rather than derived later. A derivation runs under whatever the
+    // code believes at report time, so a shadow opened when nothing was
+    // effect-verified would silently become JIT_EFFECT_VALID the moment some
+    // later run of the same observation passed.
+    const evidence = evidenceClassOf(
+      legEvidenceOf(db, obs.observationId),
+      legEvidenceOf(db, exitObs.observationId),
     );
+    db.prepare(
+      `UPDATE shadow_positions
+         SET cohort = ?, token_age_ms_at_open = ?, cohort_source = 'ASSIGNED_AT_OPEN',
+             evidence_class = ?
+       WHERE shadow_position_id = ?`,
+    ).run(cohort, tokenAgeMsAtOpen, evidence, id);
     bindEpisode(db, id, episode.signalEpisodeId, exitObs.observationId, roundTripLossBps);
     log.info(
       {
@@ -1107,6 +1311,22 @@ function simulationStatusOf(db: Db, observationId: string): 'SIMULATED_OK' | 'SI
     .get(observationId) as { s: string } | undefined;
   const v = r?.s ?? 'NOT_SIMULATED';
   return v === 'SIMULATED_OK' || v === 'SIMULATION_FAILED' ? v : 'NOT_SIMULATED';
+}
+
+/**
+ * P3 -- the ECONOMIC verdict the row carries, read back from the database.
+ *
+ * A missing row, a NULL column and an unrecognised value all read as
+ * NOT_VERIFIED. That is the only safe collapse: every one of them means nobody
+ * established that the trade happened, and the gate must refuse all three
+ * identically.
+ */
+function simulationEffectOf(db: Db, observationId: string): SimulationEffectOutcome {
+  const r = db
+    .prepare('SELECT simulation_effect AS e FROM execution_observations WHERE observation_id = ?')
+    .get(observationId) as { e: string | null } | undefined;
+  const v = r?.e ?? 'NOT_VERIFIED';
+  return v === 'SIMULATED_EFFECT_OK' || v === 'EFFECT_REFUSED' ? v : 'NOT_VERIFIED';
 }
 
 async function manageShadowBooks(
@@ -1253,6 +1473,10 @@ async function manageOpenPositions(
   ledger: Ledger,
   taker: string | null,
   contextHash: string,
+  // P3/P9 -- the exit leg is simulated like any other, so this path needs the
+  // same two collaborators the entry path has.
+  blobs: BlobStore,
+  simulator: SimulationClient | null,
 ): Promise<number> {
   const open = managedPositions(db);
   let exited = 0;
@@ -1307,18 +1531,53 @@ async function manageOpenPositions(
       insertQuote(db, row.mint, 'sell', sell, rawPayloadHash, contextHash);
     }
 
-    // The mark is the router's expected output, not `otherAmountThreshold`.
-    // The threshold is a slippage floor — a number chosen by our own slippage
-    // setting, not an observation of the market — so marking against it made
-    // every position look worse by exactly `slippageBps` and made the mark
-    // series unusable as evidence about liquidity. Both are recorded.
+    // P9 — the decision-bearing mark is an EXACT full-balance BUILD_CUSTOM
+    // sell, not the /order quote.
     //
-    // `outAmount` is the SOL the router says the swap returns; route and
-    // platform fees are already reflected in it, so they are recorded as
-    // metadata and NOT subtracted again. The priority fee is not reflected in
-    // it, so it is the one cost deducted here.
-    const grossProceeds = sell ? sell.outAmount : null;
+    // /order is a router's opinion about a swap nobody built. Stop, trail,
+    // take-profit, collapse, peak and NAV all read the mark, so every exit rule
+    // in this system was reacting to a number that had never been through
+    // policy, had never been simulated, and might not correspond to a
+    // transaction that can be assembled at all.
+    //
+    // The quote above is still taken and still stored. It is a benchmark, and
+    // the gap between it and the executable value is itself a measurement.
+    const markObs =
+      taker === null
+        ? null
+        : await observeRoute(db, jupiter, {
+            family: (row.route_family ?? config.primaryRouteFamily) as 'BUILD_CUSTOM',
+            mint: row.mint,
+            side: 'sell',
+            positionId: row.position_id,
+            shadowPositionId: null,
+            purpose: 'mark',
+            inputMint: row.mint,
+            outputMint: WSOL_MINT,
+            // The FULL balance. A mark taken at a smaller size is a price for a
+            // trade we are not going to make, and it flatters exactly the
+            // positions that are too large for their pool.
+            amount: tokenAmount,
+            taker,
+            slippageBps: Math.min(config.risk.maxSlippageBps, 300),
+            maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+            broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+            priority: 'risk',
+            contextHash,
+          }).catch(() => null);
+
+    // The benchmark, kept beside the executable number rather than instead of it.
+    const benchmarkLamports = sell ? sell.outAmount : null;
+
+    // Executable value. Null when no BUILD_CUSTOM sell could be observed, and
+    // null is an unknown that holds the position rather than a zero that
+    // stops it out.
+    const grossProceeds = markObs === null ? null : markObs.expectedOutput > 0n ? markObs.expectedOutput : null;
     const markLamports = grossProceeds === null ? null : grossProceeds - config.assumedPriorityFeeLamports;
+    const benchmarkGapBps =
+      benchmarkLamports === null || grossProceeds === null || grossProceeds <= 0n
+        ? null
+        : Number(((benchmarkLamports - grossProceeds) * 10_000n) / grossProceeds);
 
     const routeAvailable = sell !== null && sell.outAmount > 0n;
     const nowMs = Date.now();
@@ -1379,9 +1638,15 @@ async function manageOpenPositions(
       quoteReceivedUtcMs: sell ? sell.receivedUtcMs : null,
       quoteLatencyMs: sell ? sell.latencyMs : null,
       sourceUtcMs: sell ? sell.provenance.receivedUtcMs : null,
-      slot: sell?.contextSlot ?? null,
+      slot: markObs?.contextSlot ?? sell?.contextSlot ?? null,
       source: 'jupiter',
       backfilled: false,
+      markSource: markObs === null ? 'ORDER_QUOTE_BENCHMARK' : 'BUILD_CUSTOM_SELL',
+      markObservationId: markObs?.observationId ?? null,
+      benchmarkOrderLamports: benchmarkLamports,
+      benchmarkMinusExecutableBps: benchmarkGapBps,
+      // Only an executable mark may move a stop, a trail, a peak or NAV.
+      decisionBearing: markObs !== null && grossProceeds !== null,
     });
 
     // §P1.2 — mutually exclusive diagnostics, derived from economic quantities
@@ -1414,6 +1679,21 @@ async function manageOpenPositions(
     });
 
     if (providerFailed) continue;
+
+    // P9 — an unpriceable mark holds. It is written (a mark that is not written
+    // is an observation that never existed) and it drives nothing: a null
+    // executable value read as a stop trigger would exit every position the
+    // moment the builder had a bad minute.
+    if (grossProceeds === null || markLamports === null) {
+      recordHealth(
+        db,
+        'mark_not_executable',
+        'warn',
+        `${row.mint.slice(0, 12)}: no BUILD_CUSTOM sell could be observed for the full balance; ` +
+          'the position is held and the mark drives nothing',
+      );
+      continue;
+    }
 
     const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
     const newPeak = markLamports !== null && markLamports > peak ? markLamports : peak;
@@ -1464,9 +1744,39 @@ async function manageOpenPositions(
       contextHash,
     });
 
-    const exitExecutable = legIsExecutable(exitObs, {
-      requireLocalSimulation: config.requireLocalSimulation,
+    // P3/P9 -- simulate the exit before asking whether it is executable.
+    //
+    // The previous code gated the exit on `legIsExecutable` without ever
+    // running the simulator over it, so the simulation clause could only ever
+    // read NOT_SIMULATED. An exit is the leg that matters most: an entry that
+    // is refused costs nothing, and an exit that is refused strands capital.
+    //
+    // It is a SELL, so it spends tokens, and the setup provisions exactly the
+    // amount actually held rather than a convenient number.
+    await simulateLeg(db, blobs, simulator, exitObs.observationId, taker, {
+      mode: 'DEVELOPMENT_JIT',
+      side: 'sell',
+      inputMint: row.mint,
+      outputMint: WSOL_MINT,
+      inputAmount: tokenAmount,
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      // Fees and rent only. A sell does not spend SOL on the trade itself, and
+      // funding it as though it might would hide a route that quietly does.
+      fundingLamports: 100_000_000n,
+      maxLamportsSpent: 20_000_000n,
+      expectedOutput: exitObs.expectedOutput,
+      minimumOutput: exitObs.minimumOutput,
+      contextHash,
     });
+
+    const exitExecutable = legIsExecutable(
+      {
+        ...exitObs,
+        simulation: simulationStatusOf(db, exitObs.observationId),
+        simulationEffect: simulationEffectOf(db, exitObs.observationId),
+      },
+      { requireLocalSimulation: config.requireLocalSimulation },
+    );
     if (!exitExecutable.ok) {
       // §4.2 — THE repair. The previous code recorded the failure, closed the
       // position, realized the PnL and returned the capital to the free

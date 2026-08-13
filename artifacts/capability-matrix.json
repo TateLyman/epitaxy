@@ -1,0 +1,270 @@
+{
+  "generatedUtcMs": 1786643818242,
+  "fingerprints": [
+    {
+      "fingerprint": "2c41adfbb6bc2a62",
+      "routeLabels": "(no labels)",
+      "topLevelPrograms": [],
+      "tokenPrograms": [],
+      "lookupTables": 0,
+      "observations": 21914,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "79d18a755792b049",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [],
+      "tokenPrograms": [],
+      "lookupTables": 1,
+      "observations": 1900,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "32a47f4b591a1c04",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 1648,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "da05049c9e67dda4",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 894,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "640d0958f8f16200",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 54,
+      "jitOk": 0,
+      "jitFailed": 54,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "8e6dd14c46f707b7",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [
+        "11111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 53,
+      "jitOk": 50,
+      "jitFailed": 3,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "6caae21714d84171",
+      "routeLabels": "Meteora DAMM v2",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 22,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "19582a912ff77fb9",
+      "routeLabels": "Pump.fun",
+      "topLevelPrograms": [],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 20,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "f5591f62cf56284e",
+      "routeLabels": "Meteora DAMM v2>Pump.fun Amm",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 2,
+      "observations": 3,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "ec4267799a2ede22",
+      "routeLabels": "Meteora DLMM",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 3,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "7152d4e336f449c2",
+      "routeLabels": "Pump.fun",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 2,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "19509e1d3de4c5d7",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [
+        "11111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 1,
+      "jitOk": 0,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "cf0a8b60f6eff698",
+      "routeLabels": "Meteora DLMM",
+      "topLevelPrograms": [
+        "11111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 1,
+      "jitOk": 0,
+      "jitFailed": 1,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 0,
+      "supportedEvidenceClass": "STRUCTURAL_ONLY",
+      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    }
+  ]
+}

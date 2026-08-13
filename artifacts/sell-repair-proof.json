@@ -1,0 +1,88 @@
+{
+  "generatedUtcMs": 1786643937954,
+  "nowOk": 1,
+  "stillFailed": 7,
+  "unavailable": 0,
+  "results": [
+    {
+      "observationId": "c6068fc7-77e7-4c60-901a-8d103aacb1b3",
+      "mint": "DpYNCriQCjQ9esnwrYSjtemkGoFys8UE8RAJoG8s8Q13",
+      "amount": "1653146653",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "d3f5f25f-f0a8-4404-aeb3-fd3401b0bf4b",
+      "mint": "D3WreYVjPP5RXD9RZAPka8bwSqhyvCc4agawcSZxpump",
+      "amount": "15472519981",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "5561a2d7-71ae-4ca1-9c37-fe1432ac2c52",
+      "mint": "BzE6CJWmTrcjnVH5phz9Fd5qCZsU8FVP79SyJDPkpump",
+      "amount": "23902610",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "58c91039-1a85-492b-ad45-00f26917aa6e",
+      "mint": "6F8ARLvUGZSCkHXoP3BdBt4es5aP1Q4rPCCicedHvvak",
+      "amount": "2095461695",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "8c4cb602-6482-42cd-be86-2befc6b03fb3",
+      "mint": "DpYNCriQCjQ9esnwrYSjtemkGoFys8UE8RAJoG8s8Q13",
+      "amount": "2721503227",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "996b7fa2-0fd0-48e5-8f61-9abf37d77aad",
+      "mint": "96gc7LKtjfjKB1nCe2p8scyCyTrSFQGyBRenub3Zpump",
+      "amount": "132426565970",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "c4f9b067-c36b-4358-859f-62911c92089f",
+      "mint": "FKYUqehjyiSxn8VWmVQksdmkvwnPnEgzQeZ8wgTQuKSb",
+      "amount": "15470621536",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATED_OK",
+      "effectOk": false,
+      "reason": null
+    },
+    {
+      "observationId": "cfcee50e-d872-45e2-b20e-7407ac7a1f14",
+      "mint": "6F8ARLvUGZSCkHXoP3BdBt4es5aP1Q4rPCCicedHvvak",
+      "amount": "4350851296",
+      "routeLabels": "Pump.fun Amm",
+      "previousError": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
+      "nowStatus": "SIMULATION_FAILED",
+      "effectOk": false,
+      "reason": null
+    }
+  ]
+}

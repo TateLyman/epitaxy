@@ -15,32 +15,25 @@ import { legIsConfirmatory, FAMILY_CONTRACTS, type ExecutionObservation } from '
 
 const paper = readFileSync('apps/engine/src/paper.ts', 'utf8');
 
-describe('§22.33 a portfolio entry requires its immediate same-family sell', () => {
-  it('requests the exit leg before opening anything', () => {
-    // A buy whose sell has never been shown to be constructible at ANY price is
-    // not an entry. It is a position that may be impossible to leave.
-    expect(paper).toContain('shadow_entry_roundtrip');
-    const entryIdx = paper.indexOf("purpose: 'entry'");
-    const roundTripIdx = paper.indexOf('shadow_entry_roundtrip');
-    expect(entryIdx).toBeGreaterThan(-1);
-    expect(roundTripIdx).toBeGreaterThan(-1);
-  });
+/**
+ * P8 — the two describe blocks that used to live here are DELETED.
+ *
+ * They read `paper.ts` as a string. One found the substring
+ * `shadow_entry_roundtrip` and concluded portfolio entry required a round trip;
+ * portfolio entry did not require one, and the position opened on the buy
+ * alone. The other sliced `manageShadowBooks` and concluded marks were
+ * executable; `manageOpenPositions` was still marking from `/order`, and every
+ * stop, trail, peak and NAV in the system read that number.
+ *
+ * Both passed against an implementation that had the phrase and the defect.
+ * That is worse than no test: it is a green check over the exact failure it
+ * claimed to cover.
+ *
+ * The behaviour now lives in tests/unit/paper-core.test.ts, which calls the
+ * functions and asserts on what they return.
+ */
 
-  it('refuses the shadow entry when the sell cannot be built', () => {
-    expect(paper).toContain('shadow_entry_refused_no_exit');
-  });
-});
-
-describe('§22.34 a mark cannot come from the cheap probe', () => {
-  it('marks with the primary route family, not /order', () => {
-    // /order and /build are DIFFERENT routes with different economics -- 22 bps
-    // apart on one measured pair. A stop triggered by one and filled by the
-    // other is measuring the gap between two providers, not the market.
-    const markBlock = paper.slice(paper.indexOf('async function manageShadowBooks'));
-    expect(markBlock).toContain('family: config.primaryRouteFamily');
-    expect(markBlock).not.toContain("family: 'ORDER_EXECUTE'");
-  });
-
+describe('§22.34 the benchmark family is never PnL-eligible', () => {
   it('never treats the benchmark family as PnL-eligible', () => {
     expect(FAMILY_CONTRACTS.QUOTE_ONLY_BENCHMARK.pnlEligible).toBe(false);
     expect(FAMILY_CONTRACTS.ORDER_EXECUTE.pnlEligible).toBe(false);

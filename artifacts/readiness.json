@@ -1,0 +1,200 @@
+{
+  "generatedUtcMs": 1786646142675,
+  "sourceCommit": "2db97f71d12646df0fa103ba692ae16da4e76820+dirty",
+  "strategyVersion": "delayed-momentum-v0.4.0",
+  "confirmatoryTrades": 0,
+  "validDevelopmentTrades": 0,
+  "gates": [
+    {
+      "id": "sample.validCompletedPositions",
+      "pass": false,
+      "observed": "0 confirmatory positions",
+      "required": "at least 200",
+      "rationale": "A confirmatory position is one whose entry and exit were both effect-verified, on one family, from a reproducible offline snapshot, on a clean commit. Development JIT rows are not confirmatory however many there are."
+    },
+    {
+      "id": "sample.calendarDays",
+      "pass": false,
+      "observed": "0.0 days across 0 distinct days",
+      "required": "at least 21 days",
+      "rationale": "A memecoin regime lasts days. A sample from one week is a sample from one regime."
+    },
+    {
+      "id": "pnl.netPositive",
+      "pass": false,
+      "observed": "0 lamports net",
+      "required": "greater than zero",
+      "rationale": "The gate this whole section exists for: the previous version could pass after 200 losing trades."
+    },
+    {
+      "id": "pnl.expectedLogGrowth",
+      "pass": false,
+      "observed": "unknown",
+      "required": "greater than zero",
+      "rationale": "Mean arithmetic profit can be positive while repeated betting goes to zero. Log growth is the quantity that compounds."
+    },
+    {
+      "id": "pnl.lowerConfidenceBound",
+      "pass": false,
+      "observed": "unknown",
+      "required": "greater than zero",
+      "rationale": "A positive point estimate on a thin sample is not evidence of an edge. The lower bound is."
+    },
+    {
+      "id": "pnl.profitFactor",
+      "pass": false,
+      "observed": "unknown",
+      "required": "at least 1.25",
+      "rationale": "Gross wins over gross losses. Below 1.25 there is no room for the costs a live account discovers."
+    },
+    {
+      "id": "risk.maxDrawdown",
+      "pass": false,
+      "observed": "unknown bps",
+      "required": "at most 2000 bps",
+      "rationale": "The threshold is frozen. Widening it after seeing the curve is fitting the risk limit to the strategy."
+    },
+    {
+      "id": "risk.catastrophicIncidence",
+      "pass": false,
+      "observed": "0/0 total-loss trades",
+      "required": "at most 2%",
+      "rationale": "A rug returns nothing and costs the fees on top. Their frequency, not their average, is what sizing has to survive."
+    },
+    {
+      "id": "robustness.recent50",
+      "pass": false,
+      "observed": "0 recent trades, net 0",
+      "required": "the most recent 50 net positive",
+      "rationale": "An edge that stopped working three weeks ago still shows a positive total."
+    },
+    {
+      "id": "robustness.exTop1",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best trade",
+      "rationale": "One 40x in the sample makes every other property meaningless."
+    },
+    {
+      "id": "robustness.exTop3",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best 3",
+      "rationale": "As above, at depth."
+    },
+    {
+      "id": "robustness.exTop5",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best 5",
+      "rationale": "As above, at depth."
+    },
+    {
+      "id": "robustness.exTop10",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best 10",
+      "rationale": "As above, at depth."
+    },
+    {
+      "id": "robustness.exBestDay",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best day",
+      "rationale": "One good day is one regime, not an edge."
+    },
+    {
+      "id": "robustness.exBestFiveMints",
+      "pass": false,
+      "observed": "n/a",
+      "required": "positive without the best 5 mints",
+      "rationale": "Five tokens carrying the result is a bet on five tokens."
+    },
+    {
+      "id": "concentration.noTradeOverTenPercent",
+      "pass": false,
+      "observed": "n/a%",
+      "required": "at most 10% of positive PnL from one trade",
+      "rationale": "Concentration in the result is concentration in the conclusion."
+    },
+    {
+      "id": "concentration.noDayOverTwentyFivePercent",
+      "pass": false,
+      "observed": "n/a%",
+      "required": "at most 25% of positive PnL from one day",
+      "rationale": "As above, by time."
+    },
+    {
+      "id": "stress.doubleCosts",
+      "pass": false,
+      "observed": "0 lamports at 2x costs",
+      "required": "still positive",
+      "rationale": "Live costs are worse than modelled costs. Every time."
+    },
+    {
+      "id": "evidence.zeroReplayDivergence",
+      "pass": false,
+      "observed": "no replay results divergences",
+      "required": "exactly 0",
+      "rationale": "If a decision cannot be re-derived from its snapshot, either the snapshot is incomplete or the strategy changed. Both are defects."
+    },
+    {
+      "id": "evidence.zeroUnresolvedReconciliation",
+      "pass": true,
+      "observed": "0",
+      "required": "exactly 0",
+      "rationale": "A clock discontinuity nobody resolved is a gap in the record."
+    },
+    {
+      "id": "lifecycle.noBlockedExits",
+      "pass": true,
+      "observed": "0",
+      "required": "exactly 0",
+      "rationale": "A position that cannot be closed is exposure regardless of what the state column says."
+    },
+    {
+      "id": "evidence.stableSimulatorFingerprint",
+      "pass": true,
+      "observed": "1 distinct simulator binaries in the corpus",
+      "required": "exactly 1",
+      "rationale": "Two binaries are two instruments, and their results are not one sample."
+    },
+    {
+      "id": "shadow.canarySizePositive",
+      "pass": false,
+      "observed": "459 closed canary-shadow positions, net -8540885788",
+      "required": "positive at canary size",
+      "rationale": "The portfolio result is at portfolio size. Canary runs at a fixed small size, and small size has its own cost structure."
+    }
+  ],
+  "allPass": false,
+  "verdict": "NOT_READY",
+  "blockers": [
+    "sample.validCompletedPositions: observed 0 confirmatory positions, requires at least 200",
+    "sample.calendarDays: observed 0.0 days across 0 distinct days, requires at least 21 days",
+    "pnl.netPositive: observed 0 lamports net, requires greater than zero",
+    "pnl.expectedLogGrowth: observed unknown, requires greater than zero",
+    "pnl.lowerConfidenceBound: observed unknown, requires greater than zero",
+    "pnl.profitFactor: observed unknown, requires at least 1.25",
+    "risk.maxDrawdown: observed unknown bps, requires at most 2000 bps",
+    "risk.catastrophicIncidence: observed 0/0 total-loss trades, requires at most 2%",
+    "robustness.recent50: observed 0 recent trades, net 0, requires the most recent 50 net positive",
+    "robustness.exTop1: observed n/a, requires positive without the best trade",
+    "robustness.exTop3: observed n/a, requires positive without the best 3",
+    "robustness.exTop5: observed n/a, requires positive without the best 5",
+    "robustness.exTop10: observed n/a, requires positive without the best 10",
+    "robustness.exBestDay: observed n/a, requires positive without the best day",
+    "robustness.exBestFiveMints: observed n/a, requires positive without the best 5 mints",
+    "concentration.noTradeOverTenPercent: observed n/a%, requires at most 10% of positive PnL from one trade",
+    "concentration.noDayOverTwentyFivePercent: observed n/a%, requires at most 25% of positive PnL from one day",
+    "stress.doubleCosts: observed 0 lamports at 2x costs, requires still positive",
+    "evidence.zeroReplayDivergence: observed no replay results divergences, requires exactly 0",
+    "shadow.canarySizePositive: observed 459 closed canary-shadow positions, net -8540885788, requires positive at canary size"
+  ],
+  "benchmarks": {
+    "noTradeLamports": 0,
+    "holdSolLamports": 0,
+    "strategyNetLamports": 0,
+    "canaryShadowNetLamports": -8540885788
+  }
+}

@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { openDb, migrate } from '../../packages/storage/src/db.js';
 import { BlobStore, EXACT_TRANSACTION_SCHEMA_VERSION, type ExactTransactionBlob } from '../../packages/storage/src/blobstore.js';
 import { SimulationClient, SimulatorUnavailable } from '../../packages/simulator/src/client.js';
-import { simulateObservation, updateObservationSimulation } from '../../apps/engine/src/simulate-observation.js';
+import {
+  simulateObservation,
+  updateObservationSimulation,
+  validateSetup,
+  InvalidSimulationSetup,
+} from '../../apps/engine/src/simulate-observation.js';
 import { SIMULATION_PROTOCOL_VERSION, ACCOUNT_SNAPSHOT_SCHEMA_VERSION } from '../../packages/simulator/src/protocol.js';
 import type { SimulationResponse } from '../../packages/simulator/src/protocol.js';
 
@@ -58,10 +63,11 @@ const blob = (): ExactTransactionBlob => ({
  * double that throws a bare Error would be testing a shape the client never
  * produces -- and the failure would look like a defect in the caller.
  */
-function clientReturning(fn: (url: string) => unknown): SimulationClient {
+function clientReturning(fn: (url: string, body?: unknown) => unknown): SimulationClient {
   const c = new SimulationClient({ baseUrl: 'http://127.0.0.1:1', token: 'x'.repeat(20), pinnedIdentity: null, requirePinned: false });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (c as any).call = async (path: string): Promise<unknown> => fn(path);
+  (c as any).call = async (path: string, init?: { body?: string }): Promise<unknown> =>
+    fn(path, init?.body === undefined ? undefined : JSON.parse(init.body));
   return c;
 }
 
@@ -137,11 +143,29 @@ function setup(dir: string): { db: ReturnType<typeof openDb>; blobs: BlobStore; 
   return { db, blobs, hash };
 }
 
+const WSOL = 'So11111111111111111111111111111111111111112';
+const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+/** A BUY: spends SOL, receives the token. */
 const opts = {
   mode: 'DEVELOPMENT_JIT' as const,
+  side: 'buy' as const,
+  inputMint: WSOL,
+  outputMint: 'MintB',
+  inputAmount: 20_000_000n,
   fundingLamports: 200_000_000n,
   maxLamportsSpent: 40_000_000n,
   contextHash: null,
+};
+
+/** A SELL: spends the token, receives SOL. */
+const sellOpts = {
+  ...opts,
+  side: 'sell' as const,
+  inputMint: 'MintB',
+  outputMint: WSOL,
+  inputAmount: 1_000_000_000n,
+  inputTokenProgram: TOKEN_PROGRAM,
 };
 
 describe('§9 simulator integration', () => {
@@ -209,7 +233,9 @@ describe('§9 simulator integration', () => {
         originalBlockhash: 'BH',
         originalLastValidBlockHeight: 400,
         routeFamily: 'BUILD_CUSTOM',
-        requestedAmount: '0',
+        // The EXACT input, not zero. A leg that spends nothing is not a leg,
+        // and every economic bound over it is vacuous.
+        requestedAmount: '20000000',
         targetSlot: 438_000_000,
         snapshotManifestHash: 'jit-no-frozen-snapshot',
         snapshotAccounts: [],
@@ -306,6 +332,86 @@ describe('updateObservationSimulation', () => {
       // answer would let a flaky simulator rewrite history.
       expect(row.simulation).toBe('SIMULATED_OK');
       expect(row.simulation_detail).toBe('first');
+      db.close();
+    } finally {
+      cleanup(dir);
+    }
+  });
+});
+
+describe('§24.2/3/6 the setup must describe the leg before anything runs', () => {
+  it('refuses a sell that names no token program, because the inventory cannot be provisioned', () => {
+    // THE defect, caught before a runtime call rather than after. All 43 sells
+    // failed at runtime with an identical error because the token account
+    // existed with a zero balance -- a fact about the setup that was recorded
+    // as a fact about the route.
+    expect(() => validateSetup({ ...sellOpts, inputTokenProgram: null })).toThrow(InvalidSimulationSetup);
+    expect(() => validateSetup({ ...sellOpts, inputTokenProgram: null })).toThrow(/token program/i);
+  });
+
+  it('accepts a sell that provisions its input token', () => {
+    expect(() => validateSetup(sellOpts)).not.toThrow();
+  });
+
+  it('refuses an input amount of zero', () => {
+    // requestedAmount was the string '0' on every job ever submitted.
+    expect(() => validateSetup({ ...opts, inputAmount: 0n })).toThrow(/input amount is zero/i);
+  });
+
+  it('refuses a sell whose input is SOL, which is not a sell', () => {
+    expect(() => validateSetup({ ...opts, side: 'sell' })).toThrow(/not a sell/i);
+  });
+
+  it('refuses a leg whose input and output are the same asset', () => {
+    expect(() => validateSetup({ ...opts, outputMint: WSOL })).toThrow(/same/i);
+  });
+
+  it('skips rather than simulating when the setup is invalid, and says so as CRITICAL', async () => {
+    const dir = tmp();
+    try {
+      const { db, blobs, hash } = setup(dir);
+      let sent = 0;
+      const client = clientReturning(() => {
+        sent += 1;
+        return response({});
+      });
+      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', {
+        ...sellOpts,
+        inputTokenProgram: null,
+      });
+      expect(r.kind).toBe('skipped');
+      // Nothing was sent: an invalid setup is a caller defect, and running it
+      // would produce a failure recorded as a simulation outcome.
+      expect(sent).toBe(0);
+      expect(db.prepare('SELECT COUNT(*) AS c FROM simulation_jobs').get()).toEqual({ c: 0 });
+      const health = db.prepare("SELECT severity FROM health_events WHERE kind='simulation_setup_invalid'").all() as {
+        severity: string;
+      }[];
+      expect(health[0]?.severity).toBe('critical');
+      db.close();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('provisions the token for a sell and only SOL for a buy', async () => {
+    const dir = tmp();
+    try {
+      const { db, blobs, hash } = setup(dir);
+      const seen: { balanceMutations: readonly { kind: string; mint?: string; amount: string }[] }[] = [];
+      const client = clientReturning((path, body) => {
+        if (path === '/v1/simulate' && body !== undefined) seen.push(body as never);
+        return response({});
+      });
+
+      await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', sellOpts);
+      const sell = seen[0]?.balanceMutations ?? [];
+      const tokenMutation = sell.find((m) => m.kind === 'token');
+      expect(tokenMutation, 'a sell must be given the token it spends').toBeDefined();
+      expect(tokenMutation?.mint).toBe('MintB');
+      // EXACTLY the hypothetical position: more would let a sell succeed that
+      // the real balance could not cover.
+      expect(tokenMutation?.amount).toBe('1000000000');
       db.close();
     } finally {
       cleanup(dir);

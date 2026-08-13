@@ -40,6 +40,32 @@ export interface JupiterClientOptions {
   readonly apiKey?: string | null;
 }
 
+/**
+ * Lamports in a System Program transfer, decoded from the instruction itself.
+ *
+ * A tip whose amount is taken from config rather than from the instruction is
+ * an assumption wearing a measurement's clothes. This reads the bytes that will
+ * actually execute.
+ *
+ * System transfer layout: a 4-byte little-endian instruction index of 2,
+ * followed by a u64 little-endian lamport amount. Anything else returns null --
+ * an instruction we cannot decode is an unknown, and an unknown tip is not a
+ * tip of zero.
+ */
+export function tipLamportsOf(ix: { programId: string; data: string }): bigint | null {
+  const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+  if (ix.programId !== SYSTEM_PROGRAM) return null;
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(ix.data, 'base64');
+  } catch {
+    return null;
+  }
+  if (bytes.length < 12) return null;
+  if (bytes.readUInt32LE(0) !== 2) return null;
+  return bytes.readBigUInt64LE(4);
+}
+
 export class JupiterClient {
   private readonly limiter: RateLimiter;
   private readonly headers: Record<string, string>;
@@ -158,15 +184,37 @@ export class JupiterClient {
       });
       const b = res.data;
 
-      // Order matters and is the order they execute in. The policy decoder
-      // reads this array, so assembling it wrongly would validate a different
-      // transaction from the one the route describes.
+      /**
+       * P7 -- the documented execution order.
+       *
+       * Order matters and is the order they execute in. The policy decoder
+       * reads this array, so assembling it wrongly validates a different
+       * transaction from the one the route describes.
+       *
+       * Two defects were here:
+       *
+       * 1. `cleanupInstruction` came BEFORE `otherInstructions`. Cleanup is
+       *    what closes the wrapped-SOL account and returns its rent, so
+       *    anything in `otherInstructions` that touched that account executed
+       *    against an account that had just been closed. Custom post-swap work
+       *    must precede cleanup, and cleanup is last.
+       *
+       * 2. `tipInstruction` was parsed by the schema and then dropped. A route
+       *    that asked for a tip produced a transaction without one, so the tip
+       *    was invisible to the policy decoder, absent from the byte-level
+       *    hash, and missing from every cost model downstream.
+       *
+       * The tip goes last, after cleanup, because it is a plain lamport
+       * transfer that depends on nothing the swap produces and must not be
+       * unwound by a close.
+       */
       const instructions: RawInstruction[] = [
         ...(b.computeBudgetInstructions ?? []),
         ...(b.setupInstructions ?? []),
         ...(b.swapInstruction ? [b.swapInstruction] : []),
-        ...(b.cleanupInstruction ? [b.cleanupInstruction] : []),
         ...(b.otherInstructions ?? []),
+        ...(b.cleanupInstruction ? [b.cleanupInstruction] : []),
+        ...(b.tipInstruction ? [b.tipInstruction] : []),
       ];
       const programIds = instructions.map((i) => i.programId);
 
@@ -210,6 +258,17 @@ export class JupiterClient {
         lookupTables,
         hasSetup: (b.setupInstructions ?? []).length > 0,
         hasCleanup: b.cleanupInstruction != null,
+        hasOther: (b.otherInstructions ?? []).length > 0,
+        // P7 -- the tip this ROUTE asked for, and how much it is.
+        //
+        // Null means the route did not request one, which is different from a
+        // tip of zero. The amount enters the cost model as a route-specific
+        // tip; it is never paid to a broadcaster other than the one the route
+        // named, because a tip addressed to one submitter and sent to another
+        // is money spent buying nothing.
+        hasTip: b.tipInstruction != null,
+        tipLamports: b.tipInstruction == null ? null : tipLamportsOf({ programId: b.tipInstruction.programId, data: b.tipInstruction.data ?? '' }),
+        tipRecipient: b.tipInstruction == null ? null : (b.tipInstruction.accounts?.[1]?.pubkey ?? null),
         endpoint: '/swap/v2/build',
         router: b.router ?? null,
         requestId: b.requestId ?? null,
@@ -332,6 +391,17 @@ export interface BuildOutcome {
   readonly lookupTables: LookupTableMap;
   readonly hasSetup: boolean;
   readonly hasCleanup: boolean;
+  readonly hasOther: boolean;
+  /**
+   * P7 -- whether THIS route asked for a broadcaster tip, and how much.
+   *
+   * Null lamports means either no tip was requested or the instruction could
+   * not be decoded. Those are distinguished by `hasTip`: a tip we cannot read
+   * is an unknown cost, and an unknown cost is not zero.
+   */
+  readonly hasTip: boolean;
+  readonly tipLamports: bigint | null;
+  readonly tipRecipient: string | null;
   /** Provenance, so a build is never conflated with the quote that priced it. */
   readonly endpoint: string;
   readonly router: string | null;
@@ -398,6 +468,12 @@ function unbuilt(failure: ObservationFailure, requestedUtcMs: number, detail: st
     programIds: [],
     lookupTables: {},
     hasSetup: false,
+    hasOther: false,
+    // A build that did not happen requested no tip. Null lamports rather than
+    // zero: there is no instruction here to have read an amount from.
+    hasTip: false,
+    tipLamports: null,
+    tipRecipient: null,
     hasCleanup: false,
     endpoint: '/swap/v2/build',
     router: null,

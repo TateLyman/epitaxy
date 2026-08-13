@@ -1,0 +1,19 @@
+{
+  "generatedUtcMs": 1786645658475,
+  "cohorts": [
+    {
+      "cohort": "(unassigned)",
+      "n": 965,
+      "closed": 810,
+      "min_age_ms": null,
+      "max_age_ms": null
+    },
+    {
+      "cohort": "AGE_2M_60M",
+      "n": 114,
+      "closed": 106,
+      "min_age_ms": 126213,
+      "max_age_ms": 3528509
+    }
+  ]
+}

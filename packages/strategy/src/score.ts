@@ -54,17 +54,56 @@ export function opportunityScore(
 ): ScoreResult {
   const s5 = info.stats5m;
 
+  /**
+   * P17 -- an absent field is UNKNOWN, and unknown is not zero.
+   *
+   * `?? 0` made a provider that did not answer indistinguishable from a token
+   * with no buyers, no liquidity and no organic activity. Those are opposite
+   * facts: one is a gap in our coverage, the other is a statement about the
+   * token, and only the second is evidence.
+   *
+   * Reading them as zero is not conservative either. It is conservative in the
+   * SCORE and permissive everywhere the absence should have blocked something,
+   * and it is systematically worse for the tokens with the thinnest data --
+   * which are the new ones this strategy exists to trade.
+   */
+  const unknown: string[] = [];
+  const known = (v: number | null | undefined, name: string): number | null => {
+    if (v === null || v === undefined || !Number.isFinite(v)) {
+      unknown.push(name);
+      return null;
+    }
+    return v;
+  };
+
   // Breadth: distinct participants matter more than raw transaction count,
   // because transaction count is the cheapest thing on chain to fake.
-  const netBuyers = s5?.numNetBuyers ?? 0;
-  const traders = s5?.numTraders ?? 0;
-  const breadth = 0.6 * normalize(netBuyers, 0, 60) + 0.4 * normalize(traders, 0, 150);
+  //
+  // Net buyers are NOT backfilled from gross buys. A gross buy count with the
+  // sells removed is a different quantity, and substituting one for the other
+  // makes wash trading look like breadth.
+  const netBuyers = known(s5?.numNetBuyers, 'numNetBuyers');
+  const traders = known(s5?.numTraders, 'numTraders');
+  const breadth =
+    netBuyers === null && traders === null
+      ? null
+      : 0.6 * normalize(netBuyers ?? 0, 0, 60) + 0.4 * normalize(traders ?? 0, 0, 150);
 
   // Liquidity: log-ish shape. Past ~$150k the marginal safety gain is small.
-  const liq = info.liquidity ?? 0;
-  const liquidity = normalize(Math.log10(Math.max(liq, 1)), Math.log10(5_000), Math.log10(150_000));
+  const liq = known(info.liquidity, 'liquidity');
+  const liquidity = liq === null ? null : normalize(Math.log10(Math.max(liq, 1)), Math.log10(5_000), Math.log10(150_000));
 
-  const organic = normalize(info.organicScore ?? 0, 0, 80);
+  // The provider's own score. Absent means the provider did not answer -- it is
+  // 0 for EVERY token under about an hour old, measured n=461 with no
+  // exceptions -- and it is graded ONCE, by the `organic_score_unavailable`
+  // soft-risk gate at 0.25.
+  //
+  // It used to be charged twice: that soft risk AND a zero score component at
+  // full weight. The component now drops out entirely, so the gap is priced in
+  // one place. Two penalties for one absence is not caution, it is an error
+  // that compounds against exactly the young tokens this strategy trades.
+  const organicRaw = known(info.organicScore, 'organicScore');
+  const organic = organicRaw === null ? null : normalize(organicRaw, 0, 80);
 
   // Tradability: the actual measured cost of getting in and back out.
   const rtLoss = roundTrip?.roundTripLossBps ?? null;
@@ -76,23 +115,46 @@ export function opportunityScore(
   const freshness = ageMin <= 0 ? 0 : ageMin <= 10 ? normalize(ageMin, 2, 10) : 1 - normalize(ageMin, 10, 60);
 
   const components: Record<string, number> = {
-    breadth: round4(breadth),
-    liquidity: round4(liquidity),
-    organic: round4(organic),
+    breadth: round4(breadth ?? 0),
+    liquidity: round4(liquidity ?? 0),
+    organic: round4(organic ?? 0),
     tradability: round4(tradability),
     freshness: round4(freshness),
   };
 
-  const raw =
-    WEIGHTS.breadth * breadth +
-    WEIGHTS.liquidity * liquidity +
-    WEIGHTS.organic * organic +
-    WEIGHTS.tradability * tradability +
-    WEIGHTS.freshness * freshness;
+  /**
+   * Renormalised over the components that were actually observed.
+   *
+   * A missing component contributes neither score nor weight. Scoring it as
+   * zero against its full weight is a penalty for our own coverage gap, and it
+   * lands hardest on the youngest tokens -- exactly the ones the strategy is
+   * about.
+   *
+   * `observedWeight` is reported so a reader can see how much of the score is
+   * actually supported. A score assembled from two of five components is not
+   * the same number as one assembled from five, and it must not look like it.
+   */
+  const terms: readonly (readonly [number, number | null])[] = [
+    [WEIGHTS.breadth, breadth],
+    [WEIGHTS.liquidity, liquidity],
+    [WEIGHTS.organic, organic],
+    [WEIGHTS.tradability, tradability],
+    [WEIGHTS.freshness, freshness],
+  ];
+  let weighted = 0;
+  let observedWeight = 0;
+  for (const [w, v] of terms) {
+    if (v === null) continue;
+    weighted += w * v;
+    observedWeight += w;
+  }
+  const raw = observedWeight === 0 ? 0 : weighted / observedWeight;
 
   const riskAdjusted = raw * (1 - Math.max(0, Math.min(1, softRiskScore)));
   components['raw'] = round4(raw);
   components['softRisk'] = round4(softRiskScore);
+  components['observedWeight'] = round4(observedWeight);
+  components['unknownComponents'] = unknown.length;
 
   return { score: round4(riskAdjusted), components };
 }

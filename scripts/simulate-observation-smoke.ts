@@ -107,8 +107,14 @@ for (const r of before.reasons) console.log(`    - ${r}`);
 
 const { simulated, attempt } = await simulateLeg(db, blobs, client, obs.observationId, taker, {
   mode: 'DEVELOPMENT_JIT',
+  side: 'buy',
+  inputMint: SOL,
+  outputMint: USDC,
+  inputAmount: AMOUNT,
   fundingLamports: AMOUNT * 10n,
   maxLamportsSpent: AMOUNT * 2n,
+  expectedOutput: obs.expectedOutput,
+  minimumOutput: obs.minimumOutput,
   contextHash: 'e2e',
 });
 console.log(`\n  simulate          kind=${attempt?.kind ?? 'none'} simulated=${simulated}`);

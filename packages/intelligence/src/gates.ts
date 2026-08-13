@@ -213,15 +213,43 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
   out.push(
     veto('min_buys_5m', buys5 >= config.minBuyCount5m, 'insufficient_flow', `5m buys ${buys5} < ${config.minBuyCount5m}`),
   );
+  /**
+   * P17 -- a missing net-buyer count stays MISSING. It is not gross buys.
+   *
+   * This gate used to fall back to `buys5` when `numNetBuyers` was absent, and
+   * the two are not the same quantity. Gross buys counts buy transactions; net
+   * buyers counts distinct buyers less sellers. A wash trader running a
+   * hundred round trips through two wallets produces an enormous gross buy
+   * count and a net buyer count near zero.
+   *
+   * So the substitution handed the anti-wash gate the one number wash trading
+   * inflates, and it did so precisely when the honest number was unavailable.
+   *
+   * Absence does not hard-veto -- that would reject the entire young-token
+   * window the strategy is defined over -- and it is not treated as satisfied
+   * either. It is charged as soft risk, which is the same contract the impact
+   * and top-holder gates use.
+   */
   const netBuyers = s5.numNetBuyers ?? null;
-  out.push(
-    veto(
-      'min_net_buyers_5m',
-      netBuyers === null ? buys5 >= config.minNetBuyers5m : netBuyers >= config.minNetBuyers5m,
-      'insufficient_net_buyers',
-      `5m net buyers ${netBuyers ?? `~${buys5}`} < ${config.minNetBuyers5m}`,
-    ),
-  );
+  if (netBuyers === null) {
+    out.push(
+      soft(
+        'net_buyers_unavailable',
+        0.25,
+        'net_buyers_unknown',
+        'provider reported no numNetBuyers; gross buys is a different quantity and is not substituted',
+      ),
+    );
+  } else {
+    out.push(
+      veto(
+        'min_net_buyers_5m',
+        netBuyers >= config.minNetBuyers5m,
+        'insufficient_net_buyers',
+        `5m net buyers ${netBuyers} < ${config.minNetBuyers5m}`,
+      ),
+    );
+  }
 
   // --- Provider's own organic-flow estimate. Used as a gate but never as
   //     the sole gate: it is a third-party model, not chain truth.
@@ -456,11 +484,45 @@ export interface GateSummary {
   readonly passedHardGates: boolean;
 }
 
+/**
+ * P17 -- soft risk that a new feature cannot dilute.
+ *
+ * This was the MEAN of the soft contributions, and the comment defending it
+ * said adding a feature would not "silently inflate everything's risk". It does
+ * the opposite, and worse: adding a feature that reports NO risk at all divides
+ * the same total by a larger count, so every existing risk shrinks.
+ *
+ * Concretely, one gate at 0.9 gives 0.9. Add a zero-risk gate and the same
+ * token scores 0.45 -- the risk halved because we wrote more code.
+ *
+ * That is the wrong direction for a safety number. A dangerous token becomes
+ * safer every time the system learns something reassuring about it, and the
+ * dilution is largest exactly where the evidence is thinnest.
+ *
+ * The replacement is `max(primary) + bounded secondary`:
+ *
+ *   - the worst single risk sets the floor, and nothing can lower it;
+ *   - the remaining risks add into the headroom above it, never past 1.
+ *
+ * Adding a zero-risk feature contributes zero and changes nothing.
+ */
 export function summarize(gates: readonly GateResult[]): GateSummary {
   const hardVetoes = gates.filter((g) => g.severity === 'hard_veto' && !g.passed).map((g) => g.reason);
   const softs = gates.filter((g) => g.severity === 'soft_risk');
-  // Mean of soft contributions, so adding a new soft feature does not silently
-  // inflate everything's risk.
-  const softRiskScore = softs.length === 0 ? 0 : softs.reduce((a, g) => a + g.riskContribution, 0) / softs.length;
+  const contributions = softs.map((g) => Math.max(0, Math.min(1, g.riskContribution))).sort((a, b) => b - a);
+
+  const primary = contributions[0] ?? 0;
+  // Everything below the worst, expressed as a fraction of the headroom that
+  // remains. Diminishing, bounded, and monotonically non-decreasing in the
+  // number of real risks found.
+  let headroom = 1 - primary;
+  let secondary = 0;
+  for (const c of contributions.slice(1)) {
+    const take = headroom * c;
+    secondary += take;
+    headroom -= take;
+  }
+
+  const softRiskScore = Math.max(0, Math.min(1, primary + secondary));
   return { gates, hardVetoes, softRiskScore, passedHardGates: hardVetoes.length === 0 };
 }
