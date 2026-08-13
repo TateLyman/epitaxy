@@ -307,6 +307,18 @@ export interface SimulationResponse {
   readonly preTokenAccounts: readonly ObservedTokenBalance[];
   readonly postTokenAccounts: readonly ObservedTokenBalance[];
 
+  /**
+   * P5 — whether the independent balance check agreed with the fee the
+   * transaction's own compute-budget bytes imply.
+   *
+   * The bytes are authoritative: the runtime charges on the requested limit and
+   * the requested limit is in the instruction. This says whether a second,
+   * weaker method agreed, and it is recorded rather than gating — the balance
+   * identity `payer loss - others gained` does not hold for a sell, which
+   * increases the payer's balance.
+   */
+  readonly priorityFeeCorroborated?: boolean;
+
   readonly baseFeeLamports: string | null;
   readonly priorityFeeLamports: string | null;
   readonly rentCreatedLamports: string | null;

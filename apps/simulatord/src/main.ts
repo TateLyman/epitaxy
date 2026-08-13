@@ -1110,9 +1110,28 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
           `(${charged.limit.units} units, ${charged.limit.source}), balances imply ${residual}`,
       );
     }
-    // Reported only when the transaction's own bytes and the payer's own
-    // balance agree. A number two sources disagree about is not a measurement.
-    const priorityFee = err !== null ? null : decompositionExact && residual === declaredPriority ? declaredPriority : null;
+    /**
+     * P5 — the compute-budget BYTES are the authoritative priority fee.
+     *
+     * This previously reported the fee only when a balance-derived residual
+     * agreed with the bytes exactly, and otherwise reported nothing. The
+     * intention was right and the consequence was that every run said
+     * "fee decomposition incomplete: no priority fee reported" — including
+     * every run whose fee was perfectly well known from its own instructions.
+     *
+     * The residual is not a second measurement of the same thing. It is
+     * `payer loss - others gained`, and that identity does not hold for a sell:
+     * a sell INCREASES the payer's balance, so the subtraction produces a
+     * number with no meaning and then suppresses the one that had meaning.
+     *
+     * So the bytes are reported, and the balance check is kept as independent
+     * corroboration with its disagreement recorded rather than fatal. The
+     * runtime charges on the requested limit, and the requested limit is in the
+     * transaction.
+     */
+    const priorityFee = err !== null ? null : declaredPriority;
+    /** Whether the independent balance check agreed. Recorded, not gating. */
+    const priorityFeeCorroborated = err === null && decompositionExact && residual === declaredPriority;
 
     // §6 — the caller's asserted bounds are CHECKED, not carried. A bound
     // nothing tests is a comment with a schema.
@@ -1274,6 +1293,7 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       postTokenBalances: postTok,
       preTokenAccounts,
       postTokenAccounts,
+      priorityFeeCorroborated,
       baseFeeLamports: baseFee === null ? null : baseFee.toString(),
       priorityFeeLamports: priorityFee === null ? null : priorityFee.toString(),
       // Null, not zero, when the transaction failed: nothing was applied, so
@@ -1347,6 +1367,7 @@ function fail(
     postTokenBalances: {},
     preTokenAccounts: [],
     postTokenAccounts: [],
+    priorityFeeCorroborated: false,
     baseFeeLamports: null,
     priorityFeeLamports: null,
     rentCreatedLamports: null,
