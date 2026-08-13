@@ -58,6 +58,19 @@ Every fingerprint is currently `STRUCTURAL_ONLY`, for one reason:
 > every simulation of this fingerprint predates the leg-shaped request; those
 > jobs measured the instrument
 
+### The ceiling on Pump
+
+Measured 2026-08-13: a live `Pump.fun Amm` route **passes JIT** (160,895 units,
+exact 20,000,000 debit, real fees) and its **offline replay returns
+`SIMULATION_UNKNOWN`** — six program ELFs cannot be restored on the request
+path. See `docs/OFFLINE_REPLAY_BLOCKER.md`.
+
+So Pump is capped at `JIT_EFFECT_VALID` however many effect-verified runs it
+accumulates, and `CONFIRMATORY` is unreachable for it. The stable SOL→USDC pair
+replays with 0 bps compute drift, so the offline mechanism itself is sound — it
+is the six-program restore that fails, and a single stable-pair failure must
+never be read as "offline replay does not work".
+
 A fingerprint advances only on its own evidence:
 
 - `JIT_EFFECT_VALID` — at least one `SIMULATED_EFFECT_OK` under JIT

@@ -128,6 +128,57 @@ They are stale transactions replayed just-in-time against today's chain with
 them after 1,160 compute units, before any AMM is invoked. That is a different
 confound and it does not restore the original conclusion.
 
+## 7a. JIT to frozen offline replay (P4)
+
+`pnpm simulator:effect-parity` now compares the ECONOMIC effects of the two
+runs, not only their bytes — the fifteen fields P4 requires, plus compute units
+against a frozen 10 bps tolerance, plus the slot interval.
+
+**On a stable pair (SOL→USDC):**
+
+```
+economic effect parity  AGREES
+unitsConsumed           jit=40829 offline=40829   drift 0 bps
+```
+
+**On a live Pump.fun Amm route:**
+
+```
+JIT      SIMULATED_OK, 160,895 units, exact 20,000,000 debit,
+         base fee 5,000, priority fee 9,500, rent created 6,222,240
+offline  SIMULATION_UNKNOWN
+         cheatcode failed: surfnet_writeProgram (38.5 MiB request)
+```
+
+A Pump route invokes six programs, and `net.deploy()` is a synchronous napi
+call on the request path. The daemon already documents the measurement: during a
+six-program restore `/v1/health` stopped answering and the restore did not
+complete within five minutes.
+
+So **Pump is capped at `JIT_EFFECT_VALID`**, `CONFIRMATORY` is unreachable for
+it, and the readiness gate's 200 confirmatory positions cannot reach one until
+this is fixed. Recorded as `S050`, OPEN. Not attempted this session: the JIT
+path is the only thing producing evidence, and restructuring the daemon's
+restore loop at the end of a long session risks it.
+
+Full detail and the three candidate fixes: `docs/OFFLINE_REPLAY_BLOCKER.md`.
+
+The slot interval is recorded, never fabricated. Jupiter omits `contextSlot` on
+these builds; the JIT run reports the slot it executed at and the offline replay
+stands there. That models decision latency and is **not** same-slot truth.
+
+## 7b. Two runs of one transaction are two experiments
+
+Same mint, same size, minutes apart:
+
+```
+run 1   SIMULATED_OK, 160,895 units, 20,000,000 debited
+run 2   InstructionError [5, Custom 6001]   (slippage)
+```
+
+Not a figure of speech. This is the argument for offline replay, and why its
+absence is a blocker rather than an inconvenience.
+
 ## 8. Pump capability parity
 
 `artifacts/capability-matrix.json`, 13 route shapes over 26,515 observations.
@@ -153,6 +204,21 @@ their difference is not a round trip.
 Executed in `tests/unit/paper-core.test.ts` — the observer double records that
 the sell is requested at `1_000_000n`, the exact amount the buy acquires, and
 that no sell is requested at all when the buy acquires nothing.
+
+## 11a. Evidence class, stamped (P10)
+
+The class was derived at report time by joining back to the simulation jobs.
+That derivation runs under whatever the code believes now, so a shadow opened
+when nothing was effect-verified would silently become `JIT_EFFECT_VALID` the
+moment some later run of the same observation passed. It is stamped at open
+(migration 20).
+
+A pair takes the **minimum** of its two legs. A confirmatory entry with an
+unverified exit is not a confirmatory round trip; it is a position that cannot
+be shown to close, which is the more important of the two facts.
+
+`tallyByClass()` returns a count per class and **no total**. Two structural
+shadows and a confirmatory round trip are not three of anything.
 
 ## 12. Shadow evidence classes
 
@@ -319,10 +385,24 @@ refusal.
 
 Current: `NOT_READY`, 0 confirmatory positions, every economic gate failing.
 
-## 20. CI and ruleset
+## 20. CI, ruleset and the required tests
 
-`pnpm check` = typecheck + secretscan + test. **772 tests pass**, 4 skipped,
-48 files, in ~5 s.
+`pnpm check` = typecheck + secretscan + test. **846 tests pass**, 4 skipped,
+54 files, in ~5 s.
+
+P24's 44 required items are indexed in `tests/unit/p24-coverage.test.ts`, which
+asserts every named file exists rather than listing them in prose — a coverage
+claim nobody checks is the same class of thing as the source-substring tests
+this session deleted.
+
+Two of the 44 are honest gaps rather than passing tests, and the index asserts
+they still say so:
+
+- **item 10** (JIT→offline parity on a Pump route) is blocked by `S050`;
+- **item 13** (PumpSwap canonical-pool quote against the official SDK) is not
+  established. The observed corpus is 4,545 `Pump.fun Amm` against 22
+  `Pump.fun` proper, so the canonical-pool path has almost no live traffic to
+  check against. `docs/PUMP_PUMPSWAP_PARITY.md` states this.
 
 ## 21. Repository visibility
 
@@ -388,8 +468,14 @@ passed effect verification.
    in time to stand at. Blocks `OFFLINE_REPRODUCIBLE` for those rows.
 4. **92 `HTTP_4XX` sell observations in 15 minutes.** Routes that do not exist
    cost budget and return nothing.
-5. **`dirty_tree`**: the engine restarted from a tree with uncommitted changes,
-   so its rows are `+dirty` and cannot be confirmatory. Commit, then restart.
+5. **`dirty_tree`**: the engine must be restarted after each commit, or its
+   rows are `+dirty` and cannot be confirmatory.
+6. **`S050` — offline replay cannot restore a six-program Pump route.** This is
+   the binding constraint on `CONFIRMATORY`, and therefore on canary. Nothing
+   else on this list blocks a gate that the corpus is otherwise close to
+   reaching.
+7. **PumpSwap canonical-pool parity is unestablished** and has almost no live
+   traffic to establish it against.
 
 ## 29. Commands to keep collection running
 

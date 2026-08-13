@@ -8,6 +8,7 @@ import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/sr
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import { SimulationClient } from '../packages/simulator/src/client.js';
 import { compareRuns } from '../packages/simulator/src/parity-compare.js';
+import { verifyEffect, type EffectContext } from '../packages/simulator/src/effect.js';
 import type { SnapshotBlob } from '../packages/simulator/src/protocol.js';
 
 /**
@@ -174,6 +175,99 @@ console.log(`  startup/sim       ${offline.startupMs}ms / ${offline.simulateMs}m
 console.log(`  detail            ${offline.detail}`);
 for (const l of offline.logs.slice(0, 6)) console.log(`    | ${l}`);
 
+/**
+ * The leg both runs describe. One object, used for both, so a difference in the
+ * verdicts cannot come from having described the trade two different ways.
+ */
+const effectCtx: EffectContext = { taker, side: 'buy', inputMint: SOL, outputMint: OUTPUT };
+
+// ------------------------------------------------- P4.12 the ECONOMIC effects
+//
+// Byte-level parity and economic parity are different questions, and the
+// difference matters here: redeploying a program from its ELF does not preserve
+// the program account's lamports, so full-state parity can never hold while the
+// restore works that way. That is our mechanism, not a divergence in what the
+// transaction did.
+//
+// What must agree is the EFFECT: the same success or failure, the same debit,
+// the same credit, the same fees and rent, the same bounds outcome, and the
+// same accounts created and closed. Those are computed by the same verifier the
+// engine uses, so a difference here is a difference the engine would act on.
+const jitEffect = verifyEffect(jitReq, jit, effectCtx);
+const offlineEffect = verifyEffect(offlineReq, offline, effectCtx);
+
+const effectFields: readonly (readonly [string, string, string])[] = [
+  ['simulatedEffectOk', String(jitEffect.simulatedEffectOk), String(offlineEffect.simulatedEffectOk)],
+  ['RUNTIME_OK', String(jitEffect.checks.RUNTIME_OK), String(offlineEffect.checks.RUNTIME_OK)],
+  ['EFFECT_OK', String(jitEffect.checks.EFFECT_OK), String(offlineEffect.checks.EFFECT_OK)],
+  ['FEE_DECOMPOSITION_OK', String(jitEffect.checks.FEE_DECOMPOSITION_OK), String(offlineEffect.checks.FEE_DECOMPOSITION_OK)],
+  ['ACCOUNT_COVERAGE_OK', String(jitEffect.checks.ACCOUNT_COVERAGE_OK), String(offlineEffect.checks.ACCOUNT_COVERAGE_OK)],
+  ['inputDebit', String(jitEffect.inputDebit), String(offlineEffect.inputDebit)],
+  ['outputCredit', String(jitEffect.outputCredit), String(offlineEffect.outputCredit)],
+  ['baseFee', String(jitEffect.baseFeeLamports), String(offlineEffect.baseFeeLamports)],
+  ['priorityFee', String(jitEffect.priorityFeeLamports), String(offlineEffect.priorityFeeLamports)],
+  ['rentCreated', String(jitEffect.rentCreatedLamports), String(offlineEffect.rentCreatedLamports)],
+  ['rentRecovered', String(jitEffect.rentRecoveredLamports), String(offlineEffect.rentRecoveredLamports)],
+  ['boundsViolations', JSON.stringify(jitEffect.boundsViolations), JSON.stringify(offlineEffect.boundsViolations)],
+  ['createdAccounts', JSON.stringify([...jit.createdAccounts].sort()), JSON.stringify([...offline.createdAccounts].sort())],
+  ['closedAccounts', JSON.stringify([...jit.closedAccounts].sort()), JSON.stringify([...offline.closedAccounts].sort())],
+  ['transactionError', String(jit.transactionError), String(offline.transactionError)],
+];
+const effectDiffs = effectFields.filter(([, a, b]) => a !== b).map(([field, a, b]) => ({ field, jit: a, offline: b }));
+
+/**
+ * Compute units, against a frozen tolerance.
+ *
+ * The two runs are the same transaction on the same state, so a difference is
+ * the runtime's own accounting and not the trade's. It is bounded rather than
+ * required to be zero, and the bound is frozen here so that widening it is an
+ * edit somebody has to make on purpose.
+ */
+const UNITS_TOLERANCE_BPS = 10;
+const jitUnits = jit.unitsConsumed ?? 0;
+const offlineUnits = offline.unitsConsumed ?? 0;
+const unitsDriftBps =
+  jitUnits === 0 ? null : Math.round((Math.abs(offlineUnits - jitUnits) / jitUnits) * 10_000);
+const unitsWithinTolerance = unitsDriftBps !== null && unitsDriftBps <= UNITS_TOLERANCE_BPS;
+
+console.log('\n--- economic effect parity (P4.12) ---');
+for (const [field, a, b] of effectFields) {
+  const same = a === b;
+  console.log(`  ${same ? ' ' : '!'} ${field.padEnd(22)} jit=${a.slice(0, 28).padEnd(28)} offline=${b.slice(0, 28)}`);
+}
+console.log(
+  `  ${unitsWithinTolerance ? ' ' : '!'} unitsConsumed          jit=${jitUnits} offline=${offlineUnits} ` +
+    `drift=${unitsDriftBps ?? 'n/a'}bps tolerance=${UNITS_TOLERANCE_BPS}bps`,
+);
+
+const effectParity = effectDiffs.length === 0 && unitsWithinTolerance;
+console.log(`\n  economic effect parity  ${effectParity ? 'AGREES' : 'DIFFERS'}`);
+if (!effectParity && effectDiffs.length === 0) {
+  console.log('  the effects agree; only the compute accounting drifted past its frozen tolerance');
+}
+
+/**
+ * P4 -- the slot interval, recorded rather than fabricated.
+ *
+ * Jupiter often omits `contextSlot`. A later-state simulation can model
+ * decision latency and must never be called same-slot truth, so the interval is
+ * written down and the drift is named.
+ */
+const slots = {
+  buildContextSlot: built.contextSlot ?? null,
+  jitContextSlot: jit.contextSlot ?? null,
+  offlineTargetSlot: offlineReq.targetSlot ?? null,
+  maxObservedDriftSlots:
+    built.contextSlot != null && jit.contextSlot != null ? Math.abs(jit.contextSlot - built.contextSlot) : null,
+  sameSlotTruth: built.contextSlot != null && jit.contextSlot != null && built.contextSlot === jit.contextSlot,
+};
+console.log('\n--- slot interval ---');
+console.log(`  build contextSlot   ${slots.buildContextSlot ?? 'not reported by the provider'}`);
+console.log(`  JIT contextSlot     ${slots.jitContextSlot ?? 'unknown'}`);
+console.log(`  offline targetSlot  ${slots.offlineTargetSlot ?? 'none'}`);
+console.log(`  max observed drift  ${slots.maxObservedDriftSlots ?? 'not computable'} slot(s)`);
+console.log(`  same-slot truth     ${slots.sameSlotTruth ? 'YES' : 'NO — this models decision latency, not same-slot truth'}`);
+
 // --------------------------------------------------------------- the verdict
 const verdict = compareRuns(jit, offline);
 console.log(`\n--- parity ---`);
@@ -217,6 +311,18 @@ writeFileSync(
       diffs: verdict.diffs.slice(0, 50),
       disqualifiers: verdict.disqualifiers,
       executionParityEstablished: established,
+      // P4.12 -- the comparison that decides whether an offline replay may
+      // stand in for a JIT run as evidence about a trade.
+      effectParity: {
+        agrees: effectParity,
+        diffs: effectDiffs,
+        unitsDriftBps,
+        unitsToleranceBps: UNITS_TOLERANCE_BPS,
+        unitsWithinTolerance,
+        jit: { simulatedEffectOk: jitEffect.simulatedEffectOk, refusals: jitEffect.refusals },
+        offline: { simulatedEffectOk: offlineEffect.simulatedEffectOk, refusals: offlineEffect.refusals },
+      },
+      slots,
     },
     null,
     2,
