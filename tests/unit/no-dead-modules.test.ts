@@ -31,8 +31,6 @@ import { join } from 'node:path';
  * purpose, and it belongs in the failure register too.
  */
 const KNOWN_INERT: Readonly<Record<string, string>> = {
-  'packages/intelligence/src/mintfacts.ts':
-    'P13 — decoded mint and freeze authority must enter the screening decision',
   'packages/intelligence/src/entity.ts':
     'P13 — entity clustering must enter the concentration decision',
   'packages/adapters/src/accountwatch.ts':
@@ -120,7 +118,7 @@ describe('a decision-bearing module must be consulted by something', () => {
   it('the inert list is small and every entry names the phase that would wire it', () => {
     // Growing this list is a statement that a decision-bearing module is inert
     // on purpose. That belongs in the failure register, not in a test file.
-    expect(Object.keys(KNOWN_INERT).length).toBeLessThanOrEqual(3);
+    expect(Object.keys(KNOWN_INERT).length).toBeLessThanOrEqual(2);
     for (const [mod, why] of Object.entries(KNOWN_INERT)) {
       expect(why, mod).toMatch(/^P\d+ —/);
     }

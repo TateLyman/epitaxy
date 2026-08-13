@@ -1,5 +1,6 @@
 import type { GateConfig } from '../../domain/src/config.js';
 import type { GateResult, RoundTrip } from '../../domain/src/types.js';
+import type { FactVerdict } from './mintfacts.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 
 /**
@@ -51,8 +52,20 @@ export interface GateInputs {
  * per minute total, so a round-trip quote (2 requests) is the scarcest
  * resource we have. Anything rejectable for free must be rejected for free.
  */
-export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateResult[] {
+export function evaluateCheapGates(
+  input: Omit<GateInputs, 'roundTrip'> & {
+    /**
+     * P17 — what the CHAIN says, when it has been read.
+     *
+     * Optional because reading it costs an RPC call the discovery path cannot
+     * always afford. Absent means unread, which is different from read-and-safe
+     * and is visible in the gate's own detail string.
+     */
+    readonly chainFacts?: { mintAuthority: FactVerdict; freezeAuthority: FactVerdict } | null;
+  },
+): GateResult[] {
   const { info, nowUtcMs, sourceAgeMs, config } = input;
+  const chainFacts = input.chainFacts ?? null;
   const capitalAtRisk = input.capitalAtRisk === true;
   const out: GateResult[] = [];
 
@@ -100,13 +113,35 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
   // --- Authorities. Retained mint authority means supply can be inflated
   //     under us; freeze authority means our exit can be disabled. ----------
   const audit = info.audit ?? {};
+  /**
+   * P17 — the CHAIN overrides the provider.
+   *
+   * `audit.mintAuthorityDisabled` is a third party's claim about a byte in an
+   * account we can read ourselves. When both are present and they disagree, the
+   * chain wins; it is not a vote. When the chain has not been read, the
+   * provider's claim is used and the gap is visible in the detail string rather
+   * than silently indistinguishable from a measurement.
+   *
+   * A provider that is wrong about mint authority is a provider whose other
+   * fields deserve less weight, which is why `disagreements()` records it as a
+   * fact about the SOURCE rather than only about the token.
+   */
+  const chainMint = chainFacts?.mintAuthority ?? 'UNKNOWN';
+  const chainFreeze = chainFacts?.freezeAuthority ?? 'UNKNOWN';
+  const mintDisabled: boolean | null =
+    chainMint !== 'UNKNOWN' ? chainMint === 'SAFE' : (audit.mintAuthorityDisabled ?? null);
+  const freezeDisabled: boolean | null =
+    chainFreeze !== 'UNKNOWN' ? chainFreeze === 'SAFE' : (audit.freezeAuthorityDisabled ?? null);
+  const mintSource = chainMint !== 'UNKNOWN' ? 'chain' : 'provider';
+  const freezeSource = chainFreeze !== 'UNKNOWN' ? 'chain' : 'provider';
+
   if (config.requireMintAuthorityDisabled) {
     out.push(
       veto(
         'mint_authority_disabled',
-        audit.mintAuthorityDisabled === true,
+        mintDisabled === true,
         'mint_authority_live',
-        `mintAuthorityDisabled=${String(audit.mintAuthorityDisabled)}`,
+        `mintAuthorityDisabled=${String(mintDisabled)} (${mintSource})`,
       ),
     );
   }
@@ -114,9 +149,9 @@ export function evaluateCheapGates(input: Omit<GateInputs, 'roundTrip'>): GateRe
     out.push(
       veto(
         'freeze_authority_disabled',
-        audit.freezeAuthorityDisabled === true,
+        freezeDisabled === true,
         'freeze_authority_live',
-        `freezeAuthorityDisabled=${String(audit.freezeAuthorityDisabled)}`,
+        `freezeAuthorityDisabled=${String(freezeDisabled)} (${freezeSource})`,
       ),
     );
   }
