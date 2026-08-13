@@ -65,6 +65,18 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
+import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
+import {
+  acquiredTokens,
+  entryCashOut,
+  exitCashIn,
+  isPnlEligible,
+  immediateRoundTrip,
+} from '../../../packages/domain/src/settlement.js';
+import {
+  measuredSettlementOf,
+  latestJobFor,
+} from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import {
   bindEntryObservation,
@@ -740,6 +752,10 @@ async function tryEnter(
     inputMint: WSOL_MINT,
     outputMint: mint,
     inputAmount: lamportsIn,
+    // The buy RECEIVES this token, so its program must be named or the credit
+    // cannot be bound to an account. Production never passed it, which is why
+    // production produced no effect-verified leg while the proof harness did.
+    outputTokenProgram: tokenProgramFor(db, blobs, entry.observationId, taker, mint),
     // Enough hypothetical SOL to cover the leg, its fees and any rent it
     // creates, inside a throwaway SVM. Not a wallet.
     fundingLamports: lamportsIn * 10n,
@@ -780,8 +796,49 @@ async function tryEnter(
   // returns no fee fields at all (verified live), so there is nothing to
   // deduct; the old code multiplied by (1 - feeBps) on top of an /order amount
   // that already had the fee taken out.
-  const tokensReceived = netMinimumOutput(entry);
-  if (tokensReceived <= 0n) return;
+  /**
+   * P3 — the acquired amount is the simulator's MEASURED token credit.
+   *
+   * This was `netMinimumOutput(entry)`: the router's floor, what it promised
+   * not to go below. Booking that as the acquired amount records a position
+   * the simulator never verified, and the two differ by the slippage allowance
+   * on every single trade.
+   *
+   * The measured credit is read from the canonical settlement. No fallback: a
+   * leg whose credit could not be measured is refused, because proceeding on
+   * an estimate is exactly the divergence this directive exists to close.
+   */
+  const entryJobId = latestJobFor(db, entry.observationId);
+  const entrySettlement =
+    entryJobId === null ? null : measuredSettlementOf(db, entry.observationId, entryJobId, taker);
+
+  if (entrySettlement === null || !entrySettlement.effectValid) {
+    recordHealth(
+      db,
+      'entry_not_effect_verified',
+      'warn',
+      `${mint.slice(0, 12)}: no effect-verified buy settlement; not entering on an estimate`,
+    );
+    return;
+  }
+
+  const eligible = isPnlEligible(entrySettlement);
+  if (!eligible.ok) {
+    recordHealth(db, 'entry_settlement_incomplete', 'warn', `${mint.slice(0, 12)}: ${eligible.reasons.join('; ')}`);
+    return;
+  }
+
+  let tokensReceived: bigint;
+  try {
+    tokensReceived = acquiredTokens(entrySettlement);
+  } catch (e) {
+    recordHealth(db, 'entry_settlement_incomplete', 'warn', `${mint.slice(0, 12)}: ${(e as Error).message}`);
+    return;
+  }
+  if (tokensReceived <= 0n) {
+    recordHealth(db, 'entry_no_credit', 'warn', `${mint.slice(0, 12)}: the buy credited no tokens`);
+    return;
+  }
 
   // P9 — a buy without a verified same-family sell is not a portfolio entry.
   //
@@ -824,7 +881,7 @@ async function tryEnter(
     inputMint: mint,
     outputMint: WSOL_MINT,
     inputAmount: tokensReceived,
-    inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId),
+    inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId, taker, mint),
     fundingLamports: 100_000_000n,
     maxLamportsSpent: 20_000_000n,
     expectedOutput: entrySell.expectedOutput,
@@ -891,16 +948,64 @@ async function tryEnter(
 
   // What this round trip actually costs, measured rather than assumed. It is
   // the number that decides whether an edge has to clear 200 bps or 1,400.
-  const entryRoundTripLossBps =
-    costLamports <= 0n ? null : Number(((costLamports - entrySell.expectedOutput) * 10_000n) / costLamports);
-  if (entryRoundTripLossBps !== null) {
+  /**
+   * P3 — the exact round trip, from MEASURED settlements, and it GATES.
+   *
+   * This computed the loss from the router's `expectedOutput` and recorded it
+   * at `info`. The gate existed, the measurement existed, and nothing connected
+   * them: a position whose immediate round trip lost more than
+   * `maxRoundTripLossBps` opened anyway.
+   *
+   * 401 bps against a 400 bps cap is refused. There is no "close enough": the
+   * cap is the number that says whether an edge has room to exist.
+   */
+  const sellJobId = latestJobFor(db, entrySell.observationId);
+  const sellSettlement =
+    sellJobId === null ? null : measuredSettlementOf(db, entrySell.observationId, sellJobId, taker);
+
+  if (sellSettlement === null) {
     recordHealth(
       db,
-      'entry_round_trip',
-      'info',
-      `${mint.slice(0, 12)}: buy then immediate same-family sell loses ${entryRoundTripLossBps} bps all-in`,
+      'entry_without_exit',
+      'warn',
+      `${mint.slice(0, 12)}: the exit half has no measured settlement; not entering`,
     );
+    return;
   }
+
+  const roundTrip = immediateRoundTrip(entrySettlement, sellSettlement);
+  if (!roundTrip.complete) {
+    recordHealth(
+      db,
+      'entry_round_trip_incomplete',
+      'warn',
+      `${mint.slice(0, 12)}: ${roundTrip.reasons.slice(0, 2).join('; ')}`,
+    );
+    return;
+  }
+
+  const entryRoundTripLossBps = roundTrip.lossBps;
+  if (entryRoundTripLossBps > config.gates.maxRoundTripLossBps) {
+    recordHealth(
+      db,
+      'entry_round_trip_too_expensive',
+      'warn',
+      `${mint.slice(0, 12)}: measured immediate round trip loses ${entryRoundTripLossBps} bps ` +
+        `against a ${config.gates.maxRoundTripLossBps} bps cap. Refused.`,
+    );
+    log.info(
+      { mint, symbol, lossBps: entryRoundTripLossBps, cap: config.gates.maxRoundTripLossBps },
+      'entry refused — the measured round trip breaches the cost cap',
+    );
+    return;
+  }
+  recordHealth(
+    db,
+    'entry_round_trip',
+    'info',
+    `${mint.slice(0, 12)}: measured immediate round trip loses ${entryRoundTripLossBps} bps ` +
+      `(cap ${config.gates.maxRoundTripLossBps}); net ${roundTrip.netLamports}`,
+  );
 
   const positionId = randomUUID();
   const position: Position = {
@@ -914,6 +1019,14 @@ async function tryEnter(
     closedUtcMs: null,
     strategyVersion: config.strategyVersion,
     simulated: true,
+    // P4 — the explicit economics, from the MEASURED entry settlement.
+    //
+    // The cost is what actually left the payer, fees and rent included. Gross
+    // proceeds and net PnL are NULL because an open position has not realised
+    // either, and null here means undetermined rather than zero.
+    executionCostLamports: entryCashOut(entrySettlement).cashOut,
+    grossProceedsLamports: null,
+    netPnlLamports: null,
   };
   insertPosition(db, position);
   stampContext(db, 'positions', positionId, contextHash);
@@ -991,32 +1104,31 @@ async function tryEnter(
  * not linear and that is the same error §3.1 removed from entries.
  */
 /**
- * Which token program the input asset uses.
- *
- * Token and Token-2022 are different programs with different account layouts,
- * and provisioning inventory under the wrong one creates an account the
- * transaction will not find. Read from the accounts the route actually names,
- * so it is the route's answer rather than a default.
- *
- * Falls back to legacy Token, which is what the overwhelming majority of these
- * mints use, and the fallback is visible in the observation's own account list
- * if it is ever wrong.
+ * Which token program owns this mint, from the transaction the observation was
+ * built from. Null when the transaction does not say.
  */
-const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
-const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-
-function tokenProgramFor(db: Db, blobs: BlobStore, observationId: string): string {
+function tokenProgramFor(
+  db: Db,
+  blobs: BlobStore,
+  observationId: string,
+  taker: string,
+  mint: string,
+): string | null {
   try {
     const hash = exactBlobFor(db, observationId);
-    if (hash === null) return LEGACY_TOKEN_PROGRAM;
+    if (hash === null) return null;
     const blob = blobs.get<ExactTransactionBlob>(hash);
     const keys = [...blob.staticAccountKeys, ...blob.loadedAddresses];
-    return keys.includes(TOKEN_2022_PROGRAM) ? TOKEN_2022_PROGRAM : LEGACY_TOKEN_PROGRAM;
+    // Authoritative: the ATA is derived from the program, so only the right
+    // one appears. The previous heuristic asked whether the Token-2022 program
+    // id was among the keys at all, which is true whenever ANY account in a
+    // routed swap belongs to Token-2022 — regularly some other mint's.
+    return tokenProgramFromTransaction(keys, taker, mint);
   } catch {
-    // An unreadable blob is not a reason to guess Token-2022; the legacy
-    // program is what the overwhelming majority of these mints use, and a wrong
-    // guess here creates inventory the transaction will not find.
-    return LEGACY_TOKEN_PROGRAM;
+    // Unknown, and unknown is not Legacy. Returning a guess here creates
+    // inventory at an address the transaction will never look at, and the run
+    // then fails for a reason that is ours.
+    return null;
   }
 }
 
@@ -1149,6 +1261,7 @@ async function openShadowBooks(
       inputMint: WSOL_MINT,
       outputMint: mint,
       inputAmount: notional,
+      outputTokenProgram: tokenProgramFor(db, blobs, obs.observationId, taker, mint),
       fundingLamports: notional * 10n,
       maxLamportsSpent: notional * 2n,
       expectedOutput: obs.expectedOutput,
@@ -1207,7 +1320,7 @@ async function openShadowBooks(
       // Exactly the amount the buy would have acquired: the hypothetical
       // position, not a convenient number.
       inputAmount: tokensIn,
-      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, mint),
       fundingLamports: notional,
       maxLamportsSpent: notional * 2n,
       expectedOutput: exitObs.expectedOutput,
@@ -1767,7 +1880,7 @@ async function manageOpenPositions(
       inputMint: row.mint,
       outputMint: WSOL_MINT,
       inputAmount: tokenAmount,
-      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, row.mint),
       // Fees and rent only. A sell does not spend SOL on the trade itself, and
       // funding it as though it might would hide a route that quietly does.
       fundingLamports: 100_000_000n,
@@ -1794,7 +1907,8 @@ async function manageOpenPositions(
               inputMint: leg.inputMint,
               outputMint: leg.outputMint,
               inputAmount: leg.inputAmount,
-              inputTokenProgram: tokenProgramFor(db, blobs, observationId),
+              inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+              outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
               fundingLamports: 100_000_000n,
               maxLamportsSpent: 20_000_000n,
               expectedOutput: leg.expectedOutput,
@@ -1968,12 +2082,42 @@ async function manageOpenPositions(
       contextHash,
     });
 
+    /**
+     * P4 — settle the explicit economics at close.
+     *
+     * The exit's MEASURED settlement when there is one; the observed gross
+     * otherwise, which is stated rather than silently substituted. `bookedCost`
+     * is what the entry actually spent — read back from the row rather than
+     * recomputed, so the two ends of the position agree by construction.
+     */
+    const exitJobId = latestJobFor(db, exitObs.observationId);
+    const exitSettlement =
+      exitJobId === null ? null : measuredSettlementOf(db, exitObs.observationId, exitJobId, taker);
+    const settledGross =
+      exitSettlement !== null && isPnlEligible(exitSettlement).ok
+        ? exitCashIn(exitSettlement)
+        : grossFromObservation;
+    const bookedCost = (() => {
+      const r = db
+        .prepare('SELECT execution_cost_lamports c FROM positions WHERE position_id = ?')
+        .get(row.position_id) as { c: string | null } | undefined;
+      if (r?.c == null) return costLamports;
+      try {
+        return BigInt(r.c);
+      } catch {
+        return costLamports;
+      }
+    })();
+
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
       realizedLamports: realized,
       closedUtcMs: nowMs,
       exitReason: decision.reason,
       tokenAmount: 0n,
+      executionCostLamports: bookedCost,
+      grossProceedsLamports: settledGross,
+      netPnlLamports: settledGross - bookedCost,
     });
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;

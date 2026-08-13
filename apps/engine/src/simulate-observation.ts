@@ -1,4 +1,9 @@
 import type { Db } from '../../../packages/storage/src/db.js';
+import {
+  economicBoundsFor,
+  provisioningMutations,
+  type LegEconomics,
+} from '../../../packages/simulator/src/request-bounds.js';
 import { BlobStore, type ExactTransactionBlob } from '../../../packages/storage/src/blobstore.js';
 import {
   recordSimulationRequested,
@@ -115,6 +120,19 @@ export function validateSetup(opts: SimulateOptions): void {
   if (opts.side === 'sell' && !spendsToken) {
     throw new InvalidSimulationSetup('a sell whose input is SOL is not a sell');
   }
+  // P2.4 — the RECEIVING side must be nameable too.
+  //
+  // No production caller ever passed this, so a buy could not bind its credit
+  // to an account, and the run verified nothing about what it received. That
+  // is the difference between the proof harness's effect-verified legs and
+  // production's zero.
+  const receivesToken = opts.outputMint !== WSOL;
+  if (receivesToken && (opts.outputTokenProgram ?? null) === null) {
+    throw new InvalidSimulationSetup(
+      `a ${opts.side} receiving ${opts.outputMint.slice(0, 8)} needs its token program, or the credit ` +
+        'cannot be bound to an account',
+    );
+  }
 }
 
 /**
@@ -163,26 +181,40 @@ export async function simulateObservation(
     return { kind: 'skipped', reason: (e as Error).message };
   }
 
-  // Provision the asset the transaction will actually DEBIT.
-  //
-  // A buy spends lamports, so SOL funding is the whole story. A sell spends
-  // tokens, and funding it with SOL alone is what produced 43 identical
-  // failures: the token account existed with a zero balance, and the venue
-  // rejected the transfer at the same instruction every time.
-  const spendsToken = opts.inputMint !== WSOL;
-  const mutations: { kind: 'sol' | 'token'; owner: string; mint?: string; amount: string; tokenProgram?: string | null }[] =
-    [{ kind: 'sol', owner: taker, amount: opts.fundingLamports.toString() }];
-  if (spendsToken) {
-    mutations.push({
-      kind: 'token',
-      owner: taker,
-      mint: opts.inputMint,
-      // EXACTLY the hypothetical position. Funding more would let a sell
-      // succeed that the real balance could not cover; funding less would fail
-      // for a reason that is ours again.
-      amount: opts.inputAmount.toString(),
-      tokenProgram: opts.inputTokenProgram ?? null,
-    });
+  /**
+   * P2.4 — production and the proof harness build the SAME request.
+   *
+   * This block previously constructed the compatibility bounds by hand:
+   * one generic `mint + minTokenDelta` for both directions. The proof
+   * harness built the asset-aware form and produced effect-verified legs;
+   * production built this and produced none. The proof transferred nothing
+   * because it was not proving the request that runs.
+   *
+   * `economicBoundsFor` throws rather than degrading. A leg whose assets
+   * cannot be named is refused here, where it is a caller defect, instead of
+   * being recorded as a simulation outcome it is not.
+   */
+  const leg: LegEconomics = {
+    side: opts.side,
+    taker,
+    inputMint: opts.inputMint,
+    outputMint: opts.outputMint,
+    inputAmount: opts.inputAmount,
+    inputTokenProgram: opts.inputTokenProgram ?? null,
+    outputTokenProgram: opts.outputTokenProgram ?? null,
+    maxLamportsSpent: opts.maxLamportsSpent,
+    minimumOutput: opts.minimumOutput ?? null,
+    expectedOutput: opts.expectedOutput ?? null,
+  };
+
+  let bounds;
+  let mutations;
+  try {
+    bounds = economicBoundsFor(leg);
+    mutations = provisioningMutations(leg, opts.fundingLamports);
+  } catch (e) {
+    recordHealth(db, 'simulation_setup_invalid', 'critical', `${observationId}: ${(e as Error).message}`);
+    return { kind: 'skipped', reason: (e as Error).message };
   }
 
   const request = client.buildRequest({
@@ -202,15 +234,7 @@ export async function simulateObservation(
     snapshotManifestHash: opts.mode === 'DEVELOPMENT_JIT' ? 'jit-no-frozen-snapshot' : blob.transactionHash,
     snapshotAccounts: [],
     balanceMutations: mutations,
-    bounds: {
-      feePayer: taker,
-      maxLamportsSpent: opts.maxLamportsSpent.toString(),
-      // The output side of the bound, so a run that executes but delivers
-      // nothing is caught. Absent when the route did not state a minimum.
-      ...(opts.minimumOutput !== undefined && opts.minimumOutput !== null && opts.minimumOutput > 0n
-        ? { mint: opts.outputMint, minTokenDelta: opts.minimumOutput.toString() }
-        : {}),
-    },
+    bounds,
     contextHash: opts.contextHash,
   });
 

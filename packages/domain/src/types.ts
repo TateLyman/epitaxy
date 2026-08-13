@@ -266,6 +266,21 @@ export interface Position {
   readonly closedUtcMs: number | null;
   readonly strategyVersion: string;
   readonly simulated: boolean;
+
+  /**
+   * P4 — the explicit economics, written by the runtime.
+   *
+   * Migration 22 added these columns and no writer populated them, so every
+   * reader either recomputed PnL its own way or read NULL and reported zero.
+   * A schema that has been migrated but not written to is worse than a missing
+   * column: the column's existence reads as evidence that the number is kept.
+   *
+   * `null` means not yet determined — an open position has no net PnL. It never
+   * means zero.
+   */
+  readonly executionCostLamports?: bigint | null;
+  readonly grossProceedsLamports?: bigint | null;
+  readonly netPnlLamports?: bigint | null;
 }
 
 export type CircuitBreaker =

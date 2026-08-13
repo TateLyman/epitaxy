@@ -531,8 +531,9 @@ export function insertPosition(db: Db, p: Position): void {
   db.prepare(
     `INSERT INTO positions
       (position_id,mint,state,token_amount,cost_lamports,realized_lamports,opened_utc_ms,closed_utc_ms,
-       strategy_version,simulated,exit_reason,peak_value_lamports)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+       strategy_version,simulated,exit_reason,peak_value_lamports,
+       execution_cost_lamports,gross_proceeds_lamports,net_pnl_lamports)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     p.positionId,
     p.mint,
@@ -546,6 +547,15 @@ export function insertPosition(db: Db, p: Position): void {
     p.simulated ? 1 : 0,
     null,
     p.costLamports.toString(),
+    // P4 — written at open, from the measured settlement. NULL on the two that
+    // an open position genuinely does not have yet, which is not zero.
+    p.executionCostLamports === undefined || p.executionCostLamports === null
+      ? null
+      : p.executionCostLamports.toString(),
+    p.grossProceedsLamports === undefined || p.grossProceedsLamports === null
+      ? null
+      : p.grossProceedsLamports.toString(),
+    p.netPnlLamports === undefined || p.netPnlLamports === null ? null : p.netPnlLamports.toString(),
   );
 }
 
@@ -559,10 +569,25 @@ export function updatePosition(
     exitReason?: string | null;
     peakValueLamports?: bigint;
     tokenAmount?: bigint;
+    /** P4 — settled at close, from the measured exit settlement. */
+    executionCostLamports?: bigint;
+    grossProceedsLamports?: bigint;
+    netPnlLamports?: bigint;
   },
 ): void {
   const sets: string[] = [];
   const vals: (string | number | null)[] = [];
+  for (const [field, column] of [
+    ['executionCostLamports', 'execution_cost_lamports'],
+    ['grossProceedsLamports', 'gross_proceeds_lamports'],
+    ['netPnlLamports', 'net_pnl_lamports'],
+  ] as const) {
+    const v = fields[field];
+    if (v !== undefined) {
+      sets.push(`${column} = ?`);
+      vals.push(v.toString());
+    }
+  }
   if (fields.state !== undefined) {
     sets.push('state = ?');
     vals.push(fields.state);
