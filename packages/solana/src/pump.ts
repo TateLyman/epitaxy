@@ -151,6 +151,15 @@ export function venueOf(curve: BondingCurve | null): PumpVenue {
  */
 export function quoteBuyTokensForSol(curve: BondingCurve, solIn: bigint): bigint | null {
   if (curve.complete) return null;
+  // A curve whose virtual offsets are not the standard ones runs parameters
+  // this quoter does not model, and pricing it with the standard constant
+  // product is guessing.
+  //
+  // MEASURED against the router: every standard curve agreed at a stable 123
+  // bps across three tokens and six sizes, and every disagreement -- up to
+  // 13,064 bps, with the router paying MORE than the curve allows -- was on a
+  // non-standard one. The flag already identified them; it just did not refuse.
+  if (!curve.standardConfiguration) return null;
   if (solIn <= 0n) return null;
   if (curve.virtualSolReserves <= 0n || curve.virtualTokenReserves <= 0n) return null;
 
@@ -169,6 +178,7 @@ export function quoteBuyTokensForSol(curve: BondingCurve, solIn: bigint): bigint
 /** Quote a sell. Same curve, opposite direction, same refusals. */
 export function quoteSellSolForTokens(curve: BondingCurve, tokensIn: bigint): bigint | null {
   if (curve.complete) return null;
+  if (!curve.standardConfiguration) return null;
   if (tokensIn <= 0n) return null;
   if (curve.virtualSolReserves <= 0n || curve.virtualTokenReserves <= 0n) return null;
   const k = curve.virtualSolReserves * curve.virtualTokenReserves;

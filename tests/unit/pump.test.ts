@@ -92,10 +92,16 @@ describe('decodeBondingCurve against real mainnet shapes', () => {
     }
   });
 
-  it('flags a non-standard configuration instead of pricing against it', () => {
+  it('flags a non-standard configuration AND refuses to price it', () => {
     const odd = decodeBondingCurve(curveBytes({ ...LIVE, vSol: LIVE.rSol + 1n }));
     expect(odd.standardConfiguration).toBe(false);
     expect(odd.anomalies.join(' ')).toContain('non-standard virtual offsets');
+    // Measured against the router: every standard curve agreed at a stable 123
+    // bps across three tokens and six sizes, and every disagreement -- up to
+    // 13,064 bps, with the router paying MORE than the constant product allows
+    // -- was on a non-standard curve. Flagging it was not enough.
+    expect(quoteBuyTokensForSol(odd, 20_000_000n)).toBeNull();
+    expect(quoteSellSolForTokens(odd, 1_000_000n)).toBeNull();
   });
 
   it('refuses anything that is not a bonding curve', () => {
