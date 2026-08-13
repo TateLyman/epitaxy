@@ -97,6 +97,23 @@ export const OBSERVATION_FAILURES = [
   'POLICY_REFUSAL',
   'SIMULATION_FAILURE',
   'EXPIRED',
+  // §6 — a build that came back missing a load-bearing field.
+  //
+  // These used to collapse into a zero or an empty list somewhere downstream: a
+  // missing otherAmountThreshold became a minimum output of 0, which is a
+  // transaction that accepts any fill including none, and it looked exactly
+  // like a route with generous slippage. Each one is now its own refusal so the
+  // corpus can say which field the provider omitted and how often.
+  'MISSING_MINIMUM_OUTPUT',
+  'MISSING_BLOCKHASH',
+  'MISSING_EXPIRY',
+  'MISSING_ROUTE_PLAN',
+  'MISSING_SWAP_INSTRUCTION',
+  'MISSING_LOOKUP_TABLE',
+  'MISSING_CONTEXT_SLOT',
+  // The response describes a different trade than the one requested.
+  'AMOUNT_MISMATCH',
+  'MINT_MISMATCH',
   'UNKNOWN',
 ] as const;
 export type ObservationFailure = (typeof OBSERVATION_FAILURES)[number];
@@ -109,6 +126,73 @@ export function isProviderFailure(f: ObservationFailure): boolean {
 /** A no-route response is not an outage. */
 export function isTokenFact(f: ObservationFailure): boolean {
   return f === 'NO_ROUTE';
+}
+
+/**
+ * A response that arrived and was unusable.
+ *
+ * Neither an outage nor a fact about the token: the provider answered, and the
+ * answer was incomplete. Kept separate because averaging these into either
+ * bucket would hide a provider quietly dropping a field.
+ */
+export function isIncompleteBuild(f: ObservationFailure): boolean {
+  return f.startsWith('MISSING_') || f === 'AMOUNT_MISMATCH' || f === 'MINT_MISMATCH';
+}
+
+/**
+ * §6 — everything a BUILD_CUSTOM response must carry, checked before it is
+ * allowed to become an observation.
+ *
+ * Returns the FIRST missing field as a typed failure, or null when the response
+ * is complete. First rather than all, because the caller needs one reason to
+ * store and the fields are checked in the order that makes the earliest one the
+ * most informative.
+ *
+ * The amounts and mints are compared against what was actually requested. A
+ * router returning a route for a different mint or a different size is not a
+ * route for this trade, and inheriting its economics would price a position
+ * that was never proposed.
+ */
+export interface BuildFields {
+  readonly inputMint: string | null;
+  readonly outputMint: string | null;
+  readonly inAmount: bigint | null;
+  readonly outAmount: bigint | null;
+  readonly otherAmountThreshold: bigint | null;
+  readonly routePlanEntries: number;
+  readonly instructionCount: number;
+  readonly hasSwapInstruction: boolean;
+  readonly lookupTablesResolved: boolean;
+  readonly blockhash: string | null;
+  readonly lastValidBlockHeight: number | null;
+  readonly contextSlot: number | null;
+}
+
+export interface BuildExpectation {
+  readonly inputMint: string;
+  readonly outputMint: string;
+  readonly requestedAmount: bigint;
+}
+
+export function missingBuildField(f: BuildFields, want: BuildExpectation): ObservationFailure | null {
+  if (f.inputMint === null || f.outputMint === null) return 'MINT_MISMATCH';
+  if (f.inputMint !== want.inputMint || f.outputMint !== want.outputMint) return 'MINT_MISMATCH';
+  if (f.inAmount === null) return 'AMOUNT_MISMATCH';
+  // Exact. A router that fills a different size is describing a different
+  // trade, and this system prices the exact size it asked for.
+  if (f.inAmount !== want.requestedAmount) return 'AMOUNT_MISMATCH';
+  if (f.outAmount === null || f.outAmount <= 0n) return 'MISSING_MINIMUM_OUTPUT';
+  // The minimum acceptable output IS the slippage protection. Absent, the
+  // transaction accepts any fill at all, which is not a safer trade -- it is an
+  // unbounded one that looks identical to a generous one.
+  if (f.otherAmountThreshold === null || f.otherAmountThreshold <= 0n) return 'MISSING_MINIMUM_OUTPUT';
+  if (f.routePlanEntries <= 0) return 'MISSING_ROUTE_PLAN';
+  if (!f.hasSwapInstruction || f.instructionCount <= 0) return 'MISSING_SWAP_INSTRUCTION';
+  if (!f.lookupTablesResolved) return 'MISSING_LOOKUP_TABLE';
+  if (f.blockhash === null || f.blockhash.length === 0) return 'MISSING_BLOCKHASH';
+  if (f.lastValidBlockHeight === null || f.lastValidBlockHeight <= 0) return 'MISSING_EXPIRY';
+  if (f.contextSlot === null || f.contextSlot <= 0) return 'MISSING_CONTEXT_SLOT';
+  return null;
 }
 
 export type PolicyOutcome = 'PASS' | 'FAIL' | 'NOT_RUN';
@@ -236,6 +320,16 @@ export function legIsExecutable(
   if (o.instructionSetHash === null) reasons.push('no instruction set');
   if (o.rawPayloadHash === null) reasons.push('no retained raw payload');
   if (o.expectedOutput <= 0n) reasons.push('no expected output');
+
+  // §6 — the load-bearing fields, required here and not only at build time.
+  // A row that reached storage with one of these missing must not become a
+  // fill just because the policies happened to pass over what was there.
+  if (o.minimumOutput <= 0n) reasons.push('no minimum output: the fill would be unbounded');
+  if (o.lastValidBlockHeight === null) reasons.push('no expiry');
+  if (o.contextSlot === null) reasons.push('no context slot');
+  if (o.instructionCount === null || o.instructionCount <= 0) reasons.push('no instructions');
+  if (o.transactionBytes === null) reasons.push('no packet size was measured');
+
   return { ok: reasons.length === 0, reasons };
 }
 
