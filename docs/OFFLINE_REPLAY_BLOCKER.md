@@ -125,3 +125,61 @@ Jupiter omits `contextSlot` on these builds. The JIT run reports the slot it
 actually executed at and the offline replay is asked to stand there, so the two
 runs share a clock. That models decision latency faithfully and is **not**
 same-slot truth, and it is not recorded as such.
+
+
+---
+
+# After P8 Step 1 — the blocker moved, and is now located precisely
+
+`soPath` was already in `DeployOptions`. Each ELF is now written once to a
+content-addressed file and deployed by path. The cache proves it is in use:
+
+```
+2892224   2e02a40329aa...so
+10485715  e97dab8f7b00...so
+```
+
+Two programs written, 13 MB total. The deploy reaches the second one and then:
+
+```
+offline  SIMULATION_UNKNOWN
+         cheatcode failed: surfnet_writeProgram:
+                 error sending request for url (http://127.0.0.1:35405/)
+```
+
+## What this rules out
+
+**It is not N-API marshalling.** That was the diagnosis, and it was reasonable —
+`soBytes` converts a multi-megabyte ELF element by element on the request
+thread. `soPath` removes that entirely, and the failure is unchanged.
+
+**It is not the 38.5 MiB HTTP body either.** That request is the Windows engine
+sending the snapshot to the daemon, and it arrives: the daemon restores 26
+accounts and gets as far as writing the second program.
+
+## What it is
+
+`net.deploy()` issues `surfnet_writeProgram` over the surfnet's *own* RPC, and
+that connection drops while writing a **10.5 MB** program. The failure is inside
+Surfpool's program-write path, one layer below anything this daemon controls.
+
+So the remaining options are the ones that do not use it:
+
+- **Step 3, a pinned Rust Surfpool worker** — same runtime, but the write
+  happens in-process rather than across an RPC boundary.
+- **Step 4, a pinned Rust LiteSVM worker** — LiteSVM loads raw programs
+  directly, which is exactly the operation failing here.
+
+Step 2 (an isolated child process per offline job) would stop a hung restore
+taking the daemon with it, which is worth having, and it would not make this
+write succeed.
+
+## Status
+
+`S050` remains OPEN with a sharper cause. Pump is still capped at
+`JIT_EFFECT_VALID`, and `CONFIRMATORY` is still unreachable for it.
+
+What changed is that the next step is now a known piece of work against a known
+layer, rather than a guess. Step 1 was the cheap fix and it was worth trying:
+it is a real improvement to the deploy path, it is kept, and it demonstrated
+that the cost is not where it was believed to be.
