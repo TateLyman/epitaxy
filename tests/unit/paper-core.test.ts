@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   admitPortfolioEntry,
   admitPortfolioExit,
@@ -254,5 +255,43 @@ describe('P9 — the exit is simulated before it is judged', () => {
       { exit: obs({ observationId: 'obs-exit', side: 'sell' }), mint: WSOL, tokenAmount: 777n, requireLocalSimulation: true },
     );
     expect(sim.seen[0]?.side).toBe('sell');
+  });
+});
+
+describe('P9 — the tested core IS the production engine', () => {
+  /**
+   * The directive asks for "a test that fails when paper.ts does not import and
+   * invoke the core".
+   *
+   * This is deliberately a structural check and it is NOT the evidence that the
+   * behaviour is right — the tests above are, and they execute the functions.
+   * What this catches is the two drifting apart: a `paper.ts` that reimplements
+   * a decision the core already makes, so the tested function and the running
+   * process disagree without anyone editing either of them.
+   *
+   * Naming what a structural test can and cannot establish is the point. The
+   * source-substring tests this repository deleted claimed to prove behaviour;
+   * this one claims only that a wire exists, which is a thing source can
+   * honestly show.
+   */
+  const paper = readFileSync('apps/engine/src/paper.ts', 'utf8');
+
+  it('imports the core', () => {
+    expect(paper).toMatch(/from '\.\/paper-core\.js'/);
+  });
+
+  for (const fn of ['chooseDecisionMark', 'admitPortfolioExit']) {
+    it(`invokes ${fn}`, () => {
+      // Imported and called, not imported and shadowed by a local copy.
+      expect(paper, `${fn} must be imported`).toContain(fn);
+      expect(paper, `${fn} must be called`).toMatch(new RegExp(`${fn}\\s*\\(`));
+    });
+  }
+
+  it('does not re-derive the mark decision beside the core', () => {
+    // The specific arithmetic that used to live in `manageOpenPositions`: a
+    // second copy of "which number may move a stop". If it comes back, the
+    // core is no longer the only place that decides.
+    expect(paper).not.toMatch(/decisionBearing:\s*markObs !== null/);
   });
 });
