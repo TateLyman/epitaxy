@@ -42,7 +42,8 @@
     "simulator:smoke": "tsx scripts/simulator-smoke.ts",
     "simulator:prospective-parity": "tsx scripts/simulator-prospective-parity.ts",
     "simulator:parity-corpus": "tsx scripts/capture-parity-corpus.ts",
-    "cost:surface": "tsx scripts/cost-surface.ts"
+    "cost:surface": "tsx scripts/cost-surface.ts",
+    "simulator:observation-smoke": "tsx scripts/simulate-observation-smoke.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

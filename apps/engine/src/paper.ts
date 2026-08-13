@@ -53,6 +53,10 @@ import { SolanaRpc } from '../../../packages/solana/src/rpc.js';
 import { emptyStats, runCycle } from '../../../packages/pipeline/src/cycle.js';
 import { decideExit } from '../../../packages/strategy/src/exits.js';
 import { scheduleMarks, assessBacklog } from '../../../packages/strategy/src/markscheduler.js';
+import { BlobStore } from '../../../packages/storage/src/blobstore.js';
+import { SimulationClient } from '../../../packages/simulator/src/client.js';
+import { resolveSimulatorToken } from '../../../packages/simulator/src/token.js';
+import { simulateLeg, simulatorHealth } from './simulate-observation.js';
 import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
@@ -195,6 +199,42 @@ async function main(): Promise<void> {
       'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
         'buildability cannot be established and paper mode would book nothing. ' +
         'Set a public key, or set requireBuildableFill false and treat every row as quote-only.',
+    );
+  }
+
+  // §9 — the simulator, constructed once and health-checked before the loop.
+  //
+  // Null when no token is configured: the engine then runs observe and
+  // structural development exactly as before and refuses any fill that needs a
+  // simulation, which is the documented behaviour during an outage rather than
+  // a degraded mode invented here.
+  const blobs = new BlobStore();
+  const { token: simToken, source: simTokenSource } = resolveSimulatorToken();
+  const simulator =
+    simToken.length === 0
+      ? null
+      : new SimulationClient({
+          baseUrl: process.env['SIMULATORD_URL'] ?? 'http://127.0.0.1:8787',
+          token: simToken,
+          pinnedIdentity: null,
+          requirePinned: false,
+          timeoutMs: 120_000,
+        });
+  if (simulator === null) {
+    recordHealth(
+      db,
+      'simulator_not_configured',
+      'warn',
+      'no simulator token found, so no observation can be simulated and no fill requiring simulation may occur',
+    );
+  } else {
+    const health = await simulatorHealth(db, simulator);
+    recordHealth(
+      db,
+      'simulator_health',
+      health.reachable && health.identityMatch ? 'info' : 'warn',
+      `reachable=${health.reachable} identity=${health.identityMatch} queue=${health.queueDepth} ` +
+        `parity=${health.parityStatus} snapshots=${health.snapshotFreezeStatus} token=${simTokenSource} ${health.detail}`,
     );
   }
 
@@ -454,6 +494,8 @@ async function main(): Promise<void> {
               sanitizeExternal(info.symbol ?? '', 16),
               result,
               contextHash,
+              blobs,
+              simulator,
             );
           },
         });
@@ -514,6 +556,10 @@ async function tryEnter(
   symbol: string,
   result: Parameters<Parameters<typeof runCycle>[0]['onEligible']>[1],
   contextHash: string,
+  // §9 — null when no simulator is configured. The entry path then refuses any
+  // fill that requires simulation rather than pretending one happened.
+  blobs: BlobStore,
+  simulator: SimulationClient | null,
 ): Promise<void> {
   const rt = result.roundTrip;
   if (!rt || !rt.exitExists || !rt.sell) return;
@@ -669,9 +715,29 @@ async function tryEnter(
     contextHash,
   });
 
+  // §9 — simulate the EXACT bytes before asking whether the leg is executable.
+  //
+  // Order matters: legIsExecutable requires SIMULATED_OK when
+  // requireLocalSimulation is set, so running it first would refuse every entry
+  // for a simulation that was never attempted. That is what has been happening.
+  await simulateLeg(db, blobs, simulator, entry.observationId, taker, {
+    mode: 'DEVELOPMENT_JIT',
+    // Enough hypothetical SOL to cover the leg, its fees and any rent it
+    // creates, inside a throwaway SVM. Not a wallet.
+    fundingLamports: lamportsIn * 10n,
+    maxLamportsSpent: lamportsIn * 2n,
+    contextHash,
+  });
+  // Re-read: the simulation wrote onto the row, and the in-memory observation
+  // predates it.
+  const simulated = simulationStatusOf(db, entry.observationId);
+
   // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
   // entered, against the response that priced it.
-  const executable = legIsExecutable(entry, { requireLocalSimulation: config.requireLocalSimulation });
+  const executable = legIsExecutable(
+    { ...entry, simulation: simulated },
+    { requireLocalSimulation: config.requireLocalSimulation },
+  );
   if (!executable.ok) {
     recordHealth(
       db,
@@ -1003,6 +1069,15 @@ function nearTrigger(
   const stopLevel = (cost * BigInt(10_000 - config.exits.stopLossBps)) / 10_000n;
   const band = (cost * BigInt(config.exits.stopLossBps)) / 50_000n;
   return peak <= stopLevel + band;
+}
+
+/** The simulation outcome as stored, after a simulation may have written it. */
+function simulationStatusOf(db: Db, observationId: string): 'SIMULATED_OK' | 'SIMULATION_FAILED' | 'NOT_SIMULATED' {
+  const r = db
+    .prepare('SELECT simulation AS s FROM execution_observations WHERE observation_id = ?')
+    .get(observationId) as { s: string } | undefined;
+  const v = r?.s ?? 'NOT_SIMULATED';
+  return v === 'SIMULATED_OK' || v === 'SIMULATION_FAILED' ? v : 'NOT_SIMULATED';
 }
 
 async function manageShadowBooks(

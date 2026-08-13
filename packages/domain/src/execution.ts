@@ -191,7 +191,18 @@ export function missingBuildField(f: BuildFields, want: BuildExpectation): Obser
   if (!f.lookupTablesResolved) return 'MISSING_LOOKUP_TABLE';
   if (f.blockhash === null || f.blockhash.length === 0) return 'MISSING_BLOCKHASH';
   if (f.lastValidBlockHeight === null || f.lastValidBlockHeight <= 0) return 'MISSING_EXPIRY';
-  if (f.contextSlot === null || f.contextSlot <= 0) return 'MISSING_CONTEXT_SLOT';
+  // contextSlot is NOT vetoed here. Measured: it is null on all 22,177
+  // observations in the corpus, because Jupiter's /build does not return it.
+  //
+  // A hard veto on a field the provider never populates refuses 100% of builds
+  // and halts collection entirely, which is the defect this project already
+  // recorded twice as MT001 and MT002. The invariant is explicit: absence of a
+  // provider field is a fact about the PROVIDER, not about the token, and never
+  // hard-vetoes.
+  //
+  // It is still load-bearing -- an offline replay needs the slot to stand at, or
+  // lookup tables will not resolve -- so its absence blocks CONFIRMATORY
+  // grading instead. See legIsConfirmatory.
   return null;
 }
 
@@ -326,7 +337,6 @@ export function legIsExecutable(
   // fill just because the policies happened to pass over what was there.
   if (o.minimumOutput <= 0n) reasons.push('no minimum output: the fill would be unbounded');
   if (o.lastValidBlockHeight === null) reasons.push('no expiry');
-  if (o.contextSlot === null) reasons.push('no context slot');
   if (o.instructionCount === null || o.instructionCount <= 0) reasons.push('no instructions');
   if (o.transactionBytes === null) reasons.push('no packet size was measured');
 
@@ -343,7 +353,16 @@ export function legIsExecutable(
  * may choose to call it confirmatory.
  */
 export function legIsConfirmatory(o: ExecutionObservation): { ok: boolean; reasons: string[] } {
-  return legIsExecutable(o, { requireLocalSimulation: true });
+  const base = legIsExecutable(o, { requireLocalSimulation: true });
+  const reasons = [...base.reasons];
+  // The slot the route was priced at. Absent it, an offline replay has no point
+  // in time to stand at and a lookup table extended since will not resolve --
+  // so the run cannot be reproduced, whatever else is right about it.
+  //
+  // This does NOT block collection. It blocks the row counting as evidence,
+  // which is the correct place for a fact about provider coverage.
+  if (o.contextSlot === null) reasons.push('no context slot: the run could not be replayed at the right point in time');
+  return { ok: reasons.length === 0, reasons };
 }
 
 /**

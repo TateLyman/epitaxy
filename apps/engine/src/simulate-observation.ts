@@ -229,3 +229,38 @@ export async function simulatorHealth(db: Db, client: SimulationClient): Promise
     };
   }
 }
+
+/**
+ * The exact-transaction blob an observation was stored with.
+ *
+ * Read back from the row rather than threaded through observeRoute's return
+ * type, which a dozen call sites share. Null means no bytes were captured,
+ * which is the condition that must stop the leg being simulated at all.
+ */
+export function exactBlobFor(db: Db, observationId: string): string | null {
+  const r = db
+    .prepare('SELECT exact_transaction_blob AS b FROM execution_observations WHERE observation_id = ?')
+    .get(observationId) as { b: string | null } | undefined;
+  return r?.b ?? null;
+}
+
+/**
+ * Simulate a leg and report whether it may be filled.
+ *
+ * The one rule: an unavailable simulator NEVER makes a leg unfillable for a
+ * reason attributed to the token. It makes it unfillable for a reason
+ * attributed to us, and the caller must be able to tell those apart.
+ */
+export async function simulateLeg(
+  db: Db,
+  blobs: BlobStore,
+  client: SimulationClient | null,
+  observationId: string,
+  taker: string,
+  opts: SimulateOptions,
+): Promise<{ simulated: boolean; attempt: SimulationAttempt | null }> {
+  if (client === null) return { simulated: false, attempt: null };
+  const blobHash = exactBlobFor(db, observationId);
+  const attempt = await simulateObservation(db, blobs, client, observationId, blobHash, taker, opts);
+  return { simulated: attempt.kind === 'ok' && attempt.status === 'SIMULATED_OK', attempt };
+}
