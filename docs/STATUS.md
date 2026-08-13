@@ -1232,3 +1232,94 @@ reads it. One route reproducing is not a corpus.
 
 663 tests across 40 files. Typecheck and secretscan clean. No wallet funded, no
 canary, no live, no acknowledgement file.
+
+
+## Continuation: the simulation loop closes
+
+Nineteen merged repairs from `4890af0` to the current HEAD. The four items below
+were the ones that mattered after the first thirteen.
+
+### The loop runs end to end
+
+`pnpm simulator:observation-smoke` builds a real route, stores its exact bytes,
+simulates them, and watches the observation become an executable leg:
+
+```
+observation   PASS/PASS policies
+exact tx blob 731 packet bytes, 14 static keys, 1 lookup table
+before        executable=false   (only reason: simulation NOT_SIMULATED)
+simulate      SIMULATED_OK, confirmatory=false
+after         executable=true
+durable jobs  1, confirmatory=0
+```
+
+The order was the bug. `legIsExecutable` requires `SIMULATED_OK` when
+`requireLocalSimulation` is set, so running it **before** attempting a
+simulation refused every entry for a simulation nobody had tried. That is why
+zero positions were ever opened.
+
+### An end-to-end test caught what unit tests could not
+
+**MT026.** The §6 work made `contextSlot` an unconditional refusal, because the
+directive lists it among the load-bearing fields. The first live build came back
+`MISSING_CONTEXT_SLOT`, and the corpus then showed `context_slot` is null on
+**all 22,177** observations — Jupiter's `/build` has never once returned it.
+
+As written it would have refused **100% of builds** and silently halted all
+collection, while every unit test stayed green: the fixtures supplied a
+`contextSlot` on the strength of the directive saying the field existed. **A test
+written from a specification cannot catch a specification that is wrong about the
+world.**
+
+Same defect class as MT001 and MT002, and the invariant is explicit — absence of
+a provider field is a fact about the provider and never hard-vetoes. It now
+blocks the row counting as *evidence* rather than blocking the row existing.
+
+### The newest half of the book was never marked
+
+The mark loop was `openShadowPositions(db).slice(0, cap)` over a query ordered by
+`opened_utc_ms`. With 179 open shadows and a per-cycle cap, the same oldest
+positions were marked every cycle and the newest were never marked at all — and
+a position with no marks looks exactly like a position whose value did not move.
+
+Ordered by urgency now: blocked, then near-trigger, then most overdue against
+when the mark was *due*. Age is the tiebreak and prefers the **newer** position.
+A never-marked position is due since it opened, which makes it maximally overdue
+rather than least.
+
+### A transfer fee promised for next epoch is not the fee charged today
+
+The mint decoder read the **newer** Token-2022 transfer fee config
+unconditionally. Token-2022 keeps an older and a newer schedule, each with the
+epoch it takes effect from, and the newer applies only from its own epoch. A
+mint can advertise 0 bps effective next epoch while charging 1,000 bps today —
+and the decoder reported a free transfer. Both schedules are decoded now, and
+the legacy field carries the **worst** case.
+
+### Cross-checks that report what they can and cannot establish
+
+`pnpm simulator:crosscheck` runs the same transaction through mainnet's
+simulator and the local SVM. Mainnet returns `AccountNotFound`: our taker has
+never been funded, so it cannot load the fee payer. That is an **inability**, not
+a disagreement, and it is exactly why the local SVM exists. The script reports
+`NOT ESTABLISHABLE`.
+
+The first version scored it as three failures — one of which, "compute units
+agree within 5%", *passed* by dividing 0 by 0. A broken check showing green next
+to two red ones is how a suite stops meaning anything.
+
+### Still not done, and these are new subsystems rather than repairs
+
+- **§14** WSS risk triggers. Needs a Helius WebSocket subscriber wired into the
+  cycle; nothing exists yet.
+- **§15** entity and fraud features — creator history, first buyers, common
+  funder, transfer graph, entity-adjusted concentration. The largest remaining
+  piece, and it needs data sources that do not exist in this repository.
+- **§13** the exact Pump quoter proved against the official SDK. The decoders,
+  PDA derivation and fingerprints are in; the parity proof is not.
+- **§22** roughly 40 of the 54 required tests exist.
+- **§18** a development simulation window has **not** been started. The loop is
+  proven on demand; it has not been left running.
+
+685 tests across 41 files. Typecheck and secretscan clean. No wallet funded, no
+canary, no live, no acknowledgement file.
