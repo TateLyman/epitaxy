@@ -627,6 +627,8 @@ async function tryEnter(
     sizing.allowed ? 'accepted_by_portfolio' : (sizing.refusal ?? 'unknown'),
     cohort,
     result.snapshot.tokenAgeMs ?? null,
+    blobs,
+    simulator,
   );
 
   // The shadow ledger records what the SIGNAL said, before the portfolio had
@@ -886,6 +888,8 @@ async function openShadowBooks(
   refusal: string,
   cohort: CohortAssignment,
   tokenAgeMsAtOpen: number | null,
+  blobs: BlobStore,
+  simulator: SimulationClient | null,
 ): Promise<void> {
   if (taker === null) return;
   const books: { book: 'alpha_shadow' | 'canary_shadow'; notional: bigint }[] = [
@@ -952,6 +956,24 @@ async function openShadowBooks(
     const tokensIn = netMinimumOutput(obs);
     if (tokensIn <= 0n) continue;
 
+    // §9 — simulate the entry leg's EXACT bytes.
+    //
+    // The entry and its round-trip sell are the pair that constitutes a FILL,
+    // and a fill is what §9 requires simulation for. Marks are deliberately not
+    // simulated: a mark is a valuation of a position already held, it happens
+    // every cycle for every open shadow, and simulating all of them would
+    // consume the whole budget to answer a question nobody asked.
+    //
+    // Development shadows are not gated on the result -- the book records what
+    // the signal was worth -- but the result is recorded, and it is what turns
+    // "0 observations simulated" into a number.
+    await simulateLeg(db, blobs, simulator, obs.observationId, taker, {
+      mode: 'DEVELOPMENT_JIT',
+      fundingLamports: notional * 10n,
+      maxLamportsSpent: notional * 2n,
+      contextHash,
+    });
+
     // §7 — a BUILD_CUSTOM buy without a BUILD_CUSTOM sell is not an entry.
     //
     // The exit was previously never requested until a rule wanted out, so a
@@ -991,6 +1013,13 @@ async function openShadowBooks(
       );
       continue;
     }
+
+    await simulateLeg(db, blobs, simulator, exitObs.observationId, taker, {
+      mode: 'DEVELOPMENT_JIT',
+      fundingLamports: notional * 10n,
+      maxLamportsSpent: notional * 2n,
+      contextHash,
+    });
 
     // The round trip, measured on the pair that would actually be traded
     // rather than on a probe. Recorded whether or not it is favourable — a
