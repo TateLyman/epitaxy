@@ -5,18 +5,59 @@
 | | |
 |---|---|
 | audited GitHub HEAD | `2617bb7b8d3e16502cd5d4c4b08e9543dca6b887` |
-| local starting SHA | `4fa28ea` (ahead of the audited commit) |
-| local ending SHA | see `git log -1` at the bottom of this session |
+| local at session snapshot | `4fa28ea` — an **ancestor** of the audited commit |
+| local base for this work | `2617bb7`, reached by fast-forward at 09:26 |
+| local ending SHA | `60464b6` |
 
 ## 2. Local differences from the audited commit
 
-The local tree was **ahead**, not behind. `4fa28ea` carried `docs: STATUS.md
-through P2a`, and before it `75e9e54` (concentration in the snapshot, drawdown
-halt), `c330ace` (mark cadence decoupled from discovery), `fef420c` (exit
-outcomes from executable value). Nothing newer on the remote was discarded and
-nothing local was overwritten.
+**Corrected.** An earlier version of this section said the local tree was
+"ahead, not behind". That was wrong, and it is a provenance claim, so the error
+matters more than most.
 
-Untracked at session start: `all.json`, `vr.json`, and the directive itself.
+`git merge-base --is-ancestor 4fa28ea 2617bb7` is true: `4fa28ea`
+(`docs: STATUS.md through P2a`) is an ancestor of the audited commit, not a
+descendant. The local branch was **behind** the remote at the session snapshot.
+
+The reflog records what closed the gap:
+
+```
+2617bb7  master@{2026-08-13 09:26:37 -0700}: pull --ff-only origin master: Fast-forward
+cb61ab6  master@{2026-08-13 09:02:25 -0700}: pull --ff-only origin master: Fast-forward
+```
+
+Two fast-forward-only pulls, the second landing exactly on `2617bb7`, both
+before the first commit of this session at 10:51. `--ff-only` cannot rewrite or
+discard local history — it refuses rather than merging — so nothing local was
+overwritten and nothing remote was discarded. The audited commit is an ancestor
+of the current HEAD, which `git merge-base --is-ancestor 2617bb7 60464b6`
+confirms.
+
+So the work in this report sits directly on the commit the directive audited,
+which is what the directive asked for. It arrived there by fast-forward rather
+than by already being ahead.
+
+Untracked at session snapshot: `all.json`, `vr.json`, and the directive itself.
+
+## 2a. Nothing is pushed
+
+`origin/master` is still `2617bb7`. The ten commits below are local only and no
+pull request exists:
+
+```
+60464b6  artifacts: window status after the P13/P14 audit
+746b208  P13, P14: three modules that decide nothing
+62a5b9d  P4, P24: economic effect parity, and the Pump offline blocker
+c69adf6  P10, P15: evidence class stamped at open; cohort gaps marked, not filled
+0e4d5a4  P25: regenerate artifacts against the repaired instrument
+6bfdda8  P22: version the apparatus, measure the blockers, fix the false count
+2db97f7  P7, P12, P17: the accounting, the score arithmetic, the build order
+25cc25a  P3: the repaired instrument's first finding, and a defect in the gate itself
+c11d76d  P5, P18, P25, P26: capability strata, readiness artifact, and the audit
+8454112  P1-P3, P8, P9, P18: measure the trade, not the instrument
+```
+
+Publishing them is an operator action.
 
 ## 3. Backup
 
