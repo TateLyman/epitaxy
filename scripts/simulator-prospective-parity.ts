@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { loadSecrets, loadConfig } from '../packages/domain/src/config.js';
 import { JupiterClient } from '../packages/adapters/src/jupiter/client.js';
+import { resolveSimulatorToken } from '../packages/simulator/src/token.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
@@ -31,7 +32,9 @@ const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const OUTPUT = process.env['PARITY_MINT'] ?? USDC;
 const AMOUNT = BigInt(process.env['PARITY_LAMPORTS'] ?? '20000000');
 const BASE_URL = process.env['SIMULATORD_URL'] ?? 'http://127.0.0.1:8787';
-const TOKEN = process.env['SIMULATORD_TOKEN'] ?? 'local-dev-token-0123456789';
+// Resolved from the supervisor's token file, so the credential never has to
+// pass through a shell, an argument list or a log line.
+const { token: TOKEN, source: TOKEN_SOURCE } = resolveSimulatorToken();
 
 const secrets = loadSecrets();
 loadConfig('paper');
@@ -88,7 +91,7 @@ const client = new SimulationClient({
 });
 
 const health = await client.health();
-console.log(`simulator: ${JSON.stringify(health)}`);
+console.log(`simulator: ${JSON.stringify(health)} (token from ${TOKEN_SOURCE})`);
 
 const common = {
   transactionBase64: txBase64,

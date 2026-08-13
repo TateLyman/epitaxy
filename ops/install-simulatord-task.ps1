@@ -56,8 +56,11 @@ if (-not (Test-Path $supervisor)) {
 # pwsh if it is present, Windows PowerShell otherwise. Resolved now rather than
 # assumed, so a machine without pwsh gets a task that runs instead of a task
 # that fails silently at logon.
-$shell = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
-if (-not $shell) { $shell = (Get-Command powershell).Source }
+# Null-conditional (?.) is PowerShell 7 only, and this script has to parse under
+# Windows PowerShell 5.1 -- which is what powershell.exe still is on this
+# machine. A parse error here means the task never gets registered at all.
+$pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($pwshCmd) { $shell = $pwshCmd.Source } else { $shell = (Get-Command powershell).Source }
 
 $argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$supervisor`" " +
             "-Distro `"$Distro`" -RepoPath `"$RepoPath`" -Port $Port"
