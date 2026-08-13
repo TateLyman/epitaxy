@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { SimulationClient, responseIsConfirmatory } from '../packages/simulator/src/client.js';
+import { resolveSimulatorToken } from '../packages/simulator/src/token.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { SYSTEM_PROGRAM } from '../packages/solana/src/txpolicy.js';
 import { base58Encode } from '../packages/solana/src/base58.js';
@@ -19,7 +20,9 @@ import { base58Encode } from '../packages/solana/src/base58.js';
  */
 
 const BASE = process.env['SIMULATORD_URL'] ?? 'http://127.0.0.1:8787';
-const TOKEN = process.env['SIMULATORD_TOKEN'] ?? 'local-dev-token-0123456789';
+// Resolved from the supervisor's token file, so the credential never has to
+// pass through a shell, an argument list or a log line.
+const { token: TOKEN, source: TOKEN_SOURCE } = resolveSimulatorToken();
 
 const client = new SimulationClient({
   baseUrl: BASE,
@@ -30,6 +33,7 @@ const client = new SimulationClient({
 });
 
 const health = await client.health();
+console.log(`token from ${TOKEN_SOURCE}`);
 console.log('health:', JSON.stringify(health));
 
 const identity = await client.identity();
