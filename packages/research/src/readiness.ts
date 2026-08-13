@@ -92,7 +92,8 @@ export const CANARY_GATES = {
  * position missing its entry or exit observation does not "partially" qualify.
  */
 const CONFIRMATORY_SQL = `
-  SELECT p.position_id, p.mint, p.cost_lamports, p.realized_lamports,
+  SELECT p.position_id, p.mint, p.cost_lamports, p.realized_lamports, p.net_pnl_lamports,
+         p.execution_cost_lamports,
          p.opened_utc_ms, p.closed_utc_ms
   FROM positions p
   JOIN execution_observations e ON e.observation_id = p.entry_observation_id
@@ -121,6 +122,10 @@ interface Trade {
   mint: string;
   cost_lamports: string;
   realized_lamports: string | null;
+  /** P13 — explicit net PnL. Preferred, because it cannot be misread as gross. */
+  net_pnl_lamports?: string | null;
+  /** Fees, tip, unrecovered rent, failure cost. What a 2x stress doubles. */
+  execution_cost_lamports?: string | null;
   opened_utc_ms: number;
   closed_utc_ms: number;
 }
@@ -130,26 +135,69 @@ interface Pnl {
   readonly mint: string;
   readonly net: bigint;
   readonly cost: bigint;
+  /** Fees, tip, unrecovered rent, failure cost. Null when unrecorded. */
+  readonly executionCost: bigint | null;
   readonly day: string;
   readonly closedUtcMs: number;
 }
 
+/**
+ * P13 — the net PnL, taken from the column that means net PnL.
+ *
+ * This computed `realized_lamports - cost_lamports`. `realized_lamports` is
+ * already the net result of the position, so the subtraction removed the
+ * principal a SECOND time: a position that cost 20,000,000 and returned
+ * 1,000,000 of profit was scored as a 19,000,000 loss.
+ *
+ * Every downstream gate reads this — net PnL, profit factor, log growth,
+ * drawdown, the robustness checks — so one sign error here made all of them
+ * describe a strategy that does not exist.
+ *
+ * `net_pnl_lamports` is explicit and is preferred when present. The fallback is
+ * `realized_lamports` AS the net, not as gross proceeds, and a row carrying
+ * neither is skipped rather than assumed to be zero.
+ */
 function toPnl(rows: Trade[]): Pnl[] {
-  return rows.map((r) => {
+  const out: Pnl[] = [];
+  for (const r of rows) {
     const cost = BigInt(r.cost_lamports);
-    const realized = BigInt(r.realized_lamports ?? '0');
-    return {
+    const explicit = r.net_pnl_lamports ?? null;
+    const realized = r.realized_lamports ?? null;
+    if (explicit === null && realized === null) continue;
+    const net = explicit !== null ? BigInt(explicit) : BigInt(realized ?? '0');
+    out.push({
       id: r.position_id,
       mint: r.mint,
-      net: realized - cost,
+      net,
       cost,
+      executionCost: r.execution_cost_lamports == null ? null : BigInt(r.execution_cost_lamports),
       day: new Date(r.closed_utc_ms).toISOString().slice(0, 10),
       closedUtcMs: r.closed_utc_ms,
-    };
-  });
+    });
+  }
+  return out;
 }
 
 const sum = (xs: readonly bigint[]): bigint => xs.reduce((a, b) => a + b, 0n);
+
+/**
+ * What it costs to EXECUTE a round trip, as distinct from what it risks.
+ *
+ * Fees, tip, unrecovered rent, failure cost and latency cost. Not the
+ * principal: doubling the principal is not a cost stress, it is a different
+ * trade.
+ *
+ * Derived from the position's own recorded costs where they exist. The fallback
+ * is a bounded fraction of the basis rather than zero, because a stress that
+ * assumes no cost is not a stress.
+ */
+function transactionCostOf(t: Pnl): bigint {
+  if (t.executionCost !== null) return t.executionCost;
+  // 65 bps of the basis: roughly base fee, priority fee and unrecovered rent on
+  // a 0.02 SOL leg. Named here rather than hidden, and superseded the moment a
+  // position records its own.
+  return (t.cost * 65n) / 10_000n;
+}
 
 /** Expected log growth per trade. Undefined when any trade wipes the stake. */
 function expectedLogGrowth(trades: readonly Pnl[]): number | null {
@@ -167,13 +215,58 @@ function expectedLogGrowth(trades: readonly Pnl[]): number | null {
   return acc / trades.length;
 }
 
-/** Lower bound of a normal-approximation CI on mean log growth. */
-function lowerConfidenceBound(trades: readonly Pnl[], z = 1.96): number | null {
+/**
+ * P13 — a block bootstrap over UTC days, not a normal approximation.
+ *
+ * Memecoin returns are heavy-tailed and clustered: one day's launches move
+ * together, so trades are not independent draws and a normal interval over them
+ * is narrower than the evidence supports. A normal approximation on this data
+ * says "significant" first and is wrong first.
+ *
+ * Resampling whole DAYS keeps whatever within-day dependence exists, because a
+ * day is drawn or not drawn as a unit.
+ *
+ * Deterministic: the sample index is the seed, so two runs on one corpus give
+ * one answer. A confidence bound that moves when you re-run it is not a bound.
+ */
+function lowerConfidenceBound(trades: readonly Pnl[], iterations = 2000): number | null {
   const mean = expectedLogGrowth(trades);
   if (mean === null || !Number.isFinite(mean) || trades.length < 2) return mean;
-  const logs = trades.map((t) => Math.log(1 + Number(t.net) / Number(t.cost)));
-  const variance = logs.reduce((a, l) => a + (l - mean) ** 2, 0) / (logs.length - 1);
-  return mean - z * Math.sqrt(variance / logs.length);
+
+  const byDay = new Map<string, Pnl[]>();
+  for (const t of trades) {
+    const list = byDay.get(t.day) ?? [];
+    list.push(t);
+    byDay.set(t.day, list);
+  }
+  const blocks = [...byDay.values()];
+  if (blocks.length < 2) return mean;
+
+  // A small deterministic PRNG. Math.random() is unavailable to research code
+  // for the same reason it is unavailable to workflow scripts: a number nobody
+  // can reproduce is not evidence.
+  let seed = 0x2f6e2b1 ^ trades.length;
+  const next = (): number => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 0x1_0000_0000;
+  };
+
+  const means: number[] = [];
+  for (let i = 0; i < iterations; i += 1) {
+    const drawn: Pnl[] = [];
+    for (let b = 0; b < blocks.length; b += 1) {
+      const pick = blocks[Math.floor(next() * blocks.length)] ?? [];
+      drawn.push(...pick);
+    }
+    const m = expectedLogGrowth(drawn);
+    if (m !== null && Number.isFinite(m)) means.push(m);
+  }
+  if (means.length < 100) return mean;
+  means.sort((a, b) => a - b);
+  // The 2.5th percentile: a one-sided floor on what the evidence supports.
+  return means[Math.floor(means.length * 0.025)] ?? mean;
 }
 
 function profitFactor(trades: readonly Pnl[]): number | null {
@@ -235,7 +328,15 @@ export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: st
   const n = t.length;
   const net = sum(t.map((x) => x.net));
   const positiveTotal = sum(t.filter((x) => x.net > 0n).map((x) => x.net));
+  /**
+   * P13 — DISTINCT UTC calendar days, not elapsed span.
+   *
+   * The span between two timestamps can be 21 days with every trade in the
+   * first hour and the last. That is one regime observed twice, and the gate
+   * exists to require that it was observed across many.
+   */
   const days = new Set(t.map((x) => x.day));
+  const distinctDays = days.size;
   const spanDays =
     n === 0 ? 0 : (Math.max(...t.map((x) => x.closedUtcMs)) - Math.min(...t.map((x) => x.closedUtcMs))) / 86_400_000;
 
@@ -255,14 +356,19 @@ export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: st
   // exit returned nothing and the fees were spent on top.
   const catastrophic = t.filter((x) => x.cost > 0n && x.net <= -x.cost).length;
 
-  const costStress = sum(
-    t.map((x) => {
-      // Double every cost. `cost` already includes fees, tip and rent; doubling
-      // the whole basis is conservative and that is the point of a stress.
-      const extra = x.cost;
-      return x.net - extra;
-    }),
-  );
+  /**
+   * P13 — 2x costs means doubling the COSTS, not the principal.
+   *
+   * This subtracted `x.cost`, the entire trade basis, a second time. On a
+   * 20,000,000 lamport position with 13,000 of actual transaction cost, the
+   * stress removed 20,000,000 rather than 13,000 — a test no strategy could
+   * pass, which is not a conservative test but a broken one. A stress that
+   * always fails carries no information about robustness.
+   *
+   * The transaction costs are fees, tip, unrecovered rent, failure cost and
+   * latency cost: what it costs to EXECUTE, not what is put at risk.
+   */
+  const costStress = sum(t.map((x) => x.net - transactionCostOf(x)));
 
   const replayDivergence =
     one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM replay_results WHERE diverged = 1")?.n ?? null;
@@ -292,10 +398,10 @@ export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: st
     ),
     g(
       'sample.calendarDays',
-      spanDays >= CANARY_GATES.minCalendarDays,
-      `${spanDays.toFixed(1)} days across ${days.size} distinct days`,
-      `at least ${CANARY_GATES.minCalendarDays} days`,
-      'A memecoin regime lasts days. A sample from one week is a sample from one regime.',
+      distinctDays >= CANARY_GATES.minCalendarDays,
+      `${distinctDays} distinct UTC days (${spanDays.toFixed(1)} elapsed)`,
+      `at least ${CANARY_GATES.minCalendarDays} DISTINCT UTC days`,
+      'A memecoin regime lasts days. Elapsed span can be 21 days with every trade in the first hour and the last, which is one regime observed twice.',
     ),
     g('pnl.netPositive', n > 0 && net > 0n, `${net} lamports net`, 'greater than zero',
       'The gate this whole section exists for: the previous version could pass after 200 losing trades.'),

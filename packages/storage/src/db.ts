@@ -1318,6 +1318,33 @@ ALTER TABLE simulation_jobs ADD COLUMN post_token_accounts TEXT;
 ALTER TABLE simulation_jobs ADD COLUMN token_deltas TEXT;
 `,
   },
+  {
+    id: 22,
+    name: 'explicit_pnl_fields',
+    sql: `
+-- P12/P13 -- PnL that cannot be misread as gross proceeds.
+--
+-- realized_lamports was read two ways. The readiness gate computed
+-- realized minus cost, which subtracts the principal a SECOND time when the
+-- column already holds the net result: a position that cost 20,000,000 and
+-- returned 1,000,000 of profit scored as a 19,000,000 loss. Every gate
+-- downstream -- net PnL, profit factor, log growth, drawdown, every robustness
+-- check -- then described a strategy that does not exist.
+--
+-- A column whose meaning has to be inferred from its caller is a column that
+-- will be inferred wrongly. These say what they are.
+ALTER TABLE positions ADD COLUMN net_pnl_lamports TEXT;
+-- What it cost to EXECUTE: fees, tip, unrecovered rent, failure cost. This is
+-- what a 2x cost stress doubles. Doubling the principal is not a cost stress,
+-- it is a different trade, and it is a test no strategy can pass.
+ALTER TABLE positions ADD COLUMN execution_cost_lamports TEXT;
+-- Gross proceeds of the exit, before any cost. Kept separate so the three
+-- quantities can never collapse into one another again.
+ALTER TABLE positions ADD COLUMN gross_proceeds_lamports TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_positions_pnl ON positions(closed_utc_ms, net_pnl_lamports);
+`,
+  },
 ];
 
 export interface OpenOptions {
