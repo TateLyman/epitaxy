@@ -105,3 +105,77 @@ claimed.
 
 Three of seven coverage items are unmet, which is a further reason P6 is not yet
 satisfied.
+
+
+---
+
+# After P3 — asset-aware bounds
+
+```
+buys        5   effect-ok 4
+sells       5   effect-ok 0
+effect OK   4/10
+INSTRUMENT failures 0   (required: 0)
+
+ROUTE_ECONOMIC_REFUSAL  6
+EFFECT_OK               4
+```
+
+**Zero instrument failures.** That gate is met: nothing in this run fails
+because of the apparatus.
+
+## The sells now measure
+
+Before P3 a token→SOL sell reported "output delta is missing" because the
+request asked `minTokenDelta` about an account the trade never touches. With the
+output named as native lamports, the credits appear:
+
+| leg | in | out |
+|---|---|---|
+| sell `9rbHhJU7Vs` | 1,678 atoms | 3,868,516 lamports |
+| sell `GUrsAdHKt3` | 905 atoms | 2,071,739 lamports |
+| sell `HPMU32wr8u` | 10,872 atoms | 2,084,821 lamports |
+| sell `HgSPYBvkVo` | 695 atoms | 4,146,740 lamports |
+| sell `EVULoNF4De` | 144,013,431,162 atoms | 19,489,917 lamports |
+
+And the exact token debit matches the input on every one.
+
+## The round trip is brutal, and that is a market fact
+
+Buy 20,000,000 lamports of `9rbHhJU7Vs` → 1,678 atoms. Sell those 1,678 atoms
+back → 3,868,516 lamports.
+
+**An 80.7% loss on an immediate round trip.** Not a defect: 0.02 SOL is a large
+fraction of these pools, so the buy moves the price against itself and the sell
+moves it again. This is exactly the number the whole apparatus was built to
+measure, and it is the first time it has been measured correctly.
+
+If it holds across a real sample, no entry signal clears it and the honest
+conclusion is that this size cannot trade these pools. That conclusion is not
+drawn from five cases.
+
+## The remaining defect is mine, and it is a second number
+
+The daemon reports `native SOL credit -1420` where the verifier reports
+`4,146,740` for the same leg.
+
+Both are computing "what did the sell pay out", and they disagree because I
+compensated for provisioning rent in the verifier's context and not in the
+daemon's bounds check. Opening a source token account so the sell has something
+to spend is a setup cost; against a 0.02 SOL leg its 2,039,280 lamports is ten
+percent of the notional, so whether it is included dominates the answer.
+
+Two implementations of one quantity is the exact defect class this project keeps
+finding — a cost that appears in one path and disappears in another. It is
+recorded rather than patched with a third adjustment:
+
+- the daemon must be told which created accounts are the SETUP's, not the
+  trade's, and exclude their rent from the credit;
+- or the setup must provision the source account without the payer carrying its
+  rent, so the question does not arise.
+
+The second is cleaner and is what P4's exact-account-bytes path would allow:
+writing the token account directly, rent-exempt, rather than having the
+transaction open it.
+
+Until then a sell's credit has two values, and neither is quoted as the answer.
