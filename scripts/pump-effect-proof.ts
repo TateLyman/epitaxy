@@ -123,11 +123,38 @@ function classify(c: Omit<ProofCase, 'classification'>): string {
   return 'ROUTE_ECONOMIC_REFUSAL';
 }
 
+/**
+ * Which token program a mint actually uses, decided by the transaction.
+ *
+ * The first version read this from a stored observation's static key list and
+ * got it wrong on four of five mints: they are Token-2022 and it declared
+ * legacy Token. The effect verifier then refused them, correctly — it had been
+ * told to assert a program that was not the one in play, and an assertion that
+ * does not hold is a refusal, not a near-enough match.
+ *
+ * The authoritative answer needs no RPC. An associated token address is derived
+ * FROM the program, so exactly one of the two derivations appears among the
+ * accounts the route compiled against. That one is the program.
+ *
+ * Null when neither appears, which is a real possibility (a non-associated
+ * token account) and is reported rather than guessed at.
+ */
+function tokenProgramFromTransaction(accounts: readonly string[], owner: string, mint: string): string | null {
+  for (const program of [TOKEN_PROGRAM, TOKEN_2022_PROGRAM]) {
+    try {
+      if (accounts.includes(associatedTokenAddress(owner, mint, program))) return program;
+    } catch {
+      /* an address we cannot derive is not the one in the transaction */
+    }
+  }
+  return null;
+}
+
 async function proveLeg(
   side: 'buy' | 'sell',
   mint: string,
   amount: bigint,
-  tokenProgram: string,
+  declaredTokenProgram: string,
 ): Promise<ProofCase | null> {
   const inputMint = side === 'buy' ? SOL : mint;
   const outputMint = side === 'buy' ? mint : SOL;
@@ -155,8 +182,15 @@ async function proveLeg(
   const bytes = encodeUnsignedTransaction(message);
   const decoded = decodeTransaction(bytes);
 
-  // The leg's own accounts, derived rather than guessed at.
-  const sourceAta = side === 'sell' ? associatedTokenAddress(taker, mint, tokenProgram) : null;
+  // Every address the route names, including those the tables resolve.
+  const allAccounts = [
+    ...decoded.staticAccountKeys,
+    ...Object.values(built.lookupTables).flat(),
+  ];
+  const tokenProgram = tokenProgramFromTransaction(allAccounts, taker, mint) ?? declaredTokenProgram;
+  if (tokenProgram !== declaredTokenProgram) {
+    console.log(`       token program from the transaction: ${tokenProgram.slice(0, 12)} (stored row said ${declaredTokenProgram.slice(0, 12)})`);
+  }
 
   const mutations: { kind: 'sol' | 'token'; owner: string; mint?: string; amount: string; tokenProgram?: string }[] = [
     // A buy spends lamports and must cover the input, the fees and any rent it
@@ -235,7 +269,6 @@ async function proveLeg(
     exportOmissions: res.exportOmissions,
     contextSlot: res.contextSlot,
   };
-  void sourceAta;
   void decoded;
   const c: ProofCase = { ...partial, classification: classify(partial) };
 
