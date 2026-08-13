@@ -55,7 +55,8 @@
     "cohort:status": "tsx scripts/evidence-status.ts cohort",
     "reject:status": "tsx scripts/evidence-status.ts reject",
     "evidence:status": "tsx scripts/evidence-status.ts all",
-    "simulator:effect-parity": "tsx scripts/simulator-prospective-parity.ts"
+    "simulator:effect-parity": "tsx scripts/simulator-prospective-parity.ts",
+    "baseline": "tsx scripts/baseline-5b89953.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

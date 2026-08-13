@@ -1,0 +1,244 @@
+{
+  "takenAtUtcMs": 1786654158691,
+  "repoPath": "C:\\Users\\lyman\\tradseee",
+  "head": "5b89953e48f26c1f6eef35c990ae70100a0b68a7",
+  "auditedHead": "5b89953e48f26c1f6eef35c990ae70100a0b68a7",
+  "headMatchesAudited": true,
+  "branch": "master",
+  "dirty": [
+    "M package.json",
+    "?? epitaxy_5b89953_effect_labels_to_confirmatory_directive.md",
+    "?? scripts/baseline-5b89953.ts"
+  ],
+  "node": "v24.12.0",
+  "versions": {
+    "PROVENANCE_VERSION": "provenance-v3",
+    "PAPER_ENGINE_VERSION": "paper-engine-v4",
+    "QUOTE_ADAPTER_VERSION": "quote-adapter-v3",
+    "COST_ACCOUNTING_VERSION": "cost-accounting-v3-unified-cashflow",
+    "SIMULATOR_VERSION": "simulator-v2-leg-shaped-request",
+    "EFFECT_VERIFICATION_VERSION": "effect-verification-v2-stated-recipients",
+    "schemaVersion": "schema-v20"
+  },
+  "hashes": {
+    "strategyConfigHash": "794db2d868b4524d11346b54d584b3db49ce7d013d34f4a8bc0eb7b590e8d0e9",
+    "riskPolicyHash": "d92d5ce47d3c668ce161c3f36a4b019b58e7b2f42264ddd7bc90602077d59ef4",
+    "dataRegimeId": "delayed-momentum-v0.4.0/10s/build/8cf201701d83"
+  },
+  "storage": {
+    "databasePath": "./data/runtime.db",
+    "bytes": 2914504704,
+    "walBytes": 13381792
+  },
+  "simulationJobs": [
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "status": "SIMULATION_FAILED",
+      "effect": "NOT_CHECKED",
+      "n": 54
+    },
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "status": "SIMULATED_OK",
+      "effect": "NOT_CHECKED",
+      "n": 50
+    },
+    {
+      "validity": "VALID_DEVELOPMENT",
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "status": "SIMULATION_FAILED",
+      "effect": "EFFECT_REFUSED",
+      "n": 9
+    },
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "status": "SIMULATION_UNKNOWN",
+      "effect": "NOT_CHECKED",
+      "n": 8
+    },
+    {
+      "validity": "VALID_DEVELOPMENT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "status": "SIMULATED_OK",
+      "effect": "EFFECT_REFUSED",
+      "n": 6
+    },
+    {
+      "validity": "VALID_DEVELOPMENT",
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "status": "SIMULATED_OK",
+      "effect": "EFFECT_REFUSED",
+      "n": 5
+    },
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "status": "SIMULATION_FAILED",
+      "effect": "NOT_CHECKED",
+      "n": 4
+    }
+  ],
+  "observationsByEffect": [
+    {
+      "simulation_effect": null,
+      "n": 3283
+    },
+    {
+      "simulation_effect": "EFFECT_REFUSED",
+      "n": 12
+    },
+    {
+      "simulation_effect": "NOT_VERIFIED",
+      "n": 26515
+    }
+  ],
+  "shadowsByClass": [
+    {
+      "book": "alpha_shadow",
+      "evidence_class": "STRUCTURAL_ONLY",
+      "state": "POSITION_CLOSED",
+      "n": 463
+    },
+    {
+      "book": "alpha_shadow",
+      "evidence_class": "STRUCTURAL_ONLY",
+      "state": "POSITION_OPEN",
+      "n": 81
+    },
+    {
+      "book": "canary_shadow",
+      "evidence_class": "STRUCTURAL_ONLY",
+      "state": "POSITION_CLOSED",
+      "n": 463
+    },
+    {
+      "book": "canary_shadow",
+      "evidence_class": "STRUCTURAL_ONLY",
+      "state": "POSITION_OPEN",
+      "n": 80
+    }
+  ],
+  "marksBySource": [
+    {
+      "mark_source": "ORDER_QUOTE_BENCHMARK",
+      "decision_bearing": 0,
+      "n": 603
+    }
+  ],
+  "cohorts": [
+    {
+      "cohort": null,
+      "cohort_source": "PREDATES_FEATURE",
+      "n": 965
+    },
+    {
+      "cohort": "AGE_2M_60M",
+      "cohort_source": "ASSIGNED_AT_OPEN",
+      "n": 122
+    }
+  ],
+  "rejects": [
+    {
+      "outcome": null,
+      "n": 808637
+    },
+    {
+      "outcome": "PROVIDER_MISSING",
+      "n": 10366
+    },
+    {
+      "outcome": "UNKNOWN",
+      "n": 40465
+    }
+  ],
+  "openPositionsWithTokens": [],
+  "openOrBlockedShadows": [
+    {
+      "book": "alpha_shadow",
+      "state": "POSITION_OPEN",
+      "n": 81
+    },
+    {
+      "book": "canary_shadow",
+      "state": "POSITION_OPEN",
+      "n": 80
+    }
+  ],
+  "latest": {
+    "observation": {
+      "observation_id": "da8a222d-2409-4b1c-9e62-2f35da18e7d4",
+      "mint": "9r8Q7h9AiN3zphwZ1QtiJRWA2aTdJLRLDjGZg2XivVi3",
+      "side": "sell",
+      "received_utc_ms": 1786654158843
+    },
+    "simulationJob": {
+      "job_id": "job-b53285f6628fe3dc07f0f9470a751a90",
+      "status": "SIMULATED_OK",
+      "validity": "VALID_DEVELOPMENT",
+      "requested_utc_ms": 1786652562628
+    },
+    "mark": {
+      "mark_id": "48a2b265-4a4b-4dbd-a91d-581559dd5b9c",
+      "mint": "Fnms8bt83znENHTUdkffKSk1kU9cowuAAQzT6e1VaMtB",
+      "mark_source": "ORDER_QUOTE_BENCHMARK",
+      "observed_utc_ms": 1786563200883
+    },
+    "healthEvent": {
+      "kind": "shadow_mark_backlog",
+      "severity": "warn",
+      "utc_ms": 1786654157504
+    },
+    "runContext": {
+      "context_hash": "071436cc445e4dc9a66233a7bb966836555af5a5e340c9df9a5071c1c6081681",
+      "source_commit": "60464b66132c323ed7feba576edbe7ca32ccc920",
+      "last_seen_utc_ms": 1786647631777
+    }
+  },
+  "tableCounts": {
+    "build_attempts": 0,
+    "candidates": 72361,
+    "clock_checkpoints": 304,
+    "daily_accounting": 1,
+    "decision_snapshots": 434252,
+    "execution_attempts": 0,
+    "execution_observations": 29811,
+    "fills": 40,
+    "health_events": 25242,
+    "intents": 0,
+    "ledger_entries": 1448,
+    "position_exits": 20,
+    "position_marks": 603,
+    "positions": 20,
+    "process_locks": 1,
+    "quotes": 5093,
+    "raw_payloads": 4651,
+    "regime_samples": 0,
+    "reject_tracking": 859468,
+    "replay_runs": 1,
+    "run_contexts": 16,
+    "schema_migrations": 20,
+    "screenings": 434252,
+    "shadow_marks": 27885,
+    "shadow_positions": 1087,
+    "sign_refusals": 0,
+    "signal_episodes": 956,
+    "simulation_jobs": 136,
+    "source_health": 21100,
+    "sqlite_sequence": 1,
+    "trials": 0
+  },
+  "integrity": {
+    "integrityCheck": "ok",
+    "foreignKeyViolations": 0
+  }
+}
