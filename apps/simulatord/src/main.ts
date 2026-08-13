@@ -29,10 +29,12 @@ import {
   type DecodedTransaction,
 } from '../../../packages/solana/src/transaction.js';
 import { base58Encode } from '../../../packages/solana/src/base58.js';
+import { encodeTokenAccount, rentExemptLamports } from '../../../packages/solana/src/tokenaccount.js';
 import {
   associatedTokenAddress,
   TOKEN_PROGRAM as TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM as TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM as LEGACY_TOKEN_PROGRAM,
 } from '../../../packages/solana/src/pda.js';
 import type { ObservedTokenBalance } from '../../../packages/simulator/src/protocol.js';
 
@@ -769,23 +771,55 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     // collected because they are where a swap's output actually lands, and an
     // output we do not watch is an output we cannot measure.
     const namedAtas: string[] = [];
+    /** Accounts the SETUP wrote. Their rent is ours, never the trade's. */
+    const provisionedAccounts: string[] = [];
     for (const m of req.balanceMutations) {
       if (m.kind === 'sol') {
         net.fundSol(m.owner, exactNumber(BigInt(m.amount), `SOL mutation for ${m.owner}`));
         continue;
       }
       if (m.mint === undefined) continue;
-      // Token atoms are where this actually bites: a nine-decimal memecoin with
-      // a billion supply is 10^18 atoms, three orders of magnitude past exact.
-      const atoms = exactNumber(BigInt(m.amount), `token mutation for ${m.owner}/${m.mint}`);
-      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, atoms);
-      else net.setTokenBalance(m.owner, m.mint, atoms, m.tokenProgram);
-      try {
-        namedAtas.push(m.tokenProgram == null ? net.getAta(m.owner, m.mint) : net.getAta(m.owner, m.mint, m.tokenProgram));
-      } catch {
-        /* an ATA we cannot derive is one we do not watch, and the fee
-           decomposition below will say so rather than assume */
-      }
+
+      /**
+       * P4 — the account is written byte for byte, not through the convenience
+       * API.
+       *
+       * `setTokenBalance` takes a JavaScript `number`. Refusing to round was
+       * right and it meant an ordinary fresh memecoin position could not be
+       * simulated at all: nine decimals against a billion supply is 10^18
+       * atoms, three orders of magnitude past exact.
+       *
+       * Writing it directly also removes a second problem. When the cheatcode
+       * OPENS the account, the fee payer carries its rent, and that rent lands
+       * in the same net SOL movement a sell's proceeds do — 2,039,280 lamports
+       * against a 0.02 SOL leg is ten percent of the notional. An account
+       * written here is already rent-exempt and the payer never paid for it, so
+       * the question does not arise rather than being adjusted for in two
+       * places that disagreed.
+       */
+      const program = m.tokenProgram ?? LEGACY_TOKEN_PROGRAM;
+      const ata = associatedTokenAddress(m.owner, m.mint, program);
+      const bytes = encodeTokenAccount({
+        mint: m.mint,
+        owner: m.owner,
+        amount: BigInt(m.amount),
+        // Token-2022 associated accounts carry ImmutableOwner. Legacy accounts
+        // carry no extensions at all.
+        extensions: program === TOKEN_2022_PROGRAM_ID ? [{ kind: 'immutable_owner' }] : [],
+      });
+      net.setAccount(
+        ata,
+        // Rent-exempt for THIS length, derived rather than the 165-byte
+        // constant, so an extended account is not written under-funded.
+        exactNumber(rentExemptLamports(bytes.length), `rent for ${ata}`),
+        bytes,
+        program,
+      );
+      // Verify the account we wrote is the one the transaction will read. A
+      // provisioned balance at an address the route never touches is the P2
+      // defect wearing different clothes.
+      provisionedAccounts.push(ata);
+      namedAtas.push(ata);
     }
     stages.mark('restoreAccounts');
     if (req.bounds.mint !== undefined) {
@@ -1017,7 +1051,10 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       const existsAfter = b !== null && b.lamports > 0n;
       if (!existedBefore && existsAfter) {
         created.push(k);
-        rentCreated += b.lamports;
+        // S055 — an account the SETUP wrote existed before the transaction ran,
+        // so the transaction did not create it and the payer did not fund it.
+        // Counting its rent as a trade cost is what gave one sell two credits.
+        if (!provisionedAccounts.includes(k)) rentCreated += b.lamports;
       } else if (existedBefore && !existsAfter) {
         closed.push(k);
         rentRecovered += a.lamports;
