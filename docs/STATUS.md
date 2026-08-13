@@ -1072,6 +1072,48 @@ and cannot influence. See `docs/SIMULATOR_PARITY.md`.
 
 502 tests across 28 files. Typecheck and secretscan clean across 187 files.
 
+### The assumed priority fee is wrong, and I have not replaced it
+
+`assumedPriorityFeeLamports` is **200,000** in all four configs, and every paper
+leg is costed with it: entry, exit, marks, and the exit-cost trigger. It is
+reached from ten call sites in `apps/engine/src/paper.ts` and from
+`packages/strategy/src/portfolio.ts`.
+
+Measured against reality, three independent ways, it is wrong by one to three
+orders of magnitude:
+
+| source | priority fee |
+|---|---|
+| config assumption | 200,000 |
+| settled mainnet swap `5dNx5ihYH5i7…` | 75,001 |
+| settled mainnet swap `3YPyHXebC1pN…` | 36,044 |
+| settled mainnet swap `4QZCutKyvuVq…` | 271 |
+| live Surfnet, 2054 µL/CU at a 200,000 limit | 411 |
+
+The direction matters and it is the opposite of most findings in this file. An
+overstated cost makes the strategy look **worse** than it is: at the 0.02 SOL
+cap, 200,000 lamports is 100 bps per leg and 200 bps round trip, against roughly
+20 bps for the largest fee actually observed. Roughly 180 bps of round-trip cost
+has been charged against every paper trade and does not exist.
+
+**It has not been changed, and that is deliberate.** The correct number is not
+derivable from the bytes for the routes this system actually builds. Jupiter's
+`/build` returns `SetComputeUnitPrice` (measured: 2054 µL/unit) and **never**
+`SetComputeUnitLimit` — `computeUnitLimit` is null on every observed route. The
+fee formula `ceil(price × limit / 1e6)` needs both, so with no limit in the
+transaction the runtime applies a default this project has not measured. The
+three settled swaps above reproduce exactly *because* they carry explicit
+limits; a limit-less build is a different case.
+
+Replacing a guessed 200,000 with a guessed 2,465 is the same defect wearing a
+better number. The instrument that answers it properly now exists: send a real
+`/build` transaction through the daemon and read the fee decomposition, which
+measures the priority fee from the payer's own lamport delta rather than
+assuming it. That is what §4 asked for, and it is the next piece of work.
+
+Until then, every paper economic number in this file is **conservative by an
+unmeasured margin**, and no threshold should be tuned against them.
+
 ### Still not done
 
 - **No confirmatory simulation.** The daemon executes transactions and the cost
