@@ -41,7 +41,8 @@
     "dev:status": "tsx scripts/development-status.ts --mode=paper",
     "simulator:smoke": "tsx scripts/simulator-smoke.ts",
     "simulator:prospective-parity": "tsx scripts/simulator-prospective-parity.ts",
-    "simulator:parity-corpus": "tsx scripts/capture-parity-corpus.ts"
+    "simulator:parity-corpus": "tsx scripts/capture-parity-corpus.ts",
+    "cost:surface": "tsx scripts/cost-surface.ts"
   },
   "devDependencies": {
     "@solana/surfpool": "1.5.0",
