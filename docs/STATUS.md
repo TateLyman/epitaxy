@@ -1413,7 +1413,7 @@ That uniformity is the signature of an apparatus, not a market.
 | | |
 |---|---|
 | mode | paper (observe + paper only; neither imports `packages/execution/`) |
-| tests | **772 pass**, 4 skipped, 48 files, ~5 s |
+| tests | **811 pass**, 4 skipped, 51 files, ~5 s |
 | schema | v18 |
 | corpus | 26,515 observations, 108 simulation jobs, 603 marks |
 | backup | `runtime.db.backup-2026-08-13T17-54-57-293Z`, sha256 `7edd0e0c…`, integrity ok, witness bounds `[26515, 26515]` |
@@ -1461,3 +1461,47 @@ This is not production ready and no part of it is. The measurement apparatus was
 repaired today and the first window that could mean anything is minutes old.
 
 Full report: `docs/AUDIT_HEAD_2617BB7.md`.
+
+## Also landed this session (P7, P12, P17)
+
+**One accounting implementation.** `accounting.ts` gained `entryCashOut()` and
+`exitCashIn()`; `totalEntryCost` and `netExitProceeds` — which are what the
+runtime actually called — now delegate to them. An unobserved transfer or
+platform fee makes a quote incomplete rather than zero. The failure model is an
+upper bound from the attempt record, not one flat charge: 3-in-10 and
+300-in-1000 share a point estimate and are very different evidence.
+
+**The risk contradiction.** A proposed trade was charged the catastrophic floor
+(100%) while existing positions in the same aggregate cap were charged the
+nominal 2,500 bps stop. The cap read the book as four times safer than the model
+said. Both now use `plannedLossFractionBps()`.
+
+**Soft risk cannot be diluted.** It was the mean of its components, so adding a
+gate that reported *no* risk halved every existing risk. Now
+`max(primary) + bounded secondary`.
+
+**Net buyers are never replaced with gross buys.** A wash trader running a
+hundred round trips through two wallets produces an enormous gross buy count and
+a net buyer count near zero, so the old fallback handed the anti-wash gate the
+one number wash trading inflates.
+
+**Jupiter build composition.** `otherInstructions` ran *after* cleanup closed the
+wrapped-SOL account; `tipInstruction` was parsed and dropped. Order is now
+compute → setup → swap → other → cleanup → tip, and the tip amount is decoded
+from the System transfer as a `bigint`.
+
+## What the evidence scripts now report
+
+| | |
+|---|---|
+| shadows | 1,079, all `STRUCTURAL_ONLY`; **every one refused by a portfolio halt** (983 weekly, 96 daily) |
+| shadow marks | 25,085, of which 22,379 unpriced |
+| cohorts | 965 of 1,079 unassigned; the 114 assigned are all one arm |
+| rejects | 811,977 rows, 96.6% unclassified, `EXECUTABLE_VALUE` zero everywhere |
+
+The portfolio has been halted for the entire window. That is what the shadow
+books exist to reveal: without them the corpus would show no positions and no
+reason, and the absence would read as "no signals".
+
+None of these numbers vindicates a gate. A reject panel that has classified 3.4%
+of its rows cannot vindicate anything.

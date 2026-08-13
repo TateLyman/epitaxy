@@ -157,29 +157,144 @@ that no sell is requested at all when the buy acquires nothing.
 ## 12. Shadow evidence classes
 
 `STRUCTURAL_ONLY` / `JIT_EFFECT_VALID` / `OFFLINE_REPRODUCIBLE` / `CONFIRMATORY`,
-never aggregated. Current counts: everything structural.
+derived from the simulation jobs behind each position's own two legs and never
+aggregated. `pnpm shadow:status`.
+
+```
+alpha_shadow    STRUCTURAL_ONLY   556 (474 closed)
+canary_shadow   STRUCTURAL_ONLY   555 (474 closed)
+shadow marks    25,085 total, 2,706 routed, 22,379 unpriced
+```
+
+**The realizable portfolio took nothing.** All 1,079 shadows record a portfolio
+refusal, and both reasons are halts: 983 `weekly_loss_halt`, 96
+`daily_loss_halt`. The portfolio has been halted for the entire window, so there
+is no portfolio-versus-shadow comparison to make.
+
+This is what the shadow books exist to reveal. Without them the corpus would
+show no positions and no reason, and the absence would read as "no signals"
+rather than "the engine was switched off".
+
+**89% of shadow marks are unpriced.** With the mark backlog at 40x capacity, the
+mark series is not dense enough to support an exit rule and must not be read as
+one. See `docs/SHADOW_EVIDENCE_CLASSES.md`.
 
 ## 13. Corrected accounting and cost surface
 
-Round-trip loss is measured against the **all-in** cost — input, signature fee,
-priority fee, broadcaster tip, ATA rent — not against the input alone. On the
-test fixture that is 1,219 bps versus 1,000 bps; the 219 bps difference is
+P12. `packages/domain/src/accounting.ts` is now the sole implementation.
+`totalEntryCost` and `netExitProceeds` in `execution.ts` — which are what the
+runtime actually called, while `accounting.ts` was used by one script —
+delegate to it. Two implementations of one calculation is two chances to forget
+a term, and the way you find out is that a strategy is profitable in one report
+and not another.
+
+Entry cash out: exact input + base fee + measured priority fee + route tip +
+rent created + transfer fee + platform fee + expected failure cost. Exit cash
+in: the same, subtracted, with rent credited only in the amount actually
+recoverable and **no second signature** when the close rides the exit
+transaction.
+
+An unobserved transfer or platform fee makes the quote `complete: false` rather
+than zero. A Token-2022 transfer fee read as zero understates every cost it
+touches, and it is exactly the extension a memecoin is most likely to carry.
+
+**The failure model is now a bound, not a flat charge.** `failureUpperBound()`
+distinguishes 3-in-10 from 300-in-1000, which share a point estimate and are
+very different evidence. With no attempts the bound is 1, so an unproven leg is
+charged a full failure — the honest answer, and it makes collecting the history
+worth something.
+
+Round-trip loss is measured against the **all-in** cost, not the input alone. On
+the test fixture that is 1,219 bps versus 1,000 bps; the 219 bps difference is
 exactly what makes a break-even strategy a losing one.
+
+**The risk contradiction is fixed.** A proposed trade was charged
+`plannedLossFractionBps()` — the max of the stop, the observed severe loss and
+the catastrophic floor, currently 100% — while existing positions in the same
+aggregate cap were charged the nominal 2,500 bps stop. A new trade was charged
+four times what an identical existing one was, and the cap read the book as four
+times safer than the model said. Both now use the same function.
 
 ## 14. Corrected bankroll requirement
 
 Not computable. It requires a measured edge distribution, and there are zero
 effect-verified positions.
 
-## 15-17. On-chain facts, WSS alarms, age cohorts
+## 15-16. On-chain facts and WSS alarms
 
 Carried forward from the previous directive rounds; unchanged this session.
 
+## 17. Age cohorts
+
+`pnpm cohort:status`. **965 of 1,079 shadow positions carry no cohort**, and the
+114 that do are all in one arm. There is no between-cohort comparison available,
+and unassigned is not a cohort: a row that cannot say which arm it belongs to
+cannot be compared against the others.
+
+Cohort assignment not running for 89% of shadows is an open defect. See
+`docs/COHORT_EXPERIMENT.md`.
+
 ## 18. Reject panel
+
+`pnpm reject:status`. 811,977 rows.
+
+```
+(unclassified)   785,037   96.6%
+UNKNOWN           20,831    2.6%
+PROVIDER_MISSING   6,409    0.8%
+```
+
+`EXECUTABLE_VALUE` is **zero across every rejection reason**. That is not
+evidence that the gates are right: with 96.6% unclassified, the classifier has
+barely run, and a panel that has not classified anything cannot vindicate
+anything.
 
 `reject_tracking.outcome` classifies rather than inferring from a NULL price. A
 NULL price read as zero makes every rejected token look like it went to nothing,
-which always flatters the gates and is largest where the data is thinnest.
+which always flatters the gates and is largest exactly where the data is
+thinnest. NULL is not `UNKNOWN`: one says nobody has looked, the other says
+somebody looked and could not tell.
+
+## 18a. Score defects (P17)
+
+The weights are frozen. These are arithmetic errors that were wrong regardless
+of what anyone wanted the score to say.
+
+1. **Soft risk was the MEAN of its components.** One gate at 0.9 gave 0.9; add a
+   gate reporting *no* risk and the same token scored 0.45. The risk halved
+   because we wrote more code, and the dilution was largest where the evidence
+   was thinnest. Replaced with `max(primary) + bounded secondary`: the worst
+   single risk is a floor nothing can lower, and a zero-risk feature contributes
+   zero.
+2. **A missing net-buyer count was replaced with gross buys.** Those are
+   different quantities — a wash trader running a hundred round trips through
+   two wallets produces an enormous gross buy count and a net buyer count near
+   zero. The substitution handed the anti-wash gate the one number wash trading
+   inflates, precisely when the honest number was unavailable.
+3. **A missing organic score was charged twice**: a zero component at full
+   weight *and* a 0.25 soft risk. It is now priced once.
+4. **Unknown components no longer score zero.** They drop out and the score is
+   renormalised over what was observed, with `observedWeight` reported so a
+   reader can see how much of the number is actually supported.
+
+## 18b. Jupiter build composition (P7)
+
+Two defects in the assembled instruction array, which *is* the transaction the
+policy decoder validates and the simulator executes.
+
+1. **`cleanupInstruction` came before `otherInstructions`.** Cleanup closes the
+   wrapped-SOL account and returns its rent, so anything in `otherInstructions`
+   touching that account executed against an account that had just been closed.
+   Order is now compute → setup → swap → other → cleanup → tip.
+2. **`tipInstruction` was parsed by the schema and then dropped.** A route that
+   asked for a tip produced a transaction without one, so the tip was invisible
+   to the policy decoder, absent from the byte-level hash, and missing from
+   every cost model. It is now assembled last and its amount is decoded from the
+   System transfer itself — `tipLamportsOf()` reads the u64 as a `bigint`,
+   because a tip read through `Number` silently loses precision above 2^53.
+
+An undecodable tip is `null`, not zero: `hasTip` says one was requested and a
+null amount says we could not read it.
 
 ## 19. Corrected canary profitability gate
 

@@ -171,3 +171,179 @@ export function costBps(costLamports: bigint, notionalLamports: bigint): number 
   if (notionalLamports <= 0n) return null;
   return Number((costLamports * 10_000n + notionalLamports - 1n) / notionalLamports);
 }
+
+
+/**
+ * P12 — the entry and exit cash flows, as the ONE implementation.
+ *
+ * `packages/domain/src/execution.ts` had `totalEntryCost` and `netExitProceeds`
+ * doing this arithmetic separately, and they were what the runtime actually
+ * called; this module was used by one script. Two implementations of one
+ * calculation is two chances to forget a term, and the way you find out you
+ * forgot one is that a strategy is profitable in one report and not another.
+ *
+ * Those two functions now delegate here. Nothing else may re-derive these sums.
+ */
+
+export interface EntryCashFlow {
+  /** The exact input the leg spends. Not a probe, not a round number. */
+  readonly inputLamports: bigint;
+  readonly baseFeeLamports: bigint;
+  /** MEASURED, from the applied compute limit. Never assumed zero. */
+  readonly priorityFeeLamports: bigint;
+  /** Route-specific. A Jupiter /submit tip is not paid to another broadcaster. */
+  readonly routeTipLamports: bigint;
+  /** Rent for an ATA this leg creates. Locked capital, not a loss. */
+  readonly rentCreatedLamports: bigint;
+  /**
+   * Transfer fee NOT already embedded in the quoted output.
+   *
+   * Null means unobserved. In confirmatory data that is fatal rather than zero:
+   * a Token-2022 transfer fee read as zero understates every cost it touches,
+   * and it is exactly the extension a memecoin is most likely to carry.
+   */
+  readonly transferFeeLamports: bigint | null;
+  /** Explicit platform fee not already embedded. Null means the provider did not say. */
+  readonly platformFeeLamports: bigint | null;
+  readonly failure: ExpectedFailureCost;
+}
+
+export interface CashFlowResult {
+  /** Capital that leaves the free balance. Includes locked rent. */
+  readonly cashLamports: bigint;
+  /** The part that is recoverable rather than spent. */
+  readonly lockedCapitalLamports: bigint;
+  /** cash minus locked: what is actually gone. */
+  readonly spentLamports: bigint;
+  readonly complete: boolean;
+  readonly missing: readonly string[];
+}
+
+export function entryCashOut(f: EntryCashFlow): CashFlowResult {
+  const missing: string[] = [];
+  if (f.transferFeeLamports === null) missing.push('transfer fee not observed');
+  if (f.platformFeeLamports === null) missing.push('platform fee not reported by the provider');
+  if (f.failure.basis === 'unknown') missing.push('failure probability unknown');
+
+  const cash =
+    f.inputLamports +
+    f.baseFeeLamports +
+    f.priorityFeeLamports +
+    f.routeTipLamports +
+    f.rentCreatedLamports +
+    (f.transferFeeLamports ?? 0n) +
+    (f.platformFeeLamports ?? 0n) +
+    f.failure.expectedLamports;
+
+  return {
+    cashLamports: cash,
+    lockedCapitalLamports: f.rentCreatedLamports,
+    spentLamports: cash - f.rentCreatedLamports,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
+export interface ExitCashFlow {
+  readonly outputLamports: bigint;
+  readonly baseFeeLamports: bigint;
+  readonly priorityFeeLamports: bigint;
+  readonly routeTipLamports: bigint;
+  readonly transferFeeLamports: bigint | null;
+  /**
+   * Charged ONLY when closing the account needs its own transaction.
+   *
+   * A close in the same exit transaction pays no second signature, and charging
+   * one is a fabricated cost: 5,000 lamports against a 0.02 SOL leg is 2.5 bps
+   * of an edge measured in hundreds.
+   */
+  readonly separateCloseTransaction: boolean;
+  /** Credited only when a close was actually shown to be possible. */
+  readonly rentRecoveredLamports: bigint;
+  readonly failure: ExpectedFailureCost;
+}
+
+export function exitCashIn(f: ExitCashFlow): CashFlowResult {
+  const missing: string[] = [];
+  if (f.transferFeeLamports === null) missing.push('transfer fee not observed');
+  if (f.failure.basis === 'unknown') missing.push('failure probability unknown');
+
+  const closeFee = f.separateCloseTransaction ? f.baseFeeLamports : 0n;
+  const cash =
+    f.outputLamports -
+    f.baseFeeLamports -
+    f.priorityFeeLamports -
+    f.routeTipLamports -
+    (f.transferFeeLamports ?? 0n) -
+    closeFee -
+    f.failure.expectedLamports +
+    f.rentRecoveredLamports;
+
+  return {
+    cashLamports: cash,
+    lockedCapitalLamports: 0n,
+    spentLamports: cash,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
+/**
+ * The failure model, from observed attempts rather than one flat charge.
+ *
+ * P12 replaces `assumedFailedAttemptLamports` charged identically on every leg.
+ * A flat charge is wrong in both directions at once: it charges a cost that
+ * usually does not happen, and it charges the same amount whether the
+ * conditional cost is a 5,000-lamport signature or a 1.4-million-unit priority
+ * fee.
+ */
+export interface AttemptRecord {
+  readonly entryAttempts: number;
+  readonly entryLandedFailures: number;
+  readonly entryLandedFeeLamports: bigint;
+  readonly exitAttempts: number;
+  readonly exitLandedFailures: number;
+  readonly exitLandedFeeLamports: bigint;
+}
+
+/**
+ * An upper bound on the failure rate, not the point estimate.
+ *
+ * Three failures in ten attempts and three hundred in a thousand are the same
+ * point estimate and very different evidence. The upper bound is what sizing
+ * has to survive, so it is what sizing is given.
+ *
+ * Wilson-style, without pretending to more precision than a small sample has.
+ */
+export function failureUpperBound(landedFailures: number, attempts: number, z = 1.96): number {
+  if (attempts <= 0) return 1;
+  const p = landedFailures / attempts;
+  const denom = 1 + (z * z) / attempts;
+  const centre = p + (z * z) / (2 * attempts);
+  const spread = z * Math.sqrt((p * (1 - p)) / attempts + (z * z) / (4 * attempts * attempts));
+  return Math.min(1, (centre + spread) / denom);
+}
+
+/**
+ * The failure cost sizing should assume, from the attempt record.
+ *
+ * Uses the UPPER BOUND. With no attempts the bound is 1, so a leg with no
+ * history is charged a full failure -- which is the honest answer, and which
+ * makes collecting the history worth something.
+ */
+export function sizingFailureCost(
+  record: AttemptRecord,
+  side: 'entry' | 'exit',
+  conditionalLamports: bigint,
+): ExpectedFailureCost {
+  const attempts = side === 'entry' ? record.entryAttempts : record.exitAttempts;
+  const failures = side === 'entry' ? record.entryLandedFailures : record.exitLandedFailures;
+  const bound = failureUpperBound(failures, attempts);
+  const scaled = BigInt(Math.ceil(bound * 1_000_000));
+  return {
+    probability: bound,
+    conditionalLamports,
+    expectedLamports: (conditionalLamports * scaled + 999_999n) / 1_000_000n,
+    basis: attempts === 0 ? 'unknown' : 'upper-confidence-bound',
+  };
+}

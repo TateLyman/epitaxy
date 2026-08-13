@@ -22,6 +22,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { entryCashOut, exitCashIn } from './accounting.js';
 
 export const ROUTE_FAMILIES = ['ORDER_EXECUTE', 'BUILD_CUSTOM', 'DIRECT_VENUE', 'QUOTE_ONLY_BENCHMARK'] as const;
 export type RouteFamily = (typeof ROUTE_FAMILIES)[number];
@@ -466,17 +467,35 @@ export interface EntryCosts {
   readonly assumedFailedAttemptLamports: bigint;
 }
 
+/**
+ * P12 -- delegates to `packages/domain/src/accounting.ts`.
+ *
+ * This function and `accounting.ts` both existed and both summed a leg. The
+ * runtime called this one; a single script called the other. Two
+ * implementations of one calculation is two chances to forget a term, and the
+ * way you find out is that a strategy is profitable in one report and not
+ * another.
+ *
+ * The signature is kept so existing call sites and their tests keep working.
+ * New code should call `entryCashOut()`, which distinguishes an unknown
+ * transfer fee from a zero one.
+ */
 export function totalEntryCost(c: EntryCosts): bigint {
-  return (
-    c.inputLamports +
-    c.signatureFeeLamports +
-    c.priorityFeeLamports +
-    c.broadcasterTipLamports +
-    c.ataRentLamports +
-    c.transferFeeLamports +
-    c.platformFeeLamports +
-    c.assumedFailedAttemptLamports
-  );
+  return entryCashOut({
+    inputLamports: c.inputLamports,
+    baseFeeLamports: c.signatureFeeLamports,
+    priorityFeeLamports: c.priorityFeeLamports,
+    routeTipLamports: c.broadcasterTipLamports,
+    rentCreatedLamports: c.ataRentLamports,
+    transferFeeLamports: c.transferFeeLamports,
+    platformFeeLamports: c.platformFeeLamports,
+    failure: {
+      probability: 1,
+      conditionalLamports: c.assumedFailedAttemptLamports,
+      expectedLamports: c.assumedFailedAttemptLamports,
+      basis: 'assumed-zero',
+    },
+  }).cashLamports;
 }
 
 export interface ExitCosts {
@@ -491,17 +510,26 @@ export interface ExitCosts {
   readonly ataRentRecoveredLamports: bigint;
 }
 
+/** P12 -- delegates to `packages/domain/src/accounting.ts`. See above. */
 export function netExitProceeds(c: ExitCosts): bigint {
-  return (
-    c.grossProceedsLamports -
-    c.signatureFeeLamports -
-    c.priorityFeeLamports -
-    c.broadcasterTipLamports -
-    c.transferFeeLamports -
-    c.closeAccountFeeLamports -
-    c.assumedFailedAttemptLamports +
-    c.ataRentRecoveredLamports
-  );
+  const base = exitCashIn({
+    outputLamports: c.grossProceedsLamports,
+    baseFeeLamports: c.signatureFeeLamports,
+    priorityFeeLamports: c.priorityFeeLamports,
+    routeTipLamports: c.broadcasterTipLamports,
+    transferFeeLamports: c.transferFeeLamports,
+    // The caller already decided whether a separate close was needed and
+    // expressed it as an explicit fee, so it is not re-derived here.
+    separateCloseTransaction: false,
+    rentRecoveredLamports: c.ataRentRecoveredLamports,
+    failure: {
+      probability: 1,
+      conditionalLamports: c.assumedFailedAttemptLamports,
+      expectedLamports: c.assumedFailedAttemptLamports,
+      basis: 'assumed-zero',
+    },
+  }).cashLamports;
+  return base - c.closeAccountFeeLamports;
 }
 
 /**

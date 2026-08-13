@@ -57,7 +57,7 @@ import { BlobStore, type ExactTransactionBlob } from '../../../packages/storage/
 import { SimulationClient } from '../../../packages/simulator/src/client.js';
 import { resolveSimulatorToken } from '../../../packages/simulator/src/token.js';
 import { simulateLeg, simulatorHealth, exactBlobFor } from './simulate-observation.js';
-import { sizePosition } from '../../../packages/strategy/src/portfolio.js';
+import { sizePosition, plannedLossFractionBps } from '../../../packages/strategy/src/portfolio.js';
 import type { PortfolioState } from '../../../packages/strategy/src/portfolio.js';
 import { logger, sanitizeExternal } from '../../../packages/observability/src/log.js';
 import { formatAmount } from '../../../packages/domain/src/amounts.js';
@@ -585,10 +585,19 @@ async function tryEnter(
     // Null until valid observations exist. Null means the catastrophic floor
     // governs sizing, not that risk is zero.
     observedSevereLossBps: null,
-    // Planned loss across the open book: each position's cost times the stop
-    // distance, i.e. what the book loses if every stop fills at its level.
+    // P12 -- the SAME loss model for existing and proposed positions.
+    //
+    // This charged existing positions the nominal stop distance while
+    // `sizePosition` charged a proposed one `plannedLossFractionBps()`, which
+    // is the max of the stop, the observed severe loss and the catastrophic
+    // floor. With no valid observations the floor is 100%, so a new trade was
+    // charged four times what an identical existing one was, and the aggregate
+    // cap read the book as four times safer than the model said it was.
+    //
+    // A stop is a hope about where the exit fills. In a token that goes to
+    // zero, no stop fills anywhere.
     plannedLossLamports: open.reduce(
-      (a, p) => a + (BigInt(p.cost_lamports) * BigInt(config.exits.stopLossBps)) / 10_000n,
+      (a, p) => a + (BigInt(p.cost_lamports) * BigInt(plannedLossFractionBps(config, null))) / 10_000n,
       0n,
     ),
   };
