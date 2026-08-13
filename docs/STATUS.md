@@ -1546,3 +1546,87 @@ This one is not.
 5. `pnpm readiness` — the gate, which will say NOT_READY for a long time
 
 Nothing above starts canary or live.
+
+---
+
+# 2026-08-13 — the 5b89953 effect-labels directive
+
+## P6 is satisfied
+
+```
+buys 5, effect-ok 4 · sells 5, effect-ok 4 · 8/10 effect-verified
+INSTRUMENT failures 0   (required: 0)
+```
+
+The bar was never ten passes. It is 10/10 either `SIMULATED_EFFECT_OK` or a
+route-specific failure with a complete explanation, and zero instrument
+failures. **Met.**
+
+At the start of this session there were **zero** effect-verified legs in this
+repository's history.
+
+## Nine defects, every one found by running it
+
+| id | what |
+|---|---|
+| `S052` | Token balances keyed by account pubkey at one end, `owner:mint` at the other |
+| `S053` | A mint decoded as a token account (`>= 72` bytes; a mint is 82) |
+| `S054` | The taker's own ATA truncated out of the 64-account watch window |
+| `S055` | The sell credit had two values — closed by writing the account rent-exempt |
+| P3 | A token→SOL sell checked through `minTokenDelta` |
+| P4 | Amounts above 2^53 unsimulable |
+| P5 | Priority fee suppressed on **every** run by a balance identity that does not hold for sells |
+| P13 | Readiness subtracted the principal twice, and its cost stress subtracted it again |
+| P17 | `mintfacts.ts` decided nothing |
+
+`S052` was the directive's own hypothesis, proven against the corpus before
+anything was changed: every stored token map key is a base58 account pubkey and
+no `owner:mint` key has ever existed.
+
+## The readiness gate was describing a strategy that does not exist
+
+`realized_lamports` already holds the net result, and the gate computed
+`realized - cost`. A position that cost 20,000,000 and made 1,000,000 scored as
+a **19,000,000 loss**, and every gate downstream — profit factor, log growth,
+drawdown, every robustness check — inherited it.
+
+Its 2× cost stress subtracted the whole 20,000,000 basis rather than the 13,000
+of execution cost. No strategy could pass it. A stress that always fails carries
+no information about robustness, so a test now asserts a robust edge **survives**
+it — the half the old version could never show.
+
+## What the working instrument then measured
+
+**A route spent 278,400 lamports more than it was given** — 139 bps, net of
+every modelled cost. An unmodelled cost of that size is what turns a positive
+backtest into a negative account.
+
+**A dust position's exit returns −277,839 lamports.** The effect verifier and
+the daemon's bounds check agree on the figure independently.
+
+## Corrections to earlier claims in this file's history
+
+- The **80.7% round-trip loss** was double-counted rent. Do not quote it.
+- "Output delta is missing" was firing for both *unobserved* and
+  *observed-but-negative*, filing the market's answer as our failure.
+
+## Open
+
+- **`S050`** — Pump offline replay. `soPath` landed and the failure is
+  unchanged, which rules out N-API marshalling and the 38.5 MiB body. It is
+  `surfnet_writeProgram` dropping its RPC on a 10.5 MB program, one layer below
+  this daemon. Needs a Rust Surfpool or LiteSVM worker.
+- **`S051`** — `entity.ts` and `accountwatch.ts` still decide nothing.
+  `mintfacts.ts` left the list.
+
+## State
+
+```
+MEASUREMENT_REPAIR_REQUIRED
+```
+
+Not because the repair failed — it succeeded and P6 is met — but because no
+evidence window has started and no confirmatory trade exists. `CONFIRMATORY` is
+unreachable for Pump while `S050` is open, so canary cannot be approached.
+
+903 tests, 57 files, secretscan clean.
