@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Db } from './db.js';
@@ -61,6 +61,41 @@ function witnessCount(db: Db | DatabaseSync, table: string): number {
 function tableExists(db: Db | DatabaseSync, name: string): boolean {
   const r = db.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name = ?`).get(name);
   return r !== undefined;
+}
+
+/**
+ * sha256 of a file of any size.
+ *
+ * `readFileSync` cannot return more than 2 GiB, because a Node Buffer cannot be
+ * larger than that. This backup used `createHash().update(readFileSync(path))`
+ * and worked fine until the corpus passed the limit, at which point it threw
+ *
+ *     File size (2506678272) is greater than 2 GiB
+ *
+ * and — because a failed backup correctly blocks migration — the engine would
+ * have refused to start at all. The protection behaved exactly as designed; the
+ * thing it was protecting against was a defect in the protection.
+ *
+ * Read in fixed chunks instead. Synchronous on purpose: every caller is on a
+ * startup path where the next thing that happens is a migration, and making
+ * this async would let one begin before the backup finished.
+ */
+function hashFile(path: string): string {
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(8 * 1024 * 1024);
+  const fd = openSync(path, 'r');
+  try {
+    let position = 0;
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, position);
+      if (read <= 0) break;
+      hash.update(buffer.subarray(0, read));
+      position += read;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest('hex');
 }
 
 /**
@@ -136,7 +171,7 @@ export function onlineBackup(db: Db, destPath: string, opts: { witnessTable?: st
 
   let sha256: string;
   try {
-    sha256 = createHash('sha256').update(readFileSync(tmp)).digest('hex');
+    sha256 = hashFile(tmp);
     renameSync(tmp, dest);
   } catch (e) {
     throw new BackupFailed('finalising', (e as Error).message);
