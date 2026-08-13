@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, existsSync, copyFileSync } from 'node:fs';
+import { onlineBackup, BackupFailed } from './backup.js';
+import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 /**
@@ -1034,24 +1035,41 @@ export function openDb(opts: OpenOptions): Db {
   const abs = resolve(opts.path);
   mkdirSync(dirname(abs), { recursive: true });
 
-  const needsMigration = !opts.readonly;
-  if (needsMigration && !opts.skipBackup && existsSync(abs)) {
-    // Pre-migration backup. Cheap insurance against a bad migration.
+  const db = new DatabaseSync(abs, { readOnly: opts.readonly ?? false });
+  if (opts.readonly) return db;
+
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA synchronous = NORMAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA busy_timeout = 5000');
+
+  // The pre-migration backup, taken AFTER opening rather than before.
+  //
+  // It used to be a copyFileSync of the main .db file with the failure
+  // swallowed. That is not a backup while WAL is active -- committed pages may
+  // live only in -wal, so the copy is silently older than the database or torn
+  // across a checkpoint -- and swallowing the error meant a migration ran
+  // anyway with nothing behind it. Both halves of that were wrong.
+  //
+  // A migration rewrites the only copy of a research corpus that cannot be
+  // regenerated. If we cannot prove we have a readable snapshot of it first,
+  // the correct behaviour is to refuse to start, not to proceed hopefully.
+  const hasContent = db.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type='table' LIMIT 1`).get() !== undefined;
+  if (!(opts.skipBackup ?? false) && hasContent) {
     try {
-      copyFileSync(abs, `${abs}.bak`);
-    } catch {
-      // A failed backup must not prevent read-only startup, but we surface it.
+      onlineBackup(db, `${abs}.bak`);
+    } catch (e) {
+      db.close();
+      throw new BackupFailed(
+        'pre-migration',
+        `${(e as Error).message}. Refusing to migrate: the database is a research corpus that cannot be ` +
+          'regenerated, and a migration with no verified backup behind it is not recoverable. Fix the ' +
+          'backup (disk space, permissions, a stale .bak.partial) or pass skipBackup deliberately.',
+      );
     }
   }
 
-  const db = new DatabaseSync(abs, { readOnly: opts.readonly ?? false });
-  if (!opts.readonly) {
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA synchronous = NORMAL');
-    db.exec('PRAGMA foreign_keys = ON');
-    db.exec('PRAGMA busy_timeout = 5000');
-    migrate(db);
-  }
+  migrate(db);
   return db;
 }
 

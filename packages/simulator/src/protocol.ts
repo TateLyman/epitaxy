@@ -31,7 +31,7 @@ import { createHash } from 'node:crypto';
  * SIMULATOR_UNAVAILABLE — a fact about our infrastructure — and never a fact
  * about the token being simulated.
  */
-export const SIMULATION_PROTOCOL_VERSION = 2;
+export const SIMULATION_PROTOCOL_VERSION = 3;
 
 /**
  * Has this build been shown to reproduce the EXECUTION of transactions the
@@ -53,7 +53,7 @@ export const SIMULATION_PROTOCOL_VERSION = 2;
 export const EXECUTION_PARITY_ESTABLISHED = false;
 
 /** Schema of the frozen account snapshot. Changing it changes what a run means. */
-export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 2;
+export const ACCOUNT_SNAPSHOT_SCHEMA_VERSION = 3;
 
 export type SimulationMode =
   /** Offline, from a frozen snapshot. The only mode that can be confirmatory. */
@@ -212,6 +212,25 @@ export interface SimulationResponse {
 
   /** Digest of the runtime event stream, so two runs can be compared cheaply. */
   readonly runtimeEventDigest: string | null;
+  /**
+   * §7.1 — the PRE-TRANSACTION state of every account the run touched.
+   *
+   * Read after the simulation, which sounds wrong and is not: a simulation does
+   * not commit, so the accounts still hold exactly what they held before it. A
+   * JIT run fetches lazily as the transaction executes, so reading afterwards
+   * is also the only way to see everything it needed. The two facts combine
+   * into one cheap, exact capture.
+   *
+   * Executable entries carry their ELF, extracted from the ProgramData account
+   * the program points at, because `setAccount` cannot make an account
+   * executable and a program must be redeployed from real code.
+   *
+   * Feed this back as `snapshotAccounts` in CONFIRMATORY_OFFLINE and the run is
+   * reproducible.
+   */
+  readonly exportedSnapshot: readonly SnapshotBlob[];
+  /** How the export went, per account, when something could not be captured. */
+  readonly exportOmissions: readonly string[];
   /** Accounts the JIT fetch pulled in. Must be frozen before any replay. */
   readonly jitFetchedAccounts: readonly SnapshotBlob[];
 

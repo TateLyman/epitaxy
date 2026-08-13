@@ -29,3 +29,4 @@ coverage/
 # Vitest JSON reporter output. Scratch, not evidence.
 /all.json
 /vr.json
+data/backups/

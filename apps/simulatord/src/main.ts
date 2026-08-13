@@ -7,11 +7,19 @@ import {
   computeRequestHash,
   type SimulationRequest,
   type SimulationResponse,
+  type SnapshotBlob,
   type ParityRequest,
   type ParityCaseResult,
   type ParityResponse,
 } from '../../../packages/simulator/src/protocol.js';
 import { computeIdentity, assertLinuxFilesystem } from './identity.js';
+import {
+  programDataAddress,
+  decodeProgramData,
+  loaderKind,
+  looksLikeElf,
+  lookupTableAddresses,
+} from '../../../packages/solana/src/loader.js';
 import {
   decodeTransaction,
   readComputeBudget,
@@ -46,8 +54,30 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env['SIMULATORD_PORT'] ?? 8787);
 const TOKEN = process.env['SIMULATORD_TOKEN'] ?? '';
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 60_000;
-const MAX_QUEUE = 16;
+/**
+ * Long enough to deploy a route's programs from frozen ELF.
+ *
+ * A three-hop Jupiter route freezes six programs, and their ELFs run to
+ * megabytes each. 60 s was a mark-cadence budget, not a snapshot-restore
+ * budget, and it killed the offline replay mid-deploy -- which surfaced on the
+ * client as a bare abort with nothing to diagnose.
+ */
+const REQUEST_TIMEOUT_MS = 300_000;
+
+/**
+ * §3.1 — one Surfnet at a time, and do not optimise this yet.
+ *
+ * The daemon documented "fresh instance per job" and then permitted sixteen at
+ * once, each starting its own SVM and binding its own ports. Isolation was
+ * asserted by the comment and not enforced by anything. Startup was measured at
+ * 23-24 ms, so serialising costs almost nothing, and a bounded warm pool is a
+ * thing to build when measured throughput demands it rather than in advance.
+ */
+const MAX_ACTIVE_SURFNETS = 1;
+/** Bounded FIFO. A queue that can grow without limit is a memory leak with a plan. */
+const MAX_QUEUED = 16;
+/** Bounded retry memory: a cache for retries, not a ledger. Windows holds that. */
+const MAX_CACHED_JOBS = 512;
 
 /**
  * How many accounts we ask the runtime to return post-simulation state for.
@@ -61,6 +91,30 @@ const MAX_WATCHED_ACCOUNTS = 64;
 
 /** Named once. Measured against three settled mainnet transactions. */
 const BASE_FEE_LAMPORTS_PER_SIGNATURE = 5_000n;
+
+/**
+ * How much program code one offline restore may deploy.
+ *
+ * Not a preference. `deploy()` is synchronous and blocks the daemon's event
+ * loop, and a six-program restore did not finish in five minutes while
+ * /v1/health stopped answering. These bounds turn that into a refusal with a
+ * reason. Raising them without first making the restore asynchronous just
+ * lengthens the hang.
+ */
+const MAX_DEPLOY_PROGRAMS = 3;
+const MAX_DEPLOY_BYTES = 4 * 1024 * 1024;
+
+class DeployBudgetExceeded extends Error {
+  constructor(programs: number, bytes: number) {
+    super(
+      `restoring this snapshot needs ${programs} program deploy(s) totalling about ${bytes} bytes, above the ` +
+        `budget of ${MAX_DEPLOY_PROGRAMS} programs / ${MAX_DEPLOY_BYTES} bytes. deploy() is synchronous and ` +
+        'blocks the daemon, so a larger restore stops it answering health checks and eventually times the ' +
+        'caller out with nothing to diagnose. Refusing instead.',
+    );
+    this.name = 'DeployBudgetExceeded';
+  }
+}
 
 const TOKEN_PROGRAMS = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
@@ -113,11 +167,64 @@ const surfpool = require('@solana/surfpool') as SurfnetModule;
 
 let runtimeVersion: string | null = null;
 let featureSet: string | null = null;
-let inFlight = 0;
+let active = 0;
 let jobsRun = 0;
+let jobsFailed = 0;
+let jobsUnknown = 0;
+const startupSamples: number[] = [];
+const simulateSamples: number[] = [];
 
 /** jobId -> {requestHash, response}. Idempotency, and refusal on a mismatch. */
 const completed = new Map<string, { requestHash: string; response: SimulationResponse }>();
+
+/**
+ * §3.2 — in-flight idempotency.
+ *
+ * The completed-job cache could not help a job that was still running, so a
+ * client timeout at 60 s followed by a retry started a SECOND simulation of the
+ * same work under the same job id. Two Surfnets, two answers, one job id, and
+ * whichever finished last won. A retry has to ATTACH to the work already in
+ * progress, not race it.
+ */
+const inFlight = new Map<string, { requestHash: string; promise: Promise<SimulationResponse>; startedUtcMs: number }>();
+
+/**
+ * The bounded FIFO. Each entry waits for its turn to be the single active job.
+ *
+ * Queue position is taken before the work starts and released in a finally, so
+ * a throwing job cannot wedge the queue closed.
+ */
+const waiting: { enqueuedUtcMs: number; release: () => void }[] = [];
+
+async function acquireSlot(): Promise<{ queueWaitMs: number; release: () => void }> {
+  const enqueuedUtcMs = Date.now();
+  if (active < MAX_ACTIVE_SURFNETS) {
+    active += 1;
+    return { queueWaitMs: 0, release: releaseSlot };
+  }
+  await new Promise<void>((resolve) => {
+    waiting.push({ enqueuedUtcMs, release: resolve });
+  });
+  active += 1;
+  return { queueWaitMs: Date.now() - enqueuedUtcMs, release: releaseSlot };
+}
+
+function releaseSlot(): void {
+  active -= 1;
+  const next = waiting.shift();
+  if (next !== undefined) next.release();
+}
+
+function median(xs: readonly number[]): number | null {
+  if (xs.length === 0) return null;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? null;
+}
+
+function sample(into: number[], value: number): void {
+  into.push(value);
+  if (into.length > 200) into.shift();
+}
 
 async function rpc(url: string, method: string, params: unknown[]): Promise<unknown> {
   const res = await fetch(url, {
@@ -140,6 +247,47 @@ async function probeRuntime(): Promise<void> {
   } finally {
     net.stop();
   }
+}
+
+/**
+ * §3.4 — cross a bigint into a native binding that only accepts JS numbers, or
+ * refuse. Never round.
+ *
+ * @solana/surfpool 1.5.0 types every amount as `number`: fundSol(lamports),
+ * setTokenBalance(amount), setAccount(lamports). There is no bigint transport
+ * in this version, so the choice is exactness or refusal, and silent rounding
+ * is not on the list.
+ *
+ * This is not hypothetical. A fresh memecoin with a one-billion supply and nine
+ * decimals is 10^18 atoms; 2^53-1 is about 9.007 x 10^15. Ordinary positions in
+ * exactly the tokens this system trades exceed the safe integer range by three
+ * orders of magnitude, and `Number()` on one of them changes the size of the
+ * position without saying so.
+ *
+ * SOL amounts are safe in practice -- 2^53-1 lamports is roughly nine million
+ * SOL -- but the guard applies to both, because the reason it holds for SOL is
+ * a fact about how small our positions are, not a property of the type.
+ */
+export class UnsafeAmount extends Error {
+  constructor(
+    readonly field: string,
+    readonly value: bigint,
+  ) {
+    super(
+      `${field} is ${value.toString()}, above Number.MAX_SAFE_INTEGER (${Number.MAX_SAFE_INTEGER}). ` +
+        'The Surfpool binding accepts only JS numbers, so this value cannot be passed exactly. ' +
+        'Refusing rather than rounding: a token amount that changes when it crosses a boundary is ' +
+        'a position of a different size.',
+    );
+    this.name = 'UnsafeAmount';
+  }
+}
+
+export function exactNumber(value: bigint, field: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < -BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new UnsafeAmount(field, value);
+  }
+  return Number(value);
 }
 
 /** An account as the runtime describes it, or absent. Absent is not zero. */
@@ -207,6 +355,110 @@ function messageBase64(tx: DecodedTransaction): string {
   return Buffer.from(tx.messageBytes).toString('base64');
 }
 
+/**
+ * §7.1/§7.2 — freeze the pre-transaction state of everything the run touched.
+ *
+ * Programs are the hard part. The account at a program's address holds a
+ * pointer, not code, so an executable entry is followed to its ProgramData
+ * account and the ELF extracted from behind the 45-byte header. Without that,
+ * an offline replay has an address that is supposed to be a program and no way
+ * to make it one.
+ *
+ * Anything that cannot be captured is NAMED in `omissions` rather than dropped.
+ * A snapshot that is quietly missing an account replays into a different chain
+ * state and produces a confident, wrong answer.
+ */
+async function exportSnapshot(
+  url: string,
+  keys: readonly string[],
+): Promise<{ blobs: SnapshotBlob[]; omissions: string[]; absent: string[]; builtins: string[] }> {
+  const omissions: string[] = [];
+  const absent: string[] = [];
+  const builtins: string[] = [];
+  const blobs: SnapshotBlob[] = [];
+  const views = await readAccounts(url, keys);
+
+  // Programs point at a second account, so the set to read grows as we go.
+  const programDataOf = new Map<string, string>();
+  for (const [pubkey, v] of views) {
+    if (v === null || !v.executable) continue;
+    const kind = loaderKind(v.owner);
+    if (kind !== 'upgradeable') continue;
+    try {
+      programDataOf.set(pubkey, programDataAddress(new Uint8Array(v.data)));
+    } catch (e) {
+      omissions.push(`${pubkey}: program account did not decode (${(e as Error).message})`);
+    }
+  }
+  const extra = [...new Set([...programDataOf.values()].filter((k) => !views.has(k)))];
+  const extraViews = extra.length === 0 ? new Map() : await readAccounts(url, extra);
+
+  for (const [pubkey, v] of views) {
+    if (v === null) {
+      // Absent, and faithfully so. A fresh Surfnet holds nothing, so leaving an
+      // account OUT of the snapshot is exactly how "this did not exist before
+      // the transaction" is expressed. Recorded for provenance, not as a
+      // failure -- the ATA a swap is about to create is absent by definition,
+      // and calling that a capture failure disqualifies every honest run.
+      absent.push(pubkey);
+      continue;
+    }
+    let elf: string | null = null;
+    if (v.executable) {
+      const kind = loaderKind(v.owner);
+      if (kind === 'native') {
+        // A builtin. The runtime provides it, there is no ELF to capture, and
+        // restoring it would be writing over the runtime's own program with a
+        // non-executable copy of itself.
+        builtins.push(pubkey);
+        continue;
+      }
+      const pdAddr = programDataOf.get(pubkey);
+      const pd = pdAddr === undefined ? null : (extraViews.get(pdAddr) ?? views.get(pdAddr) ?? null);
+      if (kind === 'upgradeable' && pd !== null) {
+        try {
+          const decoded = decodeProgramData(new Uint8Array(pd.data));
+          if (!looksLikeElf(decoded.elf)) {
+            omissions.push(`${pubkey}: ProgramData did not begin with ELF magic`);
+          } else {
+            elf = Buffer.from(decoded.elf).toString('base64');
+          }
+        } catch (e) {
+          omissions.push(`${pubkey}: ProgramData did not decode (${(e as Error).message})`);
+        }
+      } else if (kind === 'v1' || kind === 'v2') {
+        // A non-upgradeable program holds its ELF directly.
+        if (looksLikeElf(new Uint8Array(v.data))) elf = v.data.toString('base64');
+        else omissions.push(`${pubkey}: ${kind} program account did not begin with ELF magic`);
+      } else {
+        omissions.push(`${pubkey}: executable under ${kind} loader (${v.owner}); no capture path`);
+      }
+    }
+    blobs.push(blobOf(pubkey, v, elf));
+  }
+
+  // The ProgramData accounts themselves are frozen too: an offline replay that
+  // deploys the code should still see the account the program points at.
+  for (const [pubkey, v] of extraViews) {
+    if (v === null) omissions.push(`${pubkey}: ProgramData absent at capture time`);
+    else blobs.push(blobOf(pubkey, v, null));
+  }
+
+  return { blobs, omissions, absent, builtins };
+}
+
+function blobOf(pubkey: string, v: AccountView, elf: string | null): SnapshotBlob {
+  return {
+    pubkey,
+    owner: v.owner,
+    lamports: v.lamports.toString(),
+    dataBase64: v.data.toString('base64'),
+    executable: v.executable,
+    slot: -1,
+    programElfBase64: elf,
+  };
+}
+
 async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<SimulationResponse> {
   const t0 = Date.now();
   const jit = req.mode === 'DEVELOPMENT_JIT';
@@ -244,12 +496,33 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     return fail(req, 'SIMULATOR_UNAVAILABLE', `transaction bytes did not decode: ${(e as Error).message}`, t0, queueWaitMs, 0, 0);
   }
 
+  // Checked BEFORE a Surfnet is started. An amount we cannot pass exactly is a
+  // fact about the request, and starting an SVM to discover it wastes the slot.
+  for (const a of req.snapshotAccounts) {
+    try {
+      exactNumber(BigInt(a.lamports), `snapshot lamports for ${a.pubkey}`);
+    } catch (e) {
+      return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+    }
+  }
+  for (const m of req.balanceMutations) {
+    try {
+      exactNumber(BigInt(m.amount), `${m.kind} mutation for ${m.owner}`);
+    } catch (e) {
+      return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+    }
+  }
+
   // §13 — measured against @solana/surfpool 1.5.0: `setAccount` has no
   // `executable` parameter, so a program account restored through it comes back
   // NON-executable and every route through it fails with an invalid-program
   // error. That error would look like a fact about the token and it is a fact
   // about us. Programs are deployed from their ELF or the request is refused.
-  const missingElf = req.snapshotAccounts.filter((a) => a.executable && (a.programElfBase64 ?? null) === null);
+  // Builtins are exempt: the runtime provides them, so an executable entry
+  // owned by the native loader has no ELF to be missing.
+  const missingElf = req.snapshotAccounts.filter(
+    (a) => a.executable && (a.programElfBase64 ?? null) === null && loaderKind(a.owner) !== 'native',
+  );
   if (missingElf.length > 0) {
     return fail(
       req,
@@ -269,13 +542,73 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     : surfpool.Surfnet.start();
   const startupMs = Date.now() - t0;
 
+  // Which programs this run deployed, and which it found already there. Both
+  // are provenance: a replay is only reproducible if the same code ran.
+  const deployedPrograms: string[] = [];
+  const preloadedPrograms: string[] = [];
+  let elfBytesToDeploy = 0;
+
   try {
+    // Which programs does this instance ALREADY have?
+    //
+    // Measured: a fresh offline Surfnet preloads System, ComputeBudget, SPL
+    // Token, Token-2022 and the ATA program. Jupiter, Pump and PumpSwap are
+    // absent. Deploying over a program that already exists PANICS inside
+    // surfpool's Rust core -- "copy_from_slice: source slice length (13) does
+    // not match destination slice length (45)" -- which kills the HTTP worker
+    // and surfaces as a transport error with no hint of the cause.
+    //
+    // So the rule is: deploy what is missing, leave alone what is there. The
+    // preloaded copies are the runtime's own and are what a real route runs
+    // against anyway.
+    const executables = req.snapshotAccounts.filter((a) => a.executable);
+    const alreadyPresent = new Set<string>();
+    if (executables.length > 0) {
+      const existing = await readAccounts(
+        net.rpcUrl,
+        executables.map((a) => a.pubkey),
+      );
+      for (const [pubkey, v] of existing) if (v !== null && v.executable) alreadyPresent.add(pubkey);
+    }
+
     // §13 — typed methods, not raw pokes.
     for (const a of req.snapshotAccounts) {
+      if (a.executable && loaderKind(a.owner) === 'native') {
+        // Provided by the runtime. Writing over it would replace a working
+        // builtin with a non-executable copy of its own bytes.
+        continue;
+      }
+      if (a.executable && alreadyPresent.has(a.pubkey)) {
+        preloadedPrograms.push(a.pubkey);
+        continue;
+      }
       if (a.executable) {
+        // MEASURED LIMIT, and the reason this is bounded rather than hopeful.
+        //
+        // `deploy()` is a SYNCHRONOUS napi call. It blocks the daemon's event
+        // loop for its whole duration, so a large restore takes the process
+        // down with it: during a six-program restore /v1/health stopped
+        // answering entirely and the daemon looked dead rather than busy.
+        //
+        // A three-hop Jupiter route freezes six programs whose ELFs run to
+        // megabytes each, and restoring them did not complete within five
+        // minutes. Until that is either made asynchronous or moved off the
+        // request path, a snapshot beyond this budget is REFUSED with a reason
+        // instead of hanging the daemon and timing the caller out with nothing
+        // to diagnose.
+        elfBytesToDeploy += Math.floor(((a.programElfBase64 ?? '').length * 3) / 4);
+        if (elfBytesToDeploy > MAX_DEPLOY_BYTES || deployedPrograms.length >= MAX_DEPLOY_PROGRAMS) {
+          throw new DeployBudgetExceeded(deployedPrograms.length + 1, elfBytesToDeploy);
+        }
+        deployedPrograms.push(a.pubkey);
         net.deploy({ programId: a.pubkey, soBytes: [...Buffer.from(a.programElfBase64 ?? '', 'base64')] });
       } else {
-        net.setAccount(a.pubkey, Number(a.lamports), new Uint8Array(Buffer.from(a.dataBase64, 'base64')), a.owner);
+        net.setAccount(
+          a.pubkey,
+          exactNumber(BigInt(a.lamports), `snapshot lamports for ${a.pubkey}`),
+          new Uint8Array(Buffer.from(a.dataBase64, 'base64')),
+          a.owner,
+        );
       }
     }
 
@@ -286,12 +619,15 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     const namedAtas: string[] = [];
     for (const m of req.balanceMutations) {
       if (m.kind === 'sol') {
-        net.fundSol(m.owner, Number(m.amount));
+        net.fundSol(m.owner, exactNumber(BigInt(m.amount), `SOL mutation for ${m.owner}`));
         continue;
       }
       if (m.mint === undefined) continue;
-      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, Number(m.amount));
-      else net.setTokenBalance(m.owner, m.mint, Number(m.amount), m.tokenProgram);
+      // Token atoms are where this actually bites: a nine-decimal memecoin with
+      // a billion supply is 10^18 atoms, three orders of magnitude past exact.
+      const atoms = exactNumber(BigInt(m.amount), `token mutation for ${m.owner}/${m.mint}`);
+      if (m.tokenProgram == null) net.setTokenBalance(m.owner, m.mint, atoms);
+      else net.setTokenBalance(m.owner, m.mint, atoms, m.tokenProgram);
       try {
         namedAtas.push(m.tokenProgram == null ? net.getAta(m.owner, m.mint) : net.getAta(m.owner, m.mint, m.tokenProgram));
       } catch {
@@ -307,10 +643,60 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       }
     }
 
+    // §8 — complete account coverage.
+    //
+    // A transaction's accounts are NOT its static keys. Everything its lookup
+    // tables load is an account it touches, and on a Jupiter route that is
+    // exactly where the pools live. Watching only the static keys produced an
+    // offline snapshot with no liquidity in it and a replay that could not even
+    // resolve the table: "Account 8BNMiq1C... not found".
+    //
+    // The tables themselves are read from the running instance and expanded, so
+    // the addresses come from the same chain state the transaction ran against
+    // rather than from a second lookup that may have moved.
+    const altAccounts = original.addressTableLookups.map((l) => l.accountKey);
+    const loadedFromTables: string[] = [];
+    const unresolvedTables: string[] = [];
+    const writableFromTables = new Set<string>();
+    if (altAccounts.length > 0) {
+      const tableViews = await readAccounts(net.rpcUrl, altAccounts);
+      for (const lookup of original.addressTableLookups) {
+        const view = tableViews.get(lookup.accountKey) ?? null;
+        if (view === null) {
+          unresolvedTables.push(`${lookup.accountKey}: not present`);
+          continue;
+        }
+        let entries: string[];
+        try {
+          entries = lookupTableAddresses(new Uint8Array(view.data));
+        } catch (e) {
+          unresolvedTables.push(`${lookup.accountKey}: ${(e as Error).message}`);
+          continue;
+        }
+        for (const i of lookup.writableIndexes) {
+          const addr = entries[i];
+          if (addr === undefined) unresolvedTables.push(`${lookup.accountKey}[w${i}]: index out of range`);
+          else {
+            loadedFromTables.push(addr);
+            writableFromTables.add(addr);
+          }
+        }
+        for (const i of lookup.readonlyIndexes) {
+          const addr = entries[i];
+          // An index past the end of the table is an unresolvable address, not
+          // an address of zero. Named rather than skipped.
+          if (addr === undefined) unresolvedTables.push(`${lookup.accountKey}[r${i}]: index out of range`);
+          else loadedFromTables.push(addr);
+        }
+      }
+    }
+
     const allWatched = [
       ...new Set([
         req.bounds.feePayer,
         ...original.staticAccountKeys,
+        ...altAccounts,
+        ...loadedFromTables,
         ...req.snapshotAccounts.map((a) => a.pubkey),
         ...namedAtas,
       ]),
@@ -359,23 +745,37 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
     // loaded from an address lookup table, which this decoder does not resolve
     // -- is neither, and is recorded as unobserved.
     const writable = writableStaticKeys(original);
-    const staticKeys = new Set(original.staticAccountKeys);
     const post = new Map<string, AccountView | null>();
-    const unobserved: string[] = [];
+
+    // A FAILED transaction produces no post-state at all: the runtime returns
+    // nulls across the board because nothing was applied. Reading those nulls
+    // the way a successful run's nulls are read reported every writable account
+    // as CLOSED -- on one real route that meant the fee payer was booked as
+    // closed and its entire 0.2 SOL balance as rent recovered.
+    //
+    // Nothing happened, so the post-state IS the pre-state, and created/closed
+    // and rent are not measurable from this run at all.
+    const noPostState = err !== null;
+
     watched.forEach((k, i) => {
       const returned = viewOf(postList[i] ?? null);
       if (returned !== null) {
         post.set(k, returned);
         return;
       }
+      if (noPostState) {
+        post.set(k, pre.get(k) ?? null);
+        return;
+      }
       if (writable.has(k)) {
         // Writable, and the runtime returned nothing: genuinely gone.
         post.set(k, null);
-      } else if (staticKeys.has(k) || original.addressTableLookups.length === 0) {
-        // Not writable in this transaction, so it is exactly as it was.
-        post.set(k, pre.get(k) ?? null);
+      } else if (writableFromTables.has(k)) {
+        // Writable via a lookup table and not returned: gone, same as a static
+        // writable. Knowable now that the tables are resolved.
+        post.set(k, null);
       } else {
-        unobserved.push(k);
+        // Readonly, whether static or table-loaded, so it is exactly as it was.
         post.set(k, pre.get(k) ?? null);
       }
     });
@@ -446,14 +846,11 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       if (d > 0n) othersGained += d;
     }
     const residual = payerPre - payerPost - othersGained - (baseFee ?? 0n);
-    const decompositionExact = err === null && truncated === 0 && unobserved.length === 0 && baseFee !== null;
+    const decompositionExact = err === null && truncated === 0 && unresolvedTables.length === 0 && baseFee !== null;
     const feeNotes: string[] = [];
     if (truncated > 0) feeNotes.push(`${truncated} account(s) beyond the ${MAX_WATCHED_ACCOUNTS} watched were not observed`);
-    if (unobserved.length > 0) {
-      feeNotes.push(
-        `${unobserved.length} watched account(s) may be lookup-table writable and their post-state was not returned; ` +
-          'they are carried forward as unchanged and are NOT claimed to be unchanged',
-      );
+    if (unresolvedTables.length > 0) {
+      feeNotes.push(`${unresolvedTables.length} lookup entr(ies) could not be resolved: ${unresolvedTables.slice(0, 3).join('; ')}`);
     }
     if (decompositionExact && residual !== declaredPriority) {
       feeNotes.push(`priority fee disagreement: bytes imply ${declaredPriority}, balances imply ${residual}`);
@@ -506,6 +903,22 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
             headerUnchanged: true,
           };
 
+    // §7.1 step 5-7. Taken from the same instance that just ran the
+    // transaction, so it is that run's state and not a later fetch of it.
+    const exported = await exportSnapshot(net.rpcUrl, watched);
+    if (exported.absent.length > 0) {
+      feeNotes.push(
+        `${exported.absent.length} account(s) did not exist before the transaction and are frozen by absence`,
+      );
+    }
+    if (exported.builtins.length > 0) {
+      feeNotes.push(`${exported.builtins.length} builtin program(s) are provided by the runtime and not captured`);
+    }
+    if (deployedPrograms.length > 0) feeNotes.push(`deployed ${deployedPrograms.length} program(s) from frozen ELF`);
+    if (preloadedPrograms.length > 0) {
+      feeNotes.push(`${preloadedPrograms.length} program(s) were already present in the runtime and were not redeployed`);
+    }
+
     const events = net.drainEvents();
     const identity = computeIdentity(REPO_ROOT, { version: runtimeVersion, featureSet });
     const total = Date.now() - t0;
@@ -516,6 +929,12 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       ...feeNotes,
       'transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero',
     ];
+    if (noPostState) {
+      notes.push(
+        'the transaction failed, so no post-state was applied: balances are carried from the pre-state and ' +
+          'rent, created and closed accounts are not measured by this run',
+      );
+    }
 
     return {
       protocolVersion: SIMULATION_PROTOCOL_VERSION,
@@ -533,31 +952,40 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       postTokenBalances: postTok,
       baseFeeLamports: baseFee === null ? null : baseFee.toString(),
       priorityFeeLamports: priorityFee === null ? null : priorityFee.toString(),
-      rentCreatedLamports: rentCreated.toString(),
-      rentRecoveredLamports: rentRecovered.toString(),
+      // Null, not zero, when the transaction failed: nothing was applied, so
+      // these were not measured rather than measured to be nothing.
+      rentCreatedLamports: noPostState ? null : rentCreated.toString(),
+      rentRecoveredLamports: noPostState ? null : rentRecovered.toString(),
       // Not measured by this build. Null is the honest answer; zero would be a
       // claim that Token-2022 charged nothing.
       transferFeeLamports: null,
       withheldFeeLamports: null,
-      createdAccounts: created,
-      closedAccounts: closed,
+      createdAccounts: noPostState ? [] : created,
+      closedAccounts: noPostState ? [] : closed,
       mutatedAccountHashes: mutated,
       boundsViolations,
       blockhashReplacement: replacement,
       runtimeEventDigest: createHash('sha256')
         .update(JSON.stringify({ logs, events: events.map((e) => e.kind) }))
         .digest('hex'),
-      // §10 — a JIT run must hand back everything it pulled so the observation
-      // can be frozen and replayed. Not yet captured, and reported as empty
-      // rather than as "there was nothing"; `responseIsConfirmatory` refuses a
-      // JIT run outright, so this cannot become evidence in the meantime.
-      jitFetchedAccounts: [],
+      exportedSnapshot: exported.blobs,
+      exportOmissions: exported.omissions,
+      // Under JIT these are the same accounts: everything present was pulled
+      // from mainnet during the run. Named separately because an offline run
+      // fetches nothing and must report an empty list for a different reason.
+      jitFetchedAccounts: jit ? exported.blobs : [],
       queueWaitMs,
       startupMs,
       simulateMs,
       totalMs: total,
       detail: notes.join('; '),
     };
+  } catch (e) {
+    if (e instanceof DeployBudgetExceeded) {
+      // Our limitation, not the token's, so it is SIMULATOR_UNAVAILABLE.
+      return fail(req, 'SIMULATOR_UNAVAILABLE', e.message, t0, queueWaitMs, startupMs, 0);
+    }
+    throw e;
   } finally {
     // Destroyed unconditionally. Nothing survives a job.
     try {
@@ -602,6 +1030,8 @@ function fail(
     closedAccounts: [],
     mutatedAccountHashes: {},
     boundsViolations: [],
+    exportedSnapshot: [],
+    exportOmissions: [],
     blockhashReplacement: null,
     runtimeEventDigest: null,
     jitFetchedAccounts: [],
@@ -713,7 +1143,23 @@ const server = createServer((req, res) => {
     const url = req.url ?? '';
 
     if (req.method === 'GET' && url === '/v1/health') {
-      send(res, 200, { ok: true, inFlight, jobsRun, queueLimit: MAX_QUEUE });
+      // §3.3 — the numbers an operator needs to know whether the mark SLA is
+      // survivable, not a liveness bit.
+      const oldest = waiting[0];
+      send(res, 200, {
+        ok: true,
+        active,
+        queued: waiting.length,
+        inFlightJobs: inFlight.size,
+        oldestQueueAgeMs: oldest === undefined ? 0 : Date.now() - oldest.enqueuedUtcMs,
+        jobsCompleted: jobsRun,
+        jobsFailed,
+        jobsUnknown,
+        medianStartupMs: median(startupSamples),
+        medianSimulationMs: median(simulateSamples),
+        maxActiveSurfnets: MAX_ACTIVE_SURFNETS,
+        queueLimit: MAX_QUEUED,
+      });
       return;
     }
 
@@ -750,9 +1196,8 @@ const server = createServer((req, res) => {
     }
 
     if (req.method === 'POST' && url === '/v1/simulate') {
-      const arrived = Date.now();
-      if (inFlight >= MAX_QUEUE) {
-        send(res, 503, { error: 'queue full', queueLimit: MAX_QUEUE });
+      if (waiting.length >= MAX_QUEUED) {
+        send(res, 503, { error: 'queue full', queued: waiting.length, queueLimit: MAX_QUEUED });
         return;
       }
       let parsed: SimulationRequest;
@@ -785,21 +1230,54 @@ const server = createServer((req, res) => {
         return;
       }
 
-      inFlight += 1;
+      // §3.2 — a request for work already running ATTACHES to it. The hash is
+      // checked first: a different hash under a running job id is refused
+      // immediately, without waiting for the job it disagrees with.
+      const running = inFlight.get(parsed.jobId);
+      if (running !== undefined) {
+        if (running.requestHash !== parsed.requestHash) {
+          send(res, 409, {
+            error: 'jobId is in flight with a different request hash',
+            priorHash: running.requestHash,
+            runningForMs: Date.now() - running.startedUtcMs,
+          });
+          return;
+        }
+        try {
+          send(res, 200, await running.promise);
+        } catch (e) {
+          send(res, 200, fail(parsed, 'SIMULATION_UNKNOWN', (e as Error).message.slice(0, 300), Date.now(), 0, 0, 0));
+        }
+        return;
+      }
+
+      const work = (async (): Promise<SimulationResponse> => {
+        const slot = await acquireSlot();
+        try {
+          return await runJob(parsed, slot.queueWaitMs);
+        } finally {
+          slot.release();
+        }
+      })();
+      inFlight.set(parsed.jobId, { requestHash: parsed.requestHash, promise: work, startedUtcMs: Date.now() });
+
       try {
-        const response = await runJob(parsed, Date.now() - arrived);
+        const response = await work;
         completed.set(parsed.jobId, { requestHash: parsed.requestHash, response });
-        // Bounded memory: this is a cache for retries, not a ledger. Windows
-        // holds the durable record.
-        if (completed.size > 512) completed.delete(completed.keys().next().value as string);
+        if (response.status === 'SIMULATION_FAILED') jobsFailed += 1;
+        if (response.status === 'SIMULATION_UNKNOWN') jobsUnknown += 1;
+        if (response.startupMs > 0) sample(startupSamples, response.startupMs);
+        if (response.simulateMs > 0) sample(simulateSamples, response.simulateMs);
+        if (completed.size > MAX_CACHED_JOBS) completed.delete(completed.keys().next().value as string);
         send(res, 200, response);
       } catch (e) {
         // The reason is the whole value of a failure. It goes in `detail` and
         // it goes in the log, because a status with no cause is a mystery.
         console.error(JSON.stringify({ msg: 'job threw', jobId: parsed.jobId, error: (e as Error).stack ?? String(e) }));
+        jobsUnknown += 1;
         send(res, 200, fail(parsed, 'SIMULATION_UNKNOWN', (e as Error).message.slice(0, 300), Date.now(), 0, 0, 0));
       } finally {
-        inFlight -= 1;
+        inFlight.delete(parsed.jobId);
       }
       return;
     }
