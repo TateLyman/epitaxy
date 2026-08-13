@@ -204,7 +204,18 @@ export function verifyEffect(
       unexpectedMovement += d;
     }
   }
-  if (runtimeOk && unexpectedRecipients.length > 0) {
+  // Refuses only when the caller stated who was expected to receive value.
+  //
+  // Without that model, this check is unpassable and therefore meaningless:
+  // every AMM swap moves lamports into pool vaults, and a rule that fails on
+  // any account gaining value fails on every successful trade. A gate that
+  // cannot pass is a wall, and a wall dressed as a gate teaches everyone to
+  // route around it.
+  //
+  // The movement is ALWAYS measured and always persisted, whether or not it
+  // refuses. A skim is found by looking at that number against a route plan,
+  // not by asserting in advance that nothing may move.
+  if (runtimeOk && unexpectedRecipients.length > 0 && (ctx.expectedRecipients?.length ?? 0) > 0) {
     refusals.push(
       `runtime succeeds but an unexpected writable receives value: ${unexpectedRecipients.slice(0, 4).join(', ')}`,
     );

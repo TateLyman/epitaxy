@@ -75,3 +75,58 @@ kept separate and are never aggregated:
 ```
 STRUCTURAL_ONLY  ->  JIT_EFFECT_VALID  ->  OFFLINE_REPRODUCIBLE  ->  CONFIRMATORY
 ```
+
+## First findings from the repaired instrument
+
+2026-08-13, the first ten `VALID_DEVELOPMENT` jobs — the first in this
+repository's history whose request described an economic leg.
+
+```
+side  status              effectOk  n
+buy   SIMULATED_OK        0         1
+sell  SIMULATED_OK        0         1
+sell  SIMULATION_FAILED   0         8
+```
+
+**Zero of ten passed effect verification**, and the reasons are specific.
+
+### Runtime-OK with zero output
+
+Both runs the runtime accepted were refused, and the daemon's own bounds check
+agrees with the verifier independently:
+
+```
+runtime succeeds but output delta is missing
+asserted bounds violated: token delta 0 below the asserted minimum 18719272
+asserted bounds violated: token delta 0 below the asserted minimum 14896738780
+```
+
+The swap executed, charged the fee, and delivered **nothing**. No transaction
+error, so `SIMULATED_OK`.
+
+This is the whole reason P3 exists. Under the old code these would have been
+booked as working legs, and the 40 pre-repair "successful" buys may well have
+been the same thing — nobody will ever know, because nobody looked.
+
+### The unexpected-movement check was unpassable
+
+The first version refused whenever any account gained lamports. Every AMM swap
+moves lamports into pool vaults, so it refused every successful trade.
+
+A gate that cannot pass is a wall, and a wall dressed as a gate teaches everyone
+to route around it. It now refuses only against a **stated** model — when the
+caller says who was expected to receive value — and the movement is measured and
+persisted either way. Finding a skim means looking at that number against a
+route plan, not asserting in advance that nothing may move.
+
+Narrowed with a reason, not weakened to make something pass: the output-delta,
+below-minimum, debit and coverage refusals all still fire, and they are what
+refused these ten.
+
+### Fee decomposition on failed runs
+
+`fee decomposition incomplete: no priority fee reported` appears on every
+runtime failure. A transaction that aborted has no priority fee to decompose, so
+this is correct and not a daemon gap — it is `FEE_DECOMPOSITION_OK` refusing to
+report a number it does not have. On the two runs that reached the runtime, fee
+decomposition passed.

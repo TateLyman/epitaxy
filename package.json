@@ -50,7 +50,8 @@
     "readiness": "tsx scripts/readiness.ts",
     "capability:matrix": "tsx scripts/capability-matrix.ts",
     "simulation:sell-proof": "tsx scripts/sell-repair-proof.ts",
-    "db:migrate": "tsx scripts/migrate-and-backup.ts"
+    "db:migrate": "tsx scripts/migrate-and-backup.ts",
+    "window:status": "tsx scripts/valid-window-status.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

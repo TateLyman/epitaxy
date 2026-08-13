@@ -1,0 +1,74 @@
+{
+  "generatedUtcMs": 1786644792218,
+  "bySide": [
+    {
+      "side": "buy",
+      "status": "SIMULATED_OK",
+      "effect": 0,
+      "n": 1
+    },
+    {
+      "side": "sell",
+      "status": "SIMULATED_OK",
+      "effect": 0,
+      "n": 1
+    },
+    {
+      "side": "sell",
+      "status": "SIMULATION_FAILED",
+      "effect": 0,
+      "n": 8
+    }
+  ],
+  "totals": [
+    {
+      "validity": "INSTRUMENT_DEVELOPMENT",
+      "n": 116,
+      "effect_ok": 0
+    },
+    {
+      "validity": "VALID_DEVELOPMENT",
+      "n": 10,
+      "effect_ok": 0
+    }
+  ],
+  "refusals": [
+    {
+      "effect_refusals": "[\"runtime did not succeed: {\\\"InstructionError\\\":[2,{\\\"Custom\\\":6025}]}\",\"fee decomposition incomplete: no priority fee reported\"]",
+      "n": 7
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but the input debit could not be measured\",\"runtime succeeds but an unexpected writable receives value: GajFWsepxfwEqeWjoMn9hzu46J5KeHTFRxWq1LMqRyRm\",\"fee decomposition incomplete: no priority fee reported\",\"asserted bounds violated: token delta 0 below the asserted minimum 18719272\"]",
+      "n": 1
+    },
+    {
+      "effect_refusals": "[\"runtime succeeds but output delta is missing\",\"runtime succeeds but an unexpected writable receives value: CmLNhptH5efnvAuPj4yNxGFfTuiJxYzPBYWSyoAgJPx8, 4uEv5B2tgKZFL6znPW4uF3nkryCKReF22BoNZREg1gh5, 7GFUN3bWzJMKMRZ34JLsvcqdssDbXnp589SiE33KVwcC, 8yBCcf5RuNHm9zLYWKY4sRGDndpZei5UKn2fjxd7PJ5f\",\"asserted bounds violated: token delta 0 below the asserted minimum 14896738780\"]",
+      "n": 1
+    },
+    {
+      "effect_refusals": "[\"runtime did not succeed: {\\\"InstructionError\\\":[2,{\\\"Custom\\\":6001}]}\",\"fee decomposition incomplete: no priority fee reported\"]",
+      "n": 1
+    }
+  ],
+  "marks": [
+    {
+      "mark_source": "ORDER_QUOTE_BENCHMARK",
+      "decision_bearing": 0,
+      "n": 603
+    }
+  ],
+  "contexts": [
+    {
+      "source_commit": "c11d76d51cd82d2cf552c0f9760a6079ab18962b",
+      "last_seen_utc_ms": 1786644703407
+    },
+    {
+      "source_commit": "84541123ce9adcff437a5d10db303b18731bd503+dirty",
+      "last_seen_utc_ms": 1786644196876
+    },
+    {
+      "source_commit": "4dc810e3ca111dc424652b5401454ffc05729584+dirty",
+      "last_seen_utc_ms": 1786636433105
+    }
+  ]
+}

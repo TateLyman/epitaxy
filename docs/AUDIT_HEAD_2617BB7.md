@@ -221,6 +221,20 @@ legs. Buying throughput now buys a higher rate of measurements not yet known to
 measure anything. `docs/JUPITER_UPGRADE_ROI.md` states the two conditions that
 would change the answer.
 
+## 23a. First measurement from the repaired instrument
+
+Ten `VALID_DEVELOPMENT` jobs, on clean commit `c11d76d`. **Zero passed effect
+verification.** Both runs the runtime accepted delivered a token delta of
+**zero** — the daemon's bounds check and the effect verifier agreeing
+independently. A swap that executes, charges the fee and delivers nothing was
+previously recorded as `SIMULATED_OK` and read everywhere as a working leg.
+
+One defect was found in the P3 implementation itself and fixed: the
+unexpected-movement check refused whenever any account gained lamports, which
+every AMM swap does, making it unpassable. It now refuses only against a stated
+model of who was expected to receive value; the movement is measured and
+persisted regardless. See `docs/SIMULATION_EFFECTS.md`.
+
 ## 24-27. Valid trades and days
 
 | class | trades | days |

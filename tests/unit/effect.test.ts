@@ -135,14 +135,39 @@ describe('P3 — SIMULATED_EFFECT_OK is four checks, not one', () => {
     expect(v.refusals.join(' ')).toMatch(/exceeds maximum|exceeds the requested amount/);
   });
 
-  it('runtime succeeds but an unexpected writable receives value', () => {
+  it('runtime succeeds but an unexpected writable receives value, against a stated model', () => {
     // A skim. Every asserted party is whole, the trade looks right, and value
     // left to an address nobody named.
-    const v = verifyEffect(req(), res({ postSolBalances: { [TAKER]: '179994000', [STRANGER]: '1500000' } }), ctx);
-    expect(v.simulatedEffectOk).toBe(false);
+    //
+    // The caller has to say who WAS expected, or there is nothing to violate:
+    // every AMM swap moves lamports into pool vaults, so refusing on any
+    // movement refuses every successful trade.
+    const POOL = 'Poo1111111111111111111111111111111111111111';
+    const v = verifyEffect(
+      req(),
+      res({
+        preSolBalances: { [TAKER]: '200000000', [STRANGER]: '1000000', [POOL]: '5000000' },
+        postSolBalances: { [TAKER]: '179994000', [STRANGER]: '1500000', [POOL]: '5000000' },
+      }),
+      { ...ctx, expectedRecipients: [POOL] },
+    );
     expect(v.unexpectedRecipients).toEqual([STRANGER]);
     expect(v.unexpectedMovementLamports).toBe(500_000n);
     expect(v.refusals.join(' ')).toMatch(/unexpected writable receives value/);
+    expect(v.simulatedEffectOk).toBe(false);
+  });
+
+  it('measures unexpected movement even when it does not refuse', () => {
+    // The number is recorded whether or not anyone declared a model, because
+    // finding a skim means looking at it later against the route plan. A fact
+    // that is only computed when it is about to be used is a fact nobody has.
+    const v = verifyEffect(req(), res({ postSolBalances: { [TAKER]: '179994000', [STRANGER]: '1500000' } }), ctx);
+    expect(v.unexpectedRecipients).toEqual([STRANGER]);
+    expect(v.unexpectedMovementLamports).toBe(500_000n);
+    // No stated model, so nothing was violated. The other three checks still
+    // decide the verdict.
+    expect(v.refusals.join(' ')).not.toMatch(/unexpected writable/);
+    expect(v.simulatedEffectOk).toBe(true);
   });
 
   it('an expected recipient is not unexpected movement', () => {
