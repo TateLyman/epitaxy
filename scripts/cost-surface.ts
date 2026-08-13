@@ -53,6 +53,7 @@ interface Row {
 }
 
 const rows: Row[] = [];
+const unbuildable: { lamports: string; code: string; detail: string; route: string }[] = [];
 console.log('building real routes and pricing them from their own bytes\n');
 
 for (const amount of SIZES) {
@@ -61,9 +62,25 @@ for (const amount of SIZES) {
     console.log(`${amount} lamports: NOT BUILDABLE (${built.failure ?? 'no blockhash'})`);
     continue;
   }
-  const tx = decodeTransaction(
-    encodeUnsignedTransaction(compileMessage(built.instructions, taker, built.blockhash, built.lookupTables)),
-  );
+  // An oversized route is a FACT about the route, not a crash.
+  //
+  // Observed live: a three-hop route compiled to 1,327 bytes against the
+  // 1,232-byte packet limit. The encoder refuses it, correctly -- that leg
+  // cannot be sent at any price -- and a cost surface that dies on it reports
+  // nothing about the sizes that do work.
+  let tx: ReturnType<typeof decodeTransaction>;
+  try {
+    tx = decodeTransaction(
+      encodeUnsignedTransaction(compileMessage(built.instructions, taker, built.blockhash, built.lookupTables)),
+    );
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? 'ASSEMBLY_FAILED';
+    console.log(
+      `${String(Number(amount) / 1e9).padStart(6)} SOL  UNBUILDABLE (${code}: ${(e as Error).message}) route ${built.routeLabels.join('+')}`,
+    );
+    unbuildable.push({ lamports: amount.toString(), code, detail: (e as Error).message, route: built.routeLabels.join('+') });
+    continue;
+  }
   const cb = readComputeBudget(tx);
   const charged = chargedPriorityFee(tx, cb);
 
@@ -110,6 +127,11 @@ for (const amount of SIZES) {
   );
 }
 
+if (unbuildable.length > 0) {
+  console.log(`\n${unbuildable.length} size(s) had no buildable route at all:`);
+  for (const u of unbuildable) console.log(`  ${Number(u.lamports) / 1e9} SOL  ${u.code}  ${u.route}`);
+}
+
 if (rows.length === 0) {
   console.log('\nno routes built, so there is nothing to price');
   process.exit(1);
@@ -140,6 +162,7 @@ writeFileSync(
       measuredMinLamports: minMeasured.toString(),
       measuredMaxLamports: maxMeasured.toString(),
       rows,
+      unbuildable,
     },
     null,
     2,
