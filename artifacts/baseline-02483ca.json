@@ -1,14 +1,12 @@
 {
-  "takenAtUtcMs": 1786654158691,
+  "takenAtUtcMs": 1786664567788,
   "repoPath": "C:\\Users\\lyman\\tradseee",
-  "head": "5b89953e48f26c1f6eef35c990ae70100a0b68a7",
+  "head": "02483ca45b2c40a98637f88c01d8bbef5e1c5496",
   "auditedHead": "5b89953e48f26c1f6eef35c990ae70100a0b68a7",
-  "headMatchesAudited": true,
+  "headMatchesAudited": false,
   "branch": "master",
   "dirty": [
-    "M package.json",
-    "?? epitaxy_5b89953_effect_labels_to_confirmatory_directive.md",
-    "?? scripts/baseline-5b89953.ts"
+    "?? epitaxy_02483ca_max_profit_acceleration_directive.md"
   ],
   "node": "v24.12.0",
   "versions": {
@@ -18,17 +16,17 @@
     "COST_ACCOUNTING_VERSION": "cost-accounting-v3-unified-cashflow",
     "SIMULATOR_VERSION": "simulator-v2-leg-shaped-request",
     "EFFECT_VERIFICATION_VERSION": "effect-verification-v2-stated-recipients",
-    "schemaVersion": "schema-v20"
+    "schemaVersion": "schema-v24"
   },
   "hashes": {
     "strategyConfigHash": "794db2d868b4524d11346b54d584b3db49ce7d013d34f4a8bc0eb7b590e8d0e9",
     "riskPolicyHash": "d92d5ce47d3c668ce161c3f36a4b019b58e7b2f42264ddd7bc90602077d59ef4",
-    "dataRegimeId": "delayed-momentum-v0.4.0/10s/build/8cf201701d83"
+    "dataRegimeId": "delayed-momentum-v0.4.0/10s/build/3e312874938c"
   },
   "storage": {
     "databasePath": "./data/runtime.db",
-    "bytes": 2914504704,
-    "walBytes": 13381792
+    "bytes": 2973057024,
+    "walBytes": 4169472
   },
   "simulationJobs": [
     {
@@ -91,7 +89,7 @@
   "observationsByEffect": [
     {
       "simulation_effect": null,
-      "n": 3283
+      "n": 4385
     },
     {
       "simulation_effect": "EFFECT_REFUSED",
@@ -150,15 +148,15 @@
   "rejects": [
     {
       "outcome": null,
-      "n": 808637
+      "n": 817737
     },
     {
       "outcome": "PROVIDER_MISSING",
-      "n": 10366
+      "n": 12076
     },
     {
       "outcome": "UNKNOWN",
-      "n": 40465
+      "n": 47498
     }
   ],
   "openPositionsWithTokens": [],
@@ -176,10 +174,10 @@
   ],
   "latest": {
     "observation": {
-      "observation_id": "da8a222d-2409-4b1c-9e62-2f35da18e7d4",
-      "mint": "9r8Q7h9AiN3zphwZ1QtiJRWA2aTdJLRLDjGZg2XivVi3",
+      "observation_id": "fd04957d-21b9-4d5d-8b6b-ece6369f33f9",
+      "mint": "8ZugbaC8fJvxBQiaJ8nLUX8BGJxKY7Y87jZmZ5gEjYXS",
       "side": "sell",
-      "received_utc_ms": 1786654158843
+      "received_utc_ms": 1786664555971
     },
     "simulationJob": {
       "job_id": "job-b53285f6628fe3dc07f0f9470a751a90",
@@ -194,46 +192,47 @@
       "observed_utc_ms": 1786563200883
     },
     "healthEvent": {
-      "kind": "shadow_mark_backlog",
+      "kind": "observation_provider_failure",
       "severity": "warn",
-      "utc_ms": 1786654157504
+      "utc_ms": 1786664555971
     },
     "runContext": {
-      "context_hash": "071436cc445e4dc9a66233a7bb966836555af5a5e340c9df9a5071c1c6081681",
-      "source_commit": "60464b66132c323ed7feba576edbe7ca32ccc920",
-      "last_seen_utc_ms": 1786647631777
+      "context_hash": "d9413b9565a7cddc28b98c92ca65b4b6fa26ed06511b045a6b97af952ba13a81",
+      "source_commit": "02483ca45b2c40a98637f88c01d8bbef5e1c5496",
+      "last_seen_utc_ms": 1786661554266
     }
   },
   "tableCounts": {
     "build_attempts": 0,
-    "candidates": 72361,
-    "clock_checkpoints": 304,
+    "candidates": 74032,
+    "clock_checkpoints": 315,
     "daily_accounting": 1,
-    "decision_snapshots": 434252,
+    "decision_snapshots": 443000,
     "execution_attempts": 0,
-    "execution_observations": 29811,
+    "execution_observations": 30912,
     "fills": 40,
-    "health_events": 25242,
+    "health_events": 26312,
     "intents": 0,
     "ledger_entries": 1448,
     "position_exits": 20,
     "position_marks": 603,
     "positions": 20,
     "process_locks": 1,
-    "quotes": 5093,
+    "quotes": 5195,
     "raw_payloads": 4651,
     "regime_samples": 0,
-    "reject_tracking": 859468,
+    "reject_tracking": 877311,
     "replay_runs": 1,
-    "run_contexts": 16,
-    "schema_migrations": 20,
-    "screenings": 434252,
-    "shadow_marks": 27885,
+    "run_contexts": 17,
+    "schema_migrations": 24,
+    "screenings": 443000,
+    "shadow_marks": 28986,
     "shadow_positions": 1087,
     "sign_refusals": 0,
     "signal_episodes": 956,
     "simulation_jobs": 136,
-    "source_health": 21100,
+    "snapshot_manifests": 0,
+    "source_health": 21568,
     "sqlite_sequence": 1,
     "trials": 0
   },
