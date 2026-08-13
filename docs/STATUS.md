@@ -1007,9 +1007,77 @@ Neither number was answered by editing a config.
 recorded to `replay_runs` and read by the promotion gate — currently `replayed:
 0` at v0.4.0, which correctly fails it.
 
+## Local SVM simulation: the daemon executes, the evidence gate stays shut
+
+The WSL simulation daemon now runs transactions. `/v1/simulate` returns a
+complete, decomposed result; the transport, identity, idempotency and refusal
+paths were already proven and still are.
+
+Measured across the Windows/WSL boundary, on a SOL transfer whose economics are
+unambiguous:
+
+```
+status SIMULATED_OK   unitsConsumed 150   startup 24ms   simulate 1ms   total 29ms
+payer  5000000000 -> 4998995000     recipient 0 -> 1000000
+1005000 spent = 1000000 transfer + 5000 base fee + 0 priority fee   (exact)
+```
+
+Four defects were found and fixed getting there, three of which were fabricating
+numbers rather than failing:
+
+| defect | what it produced |
+|---|---|
+| `setAccount` called with an options object | every job threw; the daemon reported `SIMULATION_UNKNOWN` with no reason printed. The real signature is positional: `(address, lamports, data, owner)` |
+| post-state read with `getBalance` after simulating | a simulation does not commit, so every run reported that nothing changed |
+| `null` in the post-account array read as "closed" | the System Program was booked as a **closed account** and its lamport counted as **rent recovered** — a fabricated event in the cost model. Fixed with `writableStaticKeys()`: an account the transaction cannot write to cannot have changed |
+| `bounds` carried and never checked | the dead-field defect again. The daemon now checks them and `boundsViolations` refuses the row |
+
+### Fee parity against settled mainnet transactions
+
+Three confirmed Jupiter v6 swaps, reproduced **to the lamport** from their own
+bytes — including a two-signature transaction, which is what stops the corpus
+passing with the per-signature multiplier deleted:
+
+| signature | observed | model | |
+|---|---|---|---|
+| `3YPyHXebC1pN…` | 41,044 | 5,000 + 36,044 | agrees |
+| `5dNx5ihYH5i7…` | 80,001 | 5,000 + 75,001 | agrees |
+| `4QZCutKyvuVq…` | 10,271 | 10,000 + 271 | agrees |
+
+Independently, a live Surfnet charged **411 lamports** for
+`SetComputeUnitPrice(2054)` at a limit of 200,000 while consuming 450 units:
+the runtime prices the **requested limit**, not consumption. Both measurements
+agree with `priorityFeeLamports()`, the function the engine costs every leg with.
+
+### And yet `SIMULATED_OK` is still not evidence
+
+`/v1/parity` returns `NOT_ESTABLISHABLE_WITHOUT_ARCHIVAL_STATE` for execution
+parity, which is the honest verdict rather than a placeholder. Replaying a
+settled transaction needs the accounts as they stood at its slot, and that needs
+an archival node this project does not have.
+
+Behind that sits a second blocker. Measured against `@solana/surfpool` 1.5.0,
+`setAccount` has **no executable parameter** — a program account cannot be
+restored from a snapshot at all. It comes back non-executable and every route
+through it fails with an invalid-program error that reads as a fact about the
+token. The protocol carries `programElfBase64`, the daemon **refuses** a snapshot
+naming an executable account without one, and no ELF capture pipeline exists.
+
+So: offline confirmatory simulation of a real route is blocked on archival
+account state and program ELFs. The gate is closed in code —
+`responseIsConfirmatory()` and `identityIsConfirmatoryGrade()` — not in prose.
+**No observation in this system has been simulated as confirmatory evidence.**
+What is proven is the cost model, against outcomes this project did not produce
+and cannot influence. See `docs/SIMULATOR_PARITY.md`.
+
+502 tests across 28 files. Typecheck and secretscan clean across 187 files.
+
 ### Still not done
 
-- **No local SVM simulation.** The single blocker to any valid window.
+- **No confirmatory simulation.** The daemon executes transactions and the cost
+  model is anchored to settled mainnet fees, but execution parity needs archival
+  account state and program ELFs. Until both exist, `SIMULATED_OK` is a
+  development fact, and the gate refuses it as evidence.
 - **No pool/vault reserve, transfer-graph or Token-2022 extension feed** (§7.3,
   §7.4). This is why all eight collapses remain `UNKNOWN`.
 - **No WSS risk trigger** (§7.5).

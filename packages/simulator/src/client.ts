@@ -8,6 +8,8 @@ import {
   type SimulationRequest,
   type SimulationResponse,
   type SimulatorIdentity,
+  type ParityCase,
+  type ParityResponse,
 } from './protocol.js';
 
 /**
@@ -89,6 +91,24 @@ export class SimulationClient {
     return { ...withVersion, requestHash, jobId: `job-${requestHash.slice(0, 32)}` };
   }
 
+  /**
+   * §15 — check this daemon against outcomes the chain already settled.
+   *
+   * Runs no transaction and starts no Surfnet: fee parity is answerable from
+   * the transaction's own bytes, and it is the part that can be answered
+   * exactly. The response says plainly which parity it did NOT establish.
+   */
+  async parity(cases: readonly ParityCase[]): Promise<ParityResponse> {
+    if (cases.length === 0) throw new SimulatorUnavailable('a parity check with no cases proves nothing');
+    const res = (await this.call('/v1/parity', {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ protocolVersion: SIMULATION_PROTOCOL_VERSION, cases }),
+    })) as ParityResponse;
+    verifyIdentity(res.identity, this.opts.pinnedIdentity, this.opts.requirePinned);
+    return res;
+  }
+
   async simulate(request: SimulationRequest): Promise<SimulationResponse> {
     const res = (await this.call('/v1/simulate', {
       method: 'POST',
@@ -127,6 +147,10 @@ export function responseIsConfirmatory(
   if (res.status !== 'SIMULATED_OK') reasons.push(`status ${res.status}`);
   if (mode !== 'CONFIRMATORY_OFFLINE') reasons.push(`mode ${mode} is not reproducible`);
   if (res.jitFetchedAccounts.length > 0) reasons.push('accounts were fetched during the run and are not frozen');
+  // The run may have succeeded and still not be evidence for the claim that was
+  // made about it. A transaction that spent more than the caller asserted did
+  // something we did not predict, and predicting is the entire point.
+  for (const v of res.boundsViolations) reasons.push(`asserted bounds violated: ${v}`);
   const grade = identityIsConfirmatoryGrade(res.identity);
   if (!grade.ok) reasons.push(...grade.reasons);
   if (res.blockhashReplacement !== null) {

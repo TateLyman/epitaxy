@@ -191,6 +191,41 @@ export function decodeTransaction(raw: Uint8Array): DecodedTransaction {
 
 export const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
 
+/**
+ * Which static keys this transaction may write to.
+ *
+ * Privilege in a Solana message is POSITIONAL, not flagged: the header's three
+ * counts partition the static key list into writable signers, readonly signers,
+ * writable non-signers and readonly non-signers, in that order. encode.ts builds
+ * that ordering; this reads it back.
+ *
+ * It is load-bearing rather than informational. A simulation returns
+ * post-execution state only for accounts the transaction WROTE, and returns null
+ * for everything else -- measured: the System Program comes back null from a
+ * transfer while plainly still existing. Without this, "the runtime did not
+ * return it" is indistinguishable from "it was closed", and a read-only program
+ * account gets booked as a closed account with its lamports counted as rent
+ * recovered. That is a fabricated event in the cost model.
+ *
+ * Addresses loaded from an address lookup table are NOT included: they are not
+ * in the static list and this decoder does not resolve tables. A caller that
+ * needs to reason about them must treat them as unknown rather than as readonly.
+ */
+export function writableStaticKeys(tx: DecodedTransaction): Set<string> {
+  const out = new Set<string>();
+  const total = tx.staticAccountKeys.length;
+  const writableSigners = tx.numRequiredSignatures - tx.numReadonlySignedAccounts;
+  const lastWritableNonSigner = total - tx.numReadonlyUnsignedAccounts;
+  for (let i = 0; i < total; i++) {
+    const key = tx.staticAccountKeys[i];
+    if (key === undefined) continue;
+    const isSigner = i < tx.numRequiredSignatures;
+    const writable = isSigner ? i < writableSigners : i < lastWritableNonSigner;
+    if (writable) out.add(key);
+  }
+  return out;
+}
+
 export interface ComputeBudgetSettings {
   readonly unitLimit: number | null;
   readonly unitPriceMicroLamports: bigint | null;
