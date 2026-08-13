@@ -101,7 +101,13 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
       },
     );
     db.prepare(
-      `UPDATE execution_observations SET simulation_effect = 'SIMULATED_EFFECT_OK' WHERE observation_id = ?`,
+      `UPDATE execution_observations
+         SET simulation_effect = 'SIMULATED_EFFECT_OK',
+             -- P14: the view requires the EXACT bytes to have been retained.
+             -- A confirmatory position that cannot produce the transaction it
+             -- was built from is not reproducible, whatever else is right.
+             exact_transaction_blob = 'blob-hash'
+       WHERE observation_id = ?`,
     ).run(id);
     db.prepare(
       `INSERT INTO simulation_jobs

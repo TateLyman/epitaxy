@@ -1345,6 +1345,81 @@ ALTER TABLE positions ADD COLUMN gross_proceeds_lamports TEXT;
 CREATE INDEX IF NOT EXISTS idx_positions_pnl ON positions(closed_utc_ms, net_pnl_lamports);
 `,
   },
+  {
+    id: 23,
+    name: 'confirmatory_positions_v1',
+    sql: `
+-- P14 -- ONE definition of confirmatory evidence.
+--
+-- The clauses lived in five places: legIsConfirmatory, the readiness SQL,
+-- canaryEvidenceGates, the report queries and the capability matrix. Five
+-- copies of one definition is five chances to drift, and the way you discover
+-- they have drifted is that the gate refuses a position the report already
+-- counted -- or worse, the other way round.
+--
+-- A VIEW is the right shape for this because it cannot be partially adopted.
+-- A caller either reads it or does not, and one that does not is visible in a
+-- grep rather than hidden inside a WHERE clause that looks similar enough.
+--
+-- Every clause is a requirement and the joins are inner: a position missing its
+-- entry or exit observation does not partially qualify.
+CREATE VIEW IF NOT EXISTS confirmatory_positions_v1 AS
+SELECT
+  p.position_id,
+  p.mint,
+  p.cost_lamports,
+  p.realized_lamports,
+  p.net_pnl_lamports,
+  p.execution_cost_lamports,
+  p.gross_proceeds_lamports,
+  p.opened_utc_ms,
+  p.closed_utc_ms,
+  p.cohort,
+  e.family                AS family,
+  e.observation_id        AS entry_observation_id,
+  x.observation_id        AS exit_observation_id,
+  c.source_commit         AS source_commit,
+  c.context_hash          AS context_hash
+FROM positions p
+JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+JOIN run_contexts c           ON c.context_hash   = p.context_hash
+JOIN simulation_jobs je       ON je.execution_observation_id = e.observation_id
+JOIN simulation_jobs jx       ON jx.execution_observation_id = x.observation_id
+WHERE
+  -- closed, and holding nothing. A residual balance is exposure whatever the
+  -- state column says.
+  p.closed_utc_ms IS NOT NULL
+  AND CAST(p.token_amount AS INTEGER) = 0
+  -- a clean commit: a dirty tree is not reproducible
+  AND c.source_commit NOT LIKE '%+dirty'
+  -- one family from entry through exit
+  AND e.family = x.family
+  AND e.side = 'buy' AND x.side = 'sell'
+  -- both policies passed on both legs
+  AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
+  AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+  -- the ECONOMIC verdict, not merely the runtime one
+  AND e.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND x.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
+  -- reproducible: a frozen snapshot, not a moving chain
+  AND je.confirmatory = 1 AND jx.confirmatory = 1
+  AND je.validity = 'VALID_CONFIRMATORY' AND jx.validity = 'VALID_CONFIRMATORY'
+  -- every writable observed on both sides
+  AND je.account_coverage_ok = 1 AND jx.account_coverage_ok = 1
+  -- the exact bytes, retained
+  AND e.exact_transaction_blob IS NOT NULL AND x.exact_transaction_blob IS NOT NULL
+  AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL
+  -- costs known: a net PnL that has to be inferred is not a measurement
+  AND p.net_pnl_lamports IS NOT NULL
+  -- no unresolved clock discontinuity anywhere in the corpus
+  AND NOT EXISTS (
+    SELECT 1 FROM clock_checkpoints k
+    WHERE k.resync_required = 1 AND k.resync_done_utc_ms IS NULL
+  );
+`,
+  },
 ];
 
 export interface OpenOptions {

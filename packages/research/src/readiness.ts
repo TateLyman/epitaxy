@@ -91,30 +91,18 @@ export const CANARY_GATES = {
  * Every clause is a requirement. The joins are inner joins on purpose: a
  * position missing its entry or exit observation does not "partially" qualify.
  */
+/**
+ * P14 -- the ONE definition, read from the view rather than restated here.
+ *
+ * This query used to carry its own copy of the clauses. So did
+ * `canaryEvidenceGates`, `legIsConfirmatory`, the report SQL and the capability
+ * matrix. Five copies is five chances to drift, and the way you find out is
+ * that the gate refuses a position the report already counted.
+ */
 const CONFIRMATORY_SQL = `
-  SELECT p.position_id, p.mint, p.cost_lamports, p.realized_lamports, p.net_pnl_lamports,
-         p.execution_cost_lamports,
-         p.opened_utc_ms, p.closed_utc_ms
-  FROM positions p
-  JOIN execution_observations e ON e.observation_id = p.entry_observation_id
-  JOIN execution_observations x ON x.observation_id = p.exit_observation_id
-  JOIN run_contexts c            ON c.context_hash = p.context_hash
-  JOIN simulation_jobs je        ON je.execution_observation_id = e.observation_id
-  JOIN simulation_jobs jx        ON jx.execution_observation_id = x.observation_id
-  WHERE p.closed_utc_ms IS NOT NULL
-    AND CAST(p.token_amount AS INTEGER) = 0
-    AND c.source_commit NOT LIKE '%+dirty'
-    AND e.family = x.family
-    AND e.side = 'buy' AND x.side = 'sell'
-    AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
-    AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
-    AND e.simulation_effect = 'SIMULATED_EFFECT_OK'
-    AND x.simulation_effect = 'SIMULATED_EFFECT_OK'
-    AND je.confirmatory = 1 AND jx.confirmatory = 1
-    AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
-    AND je.account_coverage_ok = 1 AND jx.account_coverage_ok = 1
-    AND je.validity = 'VALID_CONFIRMATORY' AND jx.validity = 'VALID_CONFIRMATORY'
-    AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL
+  SELECT position_id, mint, cost_lamports, realized_lamports, net_pnl_lamports,
+         execution_cost_lamports, opened_utc_ms, closed_utc_ms
+  FROM confirmatory_positions_v1
 `;
 
 interface Trade {
@@ -316,11 +304,27 @@ export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: st
 
   // Development-valid: effect-verified, but JIT rather than reproducible. Real
   // evidence about the strategy, and never sufficient for canary.
+  /**
+   * Development-valid: effect-verified, but JIT rather than reproducible.
+   *
+   * Written out rather than derived from the view by string surgery. A query
+   * built by regex-replacing another query is a second definition that looks
+   * like one definition, which is the thing P14 exists to remove.
+   */
   const development = toPnl(
     all<Trade>(
       db,
-      CONFIRMATORY_SQL.replace(/AND je\.confirmatory = 1 AND jx\.confirmatory = 1/, '')
-        .replace(/AND je\.validity = 'VALID_CONFIRMATORY' AND jx\.validity = 'VALID_CONFIRMATORY'/, "AND je.validity LIKE 'VALID_%' AND jx.validity LIKE 'VALID_%'"),
+      `SELECT p.position_id, p.mint, p.cost_lamports, p.realized_lamports, p.net_pnl_lamports,
+              p.execution_cost_lamports, p.opened_utc_ms, p.closed_utc_ms
+       FROM positions p
+       JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+       JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+       JOIN simulation_jobs je       ON je.execution_observation_id = e.observation_id
+       JOIN simulation_jobs jx       ON jx.execution_observation_id = x.observation_id
+       WHERE p.closed_utc_ms IS NOT NULL
+         AND e.family = x.family
+         AND je.validity LIKE 'VALID_%' AND jx.validity LIKE 'VALID_%'
+         AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1`,
     ),
   );
 
