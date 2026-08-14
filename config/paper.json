@@ -1,6 +1,6 @@
 {
   "mode": "paper",
-  "strategyVersion": "delayed-momentum-v0.4.0",
+  "strategyVersion": "delayed-momentum-v0.6.0",
   "discoveryIntervalMs": 30000,
   "requireBuildableFill": true,
   "markIntervalMs": 10000,

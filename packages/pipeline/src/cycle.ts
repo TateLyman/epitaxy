@@ -172,6 +172,7 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    */
   const cohortRows = maturingByCohort(db, nowUtcMs, COHORT_BOUNDS, 25).filter((r) => !deps.skip?.has(r.mint));
   const mature = cohortRows.map((r) => r.mint);
+  const cohortOf = new Map(cohortRows.map((r) => [r.mint, r.cohort] as const));
   stats.maturing = mature.length;
   stats.maturingByCohort = Object.fromEntries(
     [...new Set(cohortRows.map((r) => r.cohort))].map((c) => [c, cohortRows.filter((r) => r.cohort === c).length]),
@@ -221,7 +222,17 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
      * refused by `screenCheap` rather than passed as unknown.
      */
     const t22 = await token2022FactsFor(deps, info);
-    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22);
+    /**
+     * P9 — screen under THIS candidate's cohort window.
+     *
+     * The global 2m-60m bound was applied to every cohort, so a token that
+     * matured into AGE_1H_5H was vetoed `too_old` by a window describing a
+     * different arm. Three of four arms could not produce a screening.
+     */
+    const cohort = cohortOf.get(info.id) ?? null;
+    const bounds =
+      cohort === null ? null : ((COHORT_BOUNDS as Record<string, { fromMs: number; toMs: number }>)[cohort] ?? null);
+    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22, bounds);
     if (deservesQuote) {
       stats.cheapPassed += 1;
       promoted.push({ info, gates, sourceAgeMs });
@@ -242,6 +253,19 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    * The 25% is FROZEN before collection, and every row carries the probability
    * it had of being selected — a biased sample whose bias is unrecorded is
    * worse than no sample, because it looks like evidence.
+   */
+  /**
+   * P10 — a ROLLING allocation.
+   *
+   * `floor(maxQuotesPerCycle * 0.25)` is 0 whenever the budget is under four,
+   * and the configured budget is 2. The stated 25% exploration arm therefore
+   * never ran a single quote — the fraction was real, the floor ate it, and
+   * nothing said so.
+   *
+   * The debt carries across cycles instead: every cycle adds its fractional
+   * entitlement, and a whole slot is spent when one has accumulated. Over many
+   * cycles the realised share converges on the target from below, which is the
+   * honest direction.
    */
   const allocation = allocate(
     promoted.map((p) => ({

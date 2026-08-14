@@ -73,6 +73,11 @@ export function screenCheap(
    * refusal below: unknown money-critical behaviour is not absent behaviour.
    */
   token2022: Token2022Facts | null = null,
+  /**
+   * P9 — which cohort's window to screen under. Null keeps the global one,
+   * which is correct for a caller that has not assigned a cohort.
+   */
+  cohortAgeBounds: { fromMs: number; toMs: number } | null = null,
 ): { gates: ReturnType<typeof evaluateCheapGates>; deservesQuote: boolean } {
   const atRisk = capitalAtRisk(config.mode);
   const gates = evaluateCheapGates({
@@ -83,6 +88,7 @@ export function screenCheap(
     chainFacts,
     capitalAtRisk: atRisk,
     token2022,
+    cohortAgeBounds,
   });
 
   /**

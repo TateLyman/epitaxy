@@ -32,11 +32,18 @@ import { normalize } from '../../intelligence/src/gates.js';
  * Rows written under v0.3.0 are not comparable and replay must not pool them.
  */
 /**
- * v0.5.0 — P18 corrected four scoring defects that are wrong independent of any
- * outcome, so the number this produces is not comparable to a v0.4.0 number.
- * A decision-bearing semantic change is a version, not a patch note.
+ * v0.6.0.
+ *
+ * v0.5.0 was a HARD PROVENANCE DEFECT: the code computed v0.5 semantics while
+ * every config file still stamped rows `delayed-momentum-v0.4.0`. So every row
+ * written since that change claims to have been produced by a scorer that no
+ * longer existed, and no reader could tell which semantics a row used.
+ *
+ * A version is only a version when the rows carry it. This bump lands in the
+ * code AND in all four config files in the same commit, and there is a test
+ * that fails if they diverge again.
  */
-export const STRATEGY_VERSION = 'delayed-momentum-v0.5.0';
+export const STRATEGY_VERSION = 'delayed-momentum-v0.6.0';
 
 /** Below this fraction of total weight, the score is refused. Frozen. */
 export const MIN_SCORE_COVERAGE = 0.5;

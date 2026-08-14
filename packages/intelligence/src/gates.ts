@@ -68,6 +68,19 @@ export function evaluateCheapGates(
      * Absent means the mint account was not read, which is different from read
      * and found plain. The gate does not invent a verdict from an absence.
      */
+    /**
+     * P9 — the age window for THIS candidate's cohort.
+     *
+     * The global 2m-60m window was applied to every cohort, so AGE_1H_5H,
+     * AGE_5H_24H and AGE_24H_7D matured into their buckets and were then
+     * vetoed `too_old` by a gate that only ever described the first one. Three
+     * of four arms could not produce a single screening, however many
+     * candidates matured.
+     *
+     * Absent means the global window, which is right for a caller that has not
+     * assigned a cohort yet.
+     */
+    readonly cohortAgeBounds?: { fromMs: number; toMs: number } | null;
     readonly token2022?: {
       readonly hasMoneyCriticalBehaviour: boolean;
       readonly hasUnknownExtension: boolean;
@@ -80,6 +93,23 @@ export function evaluateCheapGates(
   const chainFacts = input.chainFacts ?? null;
   const capitalAtRisk = input.capitalAtRisk === true;
   const out: GateResult[] = [];
+
+  /**
+   * P9 — the age window this candidate is being screened UNDER.
+   *
+   * The global window was applied to every cohort, so a token that matured
+   * into AGE_1H_5H was immediately vetoed `too_old` by a bound that only ever
+   * described AGE_2M_60M. Three of the four arms could not produce a single
+   * screening no matter how many candidates matured into them — the cohort
+   * queues were real and the gate behind them was not.
+   *
+   * The source is named in the detail so a rejection row says which window
+   * refused it.
+   */
+  const bounds = input.cohortAgeBounds ?? null;
+  const ageFloor = bounds?.fromMs ?? config.minTokenAgeMs;
+  const ageCeiling = bounds?.toMs ?? config.maxTokenAgeMs;
+  const ageWindowSource = bounds === null ? ' (global window)' : ' (cohort window)';
 
   // --- Data freshness. A stale snapshot may not drive a decision. ----------
   //
@@ -175,17 +205,17 @@ export function evaluateCheapGates(
   out.push(
     veto(
       'min_token_age',
-      ageMs !== null && ageMs >= config.minTokenAgeMs,
+      ageMs !== null && ageMs >= ageFloor,
       'too_young',
-      `age ${ageMs ?? 'unknown'}ms < ${config.minTokenAgeMs}ms`,
+      `age ${ageMs ?? 'unknown'}ms < ${ageFloor}ms${ageWindowSource}`,
     ),
   );
   out.push(
     veto(
       'max_token_age',
-      ageMs !== null && ageMs <= config.maxTokenAgeMs,
+      ageMs !== null && ageMs <= ageCeiling,
       'too_old',
-      `age ${ageMs ?? 'unknown'}ms > ${config.maxTokenAgeMs}ms`,
+      `age ${ageMs ?? 'unknown'}ms > ${ageCeiling}ms${ageWindowSource}`,
     ),
   );
 

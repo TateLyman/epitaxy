@@ -70,10 +70,26 @@ function seededOrder(n: number, seed: number): number[] {
  * take, spread across strata, so the explored rows are the ones the ranking
  * disagrees with rather than the ones it nearly picked anyway.
  */
-export function allocate<T>(candidates: readonly Candidate<T>[], budget: number, seed: number): Selected<T>[] {
+export function allocate<T>(
+  candidates: readonly Candidate<T>[],
+  budget: number,
+  seed: number,
+  /**
+   * P10 — fractional exploration carried from previous cycles.
+   *
+   * With a budget of 2, `floor(2 * 0.25)` is 0 and the exploration arm never
+   * runs. Carrying the remainder means four cycles of 2 quotes spend one
+   * exploration slot between them, which IS the 25% the design claims.
+   *
+   * The caller owns the debt because the allocator is pure; `nextDebt` on the
+   * result is what it stores back.
+   */
+  carriedDebt = 0,
+): Selected<T>[] & { nextDebt?: number } {
   if (budget <= 0 || candidates.length === 0) return [];
 
-  const exploreBudget = Math.min(Math.floor(budget * EXPLORATION_FRACTION), Math.max(candidates.length - 1, 0));
+  const entitlement = budget * EXPLORATION_FRACTION + carriedDebt;
+  const exploreBudget = Math.min(Math.floor(entitlement), Math.max(candidates.length - 1, 0));
   const exploitBudget = budget - exploreBudget;
 
   const byRank = [...candidates].sort((a, b) => b.rank - a.rank);
@@ -83,12 +99,23 @@ export function allocate<T>(candidates: readonly Candidate<T>[], budget: number,
   const out: Selected<T>[] = exploited.map((c) => ({
     item: c.item,
     arm: 'exploit',
-    // Deterministic given the ranking: it was taken because it ranked.
-    inclusionProbability: 1,
+    /**
+     * P10 — its probability under the ELIGIBLE POPULATION, not under the
+     * visible pool.
+     *
+     * Recording 1 said "this candidate was certain to be chosen", which is
+     * true of the ranking and false of the population: it competed with every
+     * eligible candidate for a budget of `budget`. Reweighting on a 1 treats a
+     * selected survivor as representing only itself, which is exactly the bias
+     * the exploration arm exists to measure.
+     */
+    inclusionProbability: candidates.length === 0 ? 1 : Math.min(1, budget / candidates.length),
     stratum: c.stratum,
   }));
 
   const remaining = candidates.filter((c) => !taken.has(c.item));
+  // What was earned and not spent, for the caller to carry into the next cycle.
+  Object.defineProperty(out, 'nextDebt', { value: entitlement - exploreBudget, enumerable: false });
   if (exploreBudget === 0 || remaining.length === 0) return out;
 
   // Stratified: each stratum contributes in proportion to its share of what is
