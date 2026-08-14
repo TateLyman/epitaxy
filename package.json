@@ -61,7 +61,9 @@
     "rate:budget": "tsx scripts/rate-budget.ts",
     "simulator:pump-effect-proof": "tsx scripts/pump-effect-proof.ts",
     "simulator:offline-pump-parity": "tsx scripts/simulator-prospective-parity.ts",
-    "shadow:development": "tsx scripts/evidence-status.ts shadow"
+    "shadow:development": "tsx scripts/evidence-status.ts shadow",
+    "simulator:stateful-roundtrip-proof": "tsx scripts/stateful-roundtrip-proof.ts",
+    "settlement:check": "tsx scripts/settlement-check.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

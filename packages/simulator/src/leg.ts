@@ -72,6 +72,19 @@ export interface EconomicLegSpec {
   readonly input: LegInput;
   readonly output: LegOutput;
 
+  /**
+   * The most SOL the payer may lose, whatever the leg spends.
+   *
+   * On the LEG, not on the input asset. It lived on the native-input variant
+   * and a token-input sell therefore had no lamport cap to bind — so the
+   * builder bound the token ATOM COUNT instead. A sell of 905 atoms asserted
+   * the payer could spend at most 905 lamports, and the run was refused for
+   * spending 6,121 on fees it could not have avoided. An atom is not a
+   * lamport, and a field that accepts either is a defect waiting for a
+   * denominator.
+   */
+  readonly maxTotalPayerDebitLamports: bigint;
+
   readonly feePayer: string;
   readonly declaredTipLamports: bigint;
   /**
@@ -185,6 +198,7 @@ export function legSpec(p: {
     capabilityFingerprint: p.capabilityFingerprint,
     input,
     output,
+    maxTotalPayerDebitLamports: p.maxTotalPayerDebitLamports,
     feePayer: p.taker,
     declaredTipLamports: p.declaredTipLamports ?? 0n,
     expectedRecipients: p.expectedRecipients ?? [],
@@ -283,8 +297,6 @@ export function buildSimulationRequestForLeg(
   ctx: LegRequestContext,
 ): SimulationRequest {
   const requested = leg.input.kind === 'native_sol' ? leg.input.exactDebitLamports : leg.input.exactDebitAtoms;
-  const maxSpend =
-    leg.input.kind === 'native_sol' ? leg.input.maxTotalPayerDebitLamports : leg.input.exactDebitAtoms;
 
   return client.buildRequest({
     executionObservationId: ctx.executionObservationId,
@@ -303,10 +315,9 @@ export function buildSimulationRequestForLeg(
     balanceMutations: [...provisioningFor(leg, ctx.fundingLamports), ...(ctx.extraMutations ?? [])],
     bounds: {
       feePayer: leg.feePayer,
-      // For a token-input leg the payer's SOL exposure is fees and rent only;
-      // the bound that matters is the exact atom debit, carried on the asset.
-      maxLamportsSpent:
-        leg.input.kind === 'native_sol' ? leg.input.maxTotalPayerDebitLamports.toString() : maxSpend.toString(),
+      // Always lamports. On a token-input sell the payer's SOL exposure is
+      // fees and rent; the atom debit is bound separately, on the asset.
+      maxLamportsSpent: leg.maxTotalPayerDebitLamports.toString(),
       inputAsset: inputAsset(leg),
       outputAsset: outputAsset(leg),
       expectedRecipients: leg.expectedRecipients,

@@ -941,13 +941,31 @@ async function tryEnter(
     priorityFeeLamports: config.assumedPriorityFeeLamports,
     broadcasterTipLamports: config.assumedBroadcasterTipLamports,
     ataRentLamports: rentLamports,
-    // Not observed for this mint. Null would be more honest than 0, but this
-    // field feeds an amount rather than a label, so it is 0 with the gap named
-    // in docs/AUDIT_HEAD_3155EA.md rather than silently absent.
-    transferFeeLamports: 0n,
+    /**
+     * P6 — the transfer fee this leg actually paid.
+     *
+     * Read from the MEASURED settlement. It was hardcoded 0n with the gap
+     * named in a doc, which makes every Token-2022 position understate its
+     * cost by exactly the fee that makes it a bad position.
+     *
+     * Null there means unobserved, and an unobserved money-critical fee is
+     * refused above rather than charged as zero here.
+     */
+    transferFeeLamports: entrySettlement.costs.transferFeeLamportsEquivalent ?? 0n,
     // BUILD_CUSTOM carries no platform fee. Charging one would be inventing it.
     platformFeeLamports: 0n,
-    assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+    /**
+     * P6 — a SUCCESSFUL leg pays for no failed attempt.
+     *
+     * This charged `assumedFailedAttemptLamports` at probability 1 on every
+     * entry that worked. That is not an expected-failure model: it fabricates
+     * exactly one failure per success, and it is charged against realised PnL
+     * where the failure demonstrably did not occur.
+     *
+     * Realised labels carry actual failures. Prospective sizing still uses the
+     * assumption, from the route's own attempt history, and keeps it separate.
+     */
+    assumedFailedAttemptLamports: 0n,
   };
   const costLamports = totalEntryCost(entryCosts);
 
@@ -1999,14 +2017,23 @@ async function manageOpenPositions(
     };
     const ataVerdict = settleAtaRent(ata);
 
+    // P6 — the exit's MEASURED settlement, derived before the cost model that
+    // reads its transfer fee. Null when the leg was not effect-verified, and a
+    // null fee is refused rather than charged as zero.
+    const exitJobId = latestJobFor(db, exitObs.observationId);
+    const exitSettlement =
+      exitJobId === null ? null : measuredSettlementOf(db, exitObs.observationId, exitJobId, taker);
+
     const proceeds = netExitProceeds({
       grossProceedsLamports: grossFromObservation,
       signatureFeeLamports: config.assumedSignatureFeeLamports,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-      transferFeeLamports: 0n,
+      // Measured, or refused above. Never assumed zero.
+      transferFeeLamports: exitSettlement?.costs.transferFeeLamportsEquivalent ?? 0n,
       closeAccountFeeLamports: config.assumedSignatureFeeLamports,
-      assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+      // P6 — this exit succeeded. It pays for no failed attempt. See the entry.
+      assumedFailedAttemptLamports: 0n,
       ataRentRecoveredLamports: ataVerdict.ataRentRecoveredLamports,
     });
     const realized = proceeds - costLamports;
@@ -2107,9 +2134,6 @@ async function manageOpenPositions(
      * is what the entry actually spent — read back from the row rather than
      * recomputed, so the two ends of the position agree by construction.
      */
-    const exitJobId = latestJobFor(db, exitObs.observationId);
-    const exitSettlement =
-      exitJobId === null ? null : measuredSettlementOf(db, exitObs.observationId, exitJobId, taker);
     const settledGross =
       exitSettlement !== null && isPnlEligible(exitSettlement).ok
         ? exitCashIn(exitSettlement)
