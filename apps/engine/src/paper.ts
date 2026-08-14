@@ -66,15 +66,10 @@ import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
 import { ReserveAlarm } from './risk-alarm.js';
-import {
-  LogsWatcher,
-  pumpInstructionFromLogs,
-  TRADE_INSTRUCTIONS,
-  MIGRATION_INSTRUCTIONS,
-} from '../../../packages/adapters/src/logswatch.js';
+import { LogsWatcher } from '../../../packages/adapters/src/logswatch.js';
+import { EventPipeline } from '../../../packages/adapters/src/event-pipeline.js';
+import type { ParsedEvent } from '../../../packages/adapters/src/event-pipeline.js';
 import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
-import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
-import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
 
 /**
  * P15 — the running alarm, set once by `main()`.
@@ -85,12 +80,25 @@ import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../..
  * records at startup rather than a silence.
  */
 let alarm: ReserveAlarm | null = null;
+
+/**
+ * Mints an alarm has asked to be re-observed before their next scheduled mark.
+ *
+ * Module-level for the same reason the alarm is: the cycle functions are free
+ * functions, and this set is written by a socket callback and read by the mark
+ * loop. It was previously scoped inside main(), which is why nothing consumed
+ * it - the reader could not see it.
+ */
+const urgentMarks = new Set<string>();
 import { admitPortfolioEntry } from './paper-core.js';
 import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
 import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
+import { canonicalPoolFor } from '../../../packages/solana/src/pumpswap-model.js';
 import {
   acquiredTokens,
   entryCashOut,
+  executionCost,
+  transferFeeOrUnknown,
   exitCashIn,
   isPnlEligible,
   immediateRoundTrip,
@@ -101,6 +109,17 @@ import {
 } from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import {
+  assertTransition,
+  holdsExposure,
+  type ShadowState,
+} from '../../../packages/domain/src/shadow-lifecycle.js';
+import { allocateArm } from '../../../packages/domain/src/tournament.js';
+import {
+  resolveFill,
+  lookAheadBiasLamports,
+  FROZEN_FILL_LATENCY_MS,
+} from '../../../packages/domain/src/fill-latency.js';
+import {
   bindEntryObservation,
   bindExitObservation,
   managedPositions,
@@ -108,7 +127,13 @@ import {
   openShadowPosition,
   openShadowPositions,
   insertShadowMark,
-  closeShadowPosition,
+  armCounts,
+  assignTournamentArm,
+  triggerShadowExit,
+  blockShadowExit,
+  resumeShadowExit,
+  fillShadowExit,
+  fillCandidatesSince,
   updateShadowPeak,
   unmanagedPositions,
   claimSignalEpisode,
@@ -182,6 +207,28 @@ const CLOCK_CHECKPOINT_INTERVAL_MS = 300_000;
  * does not starve everything else.
  */
 const EXIT_RETRY_INTERVAL_MS = 30_000;
+
+/**
+ * The current epoch, cached for an epoch's worth of time.
+ *
+ * Refreshed on a timer rather than per cycle: an epoch is roughly two days and
+ * asking every ten seconds spends a call to learn a number that did not move.
+ * Null when it could not be read, and null means the fee decoder takes the
+ * worst of the mint's two schedules — the safe direction.
+ */
+let cachedEpoch: { value: bigint; readUtcMs: number } | null = null;
+async function currentEpochOf(rpc: { configured: boolean; getEpoch(): Promise<bigint> }): Promise<bigint | null> {
+  if (!rpc.configured) return null;
+  const now = Date.now();
+  if (cachedEpoch !== null && now - cachedEpoch.readUtcMs < 30 * 60_000) return cachedEpoch.value;
+  try {
+    const value = await rpc.getEpoch();
+    cachedEpoch = { value, readUtcMs: now };
+    return value;
+  } catch {
+    return cachedEpoch?.value ?? null;
+  }
+}
 
 async function main(): Promise<void> {
   const config = loadConfig(modeFromArgv());
@@ -259,17 +306,69 @@ async function main(): Promise<void> {
           secrets.rpcWs,
         );
   /**
-   * P12 — the direct chain event clock, running alongside the provider poll.
+   * P8 — the direct chain clock, BOUNDED.
    *
-   * Not a replacement yet: the executable oracle is still an exact
-   * BUILD_CUSTOM observation, and a log line is notice that something
-   * happened rather than a price. What this changes is WHEN the engine knows.
+   * The previous build inserted every raw notification synchronously: 1,055
+   * events/second, 91 million rows/day projected, 68% of them a log block
+   * whose instruction the parser could not name. The database grew from
+   * 2.97 GB to 6.15 GB in a single session, and the decision-useful yield was
+   * 43 migration events out of seven million rows.
    *
-   * `processed` is used deliberately — it sees a change soonest and can see
-   * one that never finalises. For an alarm that is the right trade, and the
-   * commitment is stored on every row so a reversal can be reconciled rather
-   * than assumed away.
+   * Now: a bounded queue, a program-stack-aware parse, deduplication, and
+   * persistence only of events that carry an identity a decision could use.
+   * Everything else becomes a counter and a one-in-a-thousand sample.
+   *
+   * `processed` is still the commitment, because an alarm wants the earliest
+   * signal — and every row says so, so a reversal can be reconciled.
    */
+  const flowBars = new Map<string, { trades: number; migrations: number; launches: number; configs: number }>();
+  /** Batched between flushes: one transaction beats one INSERT per event. */
+  const pendingEventRows: ParsedEvent[] = [];
+
+  const pipeline = new EventPipeline({
+    maxQueue: 5_000,
+    unknownSampleRate: 1_000,
+    onEvent: (e) => {
+      /**
+       * A TRADE is aggregated, never stored as a row.
+       *
+       * Trades are the high-volume kind by two orders of magnitude, and no
+       * decision reads an individual one: the candidate queue wants launches,
+       * the migration age wants migrations, and the flow signal wants COUNTS
+       * per mint per interval. Storing each trade reproduced the firehose at a
+       * seventh of the size, which is still 19 million rows a day.
+       *
+       * Launches, migrations and config changes ARE stored: they are rare, and
+       * each one is individually decision-useful.
+       */
+      if (e.kind !== 'TRADE') {
+        pendingEventRows.push(e);
+      }
+      // Five-second bars, flushed by the cycle. Aggregate flow survives even
+      // when individual rows are not worth keeping.
+      const bucket = Math.floor(e.receivedUtcMs / 5_000) * 5_000;
+      // Keyed by MINT as well as program, so per-token flow is recoverable
+      // from the bars without keeping the trades.
+      const key = `${bucket}:${e.programId}:${e.mint ?? ''}`;
+      const bar = flowBars.get(key) ?? { trades: 0, migrations: 0, launches: 0, configs: 0 };
+      if (e.kind === 'TRADE') bar.trades += 1;
+      else if (e.kind === 'MIGRATION') bar.migrations += 1;
+      else if (e.kind === 'LAUNCH') bar.launches += 1;
+      else if (e.kind === 'CONFIG') bar.configs += 1;
+      flowBars.set(key, bar);
+    },
+    onUnknownSample: (e) => {
+      try {
+        db.prepare(
+          `INSERT OR IGNORE INTO chain_unknown_samples
+             (signature,program_id,slot,logs_json,received_utc_ms) VALUES (?,?,?,?,?)`,
+        ).run(e.signature, e.programId, e.slot, JSON.stringify(e.logs).slice(0, 4_000), e.receivedUtcMs);
+      } catch {
+        /* a sample nobody could store is not worth failing over */
+      }
+    },
+  });
+
   const directClock =
     secrets.rpcWs === null
       ? null
@@ -277,36 +376,10 @@ async function main(): Promise<void> {
           wsUrl: secrets.rpcWs,
           programs: [PUMP_PROGRAM, PUMPSWAP_PROGRAM],
           commitment: 'processed',
+          // OFFER, never insert. The socket's rate is no longer the database's
+          // write rate.
           onEvent: (e) => {
-            const ix = pumpInstructionFromLogs(e.logs);
-            const kind = ix === null
-              ? 'UNKNOWN'
-              : MIGRATION_INSTRUCTIONS.has(ix)
-                ? 'MIGRATION'
-                : TRADE_INSTRUCTIONS.has(ix)
-                  ? 'TRADE'
-                  : 'OTHER';
-            try {
-              db.prepare(
-                `INSERT OR IGNORE INTO direct_chain_events
-                   (signature,program_id,slot,instruction,kind,commitment,
-                    received_monotonic_ms,received_utc_ms,tx_error)
-                 VALUES (?,?,?,?,?,?,?,?,?)`,
-              ).run(
-                e.signature,
-                e.programId,
-                e.slot,
-                ix,
-                kind,
-                e.commitment,
-                e.receivedMonotonicMs,
-                e.receivedUtcMs,
-                e.err,
-              );
-            } catch {
-              // A dropped event is a coverage fact, not a reason to kill the
-              // socket. The gap surfaces through `directClock.coverage`.
-            }
+            pipeline.offer(e);
           },
           onGap: (detail) => {
             recordHealth(db, 'direct_clock_gap', 'warn', detail.slice(0, 200));
@@ -314,15 +387,80 @@ async function main(): Promise<void> {
         });
   if (directClock !== null) {
     directClock.connect();
-    recordHealth(
-      db,
-      'direct_clock_started',
-      'info',
-      `logsSubscribe on ${PUMP_PROGRAM.slice(0, 8)} and ${PUMPSWAP_PROGRAM.slice(0, 8)} at processed`,
-    );
+    recordHealth(db, 'direct_clock_started', 'info', 'bounded pipeline on Pump and PumpSwap at processed');
   } else {
     recordHealth(db, 'direct_clock_absent', 'warn', 'no SOLANA_RPC_WS; the signal clock is the provider poll only');
   }
+
+  /** Flush the bars and the pipeline counters. Called once per cycle. */
+  const flushEventPipeline = (): void => {
+    // One transaction for the whole batch. Per-event synchronous INSERTs made
+    // the socket's arrival rate the database's write rate, which is what put
+    // the queue on its ceiling and dropped 3,534 events.
+    if (pendingEventRows.length > 0) {
+      try {
+        db.exec('BEGIN');
+        const stmt = db.prepare(
+          `INSERT OR IGNORE INTO chain_events
+             (signature,program_id,slot,kind,instruction,mint,pool,commitment,
+              received_monotonic_ms,received_utc_ms,tx_error)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        );
+        for (const e of pendingEventRows) {
+          stmt.run(
+            e.signature,
+            e.programId,
+            e.slot,
+            e.kind,
+            e.instruction,
+            e.mint,
+            e.pool,
+            e.commitment,
+            e.receivedMonotonicMs,
+            e.receivedUtcMs,
+            e.err,
+          );
+        }
+        db.exec('COMMIT');
+      } catch {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          /* the batch is lost and the counters say so */
+        }
+      }
+      pendingEventRows.length = 0;
+    }
+
+    for (const [key, bar] of flowBars) {
+      const [bucketStr, programId, mint] = key.split(':');
+      try {
+        db.prepare(
+          `INSERT INTO chain_flow_bars_v2 (bucket_utc_ms,program_id,mint,trades,migrations,launches,configs)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(bucket_utc_ms,program_id,mint) DO UPDATE SET
+             trades=trades+excluded.trades, migrations=migrations+excluded.migrations,
+             launches=launches+excluded.launches, configs=configs+excluded.configs`,
+        ).run(Number(bucketStr), programId ?? '', mint ?? '', bar.trades, bar.migrations, bar.launches, bar.configs);
+      } catch {
+        /* aggregation is best-effort */
+      }
+    }
+    flowBars.clear();
+    const c = pipeline.counters;
+    try {
+      db.prepare(
+        `INSERT OR REPLACE INTO chain_pipeline_health
+           (observed_utc_ms,received,parsed,unknown,duplicates,dropped,persisted,queue_high_water,bytes_in)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+      ).run(Date.now(), c.received, c.parsed, c.unknown, c.duplicates, c.dropped, c.persisted, c.queueHighWater, c.bytesIn);
+    } catch {
+      /* health is best-effort */
+    }
+    if (c.dropped > 0) {
+      recordHealth(db, 'event_pipeline_backpressure', 'warn', `${c.dropped} event(s) dropped; queue high water ${c.queueHighWater}`);
+    }
+  };
 
   if (alarm !== null) {
     alarm.start();
@@ -331,8 +469,7 @@ async function main(): Promise<void> {
     // Named, not silent. Running without the alarm is a coverage fact.
     recordHealth(db, 'reserve_alarm_absent', 'warn', 'no SOLANA_RPC_WS; reserve alarms are not running');
   }
-  /** Mints an alarm has asked to be re-observed before their next scheduled mark. */
-  const urgentMarks = new Set<string>();
+
   if (config.requireBuildableFill && taker === null) {
     throw new Error(
       'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
@@ -535,7 +672,7 @@ async function main(): Promise<void> {
     // Shadow books are worked after the realizable wallet, never before: the
     // wallet is the only book that can actually lose money.
     try {
-      await manageShadowBooks(db, jupiter, config, taker, contextHash);
+      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator);
     } catch (e) {
       log.warn({ err: (e as Error).message }, 'shadow book management failed');
     }
@@ -621,6 +758,7 @@ async function main(): Promise<void> {
           cycleIndex: cycle,
           skip: heldMints,
           rpc: rpc.configured ? rpc : null,
+          currentEpoch: await currentEpochOf(rpc),
           onEligible: async (info, result) => {
             if (entriesHalted) return;
             await tryEnter(
@@ -653,6 +791,10 @@ async function main(): Promise<void> {
     const open = managedPositions(db);
     const exposure = open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n);
     const c = counters(db);
+
+
+    // P8 — one aggregate write per cycle instead of one per notification.
+    flushEventPipeline();
 
     log.info(
       {
@@ -969,6 +1111,31 @@ async function tryEnter(
   const tokensReceived = admission.tokensAcquired;
 
   /**
+   * P4 — an unknown transfer fee refuses the entry.
+   *
+   * `?? 0n` turned "we did not measure it" into "there is none", and on a
+   * Token-2022 mint that is the fee which makes the position a bad one.
+   * `transferFeeOrUnknown` returns 0 only when the asset CANNOT have a fee,
+   * which is a fact about the token program rather than about our coverage.
+   */
+  const entryTransferFeeOrNull = (() => {
+    const jobId = latestJobFor(db, entry.observationId);
+    if (jobId === null) return null;
+    const st = measuredSettlementOf(db, entry.observationId, jobId, taker);
+    return st === null ? null : transferFeeOrUnknown(st);
+  })();
+  if (entryTransferFeeOrNull === null) {
+    recordHealth(
+      db,
+      'entry_transfer_fee_unknown',
+      'warn',
+      `${mint.slice(0, 12)}: Token-2022 transfer fee not measured; refusing rather than charging zero`,
+    );
+    return;
+  }
+  const entryTransferFee = entryTransferFeeOrNull;
+
+  /**
    * P15 — watch this position's pool reserve from the moment it opens.
    *
    * The reserve token account is the one whose BALANCE is the pool's depth.
@@ -977,8 +1144,13 @@ async function tryEnter(
    * screened.
    */
   if (alarm !== null) {
-    const reserve = poolReserveAccountFor(db, blobs, entry.observationId, mint);
-    if (reserve !== null) alarm.watch({ mint, reserveTokenAccount: reserve });
+    const watched = riskAccountsFor(mint);
+    for (const account of watched) alarm.watch({ mint, reserveTokenAccount: account });
+    if (watched.length === 0) {
+      // A position with no alarm coverage is a fact, recorded rather than
+      // implied by the absence of alarms.
+      recordHealth(db, 'reserve_alarm_uncovered', 'warn', `${mint.slice(0, 12)}: no derivable pool to watch`);
+    }
   }
 
   // The settlement the position is booked from. Present by construction: the
@@ -1008,7 +1180,7 @@ async function tryEnter(
      * Null there means unobserved, and an unobserved money-critical fee is
      * refused above rather than charged as zero here.
      */
-    transferFeeLamports: entrySettlement.costs.transferFeeLamportsEquivalent ?? 0n,
+    transferFeeLamports: entryTransferFee,
     // BUILD_CUSTOM carries no platform fee. Charging one would be inventing it.
     platformFeeLamports: 0n,
     /**
@@ -1054,7 +1226,15 @@ async function tryEnter(
     // The cost is what actually left the payer, fees and rent included. Gross
     // proceeds and net PnL are NULL because an open position has not realised
     // either, and null here means undetermined rather than zero.
-    executionCostLamports: entryCashOut(entrySettlement).cashOut,
+    /**
+     * P4 — costs only. NEVER principal.
+     *
+     * This was `entryCashOut().cashOut`, which is principal plus costs: on a
+     * 0.02 SOL entry it reported ~24,000,000 lamports of "execution cost"
+     * against ~4,087,000 of actual cost, and a 2x-cost stress test then
+     * doubled the principal.
+     */
+    executionCostLamports: executionCost(entrySettlement),
     grossProceedsLamports: null,
     netPnlLamports: null,
     // P9 — both ends of the cash flow, with rent identified separately.
@@ -1153,33 +1333,27 @@ async function tryEnter(
  *
  * Null when the bytes do not identify one. Null is honest; a guess is not.
  */
-function poolReserveAccountFor(
-  db: Db,
-  blobs: BlobStore,
-  observationId: string,
-  mint: string,
-): string | null {
+/**
+ * The accounts whose state IS this position's liquidity risk.
+ *
+ * The previous version took "the first writable account that is not the
+ * taker's and not an ATA". That is a POSITION IN A LIST, not an identity: on a
+ * routed swap it lands on whatever the compiler happened to order first — a
+ * tick array, a fee account, an event authority — and an alarm on the wrong
+ * account is worse than no alarm, because it reports coverage.
+ *
+ * The canonical PumpSwap pool address is DERIVED from the mint through the
+ * SDK's own PDA, so it is the pool or it is nothing. Its data changes when the
+ * reserves change, which is the fact the alarm exists to notice.
+ *
+ * Returns an empty list rather than a guess. No coverage is a fact the engine
+ * records; false coverage is one it cannot detect.
+ */
+function riskAccountsFor(mint: string): string[] {
   try {
-    const hash = exactBlobFor(db, observationId);
-    if (hash === null) return null;
-    const blob = blobs.get<ExactTransactionBlob>(hash);
-    // A writable account that is neither the taker's nor a program: on a swap
-    // that is the vault side. The taker's own ATA is excluded explicitly.
-    const takerAtas = new Set(
-      [TOKEN_PROGRAM, TOKEN_2022_PROGRAM].map((p) => {
-        try {
-          return associatedTokenAddress(blob.feePayer, mint, p);
-        } catch {
-          return '';
-        }
-      }),
-    );
-    const candidates = blob.writableAccounts.filter(
-      (a) => a !== blob.feePayer && !takerAtas.has(a) && !blob.staticAccountKeys.slice(0, 1).includes(a),
-    );
-    return candidates[0] ?? null;
+    return [canonicalPoolFor(mint, WSOL_MINT)];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -1437,6 +1611,22 @@ async function openShadowBooks(
       contextHash,
     });
 
+    /**
+     * P19 — the tournament arm, assigned AS THE TRAJECTORY OPENS.
+     *
+     * Balanced across the six entry-by-exit cells, deterministic given the
+     * counts already in the corpus, and independent of everything about this
+     * candidate. Allocating by score or liquidity or age would measure each arm
+     * on a different population, and labelling an existing corpus afterwards is
+     * how an arm ends up holding the trajectories that happen to suit it.
+     *
+     * The tournament itself does not run yet — the first checkpoint is ten
+     * completed trajectories per arm and there are none. This is what makes the
+     * ones that arrive usable when they do.
+     */
+    const arm = allocateArm(armCounts(db));
+    assignTournamentArm(db, id, arm.entry, arm.exit);
+
     // Written straight after the insert rather than threaded through the
     // repository signature, because the cohort is a property of the DECISION
     // and every other caller of openShadowPosition would have to invent one.
@@ -1529,6 +1719,11 @@ async function manageShadowBooks(
   config: AppConfig,
   taker: string | null,
   contextHash: string,
+  // P6 -- a shadow exit is admitted by the same core function the realizable
+  // portfolio uses, and that function simulates before it judges. It therefore
+  // needs the same two collaborators.
+  blobs: BlobStore,
+  simulator: SimulationClient | null,
 ): Promise<number> {
   if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
 
@@ -1621,29 +1816,141 @@ async function manageShadowBooks(
     const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
     if (value !== null && value > peak) updateShadowPeak(db, row.shadow_position_id, value);
 
-    const decision = decideExit(
-      {
-        costLamports,
-        peakValueLamports: value !== null && value > peak ? value : peak,
-        markLamports: value,
-        openedUtcMs: row.opened_utc_ms,
-        nowUtcMs: nowMs,
-        exitRouteExists: routeAvailable,
-      },
-      config.exits,
+    /**
+     * P6 — the trajectory lifecycle, driven by the state machine that has
+     * existed since it was written and that nothing imported.
+     *
+     *   POSITION_OPEN
+     *     -> EXIT_TRIGGERED / AWAITING_FILL_OBSERVATION   on the exit rule
+     *     -> POSITION_CLOSED                              on a LATER valid fill
+     *     -> EXIT_BLOCKED                                 when no fill exists yet
+     *
+     * The old loop went from `decideExit` straight to `closeShadowPosition`, at
+     * the triggering mark's own value. That books a fill at the price which
+     * CAUSED the decision to exit, observed before the decision existed — the
+     * one price a real exit can never get. `assertTransition` refuses it in
+     * words: "a shadow may not close at its trigger observation".
+     */
+    const state = (row.state as ShadowState) ?? 'POSITION_OPEN';
+
+    if (state === 'POSITION_OPEN') {
+      const decision = decideExit(
+        {
+          costLamports,
+          peakValueLamports: value !== null && value > peak ? value : peak,
+          markLamports: value,
+          openedUtcMs: row.opened_utc_ms,
+          nowUtcMs: nowMs,
+          exitRouteExists: routeAvailable,
+        },
+        config.exits,
+      );
+      if (!decision.exit) continue;
+
+      // The machine hop is asserted rather than assumed. EXIT_TRIGGERED and
+      // AWAITING_FILL_OBSERVATION are the same instant and two different
+      // claims: the rule fired, and nothing has filled it.
+      assertTransition('POSITION_OPEN', 'EXIT_TRIGGERED');
+      assertTransition('EXIT_TRIGGERED', 'AWAITING_FILL_OBSERVATION');
+      triggerShadowExit(db, row.shadow_position_id, {
+        triggeredUtcMs: nowMs,
+        observationId: obs.observationId,
+        valueLamports: value,
+        reason: decision.reason ?? 'unknown',
+      });
+      log.info(
+        { book: row.book, mint: row.mint, reason: decision.reason },
+        'shadow exit TRIGGERED; awaiting a later fill observation',
+      );
+      continue;
+    }
+
+    if (!holdsExposure(state)) continue;
+
+    // ---- awaiting or blocked: is there a fill yet? ------------------------
+    const triggeredAt = row.triggered_utc_ms === null ? null : Number(row.triggered_utc_ms);
+    if (triggeredAt === null) {
+      // A managed state with no trigger is a row from before this migration.
+      // It is left alone rather than silently reinterpreted.
+      continue;
+    }
+
+    const outcome = resolveFill(
+      triggeredAt,
+      config.primaryRouteFamily,
+      fillCandidatesSince(db, row.shadow_position_id, triggeredAt),
+      FROZEN_FILL_LATENCY_MS,
     );
-    if (!decision.exit) continue;
 
-    // A shadow exit needs a buildable route for the same reason a real one
-    // does. Without it the position stays open and keeps being worked.
-    if (!routeAvailable) continue;
+    if (outcome.kind === 'blocked') {
+      if (state === 'AWAITING_FILL_OBSERVATION') assertTransition(state, 'EXIT_BLOCKED');
+      blockShadowExit(db, row.shadow_position_id, outcome.reason);
+      continue;
+    }
 
-    closeShadowPosition(db, row.shadow_position_id, {
-      realizedLamports: (value ?? 0n) - costLamports,
+    if (state === 'EXIT_BLOCKED') {
+      assertTransition('EXIT_BLOCKED', 'AWAITING_FILL_OBSERVATION');
+      resumeShadowExit(db, row.shadow_position_id);
+    }
+
+    /**
+     * The same admission the realizable portfolio uses.
+     *
+     * A shadow that closes on a route the portfolio would have refused is a
+     * shadow measuring a different strategy. The call graph asserts this edge
+     * exists; before P6 it did not.
+     */
+    const admission = await admitPortfolioExit(
+      {
+        simulator: {
+          simulate: async (observationId, leg) => {
+            await simulateLeg(db, blobs, simulator, observationId, taker, {
+              mode: 'DEVELOPMENT_JIT',
+              side: leg.side,
+              inputMint: leg.inputMint,
+              outputMint: leg.outputMint,
+              inputAmount: leg.inputAmount,
+              routeFamily: config.primaryRouteFamily,
+              capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
+              inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+              outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
+              fundingLamports: 100_000_000n,
+              maxLamportsSpent: 20_000_000n,
+              expectedOutput: leg.expectedOutput,
+              minimumOutput: leg.minimumOutput,
+              contextHash,
+            });
+            return {
+              simulation: simulationStatusOf(db, observationId),
+              effect: simulationEffectOf(db, observationId),
+            };
+          },
+        },
+      },
+      {
+        exit: obs,
+        mint: row.mint,
+        tokenAmount,
+        requireLocalSimulation: config.requireLocalSimulation === true,
+      },
+    );
+    if (!admission.ok) {
+      assertTransition('AWAITING_FILL_OBSERVATION', 'EXIT_BLOCKED');
+      blockShadowExit(db, row.shadow_position_id, admission.reasons.join('; '));
+      continue;
+    }
+
+    const fillValue = outcome.at.executableLamports;
+    const bias = lookAheadBiasLamports(BigInt(row.trigger_value_lamports ?? '0'), outcome);
+    assertTransition('AWAITING_FILL_OBSERVATION', 'POSITION_CLOSED');
+    fillShadowExit(db, row.shadow_position_id, {
+      realizedLamports: (fillValue ?? 0n) - costLamports,
       closedUtcMs: nowMs,
-      exitReason: decision.reason ?? 'unknown',
-      diagnostic: routeAvailable ? 'NONE' : 'NO_EXIT_ROUTE',
-      exitObservationId: obs.observationId,
+      exitReason: row.trigger_reason ?? 'unknown',
+      diagnostic: 'NONE',
+      exitObservationId: outcome.at.observationId,
+      fillLatencyMs: outcome.latencyMs,
+      lookAheadBiasLamports: bias,
     });
     /**
      * P11 — the episode ends when the book flattens.
@@ -1661,10 +1968,12 @@ async function manageShadowBooks(
       {
         book: row.book,
         mint: row.mint,
-        pnlSol: formatAmount((value ?? 0n) - costLamports, 9),
-        reason: decision.reason,
+        pnlSol: formatAmount((fillValue ?? 0n) - costLamports, 9),
+        reason: row.trigger_reason,
+        fillLatencyMs: outcome.latencyMs,
+        lookAheadBiasSol: bias === null ? null : formatAmount(bias, 9),
       },
-      'shadow position closed (NOT a wallet result and never summed with one)',
+      'shadow position closed at a LATER fill (NOT a wallet result and never summed with one)',
     );
   }
   return closed;
@@ -1685,6 +1994,38 @@ async function manageOpenPositions(
 ): Promise<number> {
   const open = managedPositions(db);
   let exited = 0;
+
+  /**
+   * P7 — CONSUME the urgent queue.
+   *
+   * `urgentMarks` was written by the alarm callback and read by nothing. The
+   * whole websocket path therefore ended in a `Set.add` — the socket
+   * connected, the pool was watched, a material drop fired the callback, the
+   * mint went into a set, and the set was never looked at.
+   *
+   * An alarm that reaches no decision is an alarm that did not happen. Urgent
+   * mints are marked FIRST, ahead of the scheduled order, because the reason
+   * they are urgent is that their liquidity moved.
+   */
+  const urgent = [...urgentMarks];
+  urgentMarks.clear();
+  if (urgent.length > 0) {
+    recordHealth(
+      db,
+      'urgent_marks_consumed',
+      'info',
+      `${urgent.length} alarm-driven mint(s) marked ahead of schedule: ${urgent
+        .slice(0, 5)
+        .map((m) => m.slice(0, 8))
+        .join(', ')}`,
+    );
+  }
+  const urgentFirst = new Set(urgent);
+  open.sort((a, b) => {
+    const ua = urgentFirst.has(a.mint) ? 0 : 1;
+    const ub = urgentFirst.has(b.mint) ? 0 : 1;
+    return ua - ub;
+  });
 
   if (taker === null) {
     // Without a taker no route can be observed at all, so an open position
@@ -2149,8 +2490,9 @@ async function manageOpenPositions(
       signatureFeeLamports: config.assumedSignatureFeeLamports,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-      // Measured, or refused above. Never assumed zero.
-      transferFeeLamports: exitSettlement?.costs.transferFeeLamportsEquivalent ?? 0n,
+      // P4 — zero ONLY when the asset cannot carry a fee. An unmeasured
+      // Token-2022 fee is refused above rather than charged as nothing.
+      transferFeeLamports: exitSettlement === null ? 0n : (transferFeeOrUnknown(exitSettlement) ?? 0n),
       closeAccountFeeLamports: config.assumedSignatureFeeLamports,
       // P6 — this exit succeeded. It pays for no failed attempt. See the entry.
       assumedFailedAttemptLamports: 0n,
@@ -2258,17 +2600,29 @@ async function manageOpenPositions(
       exitSettlement !== null && isPnlEligible(exitSettlement).ok
         ? exitCashIn(exitSettlement)
         : grossFromObservation;
-    const bookedCost = (() => {
-      const r = db
-        .prepare('SELECT execution_cost_lamports c FROM positions WHERE position_id = ?')
-        .get(row.position_id) as { c: string | null } | undefined;
-      if (r?.c == null) return costLamports;
+    /**
+     * P4 — two DIFFERENT numbers, read from the two columns that mean them.
+     *
+     * `bookedCashOut` is what left the wallet to open: principal plus costs,
+     * and it is what net PnL subtracts. `bookedEntryExecutionCost` is the
+     * costs alone.
+     *
+     * These were one number read from `execution_cost_lamports`, which is why
+     * the column held principal — the reader wanted cash out and the column
+     * was the only place it had been written.
+     */
+    const readCol = (col: string, fallback: bigint): bigint => {
       try {
-        return BigInt(r.c);
+        const r = db.prepare(`SELECT ${col} v FROM positions WHERE position_id = ?`).get(row.position_id) as
+          | { v: string | null }
+          | undefined;
+        return r?.v == null ? fallback : BigInt(r.v);
       } catch {
-        return costLamports;
+        return fallback;
       }
-    })();
+    };
+    const bookedCashOut = readCol('entry_cash_out_lamports', costLamports);
+    const bookedEntryExecutionCost = readCol('execution_cost_lamports', 0n);
 
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
@@ -2276,7 +2630,11 @@ async function manageOpenPositions(
       closedUtcMs: nowMs,
       exitReason: decision.reason,
       tokenAmount: 0n,
-      executionCostLamports: bookedCost,
+      // P4 — the EXECUTION cost of both legs, principal excluded.
+      // Both legs' costs, principal excluded. The entry side was written at
+      // open and is read back rather than recomputed, so the two ends of the
+      // position agree by construction.
+      executionCostLamports: bookedEntryExecutionCost + (exitSettlement === null ? 0n : executionCost(exitSettlement)),
       grossProceedsLamports: settledGross,
       // P10 — how long the exit actually took, so the assumption can be
       // checked against what happened rather than trusted.
@@ -2289,9 +2647,9 @@ async function manageOpenPositions(
        * Both operands are written on this same row in this same statement, so
        * a reader can check the identity rather than trust it.
        */
-      netPnlLamports: settledGross - bookedCost,
+      netPnlLamports: settledGross - bookedCashOut,
       exitCashInLamports: settledGross,
-      entryCashOutLamports: bookedCost,
+      entryCashOutLamports: bookedCashOut,
       lockedRentLamports:
         exitSettlement === null
           ? undefined
@@ -2301,8 +2659,17 @@ async function manageOpenPositions(
       residualTokenAtoms: exitSettlement?.residualTokenAtoms ?? undefined,
     });
 
-    // P15 — the position is flat, so stop paying for its updates.
-    if (alarm !== null) alarm.unwatch({ mint: row.mint, reserveTokenAccount: '' });
+    /**
+     * P7 — unwatch the EXACT accounts that were subscribed.
+     *
+     * This passed an empty string, so the watcher deleted nothing and the
+     * subscription outlived the position. Every closed position leaked one.
+     */
+    if (alarm !== null) {
+      for (const account of riskAccountsFor(row.mint)) {
+        alarm.unwatch({ mint: row.mint, reserveTokenAccount: account });
+      }
+    }
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;
     ledger.navLamports += realized;

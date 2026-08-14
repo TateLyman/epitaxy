@@ -3,10 +3,16 @@ import type { Candidate, LaunchpadName, RoundTrip } from '../../domain/src/types
 import { WSOL_MINT } from '../../domain/src/types.js';
 import { COHORT_BOUNDS } from '../../domain/src/cohort.js';
 import { allocate } from '../../strategy/src/exploration.js';
-import { capitalAtRisk } from '../../domain/src/types.js';
-import { TOKEN_2022_PROGRAM } from '../../solana/src/pda.js';
-import { decodeToken2022Mint } from '../../solana/src/token2022.js';
-import type { Token2022Facts } from '../../strategy/src/screen.js';
+import {
+  readMintFacts,
+  gateFactsFrom,
+  MintFactsCache,
+  type DirectMintFacts,
+} from '../../intelligence/src/mintfacts-source.js';
+import { disagreements } from '../../intelligence/src/mintfacts.js';
+import { buildEntityLinks, entityConcentrationFrom } from '../../intelligence/src/entity-links.js';
+import { mayhemFactsOf, breadthUsability } from '../../solana/src/mayhem.js';
+import { canonicalPool, poolAddressesFrom, accountSourceOf } from '../../solana/src/pumpswap-offline.js';
 
 /** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
 function hashSeed(s: string): number {
@@ -108,7 +114,24 @@ export interface CycleDeps {
    * in observe/paper and refuse outright once capital is at stake.
    */
   readonly rpc?: SolanaRpc | null;
+  /**
+   * The current epoch, when it is known.
+   *
+   * A Token-2022 transfer-fee config carries an older and a newer schedule and
+   * the epoch selects between them. Absent, the WORST of the two is used: an
+   * unknown epoch means either could be live, and only one direction of that
+   * error is safe.
+   */
+  readonly currentEpoch?: bigint | null;
 }
+
+/**
+ * Process-lifetime, bounded, TTL'd.
+ *
+ * A cycle-scoped cache would miss on every candidate every ten seconds,
+ * which is the same as no cache with extra allocation.
+ */
+const mintFactsCache = new MintFactsCache();
 
 export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
   const { db, jupiter, config, seen, cycleIndex } = deps;
@@ -172,6 +195,7 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    */
   const cohortRows = maturingByCohort(db, nowUtcMs, COHORT_BOUNDS, 25).filter((r) => !deps.skip?.has(r.mint));
   const mature = cohortRows.map((r) => r.mint);
+  const cohortOf = new Map(cohortRows.map((r) => [r.mint, r.cohort] as const));
   stats.maturing = mature.length;
   stats.maturingByCohort = Object.fromEntries(
     [...new Set(cohortRows.map((r) => r.cohort))].map((c) => [c, cohortRows.filter((r) => r.cohort === c).length]),
@@ -209,19 +233,35 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     const updatedAt = parseUtc(info.updatedAt);
     const sourceAgeMs = updatedAt === null ? null : nowUtcMs - updatedAt;
     /**
-     * P14 — read the MINT, in modes where being wrong costs money.
+     * P11 — read the MINT, in EVERY mode.
      *
-     * `evaluateCheapGates` has always read `token2022` and no caller ever
-     * supplied it, so `token2022_money_critical` could not fire: a transfer
-     * hook, a permanent delegate, a pausable mint and a default-frozen mint
-     * all presented as silence.
+     * This used to be gated on `capitalAtRisk(mode)` with the reasoning that
+     * observe and paper risk nothing. They risk nothing and they produce the
+     * entire research corpus, so the effect was that no row anywhere records
+     * how often a candidate carries a freeze authority, a transfer hook or a
+     * permanent delegate — and the gate that would refuse one in a capital mode
+     * had therefore never fired, on any token, ever. Its false-positive rate,
+     * its cost in missed winners and its actual protective value were all
+     * unmeasured, and the first run with money on it would have been the first
+     * run at all.
      *
-     * Only in capital modes, because it costs an RPC call per candidate and
-     * observe/paper risk nothing. In those modes an unread Token-2022 mint is
-     * refused by `screenCheap` rather than passed as unknown.
+     * The mode still decides what a hostile fact DOES. It no longer decides
+     * whether the fact is looked at.
      */
-    const t22 = await token2022FactsFor(deps, info);
-    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22);
+    const direct = await directMintFactsFor(deps, info, nowUtcMs);
+    const t22 = direct === null ? null : gateFactsFrom(direct);
+    if (direct !== null) persistMintFacts(deps, info, direct);
+    /**
+     * P9 — screen under THIS candidate's cohort window.
+     *
+     * The global 2m-60m bound was applied to every cohort, so a token that
+     * matured into AGE_1H_5H was vetoed `too_old` by a window describing a
+     * different arm. Three of four arms could not produce a screening.
+     */
+    const cohort = cohortOf.get(info.id) ?? null;
+    const bounds =
+      cohort === null ? null : ((COHORT_BOUNDS as Record<string, { fromMs: number; toMs: number }>)[cohort] ?? null);
+    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22, bounds);
     if (deservesQuote) {
       stats.cheapPassed += 1;
       promoted.push({ info, gates, sourceAgeMs });
@@ -242,6 +282,19 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    * The 25% is FROZEN before collection, and every row carries the probability
    * it had of being selected — a biased sample whose bias is unrecorded is
    * worse than no sample, because it looks like evidence.
+   */
+  /**
+   * P10 — a ROLLING allocation.
+   *
+   * `floor(maxQuotesPerCycle * 0.25)` is 0 whenever the budget is under four,
+   * and the configured budget is 2. The stated 25% exploration arm therefore
+   * never ran a single quote — the fraction was real, the floor ate it, and
+   * nothing said so.
+   *
+   * The debt carries across cycles instead: every cycle adds its fractional
+   * entitlement, and a whole slot is spent when one has accumulated. Over many
+   * cycles the realised share converges on the target from below, which is the
+   * honest direction.
    */
   const allocation = allocate(
     promoted.map((p) => ({
@@ -391,6 +444,8 @@ async function measureConcentration(
     const facts = await fetchConcentration(deps.rpc, mint);
     recordSourceHealth(deps.db, 'solana.rpc.concentration', true, null, null);
     stats.concentrationMeasured += 1;
+    await measureEntities(deps, mint, facts);
+    await measureMayhem(deps, mint);
     return facts;
   } catch (e) {
     recordSourceHealth(deps.db, 'solana.rpc.concentration', false, null, (e as Error).message);
@@ -401,31 +456,253 @@ async function measureConcentration(
 }
 
 /**
- * The mint's Token-2022 behaviour, decoded from its own account bytes.
+ * P11 — Mayhem, recorded where it can be established and refused where it cannot.
  *
- * Null when we did not read it — never a fabricated "no extensions". The
- * caller decides what null means, and in a capital mode it means refused.
+ * I first recorded this requirement as having no verifiable source. That was
+ * wrong: `isMayhemMode` is a decoded field on the PumpSwap pool account, in the
+ * same IDL already used to price every swap. What genuinely is not available is
+ * the Mayhem program's own account layout, so agent inventory, buys, sells and
+ * the burn transition stay null with the reason attached rather than being read
+ * out of guessed offsets.
  */
-async function token2022FactsFor(
+async function measureMayhem(deps: CycleDeps, mint: string): Promise<void> {
+  const rpc = deps.rpc;
+  if (rpc === undefined || rpc === null) return;
+  try {
+    const poolKey = canonicalPool(mint);
+    let isMayhem: boolean | null = null;
+    try {
+      const raw = await rpc.getAccountRaw(poolKey);
+      isMayhem = poolAddressesFrom(
+        accountSourceOf([
+          { pubkey: poolKey, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports },
+        ]),
+        poolKey,
+      ).isMayhemMode;
+    } catch {
+      // No canonical pool: nothing has been shown about this mint's Mayhem
+      // mode, which is null and not false.
+      isMayhem = null;
+    }
+
+    const f = mayhemFactsOf({ mint, nowUtcMs: Date.now(), poolIsMayhemMode: isMayhem });
+    const breadth = breadthUsability(f);
+    deps.db
+      .prepare(
+        `INSERT INTO mayhem_facts
+           (mint, observed_utc_ms, enabled, agent_identity, agent_state, agent_inventory_atoms,
+            agent_buy_count, agent_sell_count, agent_buy_lamports, agent_sell_lamports,
+            additional_supply_atoms, burn_transition, hours_since_launch, source)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           observed_utc_ms = excluded.observed_utc_ms,
+           enabled = excluded.enabled,
+           agent_state = excluded.agent_state,
+           source = excluded.source`,
+      )
+      .run(
+        mint,
+        f.observedUtcMs,
+        f.enabled === null ? null : f.enabled ? 1 : 0,
+        null,
+        `${breadth.usability}: ${breadth.reason}`.slice(0, 400),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        f.source,
+      );
+  } catch (e) {
+    log.warn({ mint, err: (e as Error).message }, 'mayhem facts unavailable');
+  }
+}
+
+/**
+ * P11 — entity-adjusted concentration, from links actually built.
+ *
+ * `intelligence/entity.ts` has had union-find clustering and an
+ * entity-vs-address comparison since it was written, and NOTHING built a link.
+ * `cluster()` was therefore always called with an empty list, every holder was
+ * its own entity, and the entity figure was the address figure under another
+ * name. The gap between the two is the whole point — a token whose top ten
+ * addresses hold 18% and whose top ten entities hold 71% is not a decentralised
+ * token that happens to be clustered.
+ *
+ * Runs only where concentration already ran, which is the quote stage, so it
+ * costs the budget on candidates that survived screening rather than on every
+ * discovered mint. A holder whose history could not be read is recorded as
+ * UNKNOWN history, and `concentration()` uses that to decide whether the entity
+ * figure may be trusted at all.
+ */
+async function measureEntities(deps: CycleDeps, mint: string, facts: ConcentrationFacts): Promise<void> {
+  const rpc = deps.rpc;
+  if (rpc === undefined || rpc === null) return;
+  // Cluster on the OWNER; read history from the TOKEN ACCOUNT, whose first
+  // transaction is its creation and whose fee payer is the funder.
+  const holders = facts.holders
+    .filter((h) => h.owner !== null && !h.programControlled)
+    .map((h) => ({ address: h.owner as string, amount: h.amount, historyAddress: h.tokenAccount }));
+  if (holders.length < 2) return;
+
+  try {
+    const built = await buildEntityLinks(
+      {
+        oldestSignatures: async (address, limit) => {
+          const sigs = await rpc.getSignaturesForAddress(address, 200);
+          // The RPC returns newest first. The FIRST transaction is the funding
+          // one, so the oldest page entry is the one that matters.
+          return sigs.slice(-limit);
+        },
+        feePayerOf: (signature) => rpc.getTransactionFeePayer(signature),
+      },
+      holders,
+      { maxHolders: 20 },
+    );
+    const reading = entityConcentrationFrom(built);
+    deps.db
+      .prepare(
+        `INSERT INTO entity_concentration
+           (mint, measured_utc_ms, address_count, entity_count, unknown_history_count, trustworthy,
+            top_entity_1_bps, top_entity_5_bps, top_entity_10_bps, top_entity_20_bps,
+            top_address_1_bps, top_address_5_bps, top_address_10_bps, top_address_20_bps,
+            links_built, detail)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           measured_utc_ms = excluded.measured_utc_ms,
+           address_count = excluded.address_count,
+           entity_count = excluded.entity_count,
+           unknown_history_count = excluded.unknown_history_count,
+           trustworthy = excluded.trustworthy,
+           top_entity_1_bps = excluded.top_entity_1_bps,
+           top_entity_5_bps = excluded.top_entity_5_bps,
+           top_entity_10_bps = excluded.top_entity_10_bps,
+           top_entity_20_bps = excluded.top_entity_20_bps,
+           top_address_1_bps = excluded.top_address_1_bps,
+           top_address_5_bps = excluded.top_address_5_bps,
+           top_address_10_bps = excluded.top_address_10_bps,
+           top_address_20_bps = excluded.top_address_20_bps,
+           links_built = excluded.links_built,
+           detail = excluded.detail`,
+      )
+      .run(
+        mint,
+        Date.now(),
+        reading.addressCount,
+        reading.entityCount,
+        reading.unknownHistoryCount,
+        reading.trustworthy ? 1 : 0,
+        reading.topEntityBps[1],
+        reading.topEntityBps[5],
+        reading.topEntityBps[10],
+        reading.topEntityBps[20],
+        reading.topAddressBps[1],
+        reading.topAddressBps[5],
+        reading.topAddressBps[10],
+        reading.topAddressBps[20],
+        built.links.length,
+        [reading.detail, ...built.notes].join(' | ').slice(0, 500),
+      );
+  } catch (e) {
+    // Entity measurement is enrichment. Losing it must never lose the
+    // screening row, because a filter whose rejects are not stored can never
+    // be evaluated.
+    log.warn({ mint, err: (e as Error).message }, 'entity concentration unavailable');
+  }
+}
+
+/**
+ * The mint's own bytes, graded.
+ *
+ * Null only when there is no RPC to read with. Everything else — an unreadable
+ * account, an undecodable one, an extension newer than this build — comes back
+ * as facts whose verdict is UNKNOWN, because those are three different reasons
+ * to distrust a token and none of them is "it is fine".
+ *
+ * Legacy mints are read too. Mint authority and freeze authority live on a
+ * plain SPL mint as much as on a Token-2022 one, and the gates were taking the
+ * provider's word for both.
+ */
+async function directMintFactsFor(
   deps: CycleDeps,
   info: MintInformation,
-): Promise<Token2022Facts | null> {
-  if (!capitalAtRisk(deps.config.mode)) return null;
-  if (info.tokenProgram !== TOKEN_2022_PROGRAM) return null;
+  nowUtcMs: number,
+): Promise<DirectMintFacts | null> {
   if (deps.rpc === undefined || deps.rpc === null) return null;
+  return readMintFacts(deps.rpc, info.id, {
+    nowUtcMs,
+    currentEpoch: deps.currentEpoch ?? null,
+    cache: mintFactsCache,
+  });
+}
+
+/**
+ * One row per mint, replaced on a re-read.
+ *
+ * Failure here never costs the screening: a mint-facts write that throws would
+ * drop a candidate, and a filter whose rejects are not stored can never be
+ * evaluated.
+ */
+function persistMintFacts(deps: CycleDeps, info: MintInformation, f: DirectMintFacts): void {
   try {
-    const raw = await deps.rpc.getAccountRaw(info.id);
-    const facts = decodeToken2022Mint(Buffer.from(raw.dataBase64, 'base64'), raw.owner);
-    return {
-      hasMoneyCriticalBehaviour: facts.hasMoneyCriticalBehaviour,
-      hasUnknownExtension: facts.hasUnknownExtension,
-      transferFeeBps: facts.transferFeeBps,
-      detail: facts.detail,
-    };
+    const disagree = disagreements(f, info.audit ?? null);
+    deps.db
+      .prepare(
+        `INSERT INTO direct_mint_facts (
+           mint, read_utc_ms, token_program, mint_authority, freeze_authority,
+           permanent_delegate, default_account_state, transfer_hook, non_transferable,
+           pausable, confidential, overall, current_epoch_fee_bps, worst_case_fee_bps,
+           maximum_fee_atoms, extension_types, has_unknown_extension, decode_failure,
+           reasons, provider_disagreements)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           read_utc_ms = excluded.read_utc_ms,
+           token_program = excluded.token_program,
+           mint_authority = excluded.mint_authority,
+           freeze_authority = excluded.freeze_authority,
+           permanent_delegate = excluded.permanent_delegate,
+           default_account_state = excluded.default_account_state,
+           transfer_hook = excluded.transfer_hook,
+           non_transferable = excluded.non_transferable,
+           pausable = excluded.pausable,
+           confidential = excluded.confidential,
+           overall = excluded.overall,
+           current_epoch_fee_bps = excluded.current_epoch_fee_bps,
+           worst_case_fee_bps = excluded.worst_case_fee_bps,
+           maximum_fee_atoms = excluded.maximum_fee_atoms,
+           extension_types = excluded.extension_types,
+           has_unknown_extension = excluded.has_unknown_extension,
+           decode_failure = excluded.decode_failure,
+           reasons = excluded.reasons,
+           provider_disagreements = excluded.provider_disagreements`,
+      )
+      .run(
+        f.mint,
+        f.readUtcMs,
+        f.tokenProgram,
+        f.mintAuthority,
+        f.freezeAuthority,
+        f.permanentDelegate,
+        f.defaultAccountState,
+        f.transferHook,
+        f.nonTransferable,
+        f.pausable,
+        f.confidential,
+        f.overall,
+        f.currentEpochTransferFeeBps,
+        f.worstCaseTransferFeeBps,
+        f.maximumFeeAtoms === null ? null : f.maximumFeeAtoms.toString(),
+        f.extensionTypes.join(','),
+        f.hasUnknownExtension ? 1 : 0,
+        f.decodeFailure,
+        f.reasons.join('; ').slice(0, 400),
+        disagree.length === 0 ? null : JSON.stringify(disagree),
+      );
   } catch {
-    // Unreadable is UNKNOWN, and in a capital mode `screenCheap` refuses on
-    // null. Returning EMPTY here would assert the mint is plain.
-    return null;
+    // A missing table is a migration problem, not a reason to lose the row.
   }
 }
 

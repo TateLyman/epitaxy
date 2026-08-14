@@ -1,0 +1,102 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1786730298203,
+    "sourceCommit": "3f91b6272c865ebb861b6a08572472480734b8d2",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "schema-v34",
+    "contextHash": null,
+    "sampleInclusionQuery": "direct_mint_facts, every mint the screening loop has read"
+  },
+  "mints": 45907,
+  "read": 22748,
+  "unread": 23159,
+  "byTokenProgram": [
+    {
+      "program": "(unread)",
+      "label": "unread",
+      "mints": 23159
+    },
+    {
+      "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "label": "Token-2022",
+      "mints": 21869
+    },
+    {
+      "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "label": "legacy SPL Token",
+      "mints": 879
+    }
+  ],
+  "hostileByField": [
+    {
+      "field": "mint_authority",
+      "n": 11
+    },
+    {
+      "field": "freeze_authority",
+      "n": 18
+    },
+    {
+      "field": "permanent_delegate",
+      "n": 1
+    },
+    {
+      "field": "transfer_hook",
+      "n": 3
+    }
+  ],
+  "hostileTotal": 24,
+  "transferFees": [
+    {
+      "transferFeeBps": 300,
+      "mints": 89,
+      "roundTripFeeBps": 600,
+      "totalMechanicsBps": 841.5,
+      "multipleOfBaselineMechanics": 3.48
+    },
+    {
+      "transferFeeBps": 500,
+      "mints": 1,
+      "roundTripFeeBps": 1000,
+      "totalMechanicsBps": 1241.5,
+      "multipleOfBaselineMechanics": 5.14
+    }
+  ],
+  "extensions": [
+    {
+      "type": 18,
+      "name": "MetadataPointer",
+      "mints": 21867
+    },
+    {
+      "type": 19,
+      "name": "TokenMetadata",
+      "mints": 21867
+    },
+    {
+      "type": 1,
+      "name": "TransferFeeConfig",
+      "mints": 91
+    },
+    {
+      "type": 14,
+      "name": "TransferHook",
+      "mints": 3
+    },
+    {
+      "type": 12,
+      "name": "PermanentDelegate",
+      "mints": 1
+    }
+  ],
+  "unknownExtensionMints": 0,
+  "pendingFeeScheduleChange": 0,
+  "providerDisagreements": 0,
+  "parityCoverage": {
+    "legacyMintsInCorpus": 879,
+    "token2022MintsInCorpus": 21869,
+    "verdict": "legacy SPL base is a SAMPLING gap in the parity matrix, not a universe gap: the corpus holds 879 legacy mints"
+  },
+  "note": "Every figure here is chain-authoritative and none of it existed before P11: the mint read was gated on capitalAtRisk(mode), so paper - the mode that produces this entire corpus - never read one."
+}

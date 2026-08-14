@@ -1,0 +1,423 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1786724337866,
+    "sourceCommit": "e5ea702e3de47712603790148b69438f13d25d9d",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "schema-v34",
+    "contextHash": null,
+    "sampleInclusionQuery": null
+  },
+  "source": "fee config 5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx, from the bytes captured in tests/fixtures/pumpswap-selfimpact.json",
+  "flatFee": {
+    "lpFeeBps": 25,
+    "protocolFeeBps": 5,
+    "creatorFeeBps": 0,
+    "totalBps": 30
+  },
+  "tiers": [
+    {
+      "marketCapThresholdLamports": "0",
+      "marketCapThresholdSol": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "totalBps": 125,
+      "roundTripBps": 250
+    },
+    {
+      "marketCapThresholdLamports": "420000000000",
+      "marketCapThresholdSol": 420,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 95,
+      "totalBps": 120,
+      "roundTripBps": 240
+    },
+    {
+      "marketCapThresholdLamports": "1470000000000",
+      "marketCapThresholdSol": 1470,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 90,
+      "totalBps": 115,
+      "roundTripBps": 230
+    },
+    {
+      "marketCapThresholdLamports": "2460000000000",
+      "marketCapThresholdSol": 2460,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 85,
+      "totalBps": 110,
+      "roundTripBps": 220
+    },
+    {
+      "marketCapThresholdLamports": "3440000000000",
+      "marketCapThresholdSol": 3440,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 80,
+      "totalBps": 105,
+      "roundTripBps": 210
+    },
+    {
+      "marketCapThresholdLamports": "4420000000000",
+      "marketCapThresholdSol": 4420,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 75,
+      "totalBps": 100,
+      "roundTripBps": 200
+    },
+    {
+      "marketCapThresholdLamports": "9820000000000",
+      "marketCapThresholdSol": 9820,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 70,
+      "totalBps": 95,
+      "roundTripBps": 190
+    },
+    {
+      "marketCapThresholdLamports": "14740000000000",
+      "marketCapThresholdSol": 14740,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 65,
+      "totalBps": 90,
+      "roundTripBps": 180
+    },
+    {
+      "marketCapThresholdLamports": "19650000000000",
+      "marketCapThresholdSol": 19650,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 60,
+      "totalBps": 85,
+      "roundTripBps": 170
+    },
+    {
+      "marketCapThresholdLamports": "24560000000000",
+      "marketCapThresholdSol": 24560,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 55,
+      "totalBps": 80,
+      "roundTripBps": 160
+    },
+    {
+      "marketCapThresholdLamports": "29470000000000",
+      "marketCapThresholdSol": 29470,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 50,
+      "totalBps": 75,
+      "roundTripBps": 150
+    },
+    {
+      "marketCapThresholdLamports": "34380000000000",
+      "marketCapThresholdSol": 34380,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 45,
+      "totalBps": 70,
+      "roundTripBps": 140
+    },
+    {
+      "marketCapThresholdLamports": "39300000000000",
+      "marketCapThresholdSol": 39300,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 40,
+      "totalBps": 65,
+      "roundTripBps": 130
+    },
+    {
+      "marketCapThresholdLamports": "44210000000000",
+      "marketCapThresholdSol": 44210,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 35,
+      "totalBps": 60,
+      "roundTripBps": 120
+    },
+    {
+      "marketCapThresholdLamports": "49120000000000",
+      "marketCapThresholdSol": 49120,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 30,
+      "totalBps": 55,
+      "roundTripBps": 110
+    },
+    {
+      "marketCapThresholdLamports": "54030000000000",
+      "marketCapThresholdSol": 54030,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 28,
+      "totalBps": 53,
+      "roundTripBps": 106
+    },
+    {
+      "marketCapThresholdLamports": "58940000000000",
+      "marketCapThresholdSol": 58940,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 25,
+      "totalBps": 50,
+      "roundTripBps": 100
+    },
+    {
+      "marketCapThresholdLamports": "63860000000000",
+      "marketCapThresholdSol": 63860,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 23,
+      "totalBps": 48,
+      "roundTripBps": 96
+    },
+    {
+      "marketCapThresholdLamports": "68770000000000",
+      "marketCapThresholdSol": 68770,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 20,
+      "totalBps": 45,
+      "roundTripBps": 90
+    },
+    {
+      "marketCapThresholdLamports": "73681000000000",
+      "marketCapThresholdSol": 73681,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 18,
+      "totalBps": 43,
+      "roundTripBps": 86
+    },
+    {
+      "marketCapThresholdLamports": "78590000000000",
+      "marketCapThresholdSol": 78590,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 15,
+      "totalBps": 40,
+      "roundTripBps": 80
+    },
+    {
+      "marketCapThresholdLamports": "83500000000000",
+      "marketCapThresholdSol": 83500,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 13,
+      "totalBps": 38,
+      "roundTripBps": 76
+    },
+    {
+      "marketCapThresholdLamports": "88400000000000",
+      "marketCapThresholdSol": 88400,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 10,
+      "totalBps": 35,
+      "roundTripBps": 70
+    },
+    {
+      "marketCapThresholdLamports": "93330000000000",
+      "marketCapThresholdSol": 93330,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 8,
+      "totalBps": 33,
+      "roundTripBps": 66
+    },
+    {
+      "marketCapThresholdLamports": "98240000000000",
+      "marketCapThresholdSol": 98240,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 5,
+      "totalBps": 30,
+      "roundTripBps": 60
+    }
+  ],
+  "boundaries": [
+    {
+      "marketCapLamports": "420000000000",
+      "marketCapSol": 420,
+      "belowRoundTripBps": 250,
+      "aboveRoundTripBps": 240,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "1470000000000",
+      "marketCapSol": 1470,
+      "belowRoundTripBps": 240,
+      "aboveRoundTripBps": 230,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "2460000000000",
+      "marketCapSol": 2460,
+      "belowRoundTripBps": 230,
+      "aboveRoundTripBps": 220,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "3440000000000",
+      "marketCapSol": 3440,
+      "belowRoundTripBps": 220,
+      "aboveRoundTripBps": 210,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "4420000000000",
+      "marketCapSol": 4420,
+      "belowRoundTripBps": 210,
+      "aboveRoundTripBps": 200,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "9820000000000",
+      "marketCapSol": 9820,
+      "belowRoundTripBps": 200,
+      "aboveRoundTripBps": 190,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "14740000000000",
+      "marketCapSol": 14740,
+      "belowRoundTripBps": 190,
+      "aboveRoundTripBps": 180,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "19650000000000",
+      "marketCapSol": 19650,
+      "belowRoundTripBps": 180,
+      "aboveRoundTripBps": 170,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "24560000000000",
+      "marketCapSol": 24560,
+      "belowRoundTripBps": 170,
+      "aboveRoundTripBps": 160,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "29470000000000",
+      "marketCapSol": 29470,
+      "belowRoundTripBps": 160,
+      "aboveRoundTripBps": 150,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "34380000000000",
+      "marketCapSol": 34380,
+      "belowRoundTripBps": 150,
+      "aboveRoundTripBps": 140,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "39300000000000",
+      "marketCapSol": 39300,
+      "belowRoundTripBps": 140,
+      "aboveRoundTripBps": 130,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "44210000000000",
+      "marketCapSol": 44210,
+      "belowRoundTripBps": 130,
+      "aboveRoundTripBps": 120,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "49120000000000",
+      "marketCapSol": 49120,
+      "belowRoundTripBps": 120,
+      "aboveRoundTripBps": 110,
+      "stepBps": -10
+    },
+    {
+      "marketCapLamports": "54030000000000",
+      "marketCapSol": 54030,
+      "belowRoundTripBps": 110,
+      "aboveRoundTripBps": 106,
+      "stepBps": -4
+    },
+    {
+      "marketCapLamports": "58940000000000",
+      "marketCapSol": 58940,
+      "belowRoundTripBps": 106,
+      "aboveRoundTripBps": 100,
+      "stepBps": -6
+    },
+    {
+      "marketCapLamports": "63860000000000",
+      "marketCapSol": 63860,
+      "belowRoundTripBps": 100,
+      "aboveRoundTripBps": 96,
+      "stepBps": -4
+    },
+    {
+      "marketCapLamports": "68770000000000",
+      "marketCapSol": 68770,
+      "belowRoundTripBps": 96,
+      "aboveRoundTripBps": 90,
+      "stepBps": -6
+    },
+    {
+      "marketCapLamports": "73681000000000",
+      "marketCapSol": 73681,
+      "belowRoundTripBps": 90,
+      "aboveRoundTripBps": 86,
+      "stepBps": -4
+    },
+    {
+      "marketCapLamports": "78590000000000",
+      "marketCapSol": 78590,
+      "belowRoundTripBps": 86,
+      "aboveRoundTripBps": 80,
+      "stepBps": -6
+    },
+    {
+      "marketCapLamports": "83500000000000",
+      "marketCapSol": 83500,
+      "belowRoundTripBps": 80,
+      "aboveRoundTripBps": 76,
+      "stepBps": -4
+    },
+    {
+      "marketCapLamports": "88400000000000",
+      "marketCapSol": 88400,
+      "belowRoundTripBps": 76,
+      "aboveRoundTripBps": 70,
+      "stepBps": -6
+    },
+    {
+      "marketCapLamports": "93330000000000",
+      "marketCapSol": 93330,
+      "belowRoundTripBps": 70,
+      "aboveRoundTripBps": 66,
+      "stepBps": -4
+    },
+    {
+      "marketCapLamports": "98240000000000",
+      "marketCapSol": 98240,
+      "belowRoundTripBps": 66,
+      "aboveRoundTripBps": 60,
+      "stepBps": -6
+    }
+  ],
+  "mechanicsFloorRange": {
+    "minBps": 60,
+    "maxBps": 250,
+    "spreadBps": 190
+  },
+  "measuredDragBps": 241.5,
+  "reading": "the round-trip fee ranges from 60 to 250 bps across 25 tiers (a spread of 190 bps). The size surface measured 241.5 bps, which is one point in that range and not a constant of the venue.",
+  "parityGap": "24 boundaries exist and the parity matrix straddled none of them: every sampled mint sat inside a single tier, so the step itself is untested"
+}

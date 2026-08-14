@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1786730910181,
+    "sourceCommit": "ae7a2227af1ce97432e0c2195fd2ecc54e73e5b4",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "schema-v34",
+    "contextHash": null,
+    "sampleInclusionQuery": null
+  },
+  "scanned": 119,
+  "found": 1,
+  "legacyBase": [
+    "32JYTad94RuoXZnuwfAyD3137d7qpUgVKSfm8BFrpump"
+  ],
+  "nonSolQuote": [],
+  "aboveBottomTier": [],
+  "feeTableLoaded": true,
+  "boundariesAvailable": 24,
+  "candidates": [
+    {
+      "mint": "32JYTad94RuoXZnuwfAyD3137d7qpUgVKSfm8BFrpump",
+      "pool": "7nQS9ndpB5dNXxHYgskCxKjio6iqbgiK6rstYJRG2eMz",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "771006172168684",
+      "quoteReserve": "5413719632",
+      "effectiveQuoteLamports": "22998224978",
+      "tierThresholdLamports": "0",
+      "tierRoundTripBps": 250,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    }
+  ],
+  "reading": [
+    "1 legacy-base pool(s) found — the cell is samplable",
+    "every pool scanned quotes wrapped SOL",
+    "every pool scanned sits in the bottom fee tier, so no straddle is available from this sample"
+  ]
+}

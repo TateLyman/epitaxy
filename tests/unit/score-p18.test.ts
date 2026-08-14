@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { opportunityScore, MIN_SCORE_COVERAGE, STRATEGY_VERSION } from '../../packages/strategy/src/score.js';
+import { loadConfig } from '../../packages/domain/src/config.js';
 
 /**
  * P18 — arithmetic that is wrong independent of any outcome.
@@ -79,6 +80,20 @@ describe('P18 — the score does not penalise our own gaps', () => {
   });
 
   it('bumped the strategy version, because the produced number changed meaning', () => {
-    expect(STRATEGY_VERSION).toBe('delayed-momentum-v0.5.0');
+    expect(STRATEGY_VERSION).toBe('delayed-momentum-v0.6.0');
+  });
+
+  it('P12 — every config stamps rows with the version the code implements', () => {
+    /**
+     * The hard provenance defect this kills: the code computed v0.5 semantics
+     * while all four config files still stamped rows `delayed-momentum-v0.4.0`.
+     * Every row written in between claims a scorer that no longer existed, and
+     * no reader could tell which semantics produced it.
+     *
+     * A version is only a version when the rows carry it.
+     */
+    for (const mode of ['paper', 'observe', 'canary', 'live'] as const) {
+      expect(loadConfig(mode).strategyVersion).toBe(STRATEGY_VERSION);
+    }
   });
 });

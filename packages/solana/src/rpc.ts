@@ -54,6 +54,44 @@ const GetAccountInfoSchema = rpcEnvelope(
 );
 
 const GetSlotSchema = rpcEnvelope(z.number());
+const GetEpochInfoSchema = rpcEnvelope(z.object({ epoch: z.number() }).passthrough());
+const GetSignaturesSchema = rpcEnvelope(
+  z.array(z.object({ signature: z.string(), blockTime: z.number().nullable().optional() }).passthrough()),
+);
+const GetTransactionMetaSchema = rpcEnvelope(
+  z
+    .object({
+      slot: z.number().optional(),
+      blockTime: z.number().nullable().optional(),
+      meta: z
+        .object({
+          err: z.unknown().nullable().optional(),
+          fee: z.number().optional(),
+          preTokenBalances: z.array(z.unknown()).nullable().optional(),
+          postTokenBalances: z.array(z.unknown()).nullable().optional(),
+          preBalances: z.array(z.number()).nullable().optional(),
+          postBalances: z.array(z.number()).nullable().optional(),
+          logMessages: z.array(z.string()).nullable().optional(),
+        })
+        .passthrough()
+        .nullable(),
+      transaction: z
+        .object({ message: z.object({ accountKeys: z.array(z.unknown()) }).passthrough() })
+        .passthrough(),
+    })
+    .passthrough()
+    .nullable(),
+);
+const GetTransactionSchema = rpcEnvelope(
+  z
+    .object({
+      transaction: z
+        .object({ message: z.object({ accountKeys: z.array(z.unknown()) }).passthrough() })
+        .passthrough(),
+    })
+    .passthrough()
+    .nullable(),
+);
 
 const GetHealthSchema = rpcEnvelope(z.string());
 
@@ -180,6 +218,123 @@ export class SolanaRpc {
   async getSlot(): Promise<number> {
     const env = await this.call('getSlot', [{ commitment: 'confirmed' }], GetSlotSchema);
     return this.unwrap(env, 'getSlot');
+  }
+
+  /**
+   * The current epoch.
+   *
+   * A Token-2022 transfer-fee config carries an older and a newer schedule and
+   * the epoch is what selects between them. Without it the decoder has to
+   * assume the worst of the two, which is safe and is also wrong most of the
+   * time — the newer schedule is usually not live yet, and grading every such
+   * mint at its future fee rejects tokens for a cost nobody is paying.
+   */
+  async getEpoch(): Promise<bigint> {
+    const env = await this.call('getEpochInfo', [{ commitment: 'confirmed' }], GetEpochInfoSchema);
+    const value = this.unwrap(env, 'getEpochInfo').epoch;
+    if (!Number.isSafeInteger(value)) {
+      throw new RpcError('rpc_error', `getEpochInfo returned unsafe integer ${value}`);
+    }
+    return BigInt(value);
+  }
+
+  /**
+   * Signatures for an address, oldest LAST as the RPC returns them.
+   *
+   * Bounded by the caller because an address with a long history is not one
+   * this system needs the history of: the entity link it is looking for is the
+   * account's FIRST transaction, and a token account that has thousands of them
+   * is not a fresh holder of a fresh memecoin.
+   */
+  async getSignaturesForAddress(address: string, limit = 50): Promise<{ signature: string; blockTime: number | null }[]> {
+    assertPubkey(address, 'signatures address');
+    const env = await this.call(
+      'getSignaturesForAddress',
+      [address, { limit, commitment: 'confirmed' }],
+      GetSignaturesSchema,
+    );
+    return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
+      signature: r.signature,
+      blockTime: r.blockTime ?? null,
+    }));
+  }
+
+  /**
+   * The fee payer of a transaction: account key zero, by definition.
+   *
+   * Null rather than a throw when the transaction cannot be read, because the
+   * caller's correct response to "unknown funder" is to mark the holder's
+   * history unknown — not to drop the holder, and certainly not to treat it as
+   * independently funded.
+   */
+  async getTransactionFeePayer(signature: string): Promise<string | null> {
+    const env = await this.call(
+      'getTransaction',
+      [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+      GetTransactionSchema,
+    );
+    const tx = this.unwrap(env, 'getTransaction');
+    if (tx === null) return null;
+    const first = tx.transaction.message.accountKeys[0];
+    if (typeof first === 'string') return first;
+    if (typeof first === 'object' && first !== null && 'pubkey' in first) {
+      const k = (first as { pubkey?: unknown }).pubkey;
+      return typeof k === 'string' ? k : null;
+    }
+    return null;
+  }
+
+  /**
+   * A landed transaction, with the balance deltas the chain itself recorded.
+   *
+   * The point of this method is that `meta.preTokenBalances` carries the pool
+   * vaults' contents BEFORE the swap. That is state at a historical slot, and
+   * reading it normally needs an archival node — but the transaction carries
+   * its own before-and-after, so a landed swap can be compared against a model
+   * without any archival access at all.
+   */
+  async getTransactionWithMeta(signature: string): Promise<LandedTransaction | null> {
+    const env = await this.call(
+      'getTransaction',
+      [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+      GetTransactionMetaSchema,
+    );
+    const tx = this.unwrap(env, 'getTransaction');
+    if (tx === null || tx.meta === null || tx.meta === undefined) return null;
+
+    const balances = (rows: unknown[] | null | undefined): TokenBalanceRow[] =>
+      (rows ?? []).flatMap((r) => {
+        const o = r as {
+          accountIndex?: number;
+          mint?: string;
+          owner?: string;
+          uiTokenAmount?: { amount?: string };
+        };
+        if (typeof o.accountIndex !== 'number' || typeof o.mint !== 'string') return [];
+        const amount = o.uiTokenAmount?.amount;
+        if (typeof amount !== 'string') return [];
+        return [{ accountIndex: o.accountIndex, mint: o.mint, owner: o.owner ?? null, amount: BigInt(amount) }];
+      });
+
+    const keys = tx.transaction.message.accountKeys.map((k) => {
+      if (typeof k === 'string') return k;
+      const o = k as { pubkey?: unknown };
+      return typeof o.pubkey === 'string' ? o.pubkey : '';
+    });
+
+    return {
+      signature,
+      slot: tx.slot ?? null,
+      blockTime: tx.blockTime ?? null,
+      failed: tx.meta.err !== null && tx.meta.err !== undefined,
+      feeLamports: BigInt(tx.meta.fee ?? 0),
+      accountKeys: keys,
+      preTokenBalances: balances(tx.meta.preTokenBalances),
+      postTokenBalances: balances(tx.meta.postTokenBalances),
+      preBalances: (tx.meta.preBalances ?? []).map((n) => BigInt(n)),
+      postBalances: (tx.meta.postBalances ?? []).map((n) => BigInt(n)),
+      logMessages: tx.meta.logMessages ?? [],
+    };
   }
 
   async getHealth(): Promise<string> {
@@ -392,6 +547,28 @@ const SPL_ACCOUNT_OWNER_OFFSET = 32;
  * owned by its AMM. This is a shape test, not a hardcoded venue list, so a new
  * launchpad does not silently defeat it.
  */
+export interface TokenBalanceRow {
+  readonly accountIndex: number;
+  readonly mint: string;
+  readonly owner: string | null;
+  readonly amount: bigint;
+}
+
+export interface LandedTransaction {
+  readonly signature: string;
+  readonly slot: number | null;
+  readonly blockTime: number | null;
+  readonly failed: boolean;
+  readonly feeLamports: bigint;
+  readonly accountKeys: readonly string[];
+  /** What the chain recorded BEFORE the transaction. Ground truth, not a model. */
+  readonly preTokenBalances: readonly TokenBalanceRow[];
+  readonly postTokenBalances: readonly TokenBalanceRow[];
+  readonly preBalances: readonly bigint[];
+  readonly postBalances: readonly bigint[];
+  readonly logMessages: readonly string[];
+}
+
 export async function fetchConcentration(rpc: SolanaRpc, mint: string): Promise<ConcentrationFacts> {
   const [largest, supply] = await Promise.all([rpc.getTokenLargestAccounts(mint), rpc.getTokenSupply(mint)]);
 

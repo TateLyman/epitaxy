@@ -49,8 +49,22 @@ export function buildCloseAccount(p: {
   tokenProgram: string;
   residualAtoms: bigint;
   withheldAtoms: bigint;
+  /**
+   * Wrapped SOL, where a non-zero balance is not an obstacle.
+   *
+   * `CloseAccount` on a native account is the documented way to UNWRAP: the
+   * program transfers the whole lamport balance to the destination and closes.
+   * Applying the non-empty refusal to it would make the exit unable to convert
+   * its own proceeds back to spendable SOL, so the proceeds would sit wrapped
+   * and every measured round trip would read as a total loss of them.
+   *
+   * It is a separate flag rather than a mint comparison because the caller is
+   * the only one that knows whether the account it holds is the native one.
+   */
+  isNativeWrappedSol?: boolean;
 }): CloseAccountInstruction {
-  if (p.residualAtoms !== 0n) {
+  const native = p.isNativeWrappedSol === true;
+  if (p.residualAtoms !== 0n && !native) {
     throw new CannotClose(`${p.residualAtoms} atoms remain; CloseAccount fails on a non-empty account`);
   }
   if (p.withheldAtoms !== 0n) {

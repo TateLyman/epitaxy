@@ -346,6 +346,49 @@ export interface OpenShadowRow {
   opened_utc_ms: number;
   /** P11 — the episode this book position belongs to, so closing it can end it. */
   signal_episode_id: string | null;
+  /** P6 — the trigger, remembered between cycles. Null while still open. */
+  triggered_utc_ms: number | null;
+  trigger_observation_id: string | null;
+  trigger_value_lamports: string | null;
+  trigger_reason: string | null;
+  exit_attempts: number | null;
+  blocked_reason: string | null;
+}
+
+/**
+ * How many trajectories each tournament arm already holds.
+ *
+ * Read from the corpus rather than kept in memory, so two processes and a
+ * restart all see the same allocation state.
+ */
+export function armCounts(db: Db): Map<string, number> {
+  const out = new Map<string, number>();
+  try {
+    const rows = db
+      .prepare(
+        `SELECT tournament_entry_arm AS e, tournament_exit_arm AS x, COUNT(*) AS n
+           FROM shadow_positions
+          WHERE tournament_entry_arm IS NOT NULL
+          GROUP BY 1, 2`,
+      )
+      .all() as { e: string; x: string; n: number }[];
+    for (const r of rows) out.set(`${r.e}|${r.x}`, Number(r.n));
+  } catch {
+    // Before the migration there are no arms, which is the same as none held.
+  }
+  return out;
+}
+
+/** Stamp the arm on a trajectory. Never on a closed one. */
+export function assignTournamentArm(db: Db, shadowPositionId: string, entry: string, exit: string): void {
+  try {
+    db.prepare(
+      `UPDATE shadow_positions SET tournament_entry_arm = ?, tournament_exit_arm = ?
+        WHERE shadow_position_id = ? AND tournament_entry_arm IS NULL AND state != 'POSITION_CLOSED'`,
+    ).run(entry, exit, shadowPositionId);
+  } catch {
+    // A missing column is a migration problem, not a reason to lose the row.
+  }
 }
 
 export function openShadowPositions(db: Db, book?: ShadowBook): OpenShadowRow[] {
@@ -407,6 +450,141 @@ export function closeShadowPosition(
     c.exitObservationId,
     shadowPositionId,
   );
+}
+
+/**
+ * P6 — record the trigger WITHOUT closing.
+ *
+ * The whole defect in one function's absence: the old loop went from
+ * `decideExit` straight to `closeShadowPosition`, at the triggering mark's own
+ * value. That is a fill at the price that caused the decision to exit, observed
+ * before the decision existed — the one price a real exit can never get.
+ *
+ * The state machine in `domain/shadow-lifecycle.ts` has forbidden that
+ * transition since it was written. Nothing imported it.
+ */
+export function triggerShadowExit(
+  db: Db,
+  shadowPositionId: string,
+  t: {
+    triggeredUtcMs: number;
+    observationId: string | null;
+    valueLamports: bigint | null;
+    reason: string;
+  },
+): void {
+  db.prepare(
+    `UPDATE shadow_positions
+        SET state = 'AWAITING_FILL_OBSERVATION',
+            triggered_utc_ms = ?, trigger_observation_id = ?,
+            trigger_value_lamports = ?, trigger_reason = ?
+      WHERE shadow_position_id = ? AND state = 'POSITION_OPEN'`,
+  ).run(
+    t.triggeredUtcMs,
+    t.observationId,
+    t.valueLamports === null ? null : t.valueLamports.toString(),
+    t.reason,
+    shadowPositionId,
+  );
+}
+
+/**
+ * The exit could not be filled this cycle. Exposure is still ours.
+ *
+ * Not terminal, and not a close. A blocked position keeps its tokens, keeps its
+ * rent locked and keeps being worked, which is the only honest thing to do with
+ * a position whose exit does not exist yet.
+ */
+export function blockShadowExit(db: Db, shadowPositionId: string, reason: string): void {
+  db.prepare(
+    `UPDATE shadow_positions
+        SET state = 'EXIT_BLOCKED', exit_attempts = COALESCE(exit_attempts, 0) + 1, blocked_reason = ?
+      WHERE shadow_position_id = ? AND state IN ('AWAITING_FILL_OBSERVATION','EXIT_BLOCKED')`,
+  ).run(reason.slice(0, 300), shadowPositionId);
+}
+
+/** A blocked position becomes fillable again without losing its trigger. */
+export function resumeShadowExit(db: Db, shadowPositionId: string): void {
+  db.prepare(
+    `UPDATE shadow_positions SET state = 'AWAITING_FILL_OBSERVATION'
+      WHERE shadow_position_id = ? AND state = 'EXIT_BLOCKED'`,
+  ).run(shadowPositionId);
+}
+
+/** Close at a LATER fill, recording the latency and what the trigger price would have flattered. */
+export function fillShadowExit(
+  db: Db,
+  shadowPositionId: string,
+  c: {
+    realizedLamports: bigint;
+    closedUtcMs: number;
+    exitReason: string;
+    diagnostic: string;
+    exitObservationId: string | null;
+    fillLatencyMs: number;
+    lookAheadBiasLamports: bigint | null;
+  },
+): void {
+  db.prepare(
+    `UPDATE shadow_positions
+        SET state='POSITION_CLOSED', realized_lamports=?, closed_utc_ms=?, exit_reason=?,
+            diagnostic=?, exit_observation_id=?, token_amount='0',
+            fill_latency_ms=?, look_ahead_bias_lamports=?
+      WHERE shadow_position_id = ? AND state IN ('AWAITING_FILL_OBSERVATION','EXIT_BLOCKED')`,
+  ).run(
+    c.realizedLamports.toString(),
+    c.closedUtcMs,
+    c.exitReason,
+    c.diagnostic,
+    c.exitObservationId,
+    c.fillLatencyMs,
+    c.lookAheadBiasLamports === null ? null : c.lookAheadBiasLamports.toString(),
+    shadowPositionId,
+  );
+}
+
+/**
+ * The marks recorded since a trigger, oldest first, as fill candidates.
+ *
+ * `resolveFill` decides which one is the fill. It is given every later mark
+ * rather than the newest, because "the FIRST later valid observation" is the
+ * rule and picking the newest would be choosing the fill after seeing them all.
+ */
+export function fillCandidatesSince(
+  db: Db,
+  shadowPositionId: string,
+  sinceUtcMs: number,
+): {
+  observationId: string;
+  observedUtcMs: number;
+  family: string;
+  effectValid: boolean;
+  executableLamports: bigint | null;
+}[] {
+  const rows = db
+    .prepare(
+      `SELECT m.observation_id AS id, m.observed_utc_ms AS at, m.executable_value_lamports AS val,
+              o.family AS family, j.simulated_effect_ok AS effect
+         FROM shadow_marks m
+         LEFT JOIN execution_observations o ON o.observation_id = m.observation_id
+         LEFT JOIN simulation_jobs j ON j.execution_observation_id = m.observation_id
+        WHERE m.shadow_position_id = ? AND m.observed_utc_ms >= ? AND m.observation_id IS NOT NULL
+        ORDER BY m.observed_utc_ms ASC`,
+    )
+    .all(shadowPositionId, sinceUtcMs) as {
+    id: string;
+    at: number;
+    val: string | null;
+    family: string | null;
+    effect: number | null;
+  }[];
+  return rows.map((r) => ({
+    observationId: r.id,
+    observedUtcMs: Number(r.at),
+    family: r.family ?? 'UNKNOWN',
+    effectValid: r.effect === 1,
+    executableLamports: r.val === null ? null : BigInt(r.val),
+  }));
 }
 
 export function updateShadowPeak(db: Db, shadowPositionId: string, peak: bigint): void {

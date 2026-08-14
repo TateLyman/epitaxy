@@ -1673,6 +1673,369 @@ CREATE INDEX IF NOT EXISTS idx_direct_events_kind ON direct_chain_events(kind, r
 `,
   },
 
+  {
+    id: 28,
+    name: 'bounded_event_pipeline',
+    sql: `
+-- P8 -- compact, decision-useful events instead of a firehose.
+--
+-- The previous build wrote every raw notification synchronously to this
+-- database: 1,055 events/second, 6,981,407 rows in 111 minutes, a projected
+-- 91 million rows/day, and 2.97 GB -> 6.15 GB in one session. Sixty-eight per
+-- cent were UNKNOWN. The decision-useful yield was 43 migration events.
+--
+-- direct_chain_events is RETAINED but no longer written by the engine. The
+-- rows already there are evidence of what the firehose did and deleting them
+-- would erase the finding.
+CREATE TABLE IF NOT EXISTS chain_events (
+  signature             TEXT NOT NULL,
+  program_id            TEXT NOT NULL,
+  slot                  INTEGER NOT NULL,
+  kind                  TEXT NOT NULL,
+  instruction           TEXT,
+  -- The identity a decision needs. NULL means the logs did not name one, which
+  -- is why an event without either is dropped rather than stored.
+  mint                  TEXT,
+  pool                  TEXT,
+  commitment            TEXT NOT NULL,
+  received_monotonic_ms INTEGER NOT NULL,
+  received_utc_ms       INTEGER NOT NULL,
+  tx_error              TEXT,
+  -- Set when a later read at confirmed/finalized disagrees with processed.
+  reversal_status       TEXT,
+  PRIMARY KEY (signature, program_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chain_events_mint ON chain_events(mint, received_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_chain_events_kind ON chain_events(kind, received_utc_ms);
+
+-- Aggregate flow, so throughput is measurable without keeping every row.
+CREATE TABLE IF NOT EXISTS chain_flow_bars (
+  bucket_utc_ms         INTEGER NOT NULL,
+  program_id            TEXT NOT NULL,
+  trades                INTEGER NOT NULL DEFAULT 0,
+  migrations            INTEGER NOT NULL DEFAULT 0,
+  launches              INTEGER NOT NULL DEFAULT 0,
+  configs               INTEGER NOT NULL DEFAULT 0,
+  unknown               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_utc_ms, program_id)
+);
+
+-- What the pipeline dropped, and why. A dropped event is a coverage fact.
+CREATE TABLE IF NOT EXISTS chain_pipeline_health (
+  observed_utc_ms       INTEGER PRIMARY KEY,
+  received              INTEGER NOT NULL,
+  parsed                INTEGER NOT NULL,
+  unknown               INTEGER NOT NULL,
+  duplicates            INTEGER NOT NULL,
+  dropped               INTEGER NOT NULL,
+  persisted             INTEGER NOT NULL,
+  queue_high_water      INTEGER NOT NULL,
+  bytes_in              INTEGER NOT NULL
+);
+
+-- A bounded sample of what the parser could NOT name, so it stays auditable.
+CREATE TABLE IF NOT EXISTS chain_unknown_samples (
+  signature             TEXT PRIMARY KEY,
+  program_id            TEXT NOT NULL,
+  slot                  INTEGER NOT NULL,
+  logs_json             TEXT NOT NULL,
+  received_utc_ms       INTEGER NOT NULL
+);
+`,
+  },
+
+  {
+    id: 29,
+    name: 'flow_bars_by_mint',
+    sql: `
+-- P8 -- trades are AGGREGATED, not stored.
+--
+-- Trades outnumber every other kind by two orders of magnitude and no decision
+-- reads an individual one: the candidate queue wants launches, migration age
+-- wants migrations, and the flow signal wants COUNTS per mint per interval.
+-- Storing each trade reproduced the firehose at a seventh of the size, which
+-- is still 19 million rows a day.
+--
+-- A NEW table rather than a rebuilt one. The v1 bars keep the 46 rows they
+-- already hold: the project guard refuses destructive SQL against the ledger,
+-- and it is right to - dropping a table to change a primary key is exactly the
+-- move that loses data nobody noticed was load-bearing.
+CREATE TABLE IF NOT EXISTS chain_flow_bars_v2 (
+  bucket_utc_ms         INTEGER NOT NULL,
+  program_id            TEXT NOT NULL,
+  -- Empty string when the logs did not name a mint. Never NULL, so the
+  -- primary key stays usable.
+  mint                  TEXT NOT NULL DEFAULT '',
+  trades                INTEGER NOT NULL DEFAULT 0,
+  migrations            INTEGER NOT NULL DEFAULT 0,
+  launches              INTEGER NOT NULL DEFAULT 0,
+  configs               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_utc_ms, program_id, mint)
+);
+CREATE INDEX IF NOT EXISTS idx_flow_bars_v2_mint ON chain_flow_bars_v2(mint, bucket_utc_ms);
+`,
+  },
+
+  {
+    id: 30,
+    name: 'confirmatory_positions_v3',
+    sql: `
+-- P16 -- one position, one row.
+--
+-- v1 and v2 JOIN simulation_jobs on the observation id. An observation has up
+-- to THREE simulation jobs in the live corpus, so a position with three
+-- qualifying entry jobs and three qualifying exit jobs produces NINE rows -
+-- and every count, every mean and every bootstrap over that view is inflated
+-- by a factor nobody can see from the outside.
+--
+-- v3 uses EXISTS. The qualifying job is a CONDITION on the position, not a row
+-- multiplied into it, so the cardinality is the position's own.
+--
+-- v1 and v2 are retained unchanged: a view edited in place rewrites history.
+CREATE VIEW IF NOT EXISTS confirmatory_positions_v3 AS
+SELECT
+  p.position_id, p.mint, p.cost_lamports, p.realized_lamports,
+  p.net_pnl_lamports, p.execution_cost_lamports, p.gross_proceeds_lamports,
+  p.entry_cash_out_lamports, p.exit_cash_in_lamports, p.locked_rent_lamports,
+  p.residual_token_atoms, p.exit_fill_latency_ms,
+  p.opened_utc_ms, p.closed_utc_ms, p.cohort, p.strategy_version,
+  e.family AS family,
+  e.observation_id AS entry_observation_id,
+  x.observation_id AS exit_observation_id,
+  c.source_commit  AS source_commit,
+  c.context_hash   AS context_hash
+FROM positions p
+JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+JOIN run_contexts c           ON c.context_hash   = p.context_hash
+WHERE
+  p.closed_utc_ms IS NOT NULL
+  AND CAST(p.token_amount AS INTEGER) = 0
+  AND c.source_commit NOT LIKE '%+dirty'
+  AND e.family = x.family
+  AND e.side = 'buy' AND x.side = 'sell'
+  AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
+  AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+  AND e.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND x.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND e.exact_transaction_blob IS NOT NULL AND x.exact_transaction_blob IS NOT NULL
+  AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL
+  -- the explicit cash flow, and the identity CHECKED rather than trusted
+  AND p.net_pnl_lamports IS NOT NULL
+  AND p.entry_cash_out_lamports IS NOT NULL
+  AND p.exit_cash_in_lamports IS NOT NULL
+  AND p.locked_rent_lamports IS NOT NULL
+  AND CAST(p.net_pnl_lamports AS INTEGER)
+      = CAST(p.exit_cash_in_lamports AS INTEGER) - CAST(p.entry_cash_out_lamports AS INTEGER)
+  -- P4: execution cost is costs only, so it can never reach the cash out
+  AND CAST(p.execution_cost_lamports AS INTEGER) < CAST(p.entry_cash_out_lamports AS INTEGER)
+  -- nothing left behind
+  AND p.residual_token_atoms IS NOT NULL
+  AND CAST(p.residual_token_atoms AS INTEGER) = 0
+  -- the trigger is not the fill
+  AND p.exit_triggered_utc_ms IS NOT NULL
+  AND p.exit_fill_latency_ms IS NOT NULL
+  AND p.exit_fill_latency_ms >= 1200
+  -- one frozen arm
+  AND p.strategy_version IS NOT NULL
+  AND p.cohort IS NOT NULL
+  -- EXISTS, not JOIN. This is the cardinality fix: a qualifying job is a
+  -- condition on the position rather than a row multiplied into it.
+  AND EXISTS (
+    SELECT 1 FROM simulation_jobs je
+    WHERE je.execution_observation_id = e.observation_id
+      AND je.simulated_effect_ok = 1
+      AND je.account_coverage_ok = 1
+      AND je.confirmatory = 1
+      AND je.validity = 'VALID_CONFIRMATORY'
+      AND je.snapshot_manifest_hash IS NOT NULL
+      AND je.replayable = 'REPLAYABLE'
+  )
+  AND EXISTS (
+    SELECT 1 FROM simulation_jobs jx
+    WHERE jx.execution_observation_id = x.observation_id
+      AND jx.simulated_effect_ok = 1
+      AND jx.account_coverage_ok = 1
+      AND jx.confirmatory = 1
+      AND jx.validity = 'VALID_CONFIRMATORY'
+      AND jx.snapshot_manifest_hash IS NOT NULL
+      AND jx.replayable = 'REPLAYABLE'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM clock_checkpoints k
+    WHERE k.resync_required = 1 AND k.resync_done_utc_ms IS NULL
+  );
+`,
+  },
+
+  {
+    id: 31,
+    name: 'direct_mint_facts',
+    sql: `
+-- P11 -- what the CHAIN says about a mint, kept per mint rather than per row.
+--
+-- The pipeline read the mint only when capital was at risk, so paper -- the
+-- mode that produces the entire research corpus -- never read one. Nothing in
+-- the corpus can currently say how often a candidate carries a freeze
+-- authority, a transfer hook or a permanent delegate, which means the gate
+-- that would refuse those in a capital mode has never been exercised and its
+-- cost has never been measured. A risk control first run with money on it is
+-- not a risk control.
+--
+-- Keyed by mint and not by screening: these facts belong to the token, they
+-- change on the order of a governance action, and duplicating them per row
+-- would make a re-read look like a new fact.
+CREATE TABLE IF NOT EXISTS direct_mint_facts (
+  mint                        TEXT PRIMARY KEY,
+  read_utc_ms                 INTEGER NOT NULL,
+  token_program               TEXT,
+  -- SAFE / HOSTILE / UNKNOWN. Three states everywhere, never two.
+  mint_authority              TEXT NOT NULL,
+  freeze_authority            TEXT NOT NULL,
+  permanent_delegate          TEXT NOT NULL,
+  default_account_state       TEXT NOT NULL,
+  transfer_hook               TEXT NOT NULL,
+  non_transferable            TEXT NOT NULL,
+  pausable                    TEXT NOT NULL,
+  confidential                TEXT NOT NULL,
+  overall                     TEXT NOT NULL,
+  -- The fee that applies THIS epoch, and the worst any schedule allows.
+  current_epoch_fee_bps       INTEGER,
+  worst_case_fee_bps          INTEGER,
+  maximum_fee_atoms           TEXT,
+  -- Extension discriminants, comma separated, so the corpus can be counted.
+  extension_types             TEXT,
+  has_unknown_extension       INTEGER NOT NULL DEFAULT 0,
+  decode_failure              TEXT,
+  reasons                     TEXT,
+  -- Where the provider and the chain disagreed, if they did.
+  provider_disagreements      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_direct_mint_facts_overall
+  ON direct_mint_facts(overall, read_utc_ms DESC);
+
+-- P11 -- Mayhem, which is not organic activity.
+--
+-- Agent buys and sells are flow, and counting them as breadth or momentum
+-- measures the agent rather than the market. Persisted separately so it can be
+-- SUBTRACTED rather than quietly included.
+CREATE TABLE IF NOT EXISTS mayhem_facts (
+  mint                    TEXT PRIMARY KEY,
+  observed_utc_ms         INTEGER NOT NULL,
+  enabled                 INTEGER,
+  agent_identity          TEXT,
+  agent_state             TEXT,
+  agent_inventory_atoms   TEXT,
+  agent_buy_count         INTEGER,
+  agent_sell_count        INTEGER,
+  agent_buy_lamports      TEXT,
+  agent_sell_lamports     TEXT,
+  additional_supply_atoms TEXT,
+  burn_transition         TEXT,
+  hours_since_launch      REAL,
+  source                  TEXT NOT NULL
+);
+`,
+  },
+  {
+    id: 32,
+    name: 'shadow_trigger_lifecycle',
+    sql: `
+-- P6 -- a shadow trigger stops closing the position.
+--
+-- The shadow loop fired decideExit on a mark and closed on that same mark, at
+-- that same mark's value, with no later fill of any kind. Every shadow result
+-- in the corpus is therefore a fill at the trigger price, which is the one
+-- price a real exit can never get: it is the price that CAUSED the decision to
+-- exit, observed before the decision existed.
+--
+-- packages/domain/src/shadow-lifecycle.ts has had the state machine that
+-- forbids this since it was written, including the transition guard whose
+-- error message is 'a shadow may not close at its trigger observation'. No
+-- production file imported it. The machine-generated call graph found that:
+-- manageShadowBooks could not reach admitPortfolioExit by any path.
+--
+-- These columns are what the machine needs to remember between cycles.
+ALTER TABLE shadow_positions ADD COLUMN triggered_utc_ms INTEGER;
+ALTER TABLE shadow_positions ADD COLUMN trigger_observation_id TEXT;
+-- What the position was worth AT the trigger. Kept so the look-ahead bias the
+-- old design was booking can be measured rather than described.
+ALTER TABLE shadow_positions ADD COLUMN trigger_value_lamports TEXT;
+ALTER TABLE shadow_positions ADD COLUMN trigger_reason TEXT;
+ALTER TABLE shadow_positions ADD COLUMN fill_latency_ms INTEGER;
+ALTER TABLE shadow_positions ADD COLUMN look_ahead_bias_lamports TEXT;
+-- How many marks have gone by since the trigger without a valid fill. A
+-- position stuck here is exposure nobody is reporting.
+ALTER TABLE shadow_positions ADD COLUMN exit_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE shadow_positions ADD COLUMN blocked_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_shadow_positions_state
+  ON shadow_positions(state, triggered_utc_ms);
+`,
+  },
+  {
+    id: 33,
+    name: 'entity_concentration',
+    sql: `
+-- P11 -- concentration over ENTITIES, not just addresses.
+--
+-- intelligence/entity.ts has had union-find clustering and an entity-vs-address
+-- comparison since it was written, and nothing in production ever built a
+-- LINK. cluster() was therefore always called with an empty list, every holder
+-- came out as its own entity, and the entity figure was the address figure
+-- wearing a different name.
+--
+-- Both are stored side by side because the GAP is the finding. A token whose
+-- top ten addresses hold 18% and whose top ten entities hold 71% is not a
+-- decentralised token that happens to be clustered; it is a token that was
+-- built to look decentralised.
+CREATE TABLE IF NOT EXISTS entity_concentration (
+  mint                   TEXT PRIMARY KEY,
+  measured_utc_ms        INTEGER NOT NULL,
+  address_count          INTEGER NOT NULL,
+  entity_count           INTEGER NOT NULL,
+  -- Holders whose funding history could not be read. NOT independent wallets.
+  unknown_history_count  INTEGER NOT NULL,
+  -- False when too many holders are unexamined for the entity figure to mean
+  -- anything. It is then not a better number than the address figure, merely a
+  -- different one.
+  trustworthy            INTEGER NOT NULL,
+  top_entity_1_bps       INTEGER,
+  top_entity_5_bps       INTEGER,
+  top_entity_10_bps      INTEGER,
+  top_entity_20_bps      INTEGER,
+  top_address_1_bps      INTEGER,
+  top_address_5_bps      INTEGER,
+  top_address_10_bps     INTEGER,
+  top_address_20_bps     INTEGER,
+  links_built            INTEGER NOT NULL,
+  detail                 TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_entity_concentration_gap
+  ON entity_concentration(trustworthy, measured_utc_ms DESC);
+`,
+  },
+  {
+    id: 34,
+    name: 'tournament_arm',
+    sql: `
+-- P19 -- the arm a trajectory belongs to, assigned AS IT OPENS.
+--
+-- Retrospective labelling of an existing corpus is how an arm ends up holding
+-- the trajectories that suit it. The allocation is balanced by construction and
+-- deterministic given the counts, so a restart does not reshuffle it, and it
+-- depends on nothing about the candidate -- assigning by score or liquidity or
+-- age would measure each arm on a different population.
+--
+-- The tournament does not run yet: zero valid trajectories exist and the first
+-- checkpoint is ten per arm. What this column does now is make sure that when
+-- they arrive they are already allocated.
+ALTER TABLE shadow_positions ADD COLUMN tournament_entry_arm TEXT;
+ALTER TABLE shadow_positions ADD COLUMN tournament_exit_arm TEXT;
+CREATE INDEX IF NOT EXISTS idx_shadow_positions_arm
+  ON shadow_positions(tournament_entry_arm, tournament_exit_arm, state);
+`,
+  },
 ];
 
 export interface OpenOptions {
