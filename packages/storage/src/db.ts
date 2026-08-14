@@ -1537,6 +1537,86 @@ ALTER TABLE positions ADD COLUMN exit_trigger_observation_id TEXT;
 ALTER TABLE positions ADD COLUMN exit_trigger_reason TEXT;
 ALTER TABLE positions ADD COLUMN exit_fill_latency_ms INTEGER;
 CREATE INDEX IF NOT EXISTS idx_positions_triggered ON positions(state, exit_triggered_utc_ms);
+
+-- P21 -- confirmatory_positions_v2.
+--
+-- v1 is kept and unchanged: rows already counted under it must not silently
+-- change meaning, and a view that is edited in place rewrites history.
+--
+-- v2 adds what this directive made available and therefore required:
+--
+--   the EXPLICIT cash flow, so PnL is read rather than inferred
+--   the identity net = cash in - cash out, checked in the view itself
+--   a durable replay manifest on both legs
+--   no residual atoms
+--   a trigger that is not the fill
+--   a frozen strategy and cohort
+--
+-- Every clause is a requirement and the joins are inner: a position missing
+-- its entry or exit observation does not partially qualify.
+CREATE VIEW IF NOT EXISTS confirmatory_positions_v2 AS
+SELECT
+  p.position_id, p.mint, p.cost_lamports, p.realized_lamports,
+  p.net_pnl_lamports, p.execution_cost_lamports, p.gross_proceeds_lamports,
+  p.entry_cash_out_lamports, p.exit_cash_in_lamports, p.locked_rent_lamports,
+  p.residual_token_atoms, p.exit_fill_latency_ms,
+  p.opened_utc_ms, p.closed_utc_ms, p.cohort, p.strategy_version,
+  e.family AS family,
+  e.observation_id AS entry_observation_id,
+  x.observation_id AS exit_observation_id,
+  c.source_commit AS source_commit,
+  c.context_hash  AS context_hash
+FROM positions p
+JOIN execution_observations e ON e.observation_id = p.entry_observation_id
+JOIN execution_observations x ON x.observation_id = p.exit_observation_id
+JOIN run_contexts c           ON c.context_hash   = p.context_hash
+JOIN simulation_jobs je       ON je.execution_observation_id = e.observation_id
+JOIN simulation_jobs jx       ON jx.execution_observation_id = x.observation_id
+WHERE
+  p.closed_utc_ms IS NOT NULL
+  AND CAST(p.token_amount AS INTEGER) = 0
+  AND c.source_commit NOT LIKE '%+dirty'
+  AND e.family = x.family
+  AND e.side = 'buy' AND x.side = 'sell'
+  AND e.instruction_policy = 'PASS' AND x.instruction_policy = 'PASS'
+  AND e.transaction_policy = 'PASS' AND x.transaction_policy = 'PASS'
+  AND e.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND x.simulation_effect = 'SIMULATED_EFFECT_OK'
+  AND je.simulated_effect_ok = 1 AND jx.simulated_effect_ok = 1
+  AND je.confirmatory = 1 AND jx.confirmatory = 1
+  AND je.validity = 'VALID_CONFIRMATORY' AND jx.validity = 'VALID_CONFIRMATORY'
+  AND je.account_coverage_ok = 1 AND jx.account_coverage_ok = 1
+  AND e.exact_transaction_blob IS NOT NULL AND x.exact_transaction_blob IS NOT NULL
+  AND e.raw_payload_hash IS NOT NULL AND x.raw_payload_hash IS NOT NULL
+  -- P9: every explicit field present. A NULL here is undetermined, and an
+  -- undetermined cash flow is not evidence.
+  AND p.net_pnl_lamports IS NOT NULL
+  AND p.entry_cash_out_lamports IS NOT NULL
+  AND p.exit_cash_in_lamports IS NOT NULL
+  AND p.locked_rent_lamports IS NOT NULL
+  -- the identity, checked rather than trusted
+  AND CAST(p.net_pnl_lamports AS INTEGER)
+      = CAST(p.exit_cash_in_lamports AS INTEGER) - CAST(p.entry_cash_out_lamports AS INTEGER)
+  -- P5: nothing left behind. A residual balance is exposure whatever the
+  -- state column says, and NULL means nobody looked.
+  AND p.residual_token_atoms IS NOT NULL
+  AND CAST(p.residual_token_atoms AS INTEGER) = 0
+  -- P10: the trigger is not the fill. A position with no recorded trigger
+  -- closed against the observation that triggered it.
+  AND p.exit_triggered_utc_ms IS NOT NULL
+  AND p.exit_fill_latency_ms IS NOT NULL
+  AND p.exit_fill_latency_ms >= 1200
+  -- P24: one frozen arm. A mixture of strategy versions is not a sample.
+  AND p.strategy_version IS NOT NULL
+  AND p.cohort IS NOT NULL
+  -- replayable: a durable manifest on BOTH legs, not a JIT run that happened
+  -- to succeed
+  AND je.snapshot_manifest_hash IS NOT NULL AND jx.snapshot_manifest_hash IS NOT NULL
+  AND je.replayable = 'REPLAYABLE' AND jx.replayable = 'REPLAYABLE'
+  AND NOT EXISTS (
+    SELECT 1 FROM clock_checkpoints k
+    WHERE k.resync_required = 1 AND k.resync_done_utc_ms IS NULL
+  );
 `,
   },
 

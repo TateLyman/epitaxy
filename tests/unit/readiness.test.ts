@@ -112,9 +112,12 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
     db.prepare(
       `INSERT INTO simulation_jobs
          (job_id,request_hash,execution_observation_id,mode,status,requested_utc_ms,
-          confirmatory,validity,simulated_effect_ok,account_coverage_ok)
-       VALUES (?,?,?,'CONFIRMATORY_OFFLINE','SIMULATED_OK',?,1,'VALID_CONFIRMATORY',1,1)`,
-    ).run(`job-${id}`, `rh-${id}`, id, T0);
+          confirmatory,validity,simulated_effect_ok,account_coverage_ok,
+          -- P21 (v2): a JIT run that happened to succeed is not offline
+          -- evidence. Both legs need a durable manifest to replay from.
+          snapshot_manifest_hash,replayable)
+       VALUES (?,?,?,'CONFIRMATORY_OFFLINE','SIMULATED_OK',?,1,'VALID_CONFIRMATORY',1,1,?,'REPLAYABLE')`,
+    ).run(`job-${id}`, `rh-${id}`, id, T0, `manifest-${id}`);
   };
 
   obs(entry, 'buy');
@@ -123,8 +126,13 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
     `INSERT INTO positions
        (position_id,mint,state,token_amount,cost_lamports,realized_lamports,net_pnl_lamports,
         execution_cost_lamports,opened_utc_ms,
-        closed_utc_ms,strategy_version,simulated,context_hash,entry_observation_id,exit_observation_id)
-     VALUES (?,?, 'CLOSED','0',?,?,?,?,?,?,'v1',1,?,?,?)`,
+        closed_utc_ms,strategy_version,simulated,context_hash,entry_observation_id,exit_observation_id,
+        -- P21 (v2): the explicit cash flow, the residual, the cohort and the
+        -- trigger. A row missing any of these is not evidence, and the view
+        -- checks net = cash in - cash out rather than trusting it.
+        entry_cash_out_lamports,exit_cash_in_lamports,locked_rent_lamports,residual_token_atoms,
+        cohort,exit_triggered_utc_ms,exit_fill_latency_ms)
+     VALUES (?,?, 'CLOSED','0',?,?,?,?,?,?,'v1',1,?,?,?, ?,?,?,'0','AGE_2M_60M',?,1300)`,
   ).run(
     `pos-${i}`,
     mint,
@@ -140,6 +148,12 @@ function trade(i: number, costLamports: bigint, realizedLamports: bigint, dayOff
     ctx,
     entry,
     exit,
+    // cash out, cash in: their difference IS the net above, which the view
+    // recomputes rather than accepting.
+    costLamports.toString(),
+    realizedLamports.toString(),
+    '2039280',
+    T0 + dayOffset * DAY + 3_600_000 - 1_300,
   );
 }
 
