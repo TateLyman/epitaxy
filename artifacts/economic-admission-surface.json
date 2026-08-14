@@ -1,0 +1,738 @@
+{
+  "generatedUtcMs": 1786669981345,
+  "strategyVersion": "delayed-momentum-v0.4.0",
+  "nav": {
+    "lamports": "9582071288",
+    "sol": 9.582071288
+  },
+  "riskBudgetPerTrade": {
+    "pct": 0.25,
+    "lamports": "23955178",
+    "sol": 0.023955178
+  },
+  "catastrophicLossFraction": 1,
+  "assumptions": {
+    "signatureFeeLamports": "5000",
+    "priorityFeeLamports": "8000",
+    "broadcasterTipLamports": "0",
+    "ataRentLamports": "2039280",
+    "failedAttemptLamports_prospectiveOnly": "205000",
+    "roundTripOverheadLamports": "2065280"
+  },
+  "mechanicsFloor": {
+    "minViableNotionalLamports": "20912800",
+    "minViableNotionalSol": 0.0209128
+  },
+  "configuredMinOpportunityScore": 0.35,
+  "effectiveMinOpportunityScore": 0.88,
+  "configuredThresholdIsBinding": false,
+  "scoreToSize": [
+    {
+      "score": 0,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0 < 0.35"
+    },
+    {
+      "score": 0.01,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.01 < 0.35"
+    },
+    {
+      "score": 0.02,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.02 < 0.35"
+    },
+    {
+      "score": 0.03,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.03 < 0.35"
+    },
+    {
+      "score": 0.04,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.04 < 0.35"
+    },
+    {
+      "score": 0.05,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.05 < 0.35"
+    },
+    {
+      "score": 0.06,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.06 < 0.35"
+    },
+    {
+      "score": 0.07,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.07 < 0.35"
+    },
+    {
+      "score": 0.08,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.08 < 0.35"
+    },
+    {
+      "score": 0.09,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.09 < 0.35"
+    },
+    {
+      "score": 0.1,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.1 < 0.35"
+    },
+    {
+      "score": 0.11,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.11 < 0.35"
+    },
+    {
+      "score": 0.12,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.12 < 0.35"
+    },
+    {
+      "score": 0.13,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.13 < 0.35"
+    },
+    {
+      "score": 0.14,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.14 < 0.35"
+    },
+    {
+      "score": 0.15,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.15 < 0.35"
+    },
+    {
+      "score": 0.16,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.16 < 0.35"
+    },
+    {
+      "score": 0.17,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.17 < 0.35"
+    },
+    {
+      "score": 0.18,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.18 < 0.35"
+    },
+    {
+      "score": 0.19,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.19 < 0.35"
+    },
+    {
+      "score": 0.2,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.2 < 0.35"
+    },
+    {
+      "score": 0.21,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.21 < 0.35"
+    },
+    {
+      "score": 0.22,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.22 < 0.35"
+    },
+    {
+      "score": 0.23,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.23 < 0.35"
+    },
+    {
+      "score": 0.24,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.24 < 0.35"
+    },
+    {
+      "score": 0.25,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.25 < 0.35"
+    },
+    {
+      "score": 0.26,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.26 < 0.35"
+    },
+    {
+      "score": 0.27,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.27 < 0.35"
+    },
+    {
+      "score": 0.28,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.28 < 0.35"
+    },
+    {
+      "score": 0.29,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.29 < 0.35"
+    },
+    {
+      "score": 0.3,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.3 < 0.35"
+    },
+    {
+      "score": 0.31,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.31 < 0.35"
+    },
+    {
+      "score": 0.32,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.32 < 0.35"
+    },
+    {
+      "score": 0.33,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.33 < 0.35"
+    },
+    {
+      "score": 0.34,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "score_below_threshold: 0.34 < 0.35"
+    },
+    {
+      "score": 0.35,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 8384312 < viable floor 20912800"
+    },
+    {
+      "score": 0.36,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 8623864 < viable floor 20912800"
+    },
+    {
+      "score": 0.37,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 8863415 < viable floor 20912800"
+    },
+    {
+      "score": 0.38,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 9102967 < viable floor 20912800"
+    },
+    {
+      "score": 0.39,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 9342519 < viable floor 20912800"
+    },
+    {
+      "score": 0.4,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 9582071 < viable floor 20912800"
+    },
+    {
+      "score": 0.41,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 9821622 < viable floor 20912800"
+    },
+    {
+      "score": 0.42,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 10061174 < viable floor 20912800"
+    },
+    {
+      "score": 0.43,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 10300726 < viable floor 20912800"
+    },
+    {
+      "score": 0.44,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 10540278 < viable floor 20912800"
+    },
+    {
+      "score": 0.45,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 10779830 < viable floor 20912800"
+    },
+    {
+      "score": 0.46,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 11019381 < viable floor 20912800"
+    },
+    {
+      "score": 0.47,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 11258933 < viable floor 20912800"
+    },
+    {
+      "score": 0.48,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 11498485 < viable floor 20912800"
+    },
+    {
+      "score": 0.49,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 11738037 < viable floor 20912800"
+    },
+    {
+      "score": 0.5,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 11977589 < viable floor 20912800"
+    },
+    {
+      "score": 0.51,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 12217140 < viable floor 20912800"
+    },
+    {
+      "score": 0.52,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 12456692 < viable floor 20912800"
+    },
+    {
+      "score": 0.53,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 12696244 < viable floor 20912800"
+    },
+    {
+      "score": 0.54,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 12935796 < viable floor 20912800"
+    },
+    {
+      "score": 0.55,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 13175347 < viable floor 20912800"
+    },
+    {
+      "score": 0.56,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 13414899 < viable floor 20912800"
+    },
+    {
+      "score": 0.57,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 13654451 < viable floor 20912800"
+    },
+    {
+      "score": 0.58,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 13894003 < viable floor 20912800"
+    },
+    {
+      "score": 0.59,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 14133555 < viable floor 20912800"
+    },
+    {
+      "score": 0.6,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 14373106 < viable floor 20912800"
+    },
+    {
+      "score": 0.61,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 14612658 < viable floor 20912800"
+    },
+    {
+      "score": 0.62,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 14852210 < viable floor 20912800"
+    },
+    {
+      "score": 0.63,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 15091762 < viable floor 20912800"
+    },
+    {
+      "score": 0.64,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 15331313 < viable floor 20912800"
+    },
+    {
+      "score": 0.65,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 15570865 < viable floor 20912800"
+    },
+    {
+      "score": 0.66,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 15810417 < viable floor 20912800"
+    },
+    {
+      "score": 0.67,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 16049969 < viable floor 20912800"
+    },
+    {
+      "score": 0.68,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 16289521 < viable floor 20912800"
+    },
+    {
+      "score": 0.69,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 16529072 < viable floor 20912800"
+    },
+    {
+      "score": 0.7,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 16768624 < viable floor 20912800"
+    },
+    {
+      "score": 0.71,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 17008176 < viable floor 20912800"
+    },
+    {
+      "score": 0.72,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 17247728 < viable floor 20912800"
+    },
+    {
+      "score": 0.73,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 17487279 < viable floor 20912800"
+    },
+    {
+      "score": 0.74,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 17726831 < viable floor 20912800"
+    },
+    {
+      "score": 0.75,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 17966383 < viable floor 20912800"
+    },
+    {
+      "score": 0.76,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 18205935 < viable floor 20912800"
+    },
+    {
+      "score": 0.77,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 18445487 < viable floor 20912800"
+    },
+    {
+      "score": 0.78,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 18685038 < viable floor 20912800"
+    },
+    {
+      "score": 0.79,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 18924590 < viable floor 20912800"
+    },
+    {
+      "score": 0.8,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 19164142 < viable floor 20912800"
+    },
+    {
+      "score": 0.81,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 19403694 < viable floor 20912800"
+    },
+    {
+      "score": 0.82,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 19643245 < viable floor 20912800"
+    },
+    {
+      "score": 0.83,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 19882797 < viable floor 20912800"
+    },
+    {
+      "score": 0.84,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 20122349 < viable floor 20912800"
+    },
+    {
+      "score": 0.85,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 20361901 < viable floor 20912800"
+    },
+    {
+      "score": 0.86,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 20601453 < viable floor 20912800"
+    },
+    {
+      "score": 0.87,
+      "notionalLamports": "0",
+      "clearsMechanicsFloor": false,
+      "fixedCostFraction": null,
+      "reason": "size_below_viable: size 20841004 < viable floor 20912800"
+    },
+    {
+      "score": 0.88,
+      "notionalLamports": "21080556",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09797085048420924,
+      "reason": null
+    },
+    {
+      "score": 0.89,
+      "notionalLamports": "21320108",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09687005337871647,
+      "reason": null
+    },
+    {
+      "score": 0.9,
+      "notionalLamports": "21559660",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09579371845381607,
+      "reason": null
+    },
+    {
+      "score": 0.91,
+      "notionalLamports": "21799211",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09474104360933062,
+      "reason": null
+    },
+    {
+      "score": 0.92,
+      "notionalLamports": "22038763",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.0937112486757991,
+      "reason": null
+    },
+    {
+      "score": 0.93,
+      "notionalLamports": "22278315",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09270359989074578,
+      "reason": null
+    },
+    {
+      "score": 0.94,
+      "notionalLamports": "22517867",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09171739046153883,
+      "reason": null
+    },
+    {
+      "score": 0.95,
+      "notionalLamports": "22757419",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.09075194335526361,
+      "reason": null
+    },
+    {
+      "score": 0.96,
+      "notionalLamports": "22996970",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.0898066136538857,
+      "reason": null
+    },
+    {
+      "score": 0.97,
+      "notionalLamports": "23236522",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.0888807713994375,
+      "reason": null
+    },
+    {
+      "score": 0.98,
+      "notionalLamports": "23476074",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.0879738239025827,
+      "reason": null
+    },
+    {
+      "score": 0.99,
+      "notionalLamports": "23715626",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.08708519859437824,
+      "reason": null
+    },
+    {
+      "score": 1,
+      "notionalLamports": "23955178",
+      "clearsMechanicsFloor": true,
+      "fixedCostFraction": 0.08621434580865982,
+      "reason": null
+    }
+  ]
+}

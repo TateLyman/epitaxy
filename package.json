@@ -63,7 +63,8 @@
     "simulator:offline-pump-parity": "tsx scripts/simulator-prospective-parity.ts",
     "shadow:development": "tsx scripts/evidence-status.ts shadow",
     "simulator:stateful-roundtrip-proof": "tsx scripts/stateful-roundtrip-proof.ts",
-    "settlement:check": "tsx scripts/settlement-check.ts"
+    "settlement:check": "tsx scripts/settlement-check.ts",
+    "size:admission-surface": "tsx scripts/economic-admission-surface.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
