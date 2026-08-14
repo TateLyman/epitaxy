@@ -269,12 +269,32 @@ function profitFactor(trades: readonly Pnl[]): number | null {
   return Number(wins) / Number(losses);
 }
 
-/** Peak-to-trough of the cumulative net curve, in bps of the peak. */
-function maxDrawdownBps(trades: readonly Pnl[]): number | null {
+/**
+ * Peak-to-trough of EQUITY, in bps of the peak.
+ *
+ * P17 — this started at zero cumulative PnL, which is not equity and produces
+ * a number that means nothing recognisable:
+ *
+ *   the first losing trade has `peak = 0`, so the whole branch is skipped and
+ *   the loss is not a drawdown at all
+ *   once cumulative PnL turns positive, a 0.01 SOL give-back against 0.02 SOL
+ *   of accumulated profit reads as a FIFTY PER CENT drawdown
+ *
+ * Both errors point the same way early in a sample: the first losses vanish and
+ * the first give-backs are enormous. A drawdown cap read against that is
+ * measuring the sample's age, not its risk.
+ *
+ * Equity starts at the frozen starting NAV, which is what a drawdown is a
+ * fraction OF. Locked rent and open exposure are part of it — capital held in
+ * an account is still capital — and the caller supplies them because only it
+ * knows what the book holds.
+ */
+function maxDrawdownBps(trades: readonly Pnl[], startingNavLamports: bigint): number | null {
   if (trades.length === 0) return null;
+  if (startingNavLamports <= 0n) return null;
   const ordered = [...trades].sort((a, b) => a.closedUtcMs - b.closedUtcMs);
-  let equity = 0n;
-  let peak = 0n;
+  let equity = startingNavLamports;
+  let peak = startingNavLamports;
   let worst = 0;
   for (const t of ordered) {
     equity += t.net;
@@ -304,7 +324,21 @@ function byMint(trades: readonly Pnl[]): Map<string, bigint> {
   return m;
 }
 
-export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: string, nowUtcMs: number): ReadinessReport {
+export function buildReadiness(
+  db: Db,
+  sourceCommit: string,
+  strategyVersion: string,
+  nowUtcMs: number,
+  /**
+   * P17 — the frozen starting NAV a drawdown is a fraction OF.
+   *
+   * Defaulted rather than required so existing callers keep working, but the
+   * default is the paper book's own start rather than zero: starting equity at
+   * zero cumulative PnL is what made the first losses invisible and the first
+   * give-backs enormous.
+   */
+  startingNavLamports: bigint = 10_000_000_000n,
+): ReadinessReport {
   const confirmatory = toPnl(all<Trade>(db, CONFIRMATORY_SQL));
 
   // Development-valid: effect-verified, but JIT rather than reproducible. Real
@@ -352,7 +386,7 @@ export function buildReadiness(db: Db, sourceCommit: string, strategyVersion: st
   const elg = expectedLogGrowth(t);
   const lcb = lowerConfidenceBound(t);
   const pf = profitFactor(t);
-  const dd = maxDrawdownBps(t);
+  const dd = maxDrawdownBps(t, startingNavLamports);
 
   const recent = [...t].sort((a, b) => a.closedUtcMs - b.closedUtcMs).slice(-CANARY_GATES.recentWindow);
   const dayMap = byDay(t);
