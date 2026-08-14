@@ -32,7 +32,15 @@ function leg(over: Partial<MeasuredLegSettlement> = {}): MeasuredLegSettlement {
       actualTradeDebitLamports: 20_000_000n,
       totalPayerDebitLamports: 22_079_080n,
     },
-    output: { kind: 'token', mint: 'MintAAA', tokenProgram: TOKEN_PROGRAM_ID, minimumAtoms: 0n, expectedAtoms: null, actualCreditAtoms: 1_000n, transferFeeAtoms: 0n },
+    output: {
+      kind: 'token',
+      mint: 'MintAAA',
+      tokenProgram: TOKEN_PROGRAM_ID,
+      tokenAccount: 'AtaAAA',
+      minimumAtoms: 0n,
+      expectedAtoms: null,
+      actualCreditAtoms: 1_000n,
+    },
     costs: {
       baseFeeLamports: 5_000n,
       priorityFeeLamports: 34_800n,
@@ -103,14 +111,22 @@ describe('P5 — one settlement, and PnL that refuses when a part is unknown', (
   it('an UNMEASURED transfer fee blocks PnL rather than becoming zero', () => {
     // The exact defect: `?? 0n` turned "not measured" into "there is none", and
     // on a Token-2022 mint that is the fee which makes the position a bad one.
-    const s = buildTrajectorySettlement({
-      trajectoryId: 't3',
-      entry: leg({
-        output: { kind: 'token', mint: 'M', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', minimumAtoms: 0n, expectedAtoms: null, actualCreditAtoms: 1n, transferFeeAtoms: null },
-        costs: { ...leg().costs, transferFeeLamportsEquivalent: null },
-      } as Partial<MeasuredLegSettlement>),
-      exit: exitLeg(),
-    });
+    // Built by mutation rather than a cast: a cast that has to be forced past
+    // the checker is a cast that stopped describing the type.
+    // Token-2022, because `transferFeeOrUnknown` returns 0 only when the asset
+    // CANNOT carry a fee. On a legacy mint a null cost is still a measured zero,
+    // which is the distinction the function exists to make.
+    const base = leg();
+    const out = base.output;
+    const unmeasured: MeasuredLegSettlement = {
+      ...base,
+      output:
+        out.kind === 'token'
+          ? { ...out, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' }
+          : out,
+      costs: { ...base.costs, transferFeeLamportsEquivalent: null, transferFeeAtoms: null },
+    };
+    const s = buildTrajectorySettlement({ trajectoryId: 't3', entry: unmeasured, exit: exitLeg() });
     expect(s.netPnlLamports).toBeNull();
     expect(s.pnlBlockedReasons.join(' ')).toMatch(/transfer fee was not measured/);
   });
@@ -160,7 +176,7 @@ describe('P5 — principal is never execution cost', () => {
     const stranded = buildTrajectorySettlement({
       trajectoryId: 't9',
       entry: leg(),
-      exit: exitLeg({ costs: { ...exitLeg().costs, rentRecoveredLamports: 0n } } as Partial<MeasuredLegSettlement>),
+      exit: { ...exitLeg(), costs: { ...exitLeg().costs, rentRecoveredLamports: 0n } },
     });
     expect(stranded.rentStillLockedLamports).toBeGreaterThan(recovered.rentStillLockedLamports);
     expect(stranded.executionCostLamports).toBeGreaterThan(recovered.executionCostLamports);
