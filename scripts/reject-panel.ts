@@ -85,7 +85,11 @@ function rng(seed: number): () => number {
 type PanelClass =
   /** The chain would have filled it. The gate removed a tradeable token. */
   | 'EXECUTABLE_VALUE'
-  /** No venue at all. The gate removed nothing that could have been traded. */
+  /**
+   * No canonical PumpSwap pool. NOT a claim that no venue exists anywhere —
+   * a bonding-curve token would land here and a router might still reach it.
+   * What it establishes is that the direct family could not have traded it.
+   */
   | 'NO_ROUTE_CONFIRMED'
   /** A pool exists and has nothing in it. */
   | 'POOL_DRAIN_CONFIRMED'
@@ -123,8 +127,8 @@ interface PanelRow {
 const strata = db
   .prepare(
     `SELECT primary_reason AS reason, COUNT(*) AS n
-       FROM screenings
-      WHERE eligible = 0 AND created_utc_ms > ? AND primary_reason IS NOT NULL
+       FROM reject_tracking
+      WHERE rejected_utc_ms > ?
       GROUP BY 1 ORDER BY n DESC`,
   )
   .all(Date.now() - WINDOW_MS) as { reason: string; n: number }[];
@@ -142,8 +146,8 @@ for (const stratum of strata) {
   // token, and sampling rows would make the panel a study of cycle frequency.
   const pool = db
     .prepare(
-      `SELECT mint, MAX(created_utc_ms) AS at FROM screenings
-        WHERE eligible = 0 AND primary_reason = ? AND created_utc_ms > ?
+      `SELECT mint, MAX(rejected_utc_ms) AS at FROM reject_tracking
+        WHERE primary_reason = ? AND rejected_utc_ms > ?
         GROUP BY mint`,
     )
     .all(stratum.reason, Date.now() - WINDOW_MS) as { mint: string; at: number }[];
@@ -200,7 +204,8 @@ for (const stratum of strata) {
       row.poolExists = true;
     } catch {
       row.classification = 'NO_ROUTE_CONFIRMED';
-      row.detail = 'no canonical PumpSwap pool: the token never migrated off the bonding curve';
+      row.detail =
+        'no canonical PumpSwap pool; the direct family could not have traded it. A router may still reach it.';
       rows.push(row);
       console.log(row.classification);
       continue;
@@ -371,7 +376,7 @@ const byStratum = strata.map((s) => {
         : (share('EXECUTABLE_VALUE') ?? 0) >= 0.5
           ? 'removes tokens the chain would have filled'
           : (share('NO_ROUTE_CONFIRMED') ?? 0) >= 0.5
-            ? 'removes tokens with no venue at all'
+            ? 'removes tokens with no canonical PumpSwap pool'
             : (share('SIMULATION_UNAVAILABLE') ?? 0) >= 0.5
               ? 'not measurable with the current apparatus'
               : 'mixed',
@@ -382,7 +387,7 @@ const summary = {
   provenance: currentProvenance({
     strategyVersion: 'delayed-momentum-v0.6.0',
     schemaVersion: 'schema-v31',
-    sampleInclusionQuery: `screenings eligible=0, last ${WINDOW_MS / 86_400_000}d, stratified by primary_reason`,
+    sampleInclusionQuery: `reject_tracking, last ${WINDOW_MS / 86_400_000}d, stratified by primary_reason`,
   }),
   panelVersion: PANEL_VERSION,
   seed: SEED,
@@ -404,6 +409,11 @@ const summary = {
   ).map((c) => ({ classification: c, n: rows.filter((r) => r.classification === c).length })),
   byStratum,
   rows,
+  caveat:
+    'NO_ROUTE_CONFIRMED here means no CANONICAL PUMPSWAP POOL. It is not a claim that no venue exists: a ' +
+    'token still on the bonding curve, or one trading on another AMM, would be classified this way and ' +
+    'might well be reachable through a router. What the panel establishes is that the direct family this ' +
+    'system is being built around could not have traded it.',
   note:
     'A gate must not be tuned on the panel version it is then evaluated on. panelVersion is stamped so a ' +
     'later evaluation can be checked against the version a change was made on.',
