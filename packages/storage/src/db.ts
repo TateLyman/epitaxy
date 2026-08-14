@@ -1507,6 +1507,21 @@ ALTER TABLE positions ADD COLUMN residual_token_atoms TEXT;
 ALTER TABLE signal_episodes ADD COLUMN closed_utc_ms INTEGER;
 CREATE INDEX IF NOT EXISTS idx_episode_open ON signal_episodes(mint, book, closed_utc_ms);
 
+`,
+  },
+
+  {
+    id: 26,
+    name: 'exploration_trigger_fill_and_confirmatory_v2',
+    sql: `
+-- Migration 25 had ALREADY RUN in the live database when these statements were
+-- appended to it, so they never executed. Migrations are recorded by id and
+-- skipped once applied: editing an applied one leaves the schema believing it
+-- is current while the columns do not exist.
+--
+-- That is the same defect this directive is about, in the schema layer -- and
+-- it was caught the same way, by checking the running database rather than the
+-- source. Everything below is in a NEW migration so it actually applies.
 -- P17 -- which arm bought this screening, and with what probability.
 --
 -- The whole quote budget went to the highest-liquidity survivors, so the
