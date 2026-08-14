@@ -102,11 +102,12 @@ export const CANARY_GATES = {
 const CONFIRMATORY_SQL = `
   SELECT position_id, mint, cost_lamports, realized_lamports, net_pnl_lamports,
          execution_cost_lamports, opened_utc_ms, closed_utc_ms
-  -- P21 -- v2. v1 is retained unchanged so rows already counted under it do
+  -- P16 -- v3. v1 and v2 are retained unchanged so rows already counted under
+  -- them do
   -- not silently change meaning, but readiness reads the stricter view: the
   -- explicit cash flow, the checked identity, a durable manifest on both legs,
   -- no residual atoms, and a trigger that is not the fill.
-  FROM confirmatory_positions_v2
+  FROM confirmatory_positions_v3
 `;
 
 interface Trade {

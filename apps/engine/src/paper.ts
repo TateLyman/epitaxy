@@ -71,7 +71,6 @@ import { EventPipeline } from '../../../packages/adapters/src/event-pipeline.js'
 import type { ParsedEvent } from '../../../packages/adapters/src/event-pipeline.js';
 import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
 import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
-import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
 
 /**
  * P15 — the running alarm, set once by `main()`.
@@ -82,9 +81,20 @@ import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../..
  * records at startup rather than a silence.
  */
 let alarm: ReserveAlarm | null = null;
+
+/**
+ * Mints an alarm has asked to be re-observed before their next scheduled mark.
+ *
+ * Module-level for the same reason the alarm is: the cycle functions are free
+ * functions, and this set is written by a socket callback and read by the mark
+ * loop. It was previously scoped inside main(), which is why nothing consumed
+ * it - the reader could not see it.
+ */
+const urgentMarks = new Set<string>();
 import { admitPortfolioEntry } from './paper-core.js';
 import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
 import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
+import { canonicalPoolFor } from '../../../packages/solana/src/pumpswap-model.js';
 import {
   acquiredTokens,
   entryCashOut,
@@ -421,8 +431,7 @@ async function main(): Promise<void> {
     // Named, not silent. Running without the alarm is a coverage fact.
     recordHealth(db, 'reserve_alarm_absent', 'warn', 'no SOLANA_RPC_WS; reserve alarms are not running');
   }
-  /** Mints an alarm has asked to be re-observed before their next scheduled mark. */
-  const urgentMarks = new Set<string>();
+
   if (config.requireBuildableFill && taker === null) {
     throw new Error(
       'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
@@ -1096,8 +1105,13 @@ async function tryEnter(
    * screened.
    */
   if (alarm !== null) {
-    const reserve = poolReserveAccountFor(db, blobs, entry.observationId, mint);
-    if (reserve !== null) alarm.watch({ mint, reserveTokenAccount: reserve });
+    const watched = riskAccountsFor(mint);
+    for (const account of watched) alarm.watch({ mint, reserveTokenAccount: account });
+    if (watched.length === 0) {
+      // A position with no alarm coverage is a fact, recorded rather than
+      // implied by the absence of alarms.
+      recordHealth(db, 'reserve_alarm_uncovered', 'warn', `${mint.slice(0, 12)}: no derivable pool to watch`);
+    }
   }
 
   // The settlement the position is booked from. Present by construction: the
@@ -1280,33 +1294,27 @@ async function tryEnter(
  *
  * Null when the bytes do not identify one. Null is honest; a guess is not.
  */
-function poolReserveAccountFor(
-  db: Db,
-  blobs: BlobStore,
-  observationId: string,
-  mint: string,
-): string | null {
+/**
+ * The accounts whose state IS this position's liquidity risk.
+ *
+ * The previous version took "the first writable account that is not the
+ * taker's and not an ATA". That is a POSITION IN A LIST, not an identity: on a
+ * routed swap it lands on whatever the compiler happened to order first — a
+ * tick array, a fee account, an event authority — and an alarm on the wrong
+ * account is worse than no alarm, because it reports coverage.
+ *
+ * The canonical PumpSwap pool address is DERIVED from the mint through the
+ * SDK's own PDA, so it is the pool or it is nothing. Its data changes when the
+ * reserves change, which is the fact the alarm exists to notice.
+ *
+ * Returns an empty list rather than a guess. No coverage is a fact the engine
+ * records; false coverage is one it cannot detect.
+ */
+function riskAccountsFor(mint: string): string[] {
   try {
-    const hash = exactBlobFor(db, observationId);
-    if (hash === null) return null;
-    const blob = blobs.get<ExactTransactionBlob>(hash);
-    // A writable account that is neither the taker's nor a program: on a swap
-    // that is the vault side. The taker's own ATA is excluded explicitly.
-    const takerAtas = new Set(
-      [TOKEN_PROGRAM, TOKEN_2022_PROGRAM].map((p) => {
-        try {
-          return associatedTokenAddress(blob.feePayer, mint, p);
-        } catch {
-          return '';
-        }
-      }),
-    );
-    const candidates = blob.writableAccounts.filter(
-      (a) => a !== blob.feePayer && !takerAtas.has(a) && !blob.staticAccountKeys.slice(0, 1).includes(a),
-    );
-    return candidates[0] ?? null;
+    return [canonicalPoolFor(mint, WSOL_MINT)];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -1812,6 +1820,38 @@ async function manageOpenPositions(
 ): Promise<number> {
   const open = managedPositions(db);
   let exited = 0;
+
+  /**
+   * P7 — CONSUME the urgent queue.
+   *
+   * `urgentMarks` was written by the alarm callback and read by nothing. The
+   * whole websocket path therefore ended in a `Set.add` — the socket
+   * connected, the pool was watched, a material drop fired the callback, the
+   * mint went into a set, and the set was never looked at.
+   *
+   * An alarm that reaches no decision is an alarm that did not happen. Urgent
+   * mints are marked FIRST, ahead of the scheduled order, because the reason
+   * they are urgent is that their liquidity moved.
+   */
+  const urgent = [...urgentMarks];
+  urgentMarks.clear();
+  if (urgent.length > 0) {
+    recordHealth(
+      db,
+      'urgent_marks_consumed',
+      'info',
+      `${urgent.length} alarm-driven mint(s) marked ahead of schedule: ${urgent
+        .slice(0, 5)
+        .map((m) => m.slice(0, 8))
+        .join(', ')}`,
+    );
+  }
+  const urgentFirst = new Set(urgent);
+  open.sort((a, b) => {
+    const ua = urgentFirst.has(a.mint) ? 0 : 1;
+    const ub = urgentFirst.has(b.mint) ? 0 : 1;
+    return ua - ub;
+  });
 
   if (taker === null) {
     // Without a taker no route can be observed at all, so an open position
@@ -2445,8 +2485,17 @@ async function manageOpenPositions(
       residualTokenAtoms: exitSettlement?.residualTokenAtoms ?? undefined,
     });
 
-    // P15 — the position is flat, so stop paying for its updates.
-    if (alarm !== null) alarm.unwatch({ mint: row.mint, reserveTokenAccount: '' });
+    /**
+     * P7 — unwatch the EXACT accounts that were subscribed.
+     *
+     * This passed an empty string, so the watcher deleted nothing and the
+     * subscription outlived the position. Every closed position leaked one.
+     */
+    if (alarm !== null) {
+      for (const account of riskAccountsFor(row.mint)) {
+        alarm.unwatch({ mint: row.mint, reserveTokenAccount: account });
+      }
+    }
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;
     ledger.navLamports += realized;
