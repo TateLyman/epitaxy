@@ -103,7 +103,7 @@ describe('P4 — a null transfer fee never becomes zero', () => {
   it('returns NULL for an unmeasured Token-2022 fee', () => {
     const t22: MeasuredLegSettlement = {
       ...BUY,
-      output: { ...(BUY.output as never), tokenProgram: TOKEN_2022 } as never,
+      output: { ...BUY.output, tokenProgram: TOKEN_2022 } as MeasuredLegSettlement['output'],
     };
     expect(transferFeeOrUnknown(t22)).toBeNull();
   });
@@ -111,7 +111,7 @@ describe('P4 — a null transfer fee never becomes zero', () => {
   it('returns the measured fee when there is one', () => {
     const measured: MeasuredLegSettlement = {
       ...BUY,
-      output: { ...(BUY.output as never), tokenProgram: TOKEN_2022 } as never,
+      output: { ...BUY.output, tokenProgram: TOKEN_2022 } as MeasuredLegSettlement['output'],
       costs: { ...BUY.costs, transferFeeLamportsEquivalent: 1_234n },
     };
     expect(transferFeeOrUnknown(measured)).toBe(1_234n);

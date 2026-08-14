@@ -83,6 +83,24 @@ export interface SequentialRunResult {
   readonly incompleteness: readonly string[];
 }
 
+/**
+ * The worker emits snake_case; this file speaks camelCase.
+ *
+ * Passing the raw objects through left `dataBase64` undefined on every
+ * observed account, which surfaced as a Buffer.from type error three layers
+ * away rather than as "the field is not there".
+ */
+function mapAccounts(raw: unknown): ObservedAccount[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Record<string, unknown>[]).map((a) => ({
+    pubkey: String(a['pubkey'] ?? ''),
+    lamports: Number(a['lamports'] ?? 0),
+    owner: String(a['owner'] ?? ''),
+    dataBase64: String(a['data_base64'] ?? ''),
+    dataSha256: String(a['data_sha256'] ?? ''),
+  }));
+}
+
 export class SequentialRuntimeUnavailable extends Error {
   constructor(reason: string) {
     super(`sequential runtime unavailable: ${reason}`);
@@ -163,8 +181,8 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
         transactionError: (s['transaction_error'] as string | null) ?? null,
         computeUnitsConsumed: (s['compute_units_consumed'] as number | null) ?? null,
         logs: (s['logs'] as string[]) ?? [],
-        preAccounts: (s['pre_accounts'] as ObservedAccount[]) ?? [],
-        postAccounts: (s['post_accounts'] as ObservedAccount[]) ?? [],
+        preAccounts: mapAccounts(s['pre_accounts']),
+        postAccounts: mapAccounts(s['post_accounts']),
         unobserved: (s['unobserved'] as string[]) ?? [],
       })),
       incompleteness: (raw['incompleteness'] as string[]) ?? [],
@@ -187,6 +205,7 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
  * answer; zero would be indistinguishable from an empty balance.
  */
 export function tokenAmountOf(a: ObservedAccount): bigint | null {
+  if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return null;
   const buf = Buffer.from(a.dataBase64, 'base64');
   if (buf.length < 72) return null;
   return buf.readBigUInt64LE(64);
