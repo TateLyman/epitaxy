@@ -65,6 +65,40 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
+import { ReserveAlarm } from './risk-alarm.js';
+import {
+  LogsWatcher,
+  pumpInstructionFromLogs,
+  TRADE_INSTRUCTIONS,
+  MIGRATION_INSTRUCTIONS,
+} from '../../../packages/adapters/src/logswatch.js';
+import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
+import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
+import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
+
+/**
+ * P15 — the running alarm, set once by `main()`.
+ *
+ * Module-level because the cycle functions are free functions rather than
+ * methods; threading it through six signatures would say nothing extra. Null
+ * when no websocket URL is configured, which is a coverage fact the engine
+ * records at startup rather than a silence.
+ */
+let alarm: ReserveAlarm | null = null;
+import { admitPortfolioEntry } from './paper-core.js';
+import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
+import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
+import {
+  acquiredTokens,
+  entryCashOut,
+  exitCashIn,
+  isPnlEligible,
+  immediateRoundTrip,
+} from '../../../packages/domain/src/settlement.js';
+import {
+  measuredSettlementOf,
+  latestJobFor,
+} from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import {
   bindEntryObservation,
@@ -79,9 +113,9 @@ import {
   unmanagedPositions,
   claimSignalEpisode,
   bindEpisode,
+  closeSignalEpisode,
 } from '../../../packages/storage/src/observation-repo.js';
 import {
-  legIsExecutable,
   netExpectedOutput,
   netMinimumOutput,
   totalEntryCost,
@@ -197,6 +231,108 @@ async function main(): Promise<void> {
   // private key for it exists anywhere in this system and paper mode has no
   // signer, so nothing built here can be signed or sent.
   const taker = secrets.paperTakerPubkey;
+
+  /**
+   * P15 — the risk alarm, actually running.
+   *
+   * `ReserveAlarm` was defined, unit-tested and instantiated by nobody. A
+   * class that no production caller constructs is documentation, and the tests
+   * over it were testing documentation.
+   *
+   * Raw socket state remains an ALARM: it enqueues an immediate risk-priority
+   * observation and never becomes a mark or a fill. A websocket frame is not
+   * an executable price.
+   */
+  alarm =
+    secrets.rpcWs === null
+      ? null
+      : new ReserveAlarm(
+          {
+            db,
+            onMaterialChange: (mint, detail) => {
+              recordHealth(db, 'reserve_alarm', 'critical', `${mint.slice(0, 12)}: ${detail}`.slice(0, 200));
+              // The alarm's whole purpose: get an exact observation NOW rather
+              // than at the next scheduled mark.
+              urgentMarks.add(mint);
+            },
+          },
+          secrets.rpcWs,
+        );
+  /**
+   * P12 — the direct chain event clock, running alongside the provider poll.
+   *
+   * Not a replacement yet: the executable oracle is still an exact
+   * BUILD_CUSTOM observation, and a log line is notice that something
+   * happened rather than a price. What this changes is WHEN the engine knows.
+   *
+   * `processed` is used deliberately — it sees a change soonest and can see
+   * one that never finalises. For an alarm that is the right trade, and the
+   * commitment is stored on every row so a reversal can be reconciled rather
+   * than assumed away.
+   */
+  const directClock =
+    secrets.rpcWs === null
+      ? null
+      : new LogsWatcher({
+          wsUrl: secrets.rpcWs,
+          programs: [PUMP_PROGRAM, PUMPSWAP_PROGRAM],
+          commitment: 'processed',
+          onEvent: (e) => {
+            const ix = pumpInstructionFromLogs(e.logs);
+            const kind = ix === null
+              ? 'UNKNOWN'
+              : MIGRATION_INSTRUCTIONS.has(ix)
+                ? 'MIGRATION'
+                : TRADE_INSTRUCTIONS.has(ix)
+                  ? 'TRADE'
+                  : 'OTHER';
+            try {
+              db.prepare(
+                `INSERT OR IGNORE INTO direct_chain_events
+                   (signature,program_id,slot,instruction,kind,commitment,
+                    received_monotonic_ms,received_utc_ms,tx_error)
+                 VALUES (?,?,?,?,?,?,?,?,?)`,
+              ).run(
+                e.signature,
+                e.programId,
+                e.slot,
+                ix,
+                kind,
+                e.commitment,
+                e.receivedMonotonicMs,
+                e.receivedUtcMs,
+                e.err,
+              );
+            } catch {
+              // A dropped event is a coverage fact, not a reason to kill the
+              // socket. The gap surfaces through `directClock.coverage`.
+            }
+          },
+          onGap: (detail) => {
+            recordHealth(db, 'direct_clock_gap', 'warn', detail.slice(0, 200));
+          },
+        });
+  if (directClock !== null) {
+    directClock.connect();
+    recordHealth(
+      db,
+      'direct_clock_started',
+      'info',
+      `logsSubscribe on ${PUMP_PROGRAM.slice(0, 8)} and ${PUMPSWAP_PROGRAM.slice(0, 8)} at processed`,
+    );
+  } else {
+    recordHealth(db, 'direct_clock_absent', 'warn', 'no SOLANA_RPC_WS; the signal clock is the provider poll only');
+  }
+
+  if (alarm !== null) {
+    alarm.start();
+    recordHealth(db, 'reserve_alarm_started', 'info', 'websocket reserve alarm connected');
+  } else {
+    // Named, not silent. Running without the alarm is a coverage fact.
+    recordHealth(db, 'reserve_alarm_absent', 'warn', 'no SOLANA_RPC_WS; reserve alarms are not running');
+  }
+  /** Mints an alarm has asked to be re-observed before their next scheduled mark. */
+  const urgentMarks = new Set<string>();
   if (config.requireBuildableFill && taker === null) {
     throw new Error(
       'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
@@ -707,171 +843,154 @@ async function tryEnter(
     return;
   }
 
-  // ONE observation. Amount, expected output, minimum output, route plan, fee
-  // model, instructions, blockhash and expiry all come from this single
-  // response. Nothing is borrowed from the `/order` quote that screened it —
-  // that quote is a QUOTE_ONLY_BENCHMARK and is never mixed in.
-  const entry = await observeRoute(db, jupiter, {
-    family: config.primaryRouteFamily as 'BUILD_CUSTOM',
-    mint,
-    side: 'buy',
-    positionId: null,
-    shadowPositionId: null,
-    purpose: 'entry',
-    inputMint: WSOL_MINT,
-    outputMint: mint,
-    amount: lamportsIn,
-    taker,
-    slippageBps: config.risk.maxSlippageBps,
-    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-    priority: 'risk',
-    contextHash,
-  });
-
-  // §9 — simulate the EXACT bytes before asking whether the leg is executable.
-  //
-  // Order matters: legIsExecutable requires SIMULATED_OK when
-  // requireLocalSimulation is set, so running it first would refuse every entry
-  // for a simulation that was never attempted. That is what has been happening.
-  await simulateLeg(db, blobs, simulator, entry.observationId, taker, {
-    mode: 'DEVELOPMENT_JIT',
-    side: 'buy',
-    inputMint: WSOL_MINT,
-    outputMint: mint,
-    inputAmount: lamportsIn,
-    // Enough hypothetical SOL to cover the leg, its fees and any rent it
-    // creates, inside a throwaway SVM. Not a wallet.
-    fundingLamports: lamportsIn * 10n,
-    maxLamportsSpent: lamportsIn * 2n,
-    expectedOutput: entry.expectedOutput,
-    minimumOutput: entry.minimumOutput,
-    contextHash,
-  });
-  // Re-read: the simulation wrote onto the row, and the in-memory observation
-  // predates it.
-  const simulated = simulationStatusOf(db, entry.observationId);
-
-  // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
-  // entered, against the response that priced it.
-  const executable = legIsExecutable(
-    { ...entry, simulation: simulated, simulationEffect: simulationEffectOf(db, entry.observationId) },
-    { requireLocalSimulation: config.requireLocalSimulation },
-  );
-  if (!executable.ok) {
-    recordHealth(
-      db,
-      'entry_not_executable',
-      'warn',
-      `${mint.slice(0, 12)} refused: ${executable.reasons.join('; ')}`,
-    );
-    log.info(
-      { mint, symbol, reasons: executable.reasons, observationId: entry.observationId },
-      'entry refused — the exact-size observation is not an executable leg',
-    );
-    // §5 — the realizable portfolio declining is exactly the case the shadow
-    // book exists for, but a shadow position may only be opened on an
-    // observation that was itself obtained. An unbuildable route is a fact
-    // about the token and there is nothing to shadow.
-    return;
-  }
-
-  // §3.2 — the fee is charged ONCE, by the family contract. BUILD_CUSTOM
-  // returns no fee fields at all (verified live), so there is nothing to
-  // deduct; the old code multiplied by (1 - feeBps) on top of an /order amount
-  // that already had the fee taken out.
-  const tokensReceived = netMinimumOutput(entry);
-  if (tokensReceived <= 0n) return;
-
-  // P9 — a buy without a verified same-family sell is not a portfolio entry.
-  //
-  // The exit half, at the EXACT amount this buy would leave us holding,
-  // observed on the SAME family, policy-checked and effect-verified. A position
-  // opened on a buy alone is a position whose exit has never been shown to
-  // exist, and capital has already been booked into one of those.
-  const entrySell = await observeRoute(db, jupiter, {
-    family: entry.family,
-    mint,
-    side: 'sell',
-    positionId: null,
-    shadowPositionId: null,
-    purpose: 'entry_roundtrip',
-    inputMint: mint,
-    outputMint: WSOL_MINT,
-    amount: tokensReceived,
-    taker,
-    slippageBps: Math.min(config.risk.maxSlippageBps, 300),
-    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-    priority: 'risk',
-    contextHash,
-  }).catch(() => null);
-
-  if (entrySell === null) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'warn',
-      `${mint.slice(0, 12)}: the entry buy is executable and no same-family sell could be observed. ` +
-        'Not entered: an entry whose exit does not exist is not an entry.',
-    );
-    return;
-  }
-
-  await simulateLeg(db, blobs, simulator, entrySell.observationId, taker, {
-    mode: 'DEVELOPMENT_JIT',
-    side: 'sell',
-    inputMint: mint,
-    outputMint: WSOL_MINT,
-    inputAmount: tokensReceived,
-    inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId),
-    fundingLamports: 100_000_000n,
-    maxLamportsSpent: 20_000_000n,
-    expectedOutput: entrySell.expectedOutput,
-    minimumOutput: entrySell.minimumOutput,
-    contextHash,
-  });
-
-  const sellExecutable = legIsExecutable(
+  /**
+   * P8 — the entry DECISION is `admitPortfolioEntry`. This function supplies
+   * collaborators and persists the outcome; it no longer decides.
+   *
+   * The observe → simulate → measure → observe exit → simulate → measure →
+   * gate sequence lived here AND in `paper-core.ts`, and only this copy ran.
+   * Two implementations of one decision is two chances to forget a term, and
+   * the way you find out is that the tested behaviour and the shipped
+   * behaviour disagree about whether an exit was ever required.
+   *
+   * The core cannot reach the database, so the measured credit and the
+   * measured round trip are read here and handed in. The core decides on them.
+   */
+  const admission = await admitPortfolioEntry(
     {
-      ...entrySell,
-      simulation: simulationStatusOf(db, entrySell.observationId),
-      simulationEffect: simulationEffectOf(db, entrySell.observationId),
+      observer: {
+        observe: async (req) =>
+          await observeRoute(db, jupiter, {
+            family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+            mint,
+            side: req.side,
+            positionId: null,
+            shadowPositionId: null,
+            purpose: req.purpose,
+            inputMint: req.inputMint,
+            outputMint: req.outputMint,
+            amount: req.amount,
+            taker,
+            slippageBps:
+              req.side === 'sell' ? Math.min(config.risk.maxSlippageBps, 300) : config.risk.maxSlippageBps,
+            maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+            broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+            priority: 'risk',
+            contextHash,
+          }).catch(() => null),
+      },
+      simulator: {
+        simulate: async (observationId, leg) => {
+          await simulateLeg(db, blobs, simulator, observationId, taker, {
+            mode: 'DEVELOPMENT_JIT',
+            side: leg.side,
+            inputMint: leg.inputMint,
+            outputMint: leg.outputMint,
+            inputAmount: leg.inputAmount,
+            routeFamily: config.primaryRouteFamily,
+            capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
+            // Each side named as the asset it is. A buy RECEIVES the token, so
+            // its program must be given or the credit has no account to bind
+            // to — the defect that produced zero effect-verified legs.
+            inputTokenProgram:
+              leg.inputMint === WSOL_MINT ? null : tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+            outputTokenProgram:
+              leg.outputMint === WSOL_MINT ? null : tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
+            fundingLamports: leg.side === 'buy' ? leg.inputAmount * 10n : 100_000_000n,
+            maxLamportsSpent: leg.side === 'buy' ? leg.inputAmount * 2n : 30_000_000n,
+            expectedOutput: leg.expectedOutput,
+            minimumOutput: leg.minimumOutput,
+            contextHash,
+          });
+          // Re-read: the simulation wrote onto the row and the in-memory
+          // observation predates it.
+          return {
+            simulation: simulationStatusOf(db, observationId),
+            effect: simulationEffectOf(db, observationId),
+          };
+        },
+      },
+      acquired: {
+        measure: (observationId) => {
+          const jobId = latestJobFor(db, observationId);
+          if (jobId === null) return null;
+          const st = measuredSettlementOf(db, observationId, jobId, taker);
+          if (st === null || !isPnlEligible(st).ok) return null;
+          try {
+            return acquiredTokens(st);
+          } catch {
+            return null;
+          }
+        },
+      },
+      roundTrip: {
+        measure: (buyId, sellId) => {
+          const buyJob = latestJobFor(db, buyId);
+          const sellJob = latestJobFor(db, sellId);
+          if (buyJob === null || sellJob === null) return null;
+          const b = measuredSettlementOf(db, buyId, buyJob, taker);
+          const x = measuredSettlementOf(db, sellId, sellJob, taker);
+          if (b === null || x === null) return null;
+          const rt = immediateRoundTrip(b, x);
+          return {
+            tradingLossBps: rt.tradingLossBps,
+            allInLossBps: rt.lossBps,
+            netLamports: rt.netLamports,
+            recoverableRentLamports: rt.recoverableRentLamports,
+            complete: rt.complete,
+            reasons: rt.reasons,
+          };
+        },
+      },
     },
-    { requireLocalSimulation: config.requireLocalSimulation },
+    {
+      mint,
+      lamportsIn,
+      economics: {
+        allInCostLamports: lamportsIn + config.assumedSignatureFeeLamports + config.assumedPriorityFeeLamports,
+        requireLocalSimulation: config.requireLocalSimulation,
+        maxRoundTripLossBps: config.gates.maxRoundTripLossBps,
+      },
+    },
   );
-  if (!sellExecutable.ok) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'warn',
-      `${mint.slice(0, 12)}: the exit half is not executable — ${sellExecutable.reasons.join('; ')}`,
-    );
-    log.info(
-      { mint, symbol, reasons: sellExecutable.reasons },
-      'entry refused — the round trip does not close',
-    );
+
+  const entry = admission.buy;
+  const entrySell = admission.sell;
+  if (entry === null) {
+    recordHealth(db, 'entry_unobservable', 'warn', `${mint.slice(0, 12)}: ${admission.reasons.join('; ').slice(0, 200)}`);
     return;
   }
-  if (entrySell.family !== entry.family) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'critical',
-      `${mint.slice(0, 12)}: entry family ${entry.family} but exit family ${entrySell.family}. ` +
-        'Two families are two markets and their difference is not a round trip.',
-    );
+  if (!admission.ok || entrySell === null || admission.tokensAcquired === null) {
+    recordHealth(db, 'entry_refused', 'warn', `${mint.slice(0, 12)}: ${admission.reasons.join('; ').slice(0, 200)}`);
+    log.info({ mint, symbol, reasons: admission.reasons }, 'entry refused by core admission');
     return;
   }
 
-  // §3.4 — every fixed cost, charged once each, nothing omitted for being
-  // small. The signature fee is 5000 lamports; against the 0.02 SOL canary cap
-  // that is 2.5 bps, and the whole question is whether a few hundred bps of
-  // edge exists. An accounting model that skips the costs it considers
-  // negligible cannot test a thin edge.
-  //
-  // ATA rent is LOCKED capital rather than a fee: it leaves free capital and
-  // stays in the position until a close is shown to be possible. See §P5.
+  const tokensReceived = admission.tokensAcquired;
+
+  /**
+   * P15 — watch this position's pool reserve from the moment it opens.
+   *
+   * The reserve token account is the one whose BALANCE is the pool's depth.
+   * Registering at entry and removing at close is what keeps the alarm's
+   * subscription set equal to actual exposure rather than to everything ever
+   * screened.
+   */
+  if (alarm !== null) {
+    const reserve = poolReserveAccountFor(db, blobs, entry.observationId, mint);
+    if (reserve !== null) alarm.watch({ mint, reserveTokenAccount: reserve });
+  }
+
+  // The settlement the position is booked from. Present by construction: the
+  // core refused above unless both legs were measured.
+  const entryJobId = latestJobFor(db, entry.observationId);
+  const entrySettlement =
+    entryJobId === null ? null : measuredSettlementOf(db, entry.observationId, entryJobId, taker);
+  if (entrySettlement === null) {
+    recordHealth(db, 'entry_settlement_vanished', 'critical', `${mint.slice(0, 12)}: admitted then unmeasurable`);
+    return;
+  }
+
   const rentLamports = config.assumedAtaRentLamports;
   const entryCosts = {
     inputLamports: lamportsIn,
@@ -879,28 +998,44 @@ async function tryEnter(
     priorityFeeLamports: config.assumedPriorityFeeLamports,
     broadcasterTipLamports: config.assumedBroadcasterTipLamports,
     ataRentLamports: rentLamports,
-    // Not observed for this mint. Null would be more honest than 0, but this
-    // field feeds an amount rather than a label, so it is 0 with the gap named
-    // in docs/AUDIT_HEAD_3155EA.md rather than silently absent.
-    transferFeeLamports: 0n,
+    /**
+     * P6 — the transfer fee this leg actually paid.
+     *
+     * Read from the MEASURED settlement. It was hardcoded 0n with the gap
+     * named in a doc, which makes every Token-2022 position understate its
+     * cost by exactly the fee that makes it a bad position.
+     *
+     * Null there means unobserved, and an unobserved money-critical fee is
+     * refused above rather than charged as zero here.
+     */
+    transferFeeLamports: entrySettlement.costs.transferFeeLamportsEquivalent ?? 0n,
     // BUILD_CUSTOM carries no platform fee. Charging one would be inventing it.
     platformFeeLamports: 0n,
-    assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+    /**
+     * P6 — a SUCCESSFUL leg pays for no failed attempt.
+     *
+     * This charged `assumedFailedAttemptLamports` at probability 1 on every
+     * entry that worked. That is not an expected-failure model: it fabricates
+     * exactly one failure per success, and it is charged against realised PnL
+     * where the failure demonstrably did not occur.
+     *
+     * Realised labels carry actual failures. Prospective sizing still uses the
+     * assumption, from the route's own attempt history, and keeps it separate.
+     */
+    assumedFailedAttemptLamports: 0n,
   };
   const costLamports = totalEntryCost(entryCosts);
 
-  // What this round trip actually costs, measured rather than assumed. It is
-  // the number that decides whether an edge has to clear 200 bps or 1,400.
-  const entryRoundTripLossBps =
-    costLamports <= 0n ? null : Number(((costLamports - entrySell.expectedOutput) * 10_000n) / costLamports);
-  if (entryRoundTripLossBps !== null) {
-    recordHealth(
-      db,
-      'entry_round_trip',
-      'info',
-      `${mint.slice(0, 12)}: buy then immediate same-family sell loses ${entryRoundTripLossBps} bps all-in`,
-    );
-  }
+  // The core already refused anything above the cap, on the same measured
+  // settlements. Recorded here so the admitted number is in the corpus too.
+  const entryRoundTripLossBps = admission.roundTripLossBps;
+  recordHealth(
+    db,
+    'entry_round_trip',
+    'info',
+    `${mint.slice(0, 12)}: measured trading round trip ${entryRoundTripLossBps} bps ` +
+      `(cap ${config.gates.maxRoundTripLossBps})`,
+  );
 
   const positionId = randomUUID();
   const position: Position = {
@@ -914,6 +1049,21 @@ async function tryEnter(
     closedUtcMs: null,
     strategyVersion: config.strategyVersion,
     simulated: true,
+    // P4 — the explicit economics, from the MEASURED entry settlement.
+    //
+    // The cost is what actually left the payer, fees and rent included. Gross
+    // proceeds and net PnL are NULL because an open position has not realised
+    // either, and null here means undetermined rather than zero.
+    executionCostLamports: entryCashOut(entrySettlement).cashOut,
+    grossProceedsLamports: null,
+    netPnlLamports: null,
+    // P9 — both ends of the cash flow, with rent identified separately.
+    // Exit-side fields are NULL because an open position has not realised
+    // them; null is undetermined, not zero.
+    entryCashOutLamports: entryCashOut(entrySettlement).cashOut,
+    exitCashInLamports: null,
+    lockedRentLamports: entryCashOut(entrySettlement).lockedRent,
+    residualTokenAtoms: null,
   };
   insertPosition(db, position);
   stampContext(db, 'positions', positionId, contextHash);
@@ -991,32 +1141,70 @@ async function tryEnter(
  * not linear and that is the same error §3.1 removed from entries.
  */
 /**
- * Which token program the input asset uses.
- *
- * Token and Token-2022 are different programs with different account layouts,
- * and provisioning inventory under the wrong one creates an account the
- * transaction will not find. Read from the accounts the route actually names,
- * so it is the route's answer rather than a default.
- *
- * Falls back to legacy Token, which is what the overwhelming majority of these
- * mints use, and the fallback is visible in the observation's own account list
- * if it is ever wrong.
+ * Which token program owns this mint, from the transaction the observation was
+ * built from. Null when the transaction does not say.
  */
-const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
-const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-
-function tokenProgramFor(db: Db, blobs: BlobStore, observationId: string): string {
+/**
+ * The pool's reserve token account for this mint, from the exact bytes.
+ *
+ * The route's own accounts name the pool it went through. Deriving this from a
+ * provider field instead would watch an account the trade never touched, and
+ * an alarm on the wrong account is worse than none: it reports coverage.
+ *
+ * Null when the bytes do not identify one. Null is honest; a guess is not.
+ */
+function poolReserveAccountFor(
+  db: Db,
+  blobs: BlobStore,
+  observationId: string,
+  mint: string,
+): string | null {
   try {
     const hash = exactBlobFor(db, observationId);
-    if (hash === null) return LEGACY_TOKEN_PROGRAM;
+    if (hash === null) return null;
+    const blob = blobs.get<ExactTransactionBlob>(hash);
+    // A writable account that is neither the taker's nor a program: on a swap
+    // that is the vault side. The taker's own ATA is excluded explicitly.
+    const takerAtas = new Set(
+      [TOKEN_PROGRAM, TOKEN_2022_PROGRAM].map((p) => {
+        try {
+          return associatedTokenAddress(blob.feePayer, mint, p);
+        } catch {
+          return '';
+        }
+      }),
+    );
+    const candidates = blob.writableAccounts.filter(
+      (a) => a !== blob.feePayer && !takerAtas.has(a) && !blob.staticAccountKeys.slice(0, 1).includes(a),
+    );
+    return candidates[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function tokenProgramFor(
+  db: Db,
+  blobs: BlobStore,
+  observationId: string,
+  taker: string,
+  mint: string,
+): string | null {
+  try {
+    const hash = exactBlobFor(db, observationId);
+    if (hash === null) return null;
     const blob = blobs.get<ExactTransactionBlob>(hash);
     const keys = [...blob.staticAccountKeys, ...blob.loadedAddresses];
-    return keys.includes(TOKEN_2022_PROGRAM) ? TOKEN_2022_PROGRAM : LEGACY_TOKEN_PROGRAM;
+    // Authoritative: the ATA is derived from the program, so only the right
+    // one appears. The previous heuristic asked whether the Token-2022 program
+    // id was among the keys at all, which is true whenever ANY account in a
+    // routed swap belongs to Token-2022 — regularly some other mint's.
+    return tokenProgramFromTransaction(keys, taker, mint);
   } catch {
-    // An unreadable blob is not a reason to guess Token-2022; the legacy
-    // program is what the overwhelming majority of these mints use, and a wrong
-    // guess here creates inventory the transaction will not find.
-    return LEGACY_TOKEN_PROGRAM;
+    // Unknown, and unknown is not Legacy. Returning a guess here creates
+    // inventory at an address the transaction will never look at, and the run
+    // then fails for a reason that is ours.
+    return null;
   }
 }
 
@@ -1149,6 +1337,9 @@ async function openShadowBooks(
       inputMint: WSOL_MINT,
       outputMint: mint,
       inputAmount: notional,
+      routeFamily: obs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, obs.observationId),
+      outputTokenProgram: tokenProgramFor(db, blobs, obs.observationId, taker, mint),
       fundingLamports: notional * 10n,
       maxLamportsSpent: notional * 2n,
       expectedOutput: obs.expectedOutput,
@@ -1207,7 +1398,9 @@ async function openShadowBooks(
       // Exactly the amount the buy would have acquired: the hypothetical
       // position, not a convenient number.
       inputAmount: tokensIn,
-      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      routeFamily: exitObs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, exitObs.observationId),
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, mint),
       fundingLamports: notional,
       maxLamportsSpent: notional * 2n,
       expectedOutput: exitObs.expectedOutput,
@@ -1452,6 +1645,17 @@ async function manageShadowBooks(
       diagnostic: routeAvailable ? 'NONE' : 'NO_EXIT_ROUTE',
       exitObservationId: obs.observationId,
     });
+    /**
+     * P11 — the episode ends when the book flattens.
+     *
+     * Without this an episode stays open forever and the mint is never
+     * claimable again. The old wall-clock bucket needed no close because a new
+     * bucket arrived every fifteen minutes on its own — which is also why it
+     * split one signal into two trades at 14:59 and 15:01.
+     */
+    if (row.signal_episode_id !== null) {
+      closeSignalEpisode(db, row.signal_episode_id, nowMs);
+    }
     closed += 1;
     log.info(
       {
@@ -1732,6 +1936,40 @@ async function manageOpenPositions(
       continue;
     }
 
+    /**
+     * P10 — the TRIGGER, which is not the fill.
+     *
+     * The engine used to observe a route, decide to exit, and close against
+     * that same observation. That is a fill at the instant of noticing, with
+     * no reaction, build, simulation, signature or landing in between — so
+     * every exit in the corpus was priced at a moment no real exit could have
+     * reached, and the bias is systematically favourable because the policy
+     * fires exactly when the price is most extreme.
+     *
+     * The trigger is recorded and the position moves to
+     * AWAITING_FILL_OBSERVATION. The fill comes from a LATER same-family
+     * effect-verified observation, at least FROZEN_FILL_LATENCY_MS after it.
+     */
+    if (row.exit_triggered_utc_ms === null) {
+      updatePosition(db, row.position_id, {
+        state: 'AWAITING_FILL_OBSERVATION',
+        exitTriggeredUtcMs: nowMs,
+        exitTriggerReason: decision.reason ?? 'unknown',
+      });
+      recordHealth(
+        db,
+        'exit_triggered',
+        'info',
+        `${row.mint.slice(0, 12)}: ${decision.reason ?? 'unknown'} fired; awaiting a fill at least ` +
+          `${FROZEN_FILL_LATENCY_MS}ms later`,
+      );
+      continue;
+    }
+
+    // Already triggered. The fill observation must be strictly later than the
+    // trigger plus the frozen latency.
+    if (nowMs < row.exit_triggered_utc_ms + FROZEN_FILL_LATENCY_MS) continue;
+
     // §2.2 / §4.2 — the exit leg is ONE exact-size observation of the same
     // family the entry used, for the exact token amount held.
     const exitObs = await observeRoute(db, jupiter, {
@@ -1767,7 +2005,9 @@ async function manageOpenPositions(
       inputMint: row.mint,
       outputMint: WSOL_MINT,
       inputAmount: tokenAmount,
-      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId),
+      routeFamily: exitObs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, exitObs.observationId),
+      inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, row.mint),
       // Fees and rent only. A sell does not spend SOL on the trade itself, and
       // funding it as though it might would hide a route that quietly does.
       fundingLamports: 100_000_000n,
@@ -1794,7 +2034,10 @@ async function manageOpenPositions(
               inputMint: leg.inputMint,
               outputMint: leg.outputMint,
               inputAmount: leg.inputAmount,
-              inputTokenProgram: tokenProgramFor(db, blobs, observationId),
+              routeFamily: (row.route_family ?? config.primaryRouteFamily) as string,
+              capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
+              inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+              outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
               fundingLamports: 100_000_000n,
               maxLamportsSpent: 20_000_000n,
               expectedOutput: leg.expectedOutput,
@@ -1868,14 +2111,49 @@ async function manageOpenPositions(
     };
     const ataVerdict = settleAtaRent(ata);
 
+    /**
+     * P10 — is THIS observation a valid fill for that trigger?
+     *
+     * `resolveFill` refuses the trigger itself whatever its id says, refuses a
+     * cross-family observation, refuses one whose own effect did not verify,
+     * and refuses an unpriced one. A fill at an unknown price is a number
+     * invented at the moment it matters most.
+     */
+    const fill = resolveFill(
+      row.exit_triggered_utc_ms,
+      (row.route_family ?? config.primaryRouteFamily) as string,
+      [
+        {
+          observationId: exitObs.observationId,
+          observedUtcMs: nowMs,
+          family: exitObs.family,
+          effectValid: simulationEffectOf(db, exitObs.observationId) === 'SIMULATED_EFFECT_OK',
+          executableLamports: grossFromObservation,
+        },
+      ],
+    );
+    if (fill.kind !== 'filled') {
+      recordHealth(db, 'exit_awaiting_fill', 'warn', `${row.mint.slice(0, 12)}: ${fill.reason}`.slice(0, 200));
+      continue;
+    }
+
+    // P6 — the exit's MEASURED settlement, derived before the cost model that
+    // reads its transfer fee. Null when the leg was not effect-verified, and a
+    // null fee is refused rather than charged as zero.
+    const exitJobId = latestJobFor(db, exitObs.observationId);
+    const exitSettlement =
+      exitJobId === null ? null : measuredSettlementOf(db, exitObs.observationId, exitJobId, taker);
+
     const proceeds = netExitProceeds({
       grossProceedsLamports: grossFromObservation,
       signatureFeeLamports: config.assumedSignatureFeeLamports,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-      transferFeeLamports: 0n,
+      // Measured, or refused above. Never assumed zero.
+      transferFeeLamports: exitSettlement?.costs.transferFeeLamportsEquivalent ?? 0n,
       closeAccountFeeLamports: config.assumedSignatureFeeLamports,
-      assumedFailedAttemptLamports: config.assumedFailedAttemptLamports,
+      // P6 — this exit succeeded. It pays for no failed attempt. See the entry.
+      assumedFailedAttemptLamports: 0n,
       ataRentRecoveredLamports: ataVerdict.ataRentRecoveredLamports,
     });
     const realized = proceeds - costLamports;
@@ -1968,13 +2246,63 @@ async function manageOpenPositions(
       contextHash,
     });
 
+    /**
+     * P4 — settle the explicit economics at close.
+     *
+     * The exit's MEASURED settlement when there is one; the observed gross
+     * otherwise, which is stated rather than silently substituted. `bookedCost`
+     * is what the entry actually spent — read back from the row rather than
+     * recomputed, so the two ends of the position agree by construction.
+     */
+    const settledGross =
+      exitSettlement !== null && isPnlEligible(exitSettlement).ok
+        ? exitCashIn(exitSettlement)
+        : grossFromObservation;
+    const bookedCost = (() => {
+      const r = db
+        .prepare('SELECT execution_cost_lamports c FROM positions WHERE position_id = ?')
+        .get(row.position_id) as { c: string | null } | undefined;
+      if (r?.c == null) return costLamports;
+      try {
+        return BigInt(r.c);
+      } catch {
+        return costLamports;
+      }
+    })();
+
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
       realizedLamports: realized,
       closedUtcMs: nowMs,
       exitReason: decision.reason,
       tokenAmount: 0n,
+      executionCostLamports: bookedCost,
+      grossProceedsLamports: settledGross,
+      // P10 — how long the exit actually took, so the assumption can be
+      // checked against what happened rather than trusted.
+      exitFillLatencyMs: fill.latencyMs,
+      /**
+       * P9 — the invariant, not a second opinion.
+       *
+       *   net_pnl_lamports = exit_cash_in_lamports - entry_cash_out_lamports
+       *
+       * Both operands are written on this same row in this same statement, so
+       * a reader can check the identity rather than trust it.
+       */
+      netPnlLamports: settledGross - bookedCost,
+      exitCashInLamports: settledGross,
+      entryCashOutLamports: bookedCost,
+      lockedRentLamports:
+        exitSettlement === null
+          ? undefined
+          : exitSettlement.costs.rentCreatedLamports - exitSettlement.costs.rentRecoveredLamports,
+      // The tokens the exit did NOT manage to sell. Zero is a measurement;
+      // undefined is the absence of one.
+      residualTokenAtoms: exitSettlement?.residualTokenAtoms ?? undefined,
     });
+
+    // P15 — the position is flat, so stop paying for its updates.
+    if (alarm !== null) alarm.unwatch({ mint: row.mint, reserveTokenAccount: '' });
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;
     ledger.navLamports += realized;

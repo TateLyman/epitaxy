@@ -201,7 +201,9 @@ describe('the protocol carries what changes meaning', () => {
     // Bumped again to 3 when the snapshot gained exported program code and the
     // response gained exportedSnapshot. The literal is the point: a version
     // that drifts without anyone noticing is a version that proves nothing.
-    expect(SIMULATION_PROTOCOL_VERSION).toBe(4);
+    // 5: the request binds the capability fingerprint and the leg's own
+    // assets, so a hash no longer spans two different pool paths.
+    expect(SIMULATION_PROTOCOL_VERSION).toBe(5);
     expect(ACCOUNT_SNAPSHOT_SCHEMA_VERSION).toBe(4);
   });
 });

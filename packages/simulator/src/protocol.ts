@@ -31,7 +31,14 @@ import { createHash } from 'node:crypto';
  * SIMULATOR_UNAVAILABLE — a fact about our infrastructure — and never a fact
  * about the token being simulated.
  */
-export const SIMULATION_PROTOCOL_VERSION = 4;
+/**
+ * 5 — the request binds the capability fingerprint and the leg's own assets.
+ *
+ * Bumped because the request HASH changed meaning. A version 4 hash could be
+ * shared by two legs that differ in which pools they route through, which is
+ * the identity a parity claim is made about.
+ */
+export const SIMULATION_PROTOCOL_VERSION = 5;
 
 /**
  * Has this build been shown to reproduce the EXECUTION of transactions the
@@ -265,6 +272,15 @@ export interface SimulationRequest {
   readonly balanceMutations: readonly BalanceMutation[];
   readonly bounds: EconomicBounds;
   readonly contextHash: string | null;
+  /**
+   * The route identity this leg exercises.
+   *
+   * Bound into the hash: `BUILD_CUSTOM` names the builder, not the pools, and
+   * two legs through different pools are two different economic questions that
+   * must not share one answer. Null when the caller genuinely cannot name it,
+   * which is itself a fact the label carries.
+   */
+  readonly capabilityFingerprint?: string | null;
 }
 
 export type SimulationStatus =

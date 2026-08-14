@@ -12,6 +12,10 @@ import {
   InvalidSimulationSetup,
 } from '../../apps/engine/src/simulate-observation.js';
 import { SIMULATION_PROTOCOL_VERSION, ACCOUNT_SNAPSHOT_SCHEMA_VERSION } from '../../packages/simulator/src/protocol.js';
+import {
+  legSpec,
+  buildSimulationRequestForLeg,
+} from '../../packages/simulator/src/leg.js';
 import type { SimulationResponse } from '../../packages/simulator/src/protocol.js';
 
 /**
@@ -47,11 +51,11 @@ const blob = (): ExactTransactionBlob => ({
   lastValidBlockHeight: 400,
   contextSlot: 438_000_000,
   packetBytes: 100,
-  feePayer: 'Payer',
+  feePayer: PAYER,
   requiredSignatures: 1,
-  staticAccountKeys: ['Payer'],
+  staticAccountKeys: [PAYER],
   loadedAddresses: [],
-  writableAccounts: ['Payer'],
+  writableAccounts: [PAYER],
   readonlyAccounts: [],
   capturedUtcMs: 1,
 });
@@ -144,15 +148,46 @@ function setup(dir: string): { db: ReturnType<typeof openDb>; blobs: BlobStore; 
 }
 
 const WSOL = 'So11111111111111111111111111111111111111112';
+
+/**
+ * Real base58 keys, because the leg's token accounts are DERIVED from them.
+ *
+ * A placeholder like 'MintB' cannot be decoded, so the associated token address
+ * cannot be computed, and the setup is refused — correctly. The fixture has to
+ * be a leg that could exist.
+ */
+const MINT_B = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const PAYER = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+/** The same leg `opts` describes, assembled by the one assembler. */
+const LEG_SPEC = legSpec({
+  side: 'buy',
+  routeFamily: 'BUILD_CUSTOM',
+  capabilityFingerprint: 'fixture-fingerprint',
+  taker: PAYER,
+  inputMint: WSOL,
+  outputMint: MINT_B,
+  inputAmount: 20_000_000n,
+  maxTotalPayerDebitLamports: 40_000_000n,
+  inputTokenProgram: null,
+  outputTokenProgram: TOKEN_PROGRAM,
+  minimumOutput: null,
+  expectedOutput: null,
+});
 
 /** A BUY: spends SOL, receives the token. */
 const opts = {
   mode: 'DEVELOPMENT_JIT' as const,
+  routeFamily: 'BUILD_CUSTOM',
+  capabilityFingerprint: 'fixture-fingerprint',
   side: 'buy' as const,
   inputMint: WSOL,
-  outputMint: 'MintB',
+  outputMint: MINT_B,
   inputAmount: 20_000_000n,
+  // A buy RECEIVES a token, so its program is part of the leg.
+  outputTokenProgram: TOKEN_PROGRAM,
   fundingLamports: 200_000_000n,
   maxLamportsSpent: 40_000_000n,
   contextHash: null,
@@ -162,10 +197,12 @@ const opts = {
 const sellOpts = {
   ...opts,
   side: 'sell' as const,
-  inputMint: 'MintB',
+  inputMint: MINT_B,
   outputMint: WSOL,
   inputAmount: 1_000_000_000n,
   inputTokenProgram: TOKEN_PROGRAM,
+  // A sell receives native lamports; there is no output token program.
+  outputTokenProgram: null,
 };
 
 describe('§9 simulator integration', () => {
@@ -177,7 +214,7 @@ describe('§9 simulator integration', () => {
       const client = clientReturning(() => {
         throw new SimulatorUnavailable('connection reset');
       });
-      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', opts);
+      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, PAYER, opts);
       expect(r.kind).toBe('unavailable');
 
       // The row exists and says UNKNOWN. A missing row would be an unknown
@@ -198,7 +235,7 @@ describe('§9 simulator integration', () => {
       const client = clientReturning(() => {
         throw new SimulatorUnavailable('simulator down');
       });
-      await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', opts);
+      await simulateObservation(db, blobs, client, 'obs-1', hash, PAYER, opts);
 
       // This is the rule the whole module exists for. The route was never
       // checked, so the route's status is unchanged. Writing SIMULATION_FAILURE
@@ -223,8 +260,10 @@ describe('§9 simulator integration', () => {
         if (path === '/v1/simulate') return response({ jobId, requestHash: reqHash });
         return {};
       });
-      // The client derives the job id from the request hash, so mirror it.
-      const built = client.buildRequest({
+      // Through the SAME function production uses. Hand-writing the request
+      // here is how this test kept passing while production sent a differently
+      // shaped one — which is the entire defect P2 exists to close.
+      const built = buildSimulationRequestForLeg(client, LEG_SPEC, {
         executionObservationId: 'obs-1',
         mode: 'DEVELOPMENT_JIT',
         transactionBase64: 'AQID',
@@ -232,21 +271,16 @@ describe('§9 simulator integration', () => {
         originalMessageHash: 'mh',
         originalBlockhash: 'BH',
         originalLastValidBlockHeight: 400,
-        routeFamily: 'BUILD_CUSTOM',
-        // The EXACT input, not zero. A leg that spends nothing is not a leg,
-        // and every economic bound over it is vacuous.
-        requestedAmount: '20000000',
         targetSlot: 438_000_000,
         snapshotManifestHash: 'jit-no-frozen-snapshot',
         snapshotAccounts: [],
-        balanceMutations: [{ kind: 'sol', owner: 'Payer', amount: '200000000' }],
-        bounds: { feePayer: 'Payer', maxLamportsSpent: '40000000' },
+        fundingLamports: opts.fundingLamports,
         contextHash: null,
       });
       jobId = built.jobId;
       reqHash = built.requestHash;
 
-      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', opts);
+      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, PAYER, opts);
       expect(r.kind).toBe('ok');
       if (r.kind === 'ok') {
         expect(r.status).toBe('SIMULATED_OK');
@@ -271,7 +305,7 @@ describe('§9 simulator integration', () => {
     try {
       const { db, blobs } = setup(dir);
       const client = clientReturning(() => response({}));
-      const r = await simulateObservation(db, blobs, client, 'obs-1', null, 'Payer', opts);
+      const r = await simulateObservation(db, blobs, client, 'obs-1', null, PAYER, opts);
       expect(r.kind).toBe('skipped');
       // No job row: nothing was ever requested.
       expect(db.prepare('SELECT COUNT(*) AS c FROM simulation_jobs').get()).toEqual({ c: 0 });
@@ -286,7 +320,7 @@ describe('§9 simulator integration', () => {
     try {
       const { db, blobs } = setup(dir);
       const client = clientReturning(() => response({}));
-      const r = await simulateObservation(db, blobs, client, 'obs-1', '0'.repeat(64), 'Payer', opts);
+      const r = await simulateObservation(db, blobs, client, 'obs-1', '0'.repeat(64), PAYER, opts);
       expect(r.kind).toBe('skipped');
       const health = db.prepare("SELECT kind, severity FROM health_events WHERE kind LIKE '%blob%'").all() as {
         kind: string;
@@ -366,6 +400,14 @@ describe('§24.2/3/6 the setup must describe the leg before anything runs', () =
     expect(() => validateSetup({ ...opts, outputMint: WSOL })).toThrow(/same/i);
   });
 
+  it('refuses a buy that cannot name the token program of what it receives', () => {
+    // The credit has no account to be bound to, so the run would report
+    // SIMULATED_OK having verified nothing about the money. This is the exact
+    // gap between the proof harness and production.
+    expect(() => validateSetup({ ...opts, outputTokenProgram: null })).toThrow(/token program/i);
+    expect(() => validateSetup({ ...opts, outputTokenProgram: undefined })).toThrow(/bound to an account/i);
+  });
+
   it('skips rather than simulating when the setup is invalid, and says so as CRITICAL', async () => {
     const dir = tmp();
     try {
@@ -375,7 +417,7 @@ describe('§24.2/3/6 the setup must describe the leg before anything runs', () =
         sent += 1;
         return response({});
       });
-      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', {
+      const r = await simulateObservation(db, blobs, client, 'obs-1', hash, PAYER, {
         ...sellOpts,
         inputTokenProgram: null,
       });
@@ -404,11 +446,11 @@ describe('§24.2/3/6 the setup must describe the leg before anything runs', () =
         return response({});
       });
 
-      await simulateObservation(db, blobs, client, 'obs-1', hash, 'Payer', sellOpts);
+      await simulateObservation(db, blobs, client, 'obs-1', hash, PAYER, sellOpts);
       const sell = seen[0]?.balanceMutations ?? [];
       const tokenMutation = sell.find((m) => m.kind === 'token');
       expect(tokenMutation, 'a sell must be given the token it spends').toBeDefined();
-      expect(tokenMutation?.mint).toBe('MintB');
+      expect(tokenMutation?.mint).toBe(MINT_B);
       // EXACTLY the hypothetical position: more would let a sell succeed that
       // the real balance could not cover.
       expect(tokenMutation?.amount).toBe('1000000000');

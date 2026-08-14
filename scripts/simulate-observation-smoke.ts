@@ -107,6 +107,8 @@ for (const r of before.reasons) console.log(`    - ${r}`);
 
 const { simulated, attempt } = await simulateLeg(db, blobs, client, obs.observationId, taker, {
   mode: 'DEVELOPMENT_JIT',
+  routeFamily: 'BUILD_CUSTOM',
+  capabilityFingerprint: 'fixture-fingerprint',
   side: 'buy',
   inputMint: SOL,
   outputMint: USDC,

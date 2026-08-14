@@ -641,11 +641,48 @@ async function runJob(req: SimulationRequest, queueWaitMs: number): Promise<Simu
       return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
     }
   }
+  /**
+   * P3 — token atoms NEVER cross a JavaScript number.
+   *
+   * This ran `exactNumber` over every mutation, so a token amount above
+   * `Number.MAX_SAFE_INTEGER` was refused here — before reaching the exact-byte
+   * path that has no such limit. An ordinary fresh memecoin position is nine
+   * decimals against a billion supply: 10^18 atoms, three orders of magnitude
+   * past exact. The refusal was correct for the API it was protecting and it
+   * was guarding a route the code no longer takes.
+   *
+   * SOL still crosses the boundary, because `fundSol` genuinely takes a number,
+   * so it is exact-range checked. Token atoms are u64-range checked and written
+   * as bytes.
+   */
   for (const m of req.balanceMutations) {
+    let v: bigint;
     try {
-      exactNumber(BigInt(m.amount), `${m.kind} mutation for ${m.owner}`);
-    } catch (e) {
-      return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+      v = BigInt(m.amount);
+    } catch {
+      return fail(req, 'SIMULATOR_UNAVAILABLE', `${m.kind} mutation for ${m.owner} is not an integer`, t0, queueWaitMs, 0, 0);
+    }
+    if (m.kind === 'sol') {
+      try {
+        exactNumber(v, `${m.kind} mutation for ${m.owner}`);
+      } catch (e) {
+        return fail(req, 'SIMULATOR_UNAVAILABLE', (e as Error).message, t0, queueWaitMs, 0, 0);
+      }
+      continue;
+    }
+    // A token account's amount field is u64. Outside that range it is not a
+    // balance the chain could hold, which is a different refusal than "we
+    // cannot represent it".
+    if (v < 0n || v > 0xffff_ffff_ffff_ffffn) {
+      return fail(
+        req,
+        'SIMULATOR_UNAVAILABLE',
+        `token mutation for ${m.owner} is outside u64: ${m.amount}`,
+        t0,
+        queueWaitMs,
+        0,
+        0,
+      );
     }
   }
 

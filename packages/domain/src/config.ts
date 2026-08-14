@@ -440,6 +440,22 @@ export function heliusRpcUrl(apiKey: string): string {
   return `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
 }
 
+/**
+ * The websocket endpoint, derived the same way the HTTP one is.
+ *
+ * `rpcHttp` fell back to the Helius key and `rpcWs` did not, so an operator
+ * with a key configured got HTTP and NO websocket — and every websocket
+ * feature then did nothing, silently. The reserve alarm and the direct chain
+ * clock were both constructed, both logged an absence at `warn`, and neither
+ * connected, because of one missing fallback.
+ *
+ * The asymmetry is the defect: two transports of the same endpoint, one
+ * derived and one not, with nothing to make the difference visible.
+ */
+export function heliusWsUrl(apiKey: string): string {
+  return `wss://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
+}
+
 export function loadSecrets(): Secrets {
   // `.env` is loaded here rather than at process start so that every entry
   // point gets it without having to remember to. Idempotent, and ambient
@@ -457,7 +473,8 @@ export function loadSecrets(): Secrets {
     paperTakerPubkey: envOrNull('PAPER_TAKER_PUBKEY'),
     goplusToken: envOrNull('GOPLUS_ACCESS_TOKEN'),
     rpcHttp: explicitRpcHttp ?? (heliusApiKey === null ? null : heliusRpcUrl(heliusApiKey)),
-    rpcWs: envOrNull('SOLANA_RPC_WS'),
+    // Explicit beats derived here too, for the same reason it does for HTTP.
+    rpcWs: envOrNull('SOLANA_RPC_WS') ?? (heliusApiKey === null ? null : heliusWsUrl(heliusApiKey)),
     rpcHttpFallback: envOrNull('SOLANA_RPC_HTTP_FALLBACK'),
     rpcHttpDerivedFromHeliusKey: derived,
     tradingKeypairPath: envOrNull('TRADING_KEYPAIR_PATH'),

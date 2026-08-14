@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../../domain/src/config.js';
 import type { DecisionSnapshot, RoundTrip, ScreeningOutcome } from '../../domain/src/types.js';
+import { capitalAtRisk } from '../../domain/src/types.js';
+import { TOKEN_2022_PROGRAM } from '../../solana/src/pda.js';
+
+/** The mint's decoded Token-2022 behaviour, as the gates read it. */
+export interface Token2022Facts {
+  readonly hasMoneyCriticalBehaviour: boolean;
+  readonly hasUnknownExtension: boolean;
+  readonly transferFeeBps: number | null;
+  readonly detail: string;
+}
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import type { MintFacts } from '../../intelligence/src/mintfacts.js';
 // P17 -- the entity reading enters the concentration decision through
@@ -52,9 +62,53 @@ export function screenCheap(
    * caller decides; what the caller may not do is pass a guess.
    */
   chainFacts: MintFacts | null = null,
+  /**
+   * P14 — the mint's own Token-2022 behaviour, decoded from its account.
+   *
+   * `evaluateCheapGates` has read this since it was written and no caller ever
+   * supplied it, so `token2022_money_critical` could not fire. A gate whose
+   * input is never provided is a gate that does not exist.
+   *
+   * Null means the mint was not read. In a capital mode that is itself a
+   * refusal below: unknown money-critical behaviour is not absent behaviour.
+   */
+  token2022: Token2022Facts | null = null,
 ): { gates: ReturnType<typeof evaluateCheapGates>; deservesQuote: boolean } {
-  const gates = evaluateCheapGates({ info, nowUtcMs, sourceAgeMs, config: config.gates, chainFacts });
-  return { gates, deservesQuote: summarize(gates).passedHardGates };
+  const atRisk = capitalAtRisk(config.mode);
+  const gates = evaluateCheapGates({
+    info,
+    nowUtcMs,
+    sourceAgeMs,
+    config: config.gates,
+    chainFacts,
+    capitalAtRisk: atRisk,
+    token2022,
+  });
+
+  /**
+   * A capital mode may not trade a mint it did not read.
+   *
+   * The Token-2022 gate can only refuse behaviour it was told about. Silence
+   * is the one answer that must not pass, because every money-critical
+   * extension — transfer hook, permanent delegate, pausable, non-transferable,
+   * default-frozen — presents as silence when nobody looked.
+   */
+  const unread = atRisk && token2022 === null && info.tokenProgram === TOKEN_2022_PROGRAM;
+  const all = unread
+    ? [
+        ...gates,
+        {
+          gate: 'token2022_unread',
+          severity: 'hard_veto' as const,
+          passed: false,
+          reason: 'token2022_unread',
+          detail: 'a Token-2022 mint was not decoded; unknown money-critical behaviour is not absent behaviour',
+          riskContribution: 1,
+        },
+      ]
+    : gates;
+
+  return { gates: all, deservesQuote: summarize(all).passedHardGates };
 }
 
 /** Phase 2: combines the cheap layer with an optional measured round trip. */
@@ -87,9 +141,10 @@ export function finalizeScreen(
   const quoteGates = deservesQuote ? evaluateQuoteGates(roundTrip, config.gates) : [];
   // Modes that commit real capital refuse an unmeasurable holder distribution;
   // modes that only observe record it as risk and carry on.
-  const capitalAtRisk = config.mode === 'canary' || config.mode === 'live';
+  // P14 — the same derivation as the cheap layer. Two copies drift.
+  const atRisk = capitalAtRisk(config.mode);
   const concentrationGates = deservesQuote
-    ? evaluateConcentrationGate(concentration, config.gates, capitalAtRisk)
+    ? evaluateConcentrationGate(concentration, config.gates, atRisk)
     : [];
   const gates = [...cheapGates, ...quoteGates, ...concentrationGates];
   const summary = summarize(gates);

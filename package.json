@@ -61,11 +61,17 @@
     "rate:budget": "tsx scripts/rate-budget.ts",
     "simulator:pump-effect-proof": "tsx scripts/pump-effect-proof.ts",
     "simulator:offline-pump-parity": "tsx scripts/simulator-prospective-parity.ts",
-    "shadow:development": "tsx scripts/evidence-status.ts shadow"
+    "shadow:development": "tsx scripts/evidence-status.ts shadow",
+    "simulator:stateful-roundtrip-proof": "tsx scripts/stateful-roundtrip-proof.ts",
+    "settlement:check": "tsx scripts/settlement-check.ts",
+    "size:admission-surface": "tsx scripts/economic-admission-surface.ts",
+    "simulator:big-atoms-proof": "tsx scripts/big-atoms-proof.ts",
+    "pumpswap:parity": "tsx scripts/pumpswap-parity.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
     "@solana/surfpool": "1.5.0",
+    "@types/bn.js": "5.2.0",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
     "fast-check": "^3.23.1",
@@ -75,6 +81,10 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "@pump-fun/pump-sdk": "1.36.0",
+    "@pump-fun/pump-swap-sdk": "1.19.0",
+    "@solana/web3.js": "1.98.4",
+    "bn.js": "5.2.2",
     "pino": "^9.5.0",
     "zod": "^3.24.1"
   }

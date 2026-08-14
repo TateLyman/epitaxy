@@ -62,6 +62,51 @@ export interface EntryEconomics {
   /** Every fixed cost of getting in, already summed. */
   readonly allInCostLamports: bigint;
   readonly requireLocalSimulation: boolean;
+  /**
+   * P6 — the frozen cap the measured round trip must clear.
+   *
+   * A score can rank economically viable trades. It cannot rescue a
+   * mechanically losing one, so this refuses rather than penalises.
+   */
+  readonly maxRoundTripLossBps: number;
+}
+
+/**
+ * The measured economics of a settled leg pair.
+ *
+ * Supplied by the caller because only it can reach the database the simulator
+ * wrote to. The core decides; it does not query.
+ */
+export interface MeasuredRoundTrip {
+  readonly tradingLossBps: number;
+  readonly allInLossBps: number;
+  readonly netLamports: bigint;
+  readonly recoverableRentLamports: bigint;
+  readonly complete: boolean;
+  readonly reasons: readonly string[];
+}
+
+export interface RoundTripReader {
+  /**
+   * The measured round trip for these two observations, or null when either
+   * leg has no effect-verified settlement.
+   *
+   * Null is not "assume it is fine". An entry whose economics were never
+   * measured is refused.
+   */
+  measure(buyObservationId: string, sellObservationId: string): MeasuredRoundTrip | null;
+}
+
+/**
+ * The tokens a buy ACTUALLY acquired, from its measured settlement.
+ *
+ * Returns null when the credit was not measured. The old contract took a
+ * `tokensFrom(buy)` function that read the router's floor off the observation,
+ * which is what the buy promised not to go below — not what it delivered. The
+ * two differ by the slippage allowance on every trade.
+ */
+export interface AcquiredReader {
+  measure(buyObservationId: string): bigint | null;
 }
 
 export interface EntryAdmission {
@@ -92,12 +137,16 @@ const WSOL = 'So11111111111111111111111111111111111111112';
  * been shown to exist, and this repository has already booked capital into one.
  */
 export async function admitPortfolioEntry(
-  deps: { observer: RouteObserver; simulator: LegSimulator },
+  deps: {
+    observer: RouteObserver;
+    simulator: LegSimulator;
+    /** P8 — measured credit and measured round trip, read by the caller. */
+    acquired: AcquiredReader;
+    roundTrip: RoundTripReader;
+  },
   input: {
     mint: string;
     lamportsIn: bigint;
-    /** Tokens the buy actually acquires, net of the family's fee contract. */
-    tokensFrom: (buy: ExecutionObservation) => bigint;
     economics: EntryEconomics;
   },
 ): Promise<EntryAdmission> {
@@ -129,7 +178,18 @@ export async function admitPortfolioEntry(
   );
   if (!buyExecutable.ok) reasons.push(...buyExecutable.reasons.map((r) => `buy: ${r}`));
 
-  const tokensAcquired = input.tokensFrom(buy);
+  /**
+   * THE measured credit. Not the router's floor.
+   *
+   * Refuses rather than falling back: an entry booked on an estimate records a
+   * position the simulator never verified, which is the exact divergence this
+   * whole repair exists to close.
+   */
+  const tokensAcquired = deps.acquired.measure(buy.observationId);
+  if (tokensAcquired === null) {
+    reasons.push('buy: no measured token credit; refusing to enter on an estimate');
+    return { ok: false, reasons, buy, sell: null, tokensAcquired: null, roundTripLossBps: null };
+  }
   if (tokensAcquired <= 0n) {
     reasons.push('buy: acquires no tokens');
     return { ok: false, reasons, buy, sell: null, tokensAcquired: null, roundTripLossBps: null };
@@ -169,12 +229,34 @@ export async function admitPortfolioEntry(
   );
   if (!sellExecutable.ok) reasons.push(...sellExecutable.reasons.map((r) => `sell: ${r}`));
 
-  // Round-trip economics against the ALL-IN cost, not against the input alone.
-  // Fees, tip and rent are what a round trip actually costs, and leaving them
-  // out is how a strategy that loses money looks like one that breaks even.
-  const proceeds = sell.expectedOutput;
-  const cost = input.economics.allInCostLamports;
-  const roundTripLossBps = cost <= 0n ? null : Number(((cost - proceeds) * 10_000n) / cost);
+  /**
+   * P6 — the round trip from two MEASURED settlements, and it REFUSES.
+   *
+   * This was computed from `sell.expectedOutput` — a router quote — and
+   * returned for the caller to log. The gate existed, the measurement existed,
+   * and nothing connected them, so a position whose immediate round trip lost
+   * more than the cap opened anyway.
+   */
+  const measured = deps.roundTrip.measure(buy.observationId, sell.observationId);
+  if (measured === null) {
+    reasons.push('the round trip was never measured; both legs need an effect-verified settlement');
+    return { ok: false, reasons, buy, sell, tokensAcquired, roundTripLossBps: null };
+  }
+  if (!measured.complete) {
+    reasons.push(...measured.reasons.map((r) => `round trip: ${r}`));
+    return { ok: false, reasons, buy, sell, tokensAcquired, roundTripLossBps: null };
+  }
+
+  // The TRADING loss. Rent is capital the account holds and returns on close;
+  // charging it against the edge refuses trades for a cost the market never
+  // made. Measured live: 3,688 bps all-in against 363 bps of trading cost.
+  const roundTripLossBps = measured.tradingLossBps;
+  if (roundTripLossBps > input.economics.maxRoundTripLossBps) {
+    reasons.push(
+      `mechanics: the measured round trip loses ${roundTripLossBps} bps against a ` +
+        `${input.economics.maxRoundTripLossBps} bps cap`,
+    );
+  }
 
   return { ok: reasons.length === 0, reasons, buy, sell, tokensAcquired, roundTripLossBps };
 }

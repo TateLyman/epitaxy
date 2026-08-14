@@ -44,16 +44,66 @@ export function simulationValidity(
   // A leg that spends nothing is not a leg, and every bound over it is vacuous.
   if (amount <= 0n) return 'INSTRUMENT_DEVELOPMENT';
 
-  // A leg that spends a token must have been GIVEN that token. This is the
-  // exact condition the whole window failed, checked here against the request
-  // rather than against the caller's belief about the request.
-  const tokenProvisioned = req.balanceMutations.every(
-    (m) => m.kind !== 'token' || ((m.tokenProgram ?? null) !== null && m.amount !== '0'),
-  );
-  if (!tokenProvisioned) return 'INSTRUMENT_DEVELOPMENT';
-
   // An unbounded run cannot violate an economic assertion, so it never made one.
   if (req.bounds.feePayer.length === 0 || req.bounds.maxLamportsSpent.length === 0) {
+    return 'INSTRUMENT_DEVELOPMENT';
+  }
+
+  /**
+   * P2 — validate the ECONOMIC LEG, not merely that an amount was named.
+   *
+   * The previous check was:
+   *
+   *   req.balanceMutations.every((m) => m.kind !== 'token' || ...)
+   *
+   * `every()` is TRUE on an empty array. A sell that provisioned no token at
+   * all therefore passed — which is precisely the condition that produced 43
+   * identical failures, every one recorded as a result about a route. The
+   * check was written for that defect and could not detect it.
+   */
+  const inputAsset = req.bounds.inputAsset;
+  const outputAsset = req.bounds.outputAsset;
+
+  // A request that does not name its assets cannot be checked against its
+  // provisioning, and the legacy generic form never named them.
+  if (inputAsset === undefined || outputAsset === undefined) return 'INSTRUMENT_DEVELOPMENT';
+
+  const tokenMutations = req.balanceMutations.filter((m) => m.kind === 'token');
+
+  if (inputAsset.kind === 'token') {
+    // Exactly one, and it must BE the account the leg says it debits.
+    if (tokenMutations.length !== 1) return 'INSTRUMENT_DEVELOPMENT';
+    const m = tokenMutations[0];
+    if (m === undefined) return 'INSTRUMENT_DEVELOPMENT';
+    if (m.owner !== req.bounds.feePayer) return 'INSTRUMENT_DEVELOPMENT';
+    if (m.mint !== inputAsset.mint) return 'INSTRUMENT_DEVELOPMENT';
+    if ((m.tokenProgram ?? null) !== inputAsset.tokenProgram) return 'INSTRUMENT_DEVELOPMENT';
+    // The EXACT amount. Funding more would let a sell succeed that the real
+    // balance could not cover; funding less fails for a reason that is ours.
+    if (m.amount !== (inputAsset.exactDebitAtoms ?? '')) return 'INSTRUMENT_DEVELOPMENT';
+    if ((inputAsset.exactDebitAtoms ?? '') !== req.requestedAmount) return 'INSTRUMENT_DEVELOPMENT';
+  } else {
+    // A native-input leg provisions no token. One present means the setup
+    // describes a different leg than the bounds do.
+    if (tokenMutations.length !== 0) return 'INSTRUMENT_DEVELOPMENT';
+    if ((inputAsset.exactDebitLamports ?? '') !== req.requestedAmount) return 'INSTRUMENT_DEVELOPMENT';
+    const sol = req.balanceMutations.filter((m) => m.kind === 'sol');
+    if (sol.length === 0) return 'INSTRUMENT_DEVELOPMENT';
+    // Enough to cover the input itself, before any fee or rent.
+    let funded = 0n;
+    for (const m of sol) {
+      try {
+        funded += BigInt(m.amount);
+      } catch {
+        return 'INSTRUMENT_DEVELOPMENT';
+      }
+    }
+    if (funded < amount) return 'INSTRUMENT_DEVELOPMENT';
+  }
+
+  // The output must be nameable too, or the credit has no account to land in
+  // and the run verified nothing about what the leg received.
+  if (outputAsset.kind === 'token' && (outputAsset.tokenAccount ?? '').length === 0) {
     return 'INSTRUMENT_DEVELOPMENT';
   }
 

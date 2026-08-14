@@ -1,6 +1,22 @@
 import type { AppConfig } from '../../domain/src/config.js';
 import type { Candidate, LaunchpadName, RoundTrip } from '../../domain/src/types.js';
 import { WSOL_MINT } from '../../domain/src/types.js';
+import { COHORT_BOUNDS } from '../../domain/src/cohort.js';
+import { allocate } from '../../strategy/src/exploration.js';
+import { capitalAtRisk } from '../../domain/src/types.js';
+import { TOKEN_2022_PROGRAM } from '../../solana/src/pda.js';
+import { decodeToken2022Mint } from '../../solana/src/token2022.js';
+import type { Token2022Facts } from '../../strategy/src/screen.js';
+
+/** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h | 0;
+}
 import type { Db } from '../../storage/src/db.js';
 import {
   candidateExists,
@@ -8,7 +24,7 @@ import {
   insertQuote,
   insertScreening,
   insertSnapshot,
-  maturingMints,
+  maturingByCohort,
   recordForwardObservation,
   recordRejectObservation,
   recordSourceHealth,
@@ -37,6 +53,10 @@ const log = logger.child({ mod: 'cycle' });
 
 export interface CycleStats {
   discovered: number;
+  /** P17 — how many of this cycle's quotes went to the exploration arm. */
+  explored?: number;
+  /** P16 — how many candidates each age cohort actually matured this cycle. */
+  maturingByCohort?: Readonly<Record<string, number>>;
   newCandidates: number;
   screened: number;
   cheapPassed: number;
@@ -143,10 +163,19 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
 
   // Phase 2b — mints that have aged INTO the eligible window. One request
   // covers up to 100 mints, the cheapest enrichment available.
-  const mature = maturingMints(db, nowUtcMs, config.gates.minTokenAgeMs, config.gates.maxTokenAgeMs, 100).filter(
-    (m) => !deps.skip?.has(m),
-  );
+  /**
+   * P16 — all FOUR cohorts mature, each with its own quota.
+   *
+   * This drew one window from `config.gates`, so three of the four arms were
+   * never populated. An experiment comparing a populated cohort against three
+   * empty ones has one arm.
+   */
+  const cohortRows = maturingByCohort(db, nowUtcMs, COHORT_BOUNDS, 25).filter((r) => !deps.skip?.has(r.mint));
+  const mature = cohortRows.map((r) => r.mint);
   stats.maturing = mature.length;
+  stats.maturingByCohort = Object.fromEntries(
+    [...new Set(cohortRows.map((r) => r.cohort))].map((c) => [c, cohortRows.filter((r) => r.cohort === c).length]),
+  );
 
   // Ranked-feed entries already carry fresh stats; re-fetching them would spend
   // a request on data already in hand.
@@ -179,7 +208,20 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     // derived from the absence of information.
     const updatedAt = parseUtc(info.updatedAt);
     const sourceAgeMs = updatedAt === null ? null : nowUtcMs - updatedAt;
-    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs);
+    /**
+     * P14 — read the MINT, in modes where being wrong costs money.
+     *
+     * `evaluateCheapGates` has always read `token2022` and no caller ever
+     * supplied it, so `token2022_money_critical` could not fire: a transfer
+     * hook, a permanent delegate, a pausable mint and a default-frozen mint
+     * all presented as silence.
+     *
+     * Only in capital modes, because it costs an RPC call per candidate and
+     * observe/paper risk nothing. In those modes an unread Token-2022 mint is
+     * refused by `screenCheap` rather than passed as unknown.
+     */
+    const t22 = await token2022FactsFor(deps, info);
+    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22);
     if (deservesQuote) {
       stats.cheapPassed += 1;
       promoted.push({ info, gates, sourceAgeMs });
@@ -188,16 +230,44 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     }
   }
 
-  // Phase 3 — spend the scarce quote budget on the best survivors only.
-  // Ranking by liquidity is a heuristic: the true ranking would need the quote
-  // we are trying to avoid spending.
-  promoted.sort((a, b) => (b.info.liquidity ?? 0) - (a.info.liquidity ?? 0));
+  /**
+   * Phase 3 — 75% to the best survivors, 25% to a stratified random draw.
+   *
+   * The whole budget used to go to the highest-liquidity survivors, which
+   * produces a corpus that can only answer "how do high-liquidity survivors
+   * perform". It cannot answer the question that decides whether the gates are
+   * any good: what did we refuse that would have worked? A gate evaluated only
+   * on the candidates it admitted is evaluated on its own output.
+   *
+   * The 25% is FROZEN before collection, and every row carries the probability
+   * it had of being selected — a biased sample whose bias is unrecorded is
+   * worse than no sample, because it looks like evidence.
+   */
+  const allocation = allocate(
+    promoted.map((p) => ({
+      item: p,
+      // Stratified by cohort, so exploration does not collapse into whichever
+      // age band happens to have the most candidates.
+      stratum: cohortRows.find((r) => r.mint === p.info.id)?.cohort ?? 'UNKNOWN',
+      rank: p.info.liquidity ?? 0,
+    })),
+    config.maxQuotesPerCycle,
+    // Deterministic: the same corpus and code reproduce the same decisions, so
+    // a replay divergence still means a defect rather than a coin flip.
+    hashSeed(deps.config.strategyVersion) + Math.floor(nowUtcMs / 60_000),
+  );
+  stats.explored = allocation.filter((a) => a.arm === 'explore').length;
 
-  for (const { info, gates, sourceAgeMs } of promoted.slice(0, config.maxQuotesPerCycle)) {
+  for (const sel of allocation) {
+    const { info, gates, sourceAgeMs } = sel.item;
     const roundTrip = await priceRoundTrip(deps, info, stats);
     if (roundTrip === 'provider_failure') continue;
     const concentration = await measureConcentration(deps, info.id, stats);
-    await persist(deps, info, gates, roundTrip, concentration, Date.now(), stats, sourceAgeMs);
+    await persist(deps, info, gates, roundTrip, concentration, Date.now(), stats, sourceAgeMs, {
+      arm: sel.arm,
+      inclusionProbability: sel.inclusionProbability,
+      stratum: sel.stratum,
+    });
   }
 
   // Phase 4 — forward observations on things we already refused. One batched
@@ -330,6 +400,35 @@ async function measureConcentration(
   }
 }
 
+/**
+ * The mint's Token-2022 behaviour, decoded from its own account bytes.
+ *
+ * Null when we did not read it — never a fabricated "no extensions". The
+ * caller decides what null means, and in a capital mode it means refused.
+ */
+async function token2022FactsFor(
+  deps: CycleDeps,
+  info: MintInformation,
+): Promise<Token2022Facts | null> {
+  if (!capitalAtRisk(deps.config.mode)) return null;
+  if (info.tokenProgram !== TOKEN_2022_PROGRAM) return null;
+  if (deps.rpc === undefined || deps.rpc === null) return null;
+  try {
+    const raw = await deps.rpc.getAccountRaw(info.id);
+    const facts = decodeToken2022Mint(Buffer.from(raw.dataBase64, 'base64'), raw.owner);
+    return {
+      hasMoneyCriticalBehaviour: facts.hasMoneyCriticalBehaviour,
+      hasUnknownExtension: facts.hasUnknownExtension,
+      transferFeeBps: facts.transferFeeBps,
+      detail: facts.detail,
+    };
+  } catch {
+    // Unreadable is UNKNOWN, and in a capital mode `screenCheap` refuses on
+    // null. Returning EMPTY here would assert the mint is plain.
+    return null;
+  }
+}
+
 async function persist(
   deps: CycleDeps,
   info: MintInformation,
@@ -339,10 +438,24 @@ async function persist(
   nowUtcMs: number,
   stats: CycleStats,
   sourceAgeMs: number | null,
+  /** P17 — how this row entered the sample. Absent for rows nobody quoted. */
+  selection?: { arm: 'exploit' | 'explore'; inclusionProbability: number; stratum: string },
 ): Promise<void> {
   const result = finalizeScreen(info, deps.config, nowUtcMs, gates, roundTrip, null, concentration, sourceAgeMs);
   insertSnapshot(deps.db, result.snapshot);
   insertScreening(deps.db, result.outcome);
+  if (selection !== undefined) {
+    try {
+      deps.db
+        .prepare(
+          `UPDATE screenings SET selection_arm = ?, inclusion_probability = ?, selection_stratum = ?
+           WHERE mint = ? AND snapshot_id = ?`,
+        )
+        .run(selection.arm, selection.inclusionProbability, selection.stratum, info.id, result.snapshot.snapshotId);
+    } catch {
+      // A missing column is a migration problem, not a reason to lose the row.
+    }
+  }
   stats.screened += 1;
 
   if (result.outcome.eligible) {

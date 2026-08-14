@@ -112,7 +112,20 @@ describe('P17 — an unknown component is unknown, not zero', () => {
       0,
       5 * 60_000,
     );
-    expect(missing.score).toBeGreaterThan(present.score);
+    /**
+     * P18 — these are now EQUAL, and that is the fix.
+     *
+     * A provider `organicScore` of 0 IS "not computed": it is 0 for every
+     * token under about an hour old, n=461 with no exceptions, and the
+     * `organic_score_unavailable` gate already treats it that way. The score
+     * treated the same 0 as an observed zero at full weight, so one absence
+     * was charged twice.
+     *
+     * This assertion previously read `toBeGreaterThan`, which pinned the
+     * defect in place: it required an explicit provider zero to score WORSE
+     * than a missing field, when they are the same statement.
+     */
+    expect(missing.score).toBe(present.score);
   });
 
   it('everything unknown yields zero rather than NaN', () => {

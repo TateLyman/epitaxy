@@ -108,6 +108,8 @@ describe('P24.8 — a token amount past 2^53 survives the setup', () => {
     expect(() =>
       validateSetup({
         mode: 'DEVELOPMENT_JIT',
+        routeFamily: 'BUILD_CUSTOM',
+        capabilityFingerprint: 'fixture-fingerprint',
         side: 'sell',
         inputMint: 'MintB',
         outputMint: WSOL,
@@ -134,6 +136,8 @@ describe('P24.9 — an invalid setup is not route-failure evidence', () => {
   it('the setup that produced the 43 failures is refused before it can run', () => {
     const badSell = {
       mode: 'DEVELOPMENT_JIT' as const,
+      routeFamily: 'BUILD_CUSTOM',
+      capabilityFingerprint: 'fixture-fingerprint',
       side: 'sell' as const,
       inputMint: 'MintB',
       outputMint: WSOL,

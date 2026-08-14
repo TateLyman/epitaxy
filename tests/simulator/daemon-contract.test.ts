@@ -169,14 +169,17 @@ describe('§22.6 the same job id with different bytes is refused', () => {
 });
 
 describe('§22.9 an amount that cannot be passed exactly is refused', () => {
-  it('refuses a token amount above 2^53 instead of rounding it', async () => {
+  it('carries 10^18 token atoms to raw account bytes without exactNumber', async () => {
     if (!reachable) {
       console.warn('SKIPPED: no daemon reachable');
       return;
     }
     // A nine-decimal memecoin with a billion supply is 10^18 atoms, three
-    // orders of magnitude past Number.MAX_SAFE_INTEGER. Surfpool 1.5.0 types
-    // every amount as a JS number, so the choice is exactness or refusal.
+    // orders of magnitude past Number.MAX_SAFE_INTEGER. This was REFUSED,
+    // because a precheck ran exactNumber over every mutation — guarding an API
+    // the token path no longer uses. The account is written as u64 bytes, so
+    // the amount never crosses a JS number and the refusal was excluding the
+    // ordinary case.
     const req = request({
       executionObservationId: `bigint-${Date.now()}`,
       balanceMutations: [
@@ -184,9 +187,23 @@ describe('§22.9 an amount that cannot be passed exactly is refused', () => {
       ],
     });
     const res = await client().simulate(req);
+    expect(res.detail ?? '').not.toMatch(/MAX_SAFE_INTEGER/i);
+  });
+
+  it('refuses a token amount outside u64, which is not a balance the chain can hold', async () => {
+    if (!reachable) {
+      console.warn('SKIPPED: no daemon reachable');
+      return;
+    }
+    const req = request({
+      executionObservationId: `u64-${Date.now()}`,
+      balanceMutations: [
+        { kind: 'token', owner: PAYER, mint: DEST, amount: '18446744073709551616' },
+      ],
+    });
+    const res = await client().simulate(req);
     expect(res.status).toBe('SIMULATOR_UNAVAILABLE');
-    // Named, so nobody has to guess which field overflowed.
-    expect(res.detail).toMatch(/MAX_SAFE_INTEGER|exactly/i);
+    expect(res.detail).toMatch(/u64/i);
   });
 
   it('accepts an amount at the boundary', async () => {

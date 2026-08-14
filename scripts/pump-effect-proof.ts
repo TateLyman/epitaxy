@@ -9,6 +9,8 @@ import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/sr
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import { verifyEffect } from '../packages/simulator/src/effect.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../packages/solana/src/pda.js';
+import { legSpec, buildSimulationRequestForLeg } from '../packages/simulator/src/leg.js';
+import { fingerprintOf } from '../packages/research/src/capability.js';
 
 /**
  * `pnpm pump:effect-proof` — P6. Ten live proof cases, before any broader work.
@@ -190,22 +192,41 @@ async function proveLeg(
     ...Object.values(built.lookupTables).flat(),
   ];
   const tokenProgram = tokenProgramFromTransaction(allAccounts, taker, mint) ?? declaredTokenProgram;
+  // The route identity, from the programs the transaction actually invokes.
+  // BUILD_CUSTOM names the builder; this names the path.
+  const fingerprint = fingerprintOf({
+    routeLabels: built.routeLabels?.join(' > ') ?? '',
+    programs: [...new Set(built.instructions.map((i) => i.programId))],
+    tokenPrograms: [tokenProgram],
+    lookupTableCount: Object.keys(built.lookupTables).length,
+    simulatorFeatureSet: null,
+  });
   if (tokenProgram !== declaredTokenProgram) {
     console.log(`       token program from the transaction: ${tokenProgram.slice(0, 12)} (stored row said ${declaredTokenProgram.slice(0, 12)})`);
   }
 
-  const mutations: { kind: 'sol' | 'token'; owner: string; mint?: string; amount: string; tokenProgram?: string }[] = [
-    // A buy spends lamports and must cover the input, the fees and any rent it
-    // creates. A sell spends tokens and needs SOL only for fees.
-    { kind: 'sol', owner: taker, amount: side === 'buy' ? (amount * 10n).toString() : '200000000' },
-  ];
-  if (side === 'sell') {
-    // EXACTLY the hypothetical position. More would let a sell succeed that the
-    // real balance could not cover.
-    mutations.push({ kind: 'token', owner: taker, mint, amount: amount.toString(), tokenProgram });
-  }
+  // P2 — the SAME assembler and the SAME request constructor production uses.
+  // When these were two builders, this harness proved a request the engine
+  // never sent, and its eight effect-verified legs transferred nothing.
+  const leg = legSpec({
+    side,
+    routeFamily: 'BUILD_CUSTOM',
+    capabilityFingerprint: fingerprint,
+    taker,
+    inputMint,
+    outputMint,
+    inputAmount: amount,
+    maxTotalPayerDebitLamports: side === 'buy' ? amount * 2n : 30_000_000n,
+    inputTokenProgram: side === 'sell' ? tokenProgram : null,
+    outputTokenProgram: side === 'buy' ? tokenProgram : null,
+    minimumOutput: built.otherAmountThreshold,
+    expectedOutput: built.outAmount,
+  });
+  // A buy must cover the input, the fees and any rent it creates. A sell
+  // spends tokens and needs SOL only for fees.
+  const funding = side === 'buy' ? amount * 10n : 200_000_000n;
 
-  const request = sim.buildRequest({
+  const request = buildSimulationRequestForLeg(sim, leg, {
     executionObservationId: `proof-${side}-${mint.slice(0, 8)}`,
     mode: 'DEVELOPMENT_JIT',
     transactionBase64: Buffer.from(bytes).toString('base64'),
@@ -213,52 +234,10 @@ async function proveLeg(
     originalMessageHash: 'proof',
     originalBlockhash: built.blockhash,
     originalLastValidBlockHeight: built.lastValidBlockHeight ?? null,
-    routeFamily: 'BUILD_CUSTOM',
-    requestedAmount: amount.toString(),
     targetSlot: built.contextSlot ?? null,
     snapshotManifestHash: 'jit-no-frozen-snapshot',
     snapshotAccounts: [],
-    balanceMutations: mutations,
-    bounds: {
-      feePayer: taker,
-      maxLamportsSpent: side === 'buy' ? (amount * 2n).toString() : '30000000',
-      // P3 — each side named as the asset it actually is. A token->SOL sell
-      // credits native lamports, and asking `minTokenDelta` about it inspects
-      // an account the trade never touches.
-      inputAsset:
-        side === 'buy'
-          ? { kind: 'native_sol', exactDebitLamports: amount.toString(), maxTotalDebitLamports: (amount * 2n).toString() }
-          : {
-              kind: 'token',
-              mint,
-              tokenProgram,
-              tokenAccount: associatedTokenAddress(taker, mint, tokenProgram),
-              exactDebitAtoms: amount.toString(),
-            },
-      outputAsset:
-        side === 'buy'
-          ? {
-              kind: 'token',
-              mint: outputMint,
-              tokenProgram,
-              tokenAccount: associatedTokenAddress(taker, outputMint, tokenProgram),
-              // The route's own floor, bound only when the route stated one. A
-              // null threshold is an unknown and is not turned into a zero
-              // minimum, which would assert that any output is acceptable.
-              ...(built.otherAmountThreshold !== null && built.otherAmountThreshold > 0n
-                ? { minCreditAtoms: built.otherAmountThreshold.toString() }
-                : {}),
-              expectedCreditAtoms: built.outAmount.toString(),
-            }
-          : {
-              kind: 'native_sol',
-              ...(built.otherAmountThreshold !== null && built.otherAmountThreshold > 0n
-                ? { minCreditLamports: built.otherAmountThreshold.toString() }
-                : {}),
-              expectedCreditLamports: built.outAmount.toString(),
-            },
-      declaredTipLamports: '0',
-    },
+    fundingLamports: funding,
     contextHash: 'pump-effect-proof',
   });
 

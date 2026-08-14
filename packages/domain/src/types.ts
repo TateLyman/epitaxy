@@ -15,6 +15,23 @@ export const MODES: readonly Mode[] = ['observe', 'paper', 'replay', 'backtest',
 /** Modes that are allowed to construct a signer. */
 export const SIGNING_MODES: readonly Mode[] = ['canary', 'live'] as const;
 
+/**
+ * P14 — whether real capital can be lost in this mode. ONE definition.
+ *
+ * `screenCheap` did not pass this at all, so every cheap gate ran with
+ * `capitalAtRisk = false` even in canary and live: an unknown source age
+ * carried 0.25 soft risk instead of vetoing, and money-critical Token-2022
+ * behaviour carried 0.6 soft risk instead of refusing. The strictness that
+ * exists specifically for the modes that spend money was unreachable from the
+ * path those modes use.
+ *
+ * Derived from the mode rather than passed as a flag, because a flag can be
+ * forgotten and this was.
+ */
+export function capitalAtRisk(mode: Mode): boolean {
+  return SIGNING_MODES.includes(mode);
+}
+
 export type Base58 = string;
 
 export const WSOL_MINT: Base58 = 'So11111111111111111111111111111111111111112';
@@ -211,6 +228,15 @@ export type PositionState =
   | 'RECONCILED'
   | 'POSITION_OPEN'
   | 'EXIT_INTENT'
+  /**
+   * P10 — a policy has fired and the fill has not landed yet.
+   *
+   * Distinct from EXIT_INTENT, which meant "we would like to leave", and from
+   * EXIT_BLOCKED, which means "we tried and could not". This is the interval a
+   * real exit spends between noticing and landing, and collapsing it is how
+   * every exit in the corpus was priced at a moment no exit could reach.
+   */
+  | 'AWAITING_FILL_OBSERVATION'
   | 'POSITION_CLOSED'
   | 'EXIT_BLOCKED';
 
@@ -266,6 +292,34 @@ export interface Position {
   readonly closedUtcMs: number | null;
   readonly strategyVersion: string;
   readonly simulated: boolean;
+
+  /**
+   * P4 — the explicit economics, written by the runtime.
+   *
+   * Migration 22 added these columns and no writer populated them, so every
+   * reader either recomputed PnL its own way or read NULL and reported zero.
+   * A schema that has been migrated but not written to is worse than a missing
+   * column: the column's existence reads as evidence that the number is kept.
+   *
+   * `null` means not yet determined — an open position has no net PnL. It never
+   * means zero.
+   */
+  readonly executionCostLamports?: bigint | null;
+  readonly grossProceedsLamports?: bigint | null;
+  readonly netPnlLamports?: bigint | null;
+
+  /**
+   * P9 — the two ends of the cash flow, and the rent held between them.
+   *
+   * `netPnlLamports = exitCashInLamports - entryCashOutLamports` exactly.
+   * Rent is identified separately rather than netted into either side: it is
+   * capital the account holds, not a cost the market charged, and collapsing
+   * the two is how a 363 bps round trip reads as 3,688.
+   */
+  readonly entryCashOutLamports?: bigint | null;
+  readonly exitCashInLamports?: bigint | null;
+  readonly lockedRentLamports?: bigint | null;
+  readonly residualTokenAtoms?: bigint | null;
 }
 
 export type CircuitBreaker =
