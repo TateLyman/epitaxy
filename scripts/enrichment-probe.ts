@@ -25,7 +25,13 @@ import {
 import { buildEntityLinks, entityConcentrationFrom } from '../packages/intelligence/src/entity-links.js';
 
 const secrets = loadSecrets();
-const db = openDb({ path: secrets.databasePath });
+/**
+ * The corpus is six gigabytes and every migration has already been applied, so
+ * `migrate()` here is a no-op. Without `skipBackup` the open still tries to
+ * copy the whole database first and fails, which killed a whole run before a
+ * single row was written.
+ */
+const db = openDb({ path: secrets.databasePath, skipBackup: true });
 
 /**
  * An EXPLICIT endpoint override, never a silent fallback.
@@ -176,7 +182,7 @@ for (const { mint } of mints) {
           feePayerOf: (signature) => rpc.getTransactionFeePayer(signature),
         },
         holders,
-        { maxHolders: 10 },
+        { maxHolders: 20 },
       );
       const r = entityConcentrationFrom(built);
       db.prepare(
@@ -185,8 +191,22 @@ for (const { mint } of mints) {
             top_entity_1_bps, top_entity_5_bps, top_entity_10_bps, top_entity_20_bps,
             top_address_1_bps, top_address_5_bps, top_address_10_bps, top_address_20_bps, links_built, detail)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(mint) DO UPDATE SET measured_utc_ms=excluded.measured_utc_ms,
-           entity_count=excluded.entity_count, links_built=excluded.links_built, detail=excluded.detail`,
+         ON CONFLICT(mint) DO UPDATE SET
+           measured_utc_ms = excluded.measured_utc_ms,
+           address_count = excluded.address_count,
+           entity_count = excluded.entity_count,
+           unknown_history_count = excluded.unknown_history_count,
+           trustworthy = excluded.trustworthy,
+           top_entity_1_bps = excluded.top_entity_1_bps,
+           top_entity_5_bps = excluded.top_entity_5_bps,
+           top_entity_10_bps = excluded.top_entity_10_bps,
+           top_entity_20_bps = excluded.top_entity_20_bps,
+           top_address_1_bps = excluded.top_address_1_bps,
+           top_address_5_bps = excluded.top_address_5_bps,
+           top_address_10_bps = excluded.top_address_10_bps,
+           top_address_20_bps = excluded.top_address_20_bps,
+           links_built = excluded.links_built,
+           detail = excluded.detail`,
       ).run(
         mint,
         Date.now(),

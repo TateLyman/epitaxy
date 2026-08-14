@@ -396,8 +396,28 @@ function vaultBytes(amount: bigint): string {
 }
 
 const comparedAll = cases.filter((c) => c.status === 'COMPARED');
-const compared = comparedAll.filter((c) => c.shape === 'DIRECT');
+const direct = comparedAll.filter((c) => c.shape === 'DIRECT');
 const routed = comparedAll.filter((c) => c.shape === 'ROUTED');
+
+/**
+ * The two readings are not equally good, and mixing them hid that.
+ *
+ * MEASURED: the quote side came from the taker's own wrapped-quote token
+ * account. That is a direct reading of the swap's proceeds.
+ *
+ * INFERRED: it came from the taker's native balance, which also moves for
+ * priority fees, tips and any account rent paid in the same transaction. The
+ * transaction fee is added back; nothing else can be, because nothing else is
+ * separable from the outside.
+ *
+ * Splitting them turned out to be the whole explanation of the residuals: every
+ * measured case is exactly zero, and every non-zero residual is an inferred one.
+ * The headline is the measured set; the inferred set is reported beside it as
+ * indicative and is not evidence about the model.
+ */
+const MEASURED_SOURCE = 'taker wrapped-quote account';
+const compared = direct.filter((c) => c.quoteSource === MEASURED_SOURCE);
+const inferred = direct.filter((c) => c.quoteSource !== MEASURED_SOURCE);
 const median = (xs: number[]): number | null => {
   if (xs.length === 0) return null;
   const s = [...xs].sort((a, b) => a - b);
@@ -414,6 +434,9 @@ const summary = {
   sells: compared.filter((c) => c.side === 'sell').length,
   exact: compared.filter((c) => c.residualBps === 0).length,
   medianResidualBps: median(compared.map((c) => c.residualBps).filter((n): n is number => n !== null)),
+  directTotal: direct.length,
+  inferredQuote: inferred.length,
+  inferredMedianResidualBps: median(inferred.map((c) => c.residualBps).filter((n): n is number => n !== null)),
   routed: routed.length,
   routedMedianResidualBps: median(routed.map((c) => c.residualBps).filter((n): n is number => n !== null)),
   attributionUncertain: cases.filter((c) => c.status === 'ATTRIBUTION_UNCERTAIN').length,
@@ -434,8 +457,9 @@ const summary = {
 mkdirSync('artifacts', { recursive: true });
 writeFileSync('artifacts/landed-parity.json', JSON.stringify(summary, null, 2));
 
-console.log(`\nattempted ${summary.attempted}  DIRECT compared ${summary.compared}  (${summary.buys} buys, ${summary.sells} sells)`);
-console.log(`exact ${summary.exact}/${summary.compared}   median residual ${summary.medianResidualBps} bps`);
-console.log(`routed (excluded) ${summary.routed}   attribution uncertain (excluded) ${summary.attributionUncertain}`);
+console.log(`\nattempted ${summary.attempted}  direct ${summary.directTotal}`);
+console.log(`  MEASURED quote (headline)  ${summary.compared}  exact ${summary.exact}  median ${summary.medianResidualBps} bps`);
+console.log(`  INFERRED quote (indicative) ${summary.inferredQuote}  median ${summary.inferredMedianResidualBps} bps`);
+console.log(`  routed ${summary.routed}   attribution uncertain ${summary.attributionUncertain}`);
 console.log('artifacts/landed-parity.json');
 db.close();

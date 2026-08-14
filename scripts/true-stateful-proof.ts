@@ -26,7 +26,7 @@ import { loadSecrets, loadConfig } from '../packages/domain/src/config.js';
 import { openDb } from '../packages/storage/src/db.js';
 import { JupiterClient } from '../packages/adapters/src/jupiter/client.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
-import { SolanaRpc } from '../packages/solana/src/rpc.js';
+import { researchRpc } from '../packages/solana/src/endpoint.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { captureSnapshot } from '../packages/solana/src/snapshot-capture.js';
 import { runSequential, tokenAmountOf, createdAccountRent } from '../packages/simulator/src/sequential-runtime.js';
@@ -65,10 +65,8 @@ if (secrets.paperTakerPubkey === null || secrets.rpcHttp === null) {
   process.exit(1);
 }
 const taker: string = secrets.paperTakerPubkey;
-const rpc = new SolanaRpc(RateLimiter.fromConfig(true), {
-  primary: secrets.rpcHttp,
-  fallback: secrets.rpcHttpFallback,
-});
+const { rpc, host: rpcHost, overridden } = researchRpc(secrets);
+console.log(`endpoint ${rpcHost}${overridden ? ' (explicit override)' : ''}`);
 const jupiter = new JupiterClient({
   limiter: RateLimiter.fromConfig(secrets.jupiterApiKey !== null),
   apiKey: secrets.jupiterApiKey,

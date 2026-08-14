@@ -27,7 +27,7 @@ import { loadSecrets, loadConfig } from '../packages/domain/src/config.js';
 import { openDb } from '../packages/storage/src/db.js';
 import { JupiterClient } from '../packages/adapters/src/jupiter/client.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
-import { SolanaRpc } from '../packages/solana/src/rpc.js';
+import { researchRpc } from '../packages/solana/src/endpoint.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { captureSnapshot } from '../packages/solana/src/snapshot-capture.js';
 import { runSequential, tokenAmountOf, createdAccountRent } from '../packages/simulator/src/sequential-runtime.js';
@@ -64,10 +64,8 @@ if (secrets.paperTakerPubkey === null || secrets.rpcHttp === null) {
   process.exit(1);
 }
 const taker: string = secrets.paperTakerPubkey;
-const rpc = new SolanaRpc(RateLimiter.fromConfig(true), {
-  primary: secrets.rpcHttp,
-  fallback: secrets.rpcHttpFallback,
-});
+const { rpc, host: rpcHost, overridden } = researchRpc(secrets);
+console.log(`endpoint ${rpcHost}${overridden ? ' (explicit override)' : ''}`);
 const jupiter = new JupiterClient({
   limiter: RateLimiter.fromConfig(secrets.jupiterApiKey !== null),
   apiKey: secrets.jupiterApiKey,
@@ -110,7 +108,18 @@ interface Cell {
   detail: string | null;
 }
 
-const candidates = db
+/**
+ * An explicit mint list, for closing a named coverage gap.
+ *
+ * The default scan takes whatever is recent, which is how the matrix ended up
+ * entirely Token-2022 and entirely bottom-tier. `parity-coverage` finds the
+ * mints that fill a specific cell and they are passed in by name, so the
+ * selection is a reviewable artifact rather than a hidden filter.
+ */
+const explicitList = (process.env['PARITY_MINTS_LIST'] ?? '').split(',').filter((x) => x.length > 0);
+const candidates = explicitList.length > 0
+  ? explicitList.map((mint) => ({ mint }))
+  : db
   .prepare(
     `SELECT DISTINCT o.mint FROM execution_observations o
       WHERE o.side = 'buy' AND o.exact_transaction_blob IS NOT NULL AND o.received_utc_ms > ?
@@ -134,8 +143,11 @@ for (const c of candidates) {
       accountSourceOf([{ pubkey: pool, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports }]),
       pool,
     );
-  } catch {
-    continue; // still on the bonding curve, or no canonical pool. Not a failure.
+  } catch (e) {
+    // A silent continue here is indistinguishable from "this mint has no pool",
+    // and a rate-limited read looks exactly like a bonding-curve token.
+    console.log(`${c.mint.slice(0, 12)}  skipped: ${(e as Error).message.slice(0, 80)}`);
+    continue;
   }
   console.log(`${c.mint.slice(0, 12)}  pool ${pool.slice(0, 10)}`);
 
