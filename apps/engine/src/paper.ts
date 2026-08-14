@@ -109,6 +109,8 @@ import {
 } from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import { legIsExecutable } from '../../../packages/domain/src/execution.js';
+import { directSellMark, DirectMarkUnavailable } from '../../../packages/pipeline/src/direct-mark.js';
+import { GLOBAL_CONFIG_ADDR, FEE_CONFIG_ADDR } from '../../../packages/solana/src/pumpswap-offline.js';
 import {
   assertTransition,
   holdsExposure,
@@ -674,7 +676,7 @@ async function main(): Promise<void> {
     // Shadow books are worked after the realizable wallet, never before: the
     // wallet is the only book that can actually lose money.
     try {
-      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator);
+      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator, rpc);
     } catch (e) {
       log.warn({ err: (e as Error).message }, 'shadow book management failed');
     }
@@ -1726,6 +1728,9 @@ async function manageShadowBooks(
   // needs the same two collaborators.
   blobs: BlobStore,
   simulator: SimulationClient | null,
+  // P4/P7 -- the direct mark reads the pool itself, so the loop needs chain
+  // access. Without it the exit is whatever a router is willing to quote.
+  rpc: SolanaRpc,
 ): Promise<number> {
   if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
 
@@ -1798,8 +1803,45 @@ async function manageShadowBooks(
     });
 
     const nowMs = Date.now();
-    const routeAvailable = obs.instructionSetHash !== null && obs.expectedOutput > 0n;
-    const value = routeAvailable ? netExpectedOutput(obs) : null;
+    const routerAvailable = obs.instructionSetHash !== null && obs.expectedOutput > 0n;
+
+    /**
+     * P4/P7 — price from the POOL when the router will not quote.
+     *
+     * The repaired fill loop could not fire because none of its marks were
+     * priced: 93% of every mark ever recorded has `route_available = 0`, and in
+     * ten minutes of the repaired loop it was 100%. The router declines a sell
+     * for a token with no canonical pool, and an unpriced mark can never become
+     * a fill however correct the ordering above it is.
+     *
+     * A canonical PumpSwap pool needs no router. Its reserves are two token
+     * accounts and the official model prices the sell from those bytes, which
+     * is both cheaper and more exact than asking whether a router feels like
+     * quoting. The refusal reason is recorded rather than collapsed into "no
+     * route", because that one word hid six different facts.
+     */
+    let directMark = null;
+    let directRefusal: string | null = null;
+    if (rpc.configured) {
+      try {
+        directMark = await directSellMark(
+          rpc,
+          { mint: row.mint, tokenAmount, slippagePct: 3 },
+          { globalConfig: GLOBAL_CONFIG_ADDR, feeConfig: FEE_CONFIG_ADDR },
+        );
+      } catch (e) {
+        directRefusal = e instanceof DirectMarkUnavailable ? e.reason : (e as Error).message.slice(0, 90);
+      }
+    }
+
+    // The direct quote wins when it exists: it is the venue's own arithmetic on
+    // the venue's own current bytes, where the router is one venue's opinion.
+    const routeAvailable = directMark !== null || routerAvailable;
+    const value =
+      directMark !== null ? directMark.executableLamports : routerAvailable ? netExpectedOutput(obs) : null;
+    if (directMark === null && directRefusal !== null && !routerAvailable) {
+      recordHealth(db, 'direct_mark_unavailable', 'info', `${row.mint.slice(0, 12)}: ${directRefusal}`);
+    }
 
     const seq = (
       db
