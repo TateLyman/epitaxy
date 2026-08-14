@@ -73,6 +73,21 @@ export class ReserveAlarm {
     });
   }
 
+  /**
+   * P15 — CONNECT.
+   *
+   * The constructor built an `AccountWatcher` and nothing ever called
+   * `connect()`. Every `watch()` recorded an account in a map attached to a
+   * socket that was never opened, `fullyCovered` was permanently false, and no
+   * update ever arrived. The alarm existed, was tested, and was not running.
+   *
+   * Explicit rather than in the constructor: a constructor that opens a socket
+   * cannot be built in a test without one.
+   */
+  start(): void {
+    this.watcher.connect();
+  }
+
   watch(pool: WatchedPool): void {
     this.byAccount.set(pool.reserveTokenAccount, pool);
     this.watcher.watch(pool.reserveTokenAccount, 'POOL_RESERVES');

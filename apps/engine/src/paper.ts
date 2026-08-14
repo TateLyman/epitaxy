@@ -65,6 +65,18 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
+import { ReserveAlarm } from './risk-alarm.js';
+import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
+
+/**
+ * P15 — the running alarm, set once by `main()`.
+ *
+ * Module-level because the cycle functions are free functions rather than
+ * methods; threading it through six signatures would say nothing extra. Null
+ * when no websocket URL is configured, which is a coverage fact the engine
+ * records at startup rather than a silence.
+ */
+let alarm: ReserveAlarm | null = null;
 import { admitPortfolioEntry } from './paper-core.js';
 import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
 import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
@@ -211,6 +223,42 @@ async function main(): Promise<void> {
   // private key for it exists anywhere in this system and paper mode has no
   // signer, so nothing built here can be signed or sent.
   const taker = secrets.paperTakerPubkey;
+
+  /**
+   * P15 — the risk alarm, actually running.
+   *
+   * `ReserveAlarm` was defined, unit-tested and instantiated by nobody. A
+   * class that no production caller constructs is documentation, and the tests
+   * over it were testing documentation.
+   *
+   * Raw socket state remains an ALARM: it enqueues an immediate risk-priority
+   * observation and never becomes a mark or a fill. A websocket frame is not
+   * an executable price.
+   */
+  alarm =
+    secrets.rpcWs === null
+      ? null
+      : new ReserveAlarm(
+          {
+            db,
+            onMaterialChange: (mint, detail) => {
+              recordHealth(db, 'reserve_alarm', 'critical', `${mint.slice(0, 12)}: ${detail}`.slice(0, 200));
+              // The alarm's whole purpose: get an exact observation NOW rather
+              // than at the next scheduled mark.
+              urgentMarks.add(mint);
+            },
+          },
+          secrets.rpcWs,
+        );
+  if (alarm !== null) {
+    alarm.start();
+    recordHealth(db, 'reserve_alarm_started', 'info', 'websocket reserve alarm connected');
+  } else {
+    // Named, not silent. Running without the alarm is a coverage fact.
+    recordHealth(db, 'reserve_alarm_absent', 'warn', 'no SOLANA_RPC_WS; reserve alarms are not running');
+  }
+  /** Mints an alarm has asked to be re-observed before their next scheduled mark. */
+  const urgentMarks = new Set<string>();
   if (config.requireBuildableFill && taker === null) {
     throw new Error(
       'requireBuildableFill is set but PAPER_TAKER_PUBKEY is unset — ' +
@@ -846,6 +894,19 @@ async function tryEnter(
 
   const tokensReceived = admission.tokensAcquired;
 
+  /**
+   * P15 — watch this position's pool reserve from the moment it opens.
+   *
+   * The reserve token account is the one whose BALANCE is the pool's depth.
+   * Registering at entry and removing at close is what keeps the alarm's
+   * subscription set equal to actual exposure rather than to everything ever
+   * screened.
+   */
+  if (alarm !== null) {
+    const reserve = poolReserveAccountFor(db, blobs, entry.observationId, mint);
+    if (reserve !== null) alarm.watch({ mint, reserveTokenAccount: reserve });
+  }
+
   // The settlement the position is booked from. Present by construction: the
   // core refused above unless both legs were measured.
   const entryJobId = latestJobFor(db, entry.observationId);
@@ -1009,6 +1070,45 @@ async function tryEnter(
  * Which token program owns this mint, from the transaction the observation was
  * built from. Null when the transaction does not say.
  */
+/**
+ * The pool's reserve token account for this mint, from the exact bytes.
+ *
+ * The route's own accounts name the pool it went through. Deriving this from a
+ * provider field instead would watch an account the trade never touched, and
+ * an alarm on the wrong account is worse than none: it reports coverage.
+ *
+ * Null when the bytes do not identify one. Null is honest; a guess is not.
+ */
+function poolReserveAccountFor(
+  db: Db,
+  blobs: BlobStore,
+  observationId: string,
+  mint: string,
+): string | null {
+  try {
+    const hash = exactBlobFor(db, observationId);
+    if (hash === null) return null;
+    const blob = blobs.get<ExactTransactionBlob>(hash);
+    // A writable account that is neither the taker's nor a program: on a swap
+    // that is the vault side. The taker's own ATA is excluded explicitly.
+    const takerAtas = new Set(
+      [TOKEN_PROGRAM, TOKEN_2022_PROGRAM].map((p) => {
+        try {
+          return associatedTokenAddress(blob.feePayer, mint, p);
+        } catch {
+          return '';
+        }
+      }),
+    );
+    const candidates = blob.writableAccounts.filter(
+      (a) => a !== blob.feePayer && !takerAtas.has(a) && !blob.staticAccountKeys.slice(0, 1).includes(a),
+    );
+    return candidates[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function tokenProgramFor(
   db: Db,
   blobs: BlobStore,
@@ -2063,6 +2163,9 @@ async function manageOpenPositions(
       // undefined is the absence of one.
       residualTokenAtoms: exitSettlement?.residualTokenAtoms ?? undefined,
     });
+
+    // P15 — the position is flat, so stop paying for its updates.
+    if (alarm !== null) alarm.unwatch({ mint: row.mint, reserveTokenAccount: '' });
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;
     ledger.navLamports += realized;

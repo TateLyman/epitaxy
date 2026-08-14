@@ -56,6 +56,8 @@ export interface WatchOptions {
   /** Called when coverage is lost, which is a fact the engine must record. */
   readonly onGap: (detail: string) => void;
   readonly maxBackoffMs?: number;
+  /** How long a subscription may go unacknowledged before it is a gap. */
+  readonly subscribeAckTimeoutMs?: number;
 }
 
 interface Watched {
@@ -80,6 +82,10 @@ export class AccountWatcher {
   private epoch = 0;
   private backoffMs = 500;
   private closed = false;
+  /** P15 — true while a socket is opening, so connect() is single-flight. */
+  private connecting = false;
+  /** P15 — which socket a handler belongs to. A stale one schedules nothing. */
+  private generation = 0;
   private readonly commitment: 'processed' | 'confirmed' | 'finalized';
 
   constructor(private readonly opts: WatchOptions) {
@@ -107,15 +113,48 @@ export class AccountWatcher {
   }
 
   unwatch(address: string): void {
+    /**
+     * P15 — SEND the unsubscribe. Forgetting locally is not unsubscribing.
+     *
+     * The caller's comment claimed this sent one. It deleted a map entry, so
+     * the server kept streaming updates for every account the engine had ever
+     * watched, consuming the socket's subscription capacity for data nobody
+     * reads — and the leak grows with every position ever opened.
+     */
+    const w = this.watched.get(address);
     this.watched.delete(address);
+    if (w?.subscriptionId != null && this.ws !== null && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: this.nextRequestId++,
+          method: 'accountUnsubscribe',
+          params: [w.subscriptionId],
+        }),
+      );
+    }
   }
 
   connect(): void {
     if (this.closed) return;
+    /**
+     * P15 — single-flight.
+     *
+     * `connect()` could be called while a socket was already opening, and the
+     * second one replaced `this.ws` while the first kept firing handlers. Two
+     * sockets, one of them unreachable and neither closed.
+     */
+    if (this.connecting) return;
+    if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) return;
+    this.connecting = true;
     const ws = new WebSocket(this.opts.wsUrl);
     this.ws = ws;
+    // The generation this socket belongs to. A handler from a previous socket
+    // must not schedule a reconnect for the current one.
+    const generation = ++this.generation;
 
     ws.addEventListener('open', () => {
+      this.connecting = false;
       this.epoch += 1;
       this.backoffMs = 500;
       // Everything is re-subscribed from scratch. A subscription id from a
@@ -136,8 +175,21 @@ export class AccountWatcher {
       }
     });
 
+    /**
+     * P15 — ONE reconnect per lost socket.
+     *
+     * This was registered on both `error` and `close`. A socket error is
+     * followed by a close, so a single failure scheduled two reconnects, and
+     * each of those could fail and schedule two more. The count doubles per
+     * cycle, and the backoff — shared state — is reset by whichever succeeds.
+     */
+    let reconnectScheduled = false;
     const reconnect = (why: string): void => {
       if (this.closed) return;
+      if (generation !== this.generation) return;
+      if (reconnectScheduled) return;
+      reconnectScheduled = true;
+      this.connecting = false;
       for (const w of this.watched.values()) w.subscriptionId = null;
       this.opts.onGap(`subscription lost (${why}); ${this.watched.size} account(s) uncovered until reconnect`);
       const delay = this.backoffMs;
@@ -146,6 +198,24 @@ export class AccountWatcher {
     };
     ws.addEventListener('close', () => reconnect('closed'));
     ws.addEventListener('error', () => reconnect('error'));
+
+    /**
+     * P15 — a subscription that is never acknowledged is not coverage.
+     *
+     * Without this the socket is OPEN, `watched` is populated, and the engine
+     * believes it is watching accounts the server never confirmed. That is the
+     * failure mode that looks most like working.
+     */
+    const ackDeadline = this.opts.subscribeAckTimeoutMs ?? 15_000;
+    setTimeout(() => {
+      if (this.closed || generation !== this.generation) return;
+      const unacked = [...this.watched.values()].filter((w) => w.subscriptionId === null);
+      if (unacked.length > 0) {
+        this.opts.onGap(
+          `${unacked.length} subscription(s) unacknowledged after ${ackDeadline}ms; those accounts are NOT covered`,
+        );
+      }
+    }, ackDeadline);
   }
 
   close(): void {
