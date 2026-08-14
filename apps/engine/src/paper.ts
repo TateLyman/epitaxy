@@ -88,6 +88,8 @@ import { fingerprintForObservation } from '../../../packages/research/src/finger
 import {
   acquiredTokens,
   entryCashOut,
+  executionCost,
+  transferFeeOrUnknown,
   exitCashIn,
   isPnlEligible,
   immediateRoundTrip,
@@ -1061,6 +1063,31 @@ async function tryEnter(
   const tokensReceived = admission.tokensAcquired;
 
   /**
+   * P4 — an unknown transfer fee refuses the entry.
+   *
+   * `?? 0n` turned "we did not measure it" into "there is none", and on a
+   * Token-2022 mint that is the fee which makes the position a bad one.
+   * `transferFeeOrUnknown` returns 0 only when the asset CANNOT have a fee,
+   * which is a fact about the token program rather than about our coverage.
+   */
+  const entryTransferFeeOrNull = (() => {
+    const jobId = latestJobFor(db, entry.observationId);
+    if (jobId === null) return null;
+    const st = measuredSettlementOf(db, entry.observationId, jobId, taker);
+    return st === null ? null : transferFeeOrUnknown(st);
+  })();
+  if (entryTransferFeeOrNull === null) {
+    recordHealth(
+      db,
+      'entry_transfer_fee_unknown',
+      'warn',
+      `${mint.slice(0, 12)}: Token-2022 transfer fee not measured; refusing rather than charging zero`,
+    );
+    return;
+  }
+  const entryTransferFee = entryTransferFeeOrNull;
+
+  /**
    * P15 — watch this position's pool reserve from the moment it opens.
    *
    * The reserve token account is the one whose BALANCE is the pool's depth.
@@ -1100,7 +1127,7 @@ async function tryEnter(
      * Null there means unobserved, and an unobserved money-critical fee is
      * refused above rather than charged as zero here.
      */
-    transferFeeLamports: entrySettlement.costs.transferFeeLamportsEquivalent ?? 0n,
+    transferFeeLamports: entryTransferFee,
     // BUILD_CUSTOM carries no platform fee. Charging one would be inventing it.
     platformFeeLamports: 0n,
     /**
@@ -1146,7 +1173,15 @@ async function tryEnter(
     // The cost is what actually left the payer, fees and rent included. Gross
     // proceeds and net PnL are NULL because an open position has not realised
     // either, and null here means undetermined rather than zero.
-    executionCostLamports: entryCashOut(entrySettlement).cashOut,
+    /**
+     * P4 — costs only. NEVER principal.
+     *
+     * This was `entryCashOut().cashOut`, which is principal plus costs: on a
+     * 0.02 SOL entry it reported ~24,000,000 lamports of "execution cost"
+     * against ~4,087,000 of actual cost, and a 2x-cost stress test then
+     * doubled the principal.
+     */
+    executionCostLamports: executionCost(entrySettlement),
     grossProceedsLamports: null,
     netPnlLamports: null,
     // P9 — both ends of the cash flow, with rent identified separately.
@@ -2241,8 +2276,9 @@ async function manageOpenPositions(
       signatureFeeLamports: config.assumedSignatureFeeLamports,
       priorityFeeLamports: config.assumedPriorityFeeLamports,
       broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-      // Measured, or refused above. Never assumed zero.
-      transferFeeLamports: exitSettlement?.costs.transferFeeLamportsEquivalent ?? 0n,
+      // P4 — zero ONLY when the asset cannot carry a fee. An unmeasured
+      // Token-2022 fee is refused above rather than charged as nothing.
+      transferFeeLamports: exitSettlement === null ? 0n : (transferFeeOrUnknown(exitSettlement) ?? 0n),
       closeAccountFeeLamports: config.assumedSignatureFeeLamports,
       // P6 — this exit succeeded. It pays for no failed attempt. See the entry.
       assumedFailedAttemptLamports: 0n,
@@ -2350,17 +2386,29 @@ async function manageOpenPositions(
       exitSettlement !== null && isPnlEligible(exitSettlement).ok
         ? exitCashIn(exitSettlement)
         : grossFromObservation;
-    const bookedCost = (() => {
-      const r = db
-        .prepare('SELECT execution_cost_lamports c FROM positions WHERE position_id = ?')
-        .get(row.position_id) as { c: string | null } | undefined;
-      if (r?.c == null) return costLamports;
+    /**
+     * P4 — two DIFFERENT numbers, read from the two columns that mean them.
+     *
+     * `bookedCashOut` is what left the wallet to open: principal plus costs,
+     * and it is what net PnL subtracts. `bookedEntryExecutionCost` is the
+     * costs alone.
+     *
+     * These were one number read from `execution_cost_lamports`, which is why
+     * the column held principal — the reader wanted cash out and the column
+     * was the only place it had been written.
+     */
+    const readCol = (col: string, fallback: bigint): bigint => {
       try {
-        return BigInt(r.c);
+        const r = db.prepare(`SELECT ${col} v FROM positions WHERE position_id = ?`).get(row.position_id) as
+          | { v: string | null }
+          | undefined;
+        return r?.v == null ? fallback : BigInt(r.v);
       } catch {
-        return costLamports;
+        return fallback;
       }
-    })();
+    };
+    const bookedCashOut = readCol('entry_cash_out_lamports', costLamports);
+    const bookedEntryExecutionCost = readCol('execution_cost_lamports', 0n);
 
     updatePosition(db, row.position_id, {
       state: 'POSITION_CLOSED',
@@ -2368,7 +2416,11 @@ async function manageOpenPositions(
       closedUtcMs: nowMs,
       exitReason: decision.reason,
       tokenAmount: 0n,
-      executionCostLamports: bookedCost,
+      // P4 — the EXECUTION cost of both legs, principal excluded.
+      // Both legs' costs, principal excluded. The entry side was written at
+      // open and is read back rather than recomputed, so the two ends of the
+      // position agree by construction.
+      executionCostLamports: bookedEntryExecutionCost + (exitSettlement === null ? 0n : executionCost(exitSettlement)),
       grossProceedsLamports: settledGross,
       // P10 — how long the exit actually took, so the assumption can be
       // checked against what happened rather than trusted.
@@ -2381,9 +2433,9 @@ async function manageOpenPositions(
        * Both operands are written on this same row in this same statement, so
        * a reader can check the identity rather than trust it.
        */
-      netPnlLamports: settledGross - bookedCost,
+      netPnlLamports: settledGross - bookedCashOut,
       exitCashInLamports: settledGross,
-      entryCashOutLamports: bookedCost,
+      entryCashOutLamports: bookedCashOut,
       lockedRentLamports:
         exitSettlement === null
           ? undefined

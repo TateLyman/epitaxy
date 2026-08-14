@@ -224,6 +224,54 @@ export function exitCashIn(s: MeasuredLegSettlement): bigint {
 }
 
 /**
+ * What EXECUTING cost, with the principal excluded.
+ *
+ * P4's field contract:
+ *
+ *   execution_cost_lamports   fees/tips/rent loss/failure cost only
+ *                             NEVER principal
+ *
+ * Production was writing `entryCashOut().cashOut` here, which is principal
+ * plus costs. On a 0.02 SOL entry that reports ~24,000,000 lamports of
+ * "execution cost" against ~4,087,000 of actual cost — and a 2x-cost stress
+ * test then doubles the principal, which is not a cost and does not double.
+ *
+ * Rent enters as the part NOT recovered: rent that comes back was never spent.
+ */
+export function executionCost(s: MeasuredLegSettlement): bigint {
+  return (
+    s.costs.baseFeeLamports +
+    s.costs.priorityFeeLamports +
+    s.costs.tipLamports +
+    (s.costs.rentCreatedLamports - s.costs.rentRecoveredLamports) +
+    s.costs.failedAttemptCostLamports
+  );
+}
+
+/**
+ * The transfer fee, or a refusal.
+ *
+ * A null transfer fee must never become zero — but zero is CORRECT when the
+ * asset cannot have one. Legacy SPL Token has no transfer-fee extension, so
+ * "not applicable" and "not measured" are different answers and only the
+ * second blocks a PnL-eligible leg.
+ *
+ * Returns null when it is genuinely unknown, and the caller must refuse.
+ */
+export function transferFeeOrUnknown(s: MeasuredLegSettlement): bigint | null {
+  const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+  const touches2022 =
+    (s.input.kind === 'token' && s.input.tokenProgram === TOKEN_2022) ||
+    (s.output.kind === 'token' && s.output.tokenProgram === TOKEN_2022);
+
+  if (s.costs.transferFeeLamportsEquivalent !== null) return s.costs.transferFeeLamportsEquivalent;
+  // Not applicable: legacy Token has no such extension.
+  if (!touches2022) return 0n;
+  // Token-2022 and unmeasured. Unknown, and unknown is not zero.
+  return null;
+}
+
+/**
  * The immediate round trip, from two measured settlements.
  *
  * Not from router quotes on either side. This is the number the tradability
