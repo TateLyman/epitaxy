@@ -7,4 +7,7 @@
 # `pnpm <script>` failed with ERR_PNPM_IGNORED_BUILDS before the script itself
 # ran — including doctor, status, check and every gated entry point.
 allowBuilds:
+  bigint-buffer: set this to true or false
+  bufferutil: set this to true or false
   esbuild: false
+  utf-8-validate: set this to true or false
