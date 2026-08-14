@@ -23,7 +23,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::Read;
+use std::io::{BufRead, Read, Write};
 
 use litesvm::LiteSVM;
 use solana_sdk::account::Account;
@@ -172,7 +172,7 @@ fn binary_hash() -> String {
     }
 }
 
-fn observe(svm: &LiteSVM, names: &[String]) -> (Vec<ObservedAccount>, Vec<String>) {
+fn observe_accounts(svm: &LiteSVM, names: &[String]) -> (Vec<ObservedAccount>, Vec<String>) {
     let mut out = Vec::new();
     let mut missing = Vec::new();
     for name in names {
@@ -197,7 +197,21 @@ fn observe(svm: &LiteSVM, names: &[String]) -> (Vec<ObservedAccount>, Vec<String
     (out, missing)
 }
 
-fn run(job: Job) -> JobResult {
+/// A runtime that is ALIVE between calls.
+///
+/// The one-shot path builds this, runs its steps and drops it. Serve mode keeps
+/// it, which is the entire point of P3: the sell has to be BUILT from the state
+/// the buy committed and then executed in THAT SAME runtime. Two runtime
+/// instances that both replay the same buy should agree, but nothing proves
+/// they do, and a sell priced against a state it did not execute in is exactly
+/// the approximation this eliminates.
+struct LiveRuntime {
+    svm: LiteSVM,
+    programs_loaded: Vec<String>,
+    incompleteness: Vec<String>,
+}
+
+fn build_runtime(job: &Job) -> LiveRuntime {
     let mut incompleteness: Vec<String> = Vec::new();
 
     // Sysvars and SPL programs first, then OUR programs override anything that
@@ -302,84 +316,99 @@ fn run(job: Job) -> JobResult {
         svm = svm.with_compute_budget(c);
     }
 
+    LiveRuntime { svm, programs_loaded, incompleteness }
+}
+
+/// Execute ONE step against a live runtime and commit it.
+///
+/// Shared by both modes so the one-shot and serve paths cannot drift into
+/// executing transactions differently -- which would make their results
+/// incomparable while looking like the same worker.
+fn execute_step(svm: &mut LiteSVM, step: &Step) -> StepResult {
+    let (pre_accounts, pre_missing) = observe_accounts(svm, &step.observe);
+
+    let bytes = match b64_decode(&step.transaction_base64) {
+        Ok(b) => b,
+        Err(e) => {
+            return StepResult {
+                label: step.label.clone(),
+                status: "REFUSED".into(),
+                transaction_error: Some(format!("transaction did not decode: {e}")),
+                compute_units_consumed: None,
+                logs: vec![],
+                pre_accounts,
+                post_accounts: vec![],
+                unobserved: pre_missing,
+            }
+        }
+    };
+
+    let tx: VersionedTransaction = match bincode::deserialize(&bytes) {
+        Ok(t) => t,
+        Err(e) => {
+            return StepResult {
+                label: step.label.clone(),
+                status: "REFUSED".into(),
+                transaction_error: Some(format!("not a versioned transaction: {e}")),
+                compute_units_consumed: None,
+                logs: vec![],
+                pre_accounts,
+                post_accounts: vec![],
+                unobserved: pre_missing,
+            }
+        }
+    };
+
+    // COMMITS. The next step sees exactly this state.
+    let (status, err, logs, cu) = match svm.send_transaction(tx) {
+        Ok(meta) => ("SIMULATED_OK".to_string(), None, meta.logs, Some(meta.compute_units_consumed)),
+        Err(failed) => (
+            "SIMULATION_FAILED".to_string(),
+            Some(format!("{:?}", failed.err)),
+            failed.meta.logs,
+            Some(failed.meta.compute_units_consumed),
+        ),
+    };
+
+    let (post_accounts, post_missing) = observe_accounts(svm, &step.observe);
+    let mut unobserved = pre_missing;
+    for m in post_missing {
+        if !unobserved.contains(&m) {
+            unobserved.push(m);
+        }
+    }
+
+    StepResult {
+        label: step.label.clone(),
+        status,
+        transaction_error: err,
+        compute_units_consumed: cu,
+        logs,
+        pre_accounts,
+        post_accounts,
+        unobserved,
+    }
+}
+
+fn run(job: Job) -> JobResult {
+    let rt = build_runtime(&job);
+    let mut svm = rt.svm;
+    let programs_loaded = rt.programs_loaded;
+    let mut incompleteness = rt.incompleteness;
+
     // ---- the sequence ----------------------------------------------------
     let mut steps = Vec::new();
     let mut sequential_complete = true;
 
     for step in &job.steps {
-        let (pre_accounts, pre_missing) = observe(&svm, &step.observe);
-
-        let bytes = match b64_decode(&step.transaction_base64) {
-            Ok(b) => b,
-            Err(e) => {
-                sequential_complete = false;
-                steps.push(StepResult {
-                    label: step.label.clone(),
-                    status: "REFUSED".into(),
-                    transaction_error: Some(format!("transaction did not decode: {e}")),
-                    compute_units_consumed: None,
-                    logs: vec![],
-                    pre_accounts,
-                    post_accounts: vec![],
-                    unobserved: pre_missing,
-                });
-                // Everything after this would run against a state no trade
-                // produced, so the sequence stops rather than continuing.
-                break;
-            }
-        };
-
-        let tx: VersionedTransaction = match bincode::deserialize(&bytes) {
-            Ok(t) => t,
-            Err(e) => {
-                sequential_complete = false;
-                steps.push(StepResult {
-                    label: step.label.clone(),
-                    status: "REFUSED".into(),
-                    transaction_error: Some(format!("not a versioned transaction: {e}")),
-                    compute_units_consumed: None,
-                    logs: vec![],
-                    pre_accounts,
-                    post_accounts: vec![],
-                    unobserved: pre_missing,
-                });
-                break;
-            }
-        };
-
-        // COMMITS. The next step sees exactly this state.
-        let (status, err, logs, cu) = match svm.send_transaction(tx) {
-            Ok(meta) => ("SIMULATED_OK".to_string(), None, meta.logs, Some(meta.compute_units_consumed)),
-            Err(failed) => (
-                "SIMULATION_FAILED".to_string(),
-                Some(format!("{:?}", failed.err)),
-                failed.meta.logs,
-                Some(failed.meta.compute_units_consumed),
-            ),
-        };
-        if status != "SIMULATED_OK" {
+        let result = execute_step(&mut svm, step);
+        let failed = result.status != "SIMULATED_OK";
+        if failed {
             sequential_complete = false;
         }
-
-        let (post_accounts, post_missing) = observe(&svm, &step.observe);
-        let mut unobserved = pre_missing;
-        for m in post_missing {
-            if !unobserved.contains(&m) {
-                unobserved.push(m);
-            }
-        }
-
-        let failed = status != "SIMULATED_OK";
-        steps.push(StepResult {
-            label: step.label.clone(),
-            status,
-            transaction_error: err,
-            compute_units_consumed: cu,
-            logs,
-            pre_accounts,
-            post_accounts,
-            unobserved,
-        });
+        steps.push(result);
+        // Everything after a failure would run against a state no trade
+        // produced, so the sequence stops rather than continuing.
         if failed {
             break;
         }
@@ -404,10 +433,230 @@ fn run(job: Job) -> JobResult {
     }
 }
 
+
+// ===================== P3: the persistent serve mode =====================
+//
+// The defect this removes is a TWO-PASS proof. Pass one ran the buy in runtime
+// instance A to learn what it produced; the sell was built from that; pass two
+// then ran buy-then-sell in a FRESH instance B. Two instances replaying the same
+// buy ought to agree, but nothing checked that they did, and a sell priced
+// against a state it did not execute in is not an exact sequential mechanic --
+// it is an approximation that looks exactly like one.
+//
+// Serve mode keeps ONE runtime alive across commands, so:
+//
+//   init -> step(buy) -> observe(pool accounts) -> [host builds the sell from
+//   THOSE bytes] -> step(sell) in the SAME runtime
+//
+// and the host can prove the property the directive requires:
+//
+//   state used to quote sell == state immediately before sell execution
+//
+// by comparing the account hashes returned by `observe` with the `pre_accounts`
+// hashes of the sell step. Equal hashes are a proof; a fresh instance can only
+// offer an assumption.
+//
+// The protocol is newline-delimited JSON on stdin/stdout. One command per line,
+// one response per line, in order. No network: this binary opens no sockets.
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "cmd", rename_all = "snake_case")]
+enum Command {
+    /// Build the runtime. Carries the same payload a one-shot job does, minus
+    /// the steps.
+    Init(Box<Job>),
+    /// Execute one transaction and COMMIT it.
+    Step { step: Step },
+    /// Read accounts WITHOUT executing anything, so the host can build the next
+    /// transaction from the state that actually exists right now.
+    Observe { observe: Vec<String> },
+    /// Exit.
+    Close,
+}
+
+#[derive(Debug, Serialize)]
+struct Response {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_identity: Option<RuntimeIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step: Option<StepResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accounts: Option<Vec<ObservedAccount>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unobserved: Option<Vec<String>>,
+    /// Hash over every account this runtime has been asked about. Lets a host
+    /// detect that the runtime moved between two commands it believed adjacent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    incompleteness: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RuntimeIdentity {
+    runtime: String,
+    runtime_version: String,
+    litesvm_version: String,
+    binary_sha256: String,
+    programs_loaded: Vec<String>,
+}
+
+impl Response {
+    fn err(msg: String) -> Self {
+        Response {
+            ok: false,
+            error: Some(msg),
+            runtime_identity: None,
+            step: None,
+            accounts: None,
+            unobserved: None,
+            state_hash: None,
+            incompleteness: vec![],
+        }
+    }
+    fn blank() -> Self {
+        Response {
+            ok: true,
+            error: None,
+            runtime_identity: None,
+            step: None,
+            accounts: None,
+            unobserved: None,
+            state_hash: None,
+            incompleteness: vec![],
+        }
+    }
+}
+
+/// A hash over the accounts named, in a canonical order.
+///
+/// Sorted, so the caller cannot change the hash by reordering its request. This
+/// is what makes "the state did not move between quote and execution" checkable
+/// rather than assertable.
+fn state_hash(svm: &LiteSVM, names: &[String]) -> String {
+    let mut sorted: Vec<String> = names.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    let mut h = Sha256::new();
+    for name in &sorted {
+        h.update(name.as_bytes());
+        match name.parse::<Pubkey>().ok().and_then(|k| svm.get_account(&k)) {
+            Some(a) => {
+                h.update(a.lamports.to_le_bytes());
+                h.update(a.owner.to_bytes());
+                h.update(&a.data);
+            }
+            // "absent" must hash differently from "present and empty".
+            None => h.update(b"<absent>"),
+        }
+    }
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn serve() {
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut live: Option<LiveRuntime> = None;
+    // Every account the host has ever named, so the state hash covers the whole
+    // economically relevant surface rather than whatever this call asked for.
+    let mut known: Vec<String> = Vec::new();
+
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = writeln!(stdout, "{}", serde_json::to_string(&Response::err(format!("stdin: {e}"))).unwrap_or_default());
+                return;
+            }
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let cmd: Command = match serde_json::from_str(&line) {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = writeln!(stdout, "{}", serde_json::to_string(&Response::err(format!("bad command: {e}"))).unwrap_or_default());
+                let _ = stdout.flush();
+                continue;
+            }
+        };
+
+        let response = match cmd {
+            Command::Close => {
+                let _ = writeln!(stdout, "{}", serde_json::to_string(&Response::blank()).unwrap_or_default());
+                let _ = stdout.flush();
+                return;
+            }
+            Command::Init(job) => {
+                let rt = build_runtime(&job);
+                for a in &job.accounts {
+                    known.push(a.pubkey.clone());
+                }
+                let mut r = Response::blank();
+                r.runtime_identity = Some(RuntimeIdentity {
+                    runtime: "litesvm".into(),
+                    runtime_version: env!("CARGO_PKG_VERSION").into(),
+                    litesvm_version: "0.6.1".into(),
+                    binary_sha256: binary_hash(),
+                    programs_loaded: rt.programs_loaded.clone(),
+                });
+                r.incompleteness = rt.incompleteness.clone();
+                r.state_hash = Some(state_hash(&rt.svm, &known));
+                live = Some(rt);
+                r
+            }
+            Command::Step { step } => match live.as_mut() {
+                None => Response::err("no runtime: init first".into()),
+                Some(rt) => {
+                    for a in &step.observe {
+                        if !known.contains(a) {
+                            known.push(a.clone());
+                        }
+                    }
+                    let result = execute_step(&mut rt.svm, &step);
+                    let mut r = Response::blank();
+                    r.ok = result.status == "SIMULATED_OK";
+                    r.state_hash = Some(state_hash(&rt.svm, &known));
+                    r.step = Some(result);
+                    r
+                }
+            },
+            Command::Observe { observe } => match live.as_ref() {
+                None => Response::err("no runtime: init first".into()),
+                Some(rt) => {
+                    let (accounts, missing) = observe_accounts(&rt.svm, &observe);
+                    let mut r = Response::blank();
+                    r.accounts = Some(accounts);
+                    r.unobserved = Some(missing);
+                    // The hash is over the SAME set the caller asked about, so
+                    // it can be compared directly with the sell step's own
+                    // pre-state hash.
+                    r.state_hash = Some(state_hash(&rt.svm, &observe));
+                    r
+                }
+            },
+        };
+
+        let _ = writeln!(stdout, "{}", serde_json::to_string(&response).unwrap_or_default());
+        let _ = stdout.flush();
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--serve") {
+        // P3. One runtime, alive across commands, so the sell is built from the
+        // state the buy committed and executed in that same runtime.
+        serve();
+        return;
+    }
     if args.len() < 2 {
         eprintln!("usage: epitaxy-offline-worker <job.json> [result.json]");
+        eprintln!("       epitaxy-offline-worker --serve      (NDJSON on stdin/stdout)");
         std::process::exit(2);
     }
     let mut input = String::new();

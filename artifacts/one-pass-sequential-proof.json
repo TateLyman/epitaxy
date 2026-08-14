@@ -1,0 +1,62 @@
+{
+  "runtimeIdentity": {
+    "runtime": "litesvm",
+    "runtimeVersion": "0.1.0",
+    "litesvmVersion": "0.6.1",
+    "binarySha256": "b811d50fa62b484b8c5faea7bd94867126dbf8e2501a80f4d0c6fff89611057b",
+    "programsLoaded": []
+  },
+  "initIncompleteness": [],
+  "runtimeIsPersistent": {
+    "firstStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "secondStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "stableAcrossCommands": true,
+    "accountsSeen": 2
+  },
+  "restoredExactly": {
+    "lamports": 5000000,
+    "owner": "11111111111111111111111111111111",
+    "expectedLamports": 5000000,
+    "matches": true
+  },
+  "refusalDoesNotMoveState": {
+    "status": "REFUSED",
+    "error": "not a versioned transaction: io error: unexpected end of file",
+    "stateHashBefore": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "stateHashAfter": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "unchanged": true
+  },
+  "quoteStateSurvivedToExecution": {
+    "quotedStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "quotedAccounts": [
+      {
+        "pubkey": "EPjFWdd5",
+        "dataSha256": "df3f619804a92fdb"
+      },
+      {
+        "pubkey": "Es9vMFrz",
+        "dataSha256": "9f64a747e1b97f13"
+      }
+    ],
+    "executionPreAccounts": [
+      {
+        "pubkey": "EPjFWdd5",
+        "dataSha256": "df3f619804a92fdb"
+      },
+      {
+        "pubkey": "Es9vMFrz",
+        "dataSha256": "9f64a747e1b97f13"
+      }
+    ],
+    "survived": true,
+    "error": null
+  },
+  "detectsAMovedAccount": true,
+  "absentAccountIsNamed": {
+    "unobserved": [
+      "So11111111111111111111111111111111111111112"
+    ],
+    "accounts": 0
+  },
+  "ok": true
+}
