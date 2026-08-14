@@ -6,8 +6,8 @@ import {
   type MeasuredLegSettlement,
 } from '../../packages/domain/src/settlement.js';
 
-const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 /** The first effect-verified production buy: 0.02 SOL in, 24,087,331 out. */
 const BUY: MeasuredLegSettlement = {
@@ -25,7 +25,7 @@ const BUY: MeasuredLegSettlement = {
   output: {
     kind: 'token',
     mint: 'M',
-    tokenProgram: TOKEN,
+    tokenProgram: TOKEN_PROGRAM_ID,
     tokenAccount: 'A',
     minimumAtoms: 15_741_505_674n,
     expectedAtoms: 16_227_715_590n,
@@ -103,7 +103,7 @@ describe('P4 — a null transfer fee never becomes zero', () => {
   it('returns NULL for an unmeasured Token-2022 fee', () => {
     const t22: MeasuredLegSettlement = {
       ...BUY,
-      output: { ...BUY.output, tokenProgram: TOKEN_2022 } as MeasuredLegSettlement['output'],
+      output: { ...BUY.output, tokenProgram: TOKEN_2022_PROGRAM_ID } as MeasuredLegSettlement['output'],
     };
     expect(transferFeeOrUnknown(t22)).toBeNull();
   });
@@ -111,7 +111,7 @@ describe('P4 — a null transfer fee never becomes zero', () => {
   it('returns the measured fee when there is one', () => {
     const measured: MeasuredLegSettlement = {
       ...BUY,
-      output: { ...BUY.output, tokenProgram: TOKEN_2022 } as MeasuredLegSettlement['output'],
+      output: { ...BUY.output, tokenProgram: TOKEN_2022_PROGRAM_ID } as MeasuredLegSettlement['output'],
       costs: { ...BUY.costs, transferFeeLamportsEquivalent: 1_234n },
     };
     expect(transferFeeOrUnknown(measured)).toBe(1_234n);
@@ -124,7 +124,7 @@ describe('P4 — a null transfer fee never becomes zero', () => {
       input: {
         kind: 'token',
         mint: 'M',
-        tokenProgram: TOKEN_2022,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
         tokenAccount: 'A',
         requestedAtoms: 1n,
         actualDebitAtoms: 1n,

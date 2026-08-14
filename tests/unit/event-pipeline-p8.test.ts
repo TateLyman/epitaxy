@@ -9,7 +9,7 @@ import type { ProgramLogEvent } from '../../packages/adapters/src/logswatch.js';
 
 const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const JUP = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4';
-const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 const ev = (over: Partial<ProgramLogEvent> = {}): ProgramLogEvent => ({
   signature: 'sig1',
@@ -33,15 +33,15 @@ describe('P8 — the parser knows which program ran which instruction', () => {
       'Program log: Instruction: Route',
       `Program ${PUMP} invoke [2]`,
       'Program log: Instruction: Buy',
-      `Program ${TOKEN} invoke [3]`,
+      `Program ${TOKEN_PROGRAM_ID} invoke [3]`,
       'Program log: Instruction: Transfer',
-      `Program ${TOKEN} success`,
+      `Program ${TOKEN_PROGRAM_ID} success`,
       `Program ${PUMP} success`,
       `Program ${JUP} success`,
     ];
     expect(instructionForProgram(logs, PUMP)).toBe('Buy');
     expect(instructionForProgram(logs, JUP)).toBe('Route');
-    expect(instructionForProgram(logs, TOKEN)).toBe('Transfer');
+    expect(instructionForProgram(logs, TOKEN_PROGRAM_ID)).toBe('Transfer');
   });
 
   it('returns null when the named program did not run', () => {

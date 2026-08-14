@@ -70,7 +70,20 @@ const SIGS_PER_POOL = Number(process.env['LANDED_SIGS'] ?? 12);
 const SLIPPAGE_PCT = 3;
 
 interface Case {
-  signature: string;
+  /**
+   * The first 32 characters, not the whole signature.
+   *
+   * A 64-byte ed25519 signature and a 64-byte ed25519 secret key are the same
+   * length in the same alphabet, so no pattern can tell them apart — the secret
+   * scanner says exactly that, and scopes its one exception to captured test
+   * fixtures. This artifact is outside that scope, and widening a security
+   * control to publish data I can publish differently is the wrong trade.
+   *
+   * A 32-character prefix carries far more entropy than is needed to identify
+   * the transaction uniquely, and `slot` plus `pool` locate it in the pool's
+   * own history. What is lost is paste-into-an-explorer convenience.
+   */
+  signaturePrefix: string;
   mint: string;
   pool: string;
   side: 'buy' | 'sell' | 'unknown';
@@ -159,7 +172,7 @@ for (const { mint } of mints) {
     if (directCount() >= TARGET) break;
 
     const c: Case = {
-      signature,
+      signaturePrefix: signature.slice(0, 32),
       mint,
       pool,
       side: 'unknown',
