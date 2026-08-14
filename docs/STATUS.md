@@ -1,12 +1,65 @@
 # STATUS
 
-> **2026-08-12 — executable-truth repair. State: `MEASUREMENT_REPAIR_REQUIRED`.**
-> The P2b window is VOID (`docs/P2B_INVALIDATION.md`). **0 positions establish
-> executable PnL** and the engine currently books none, because no observation
-> in this system has ever been simulated. See the last section of this file and
-> `docs/AUDIT_HEAD_3155EA.md`.
+> **2026-08-14 — true-stateful directive from `3bc708d`. State:
+> `MEASUREMENT_REPAIR_REQUIRED`.**
+> The sequential runtime now produces complete, correctly classified
+> buy → sell → close lifecycles whose economics reconcile to **one lamport**.
+> **The running paper engine does not yet drive it**, and no complete production
+> trajectory exists. `docs/3BC708D_FINAL_REPORT.md`.
 
-Last updated: 2026-08-12T17:10Z
+Last updated: 2026-08-14T00:10Z
+
+## Operational right now
+
+| | |
+|---|---|
+| mode | `paper`, engine LIVE |
+| schema | v31 |
+| strategy version | `delayed-momentum-v0.6.0` |
+| positions with executable PnL | **0** |
+| direct mint facts collected | yes, in every mode (was capital-only) |
+
+## What is proven, and on what sample
+
+| claim | evidence | sample |
+|---|---|---|
+| a sequence commits: step 2 starts from what step 1 left | `artifacts/sequential-runtime-proof.json` | one SOL transfer, no program |
+| the sell is priced AND built from the buy-mutated pool | `artifacts/true-stateful-roundtrip-proof.json` | 3 complete lifecycles of 70 attempted |
+| the offline model equals the runtime's executed output | `artifacts/pumpswap-parity-v2.json` | 36 of 36 cells, 0 bps, both sides, 6 sizes |
+| the mechanics floor is 241.5 bps of AMM drag, flat in size | `artifacts/true-stateful-size-surface.json` | 4 mints, 24 points |
+| 20 of 24 gates refuse tokens with no canonical pool | `artifacts/reject-panel.json` | 68 mints, 24 strata, seeded |
+| the Jupiter upgrade is not justified | `artifacts/rate-budget.json` | bottleneck is the scheduler at 0.30/s of a 1 RPS ceiling |
+
+## What is disabled
+
+- **Canary and live.** Both are blocked by `.claude/hooks/guard.mjs` and by the
+  acknowledgement file requirement. Neither has been run.
+- **The direct event stream as a decision input.** It is bounded and stored as
+  per-mint flow bars; `feedsProductionDecisions: false` is stated in its own
+  artifact. It is telemetry.
+- **Mayhem facts.** `mayhem_facts` exists as of migration 31 and nothing
+  populates it.
+
+## What is unproven
+
+- Production has never opened a position. The lifecycle machinery is proven in
+  the runtime, not in the engine.
+- The parity and size samples are small and possibly selected: two of six mints
+  attempted failed entirely in the runtime, so the sample is "the mints the
+  apparatus can simulate".
+- No parity against a **landed** mainnet transaction. Parity is against the
+  runtime.
+- The mark scheduler runs behind at a third of the rate ceiling and the cause is
+  unidentified.
+- Dust cannot be exited: one atom of these tokens prices at zero lamports.
+
+## Not done from this directive
+
+`P5` production core split · `P6` shadow trajectories · `P11` Mayhem and entity
+facts · `P19` tournament (gated on P5 and P6) · `P22` confirmatory window (gated
+on P19).
+
+---
 
 ## Current state
 
