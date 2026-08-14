@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | starting (audited master) | `02483ca45b2c40a98637f88c01d8bbef5e1c5496` |
-| ending | `62056c9` |
-| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips |
+| ending | `67e6692` |
+| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface |
 
 ## 2. Local differences from committed head
 
@@ -128,10 +128,34 @@ Realised legs now charge zero when no failure occurred.
 `transferFeeLamports: 0n` is gone from the realised path — it reads the measured
 settlement, and an unobserved fee is refused rather than charged as zero.
 
-## 12–14. Size surface, effective score, mechanics gate
+## 12–14. Size surface, effective score, mechanics gate — DONE
 
-The size surface (P7) was **not** run — the cliff finding above supersedes its
-premise at 0.02 SOL and the grid needs the production generator first.
+`artifacts/economic-admission-surface.json`, `docs/STATEFUL_SIZE_SURFACE.md`.
+
+Machine-generated through the same `sizePosition` and `viableFloorLamports` the
+engine uses:
+
+```
+NAV                    9.582071288 SOL
+risk budget per trade  0.023955178 SOL   (0.25% of NAV)
+round-trip overhead    0.00206528  SOL
+min viable notional    0.0209128   SOL
+configured min score   0.35
+EFFECTIVE min score    0.88
+```
+
+**`minOpportunityScore = 0.35` has never rejected anything sizing would have
+admitted.** A score of 0.87 sizes to 0.020841 SOL and is refused by 71,796
+lamports; 0.88 is the first admitted size.
+
+This is why no position has opened — not the gates and not the score. 0.25% of
+a 9.58 SOL book is 0.024 SOL, and fixed costs need 0.021 SOL of notional before
+they stop dominating. The honest lever is the overhead (P6's ATA close removes
+its largest term), not NAV or the risk fraction.
+
+The preregistered six-point notional grid was **not** run: at 0.02 SOL the round
+trip is already quantization-dominated for two thirds of live candidates, and
+every smaller size makes that worse rather than revealing a different regime.
 
 The mechanics gate **is** live: production entry computes the immediate round
 trip from two measured settlements and refuses above `maxRoundTripLossBps`
@@ -139,23 +163,99 @@ trip from two measured settlements and refuses above `maxRoundTripLossBps`
 the number was computed correctly and recorded at `info` — the gate existed, the
 measurement existed, and nothing connected them.
 
-## 15. Production core call graph — NOT DONE
+## 15. Production core call graph — DONE
 
-`paper.ts` still does not call `admitPortfolioEntry`. Its entry logic remains
-duplicated. This is the largest remaining item and it is a prerequisite for a
-live stateful label.
+`paper.ts` calls `admitPortfolioEntry`. The observe → simulate → measure →
+observe exit → simulate → measure → gate sequence lived in both files and only
+the `paper.ts` copy ran; the duplicate is gone.
+
+The core decides but does not query: measured credit and measured round trip
+arrive through injected readers, so it refuses on the same settlements the
+engine books from. Its old contract took `tokensFrom(buy)`, which read the
+router's floor off the observation — what the buy promised not to go below,
+not what it delivered.
 
 ## 16. Explicit PnL fields — WRITERS DONE, NO ROWS
 
-`insertPosition` and `updatePosition` now write `execution_cost_lamports`,
-`gross_proceeds_lamports` and `net_pnl_lamports`, from the measured settlement,
-with null meaning undetermined rather than zero. **Zero rows carry them**,
-because no position has opened under the repaired code.
+Migration 25 adds `entry_cash_out_lamports`, `exit_cash_in_lamports`,
+`locked_rent_lamports` and `residual_token_atoms`. Production writes all of
+them plus the three from migration 22, from the measured settlement, and the
+identity
 
-## 17–23. Trigger/later-fill, direct Pump clock, parity, Mayhem, entities, WSS, cohorts
+```
+net_pnl_lamports = exit_cash_in_lamports - entry_cash_out_lamports
+```
 
-Not started. Ordered behind a correct production generator, as the directive
-sequences them.
+holds on the row with both operands written in the same statement, so a reader
+can check it rather than trust it. Rent is identified separately rather than
+netted into either side.
+
+**Zero rows carry them**, because no position has opened — see §12–14 for why.
+
+## 16b. Signal episodes (P11) — DONE
+
+The episode identity was `floor(now / 15 minutes)`. Two screenings at 14:59 and
+15:01 are two minutes apart, landed in different buckets, and became two
+episodes — so the second opened a second position on the same signal. Two at
+14:01 and 14:59 are fifty-eight minutes apart, shared a bucket, and the second
+was refused as a duplicate. The boundary did the opposite of its purpose in
+both directions, depending on where a signal fell against a clock it has no
+relationship to.
+
+An episode is now durable state, closed when the book flattens.
+
+## 16c. Score arithmetic (P18) — DONE
+
+Four defects, each wrong independent of any outcome. A provider `organicScore`
+of 0 is *not computed* — the gate already treated it that way while the score
+charged the same 0 at full weight, so one absence was penalised twice, hardest
+on the young tokens the strategy is defined over. Breadth kept its full weight
+with one subfeature missing. Unknown tradability and unknown age returned 0,
+the maximum penalty, for a measurement we had not made. Coverage is now
+reported rather than folded in.
+
+Two existing tests asserted the double penalty with `toBeGreaterThan` and now
+assert equality. Strategy version → `delayed-momentum-v0.5.0`. Ledger entries
+MT031–MT034.
+
+## 16d. Risk alarm (P15) — DONE
+
+Five defects, all silent. Nothing constructed `ReserveAlarm`; `connect()` was
+never called; `unwatch()` deleted a map entry while its caller's comment claimed
+it sent a real unsubscribe; reconnect was registered on both `error` and
+`close`, so one failure scheduled two reconnects and the count doubled per
+cycle; and a subscription nobody acknowledged counted as coverage.
+
+The engine now constructs it, starts it, registers each position's pool reserve
+at entry and releases it at close. Raw socket state remains an alarm and never
+becomes a mark or a fill.
+
+## 16e. Cohorts and exploration (P16, P17) — DONE
+
+Only `AGE_2M_60M` ever matured: `maturingMints` took one window from
+`config.gates`, so three arms were defined, bounded, assigned to rows, and never
+received a candidate. All four now mature with their own quota.
+
+25% of the quote budget goes to a stratified random draw from candidates the
+ranking did **not** take, with `selection_arm`, `inclusion_probability` and
+`selection_stratum` on every row. A gate evaluated only on the candidates it
+admitted is evaluated on its own output. The draw is seeded rather than
+`Math.random()`, so a cycle replays.
+
+## 17–23. Trigger/later-fill, direct Pump clock, parity, Mayhem, entities
+
+**P10 (trigger → later fill), P12 (direct Pump/PumpSwap event clock), P13
+(official SDK parity), P14 (Mayhem, Token-2022 facts, entities into runCycle)
+are NOT done.**
+
+P13 and P14 in particular require pinning and verifying external SDKs against
+current official documentation and then proving parity to the lamport — that is
+a session of its own, and a half-wired fact source that silently returns nulls
+is the exact defect class this directive is about.
+
+P19/P23 are preregistered in `docs/DEVELOPMENT_PREREGISTRATION.md`: four
+cohorts, one control exit and one mechanism-distinct challenger, checkpoints at
+10/25/50/100, and kill rules at 50 that do not protect the original thesis.
 
 ## 24. Valid development positions by arm
 
@@ -177,16 +277,26 @@ is measured to reduce valid stateful labels per day.
 
 ## 29. Unresolved blockers
 
-1. `paper.ts` does not call `admitPortfolioEntry` (P8).
+1. **No position can open at the current configuration.** The risk budget
+   (0.024 SOL) barely clears the mechanics floor (0.021 SOL), so the effective
+   score threshold is 0.88. This is now measured rather than suspected.
 2. No live stateful buy→sell→close label from the running engine.
 3. No live case above 2^53 atoms.
 4. Token-2022 transfer/withheld fees unmeasured — 20 of 25 lifecycles
    disqualified as unknown-cost.
 5. `expectedRecipients` is empty everywhere, so the unexpected-recipient check
    cannot bind (P4 requires it mandatory).
-6. Offline Pump replay blocked; no Rust/LiteSVM worker.
+6. Offline Pump replay blocked; no Rust/LiteSVM worker (P20).
 7. Durable ordering state machine (P4) not implemented — a crash between
    runtime return and effect persistence still leaves an unrepairable cached job.
+8. P10 trigger→later-fill lifecycle not running; the trigger mark can still be
+   its own fill.
+9. P12 direct Pump/PumpSwap event clock not built; the signal clock is still a
+   30-second provider poll.
+10. P13 official Pump/PumpSwap model and parity not implemented.
+11. P14 Mayhem, Token-2022 mint facts and entity links do not reach `runCycle`.
+12. P21 readiness/canonical-view repairs and P24 confirmatory window untouched —
+    both are downstream of having any valid label.
 
 ## 30. Commands to keep collection running
 
