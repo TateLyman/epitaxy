@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildEntityLinks, entityConcentrationFrom, type HistorySource } from '../../packages/intelligence/src/entity-links.js';
+import {
+  buildEntityLinks,
+  buildTransactionLinks,
+  withExtraLinks,
+  entityConcentrationFrom,
+  type HistorySource,
+  type TransactionSource,
+} from '../../packages/intelligence/src/entity-links.js';
 
 /**
  * P11 — the entity links that nothing was building.
@@ -157,5 +164,168 @@ describe('P11 — an unread history is unknown, never independent', () => {
       holders(['A', 50n], ['B', 50n]),
     );
     expect(r.links).toEqual([]);
+  });
+});
+
+
+/**
+ * The three stronger link kinds, from transaction bodies.
+ *
+ * `COMMON_FUNDER` is the cheap one and the weakest: sharing a first funder is
+ * suggestive. These three are progressively harder to explain away, and each
+ * costs a whole transaction body to obtain — which is why they are a separate
+ * call with a separate source, so a caller with a small budget can decline them
+ * and get a smaller claim rather than a wrong one.
+ */
+function txSource(p: {
+  txs: Record<string, { feePayer: string | null; participants: string[] }>;
+  transfers?: Record<string, { from: string; to: string }[]>;
+  throwFor?: string;
+}): TransactionSource {
+  return {
+    participantsOf: async (sig) => {
+      if (sig === p.throwFor) throw new Error('transaction unavailable');
+      return p.txs[sig] ?? null;
+    },
+    transfersIn: async (sig) => p.transfers?.[sig] ?? [],
+  };
+}
+
+describe('P11 — SAME_TRANSACTION', () => {
+  it('links two tracked holders that appear in one transaction', async () => {
+    const r = await buildTransactionLinks(
+      txSource({ txs: { s1: { feePayer: 'PAYER', participants: ['A', 'B', 'STRANGER'] } } }),
+      ['A', 'B'],
+      ['s1'],
+    );
+    const same = r.links.filter((l) => l.kind === 'SAME_TRANSACTION');
+    expect(same.length).toBe(1);
+    expect([same[0]?.a, same[0]?.b].sort()).toEqual(['A', 'B']);
+  });
+
+  it('ignores participants that are not tracked holders', async () => {
+    const r = await buildTransactionLinks(
+      txSource({ txs: { s1: { feePayer: null, participants: ['A', 'STRANGER'] } } }),
+      ['A', 'B'],
+      ['s1'],
+    );
+    expect(r.links).toEqual([]);
+  });
+});
+
+describe('P11 — SHARED_FEE_PAYER', () => {
+  it('links holders whose activity somebody else paid for', async () => {
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: {
+          s1: { feePayer: 'SPONSOR', participants: ['A'] },
+          s2: { feePayer: 'SPONSOR', participants: ['B'] },
+        },
+      }),
+      ['A', 'B'],
+      ['s1', 's2'],
+    );
+    expect(r.links.filter((l) => l.kind === 'SHARED_FEE_PAYER').length).toBe(1);
+  });
+
+  it('a holder paying for its own transaction links nobody', async () => {
+    // Self-payment is the normal case and says nothing about anyone else.
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: {
+          s1: { feePayer: 'A', participants: ['A'] },
+          s2: { feePayer: 'B', participants: ['B'] },
+        },
+      }),
+      ['A', 'B'],
+      ['s1', 's2'],
+    );
+    expect(r.links.filter((l) => l.kind === 'SHARED_FEE_PAYER')).toEqual([]);
+  });
+});
+
+describe('P11 — DIRECT_TRANSFER', () => {
+  it('links a holder that sent value straight to another', async () => {
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: { s1: { feePayer: null, participants: [] } },
+        transfers: { s1: [{ from: 'A', to: 'B' }] },
+      }),
+      ['A', 'B'],
+      ['s1'],
+    );
+    const direct = r.links.filter((l) => l.kind === 'DIRECT_TRANSFER');
+    expect(direct.length).toBe(1);
+    expect(direct[0]?.evidence).toMatch(/->/);
+  });
+
+  it('ignores a transfer to somebody outside the holder set', async () => {
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: { s1: { feePayer: null, participants: [] } },
+        transfers: { s1: [{ from: 'A', to: 'OUTSIDER' }] },
+      }),
+      ['A', 'B'],
+      ['s1'],
+    );
+    expect(r.links).toEqual([]);
+  });
+
+  it('never links an address to itself', async () => {
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: { s1: { feePayer: null, participants: [] } },
+        transfers: { s1: [{ from: 'A', to: 'A' }] },
+      }),
+      ['A'],
+      ['s1'],
+    );
+    expect(r.links).toEqual([]);
+  });
+});
+
+describe('P11 — the transaction pass fails soft and folds in', () => {
+  it('records an unreadable transaction and keeps going', async () => {
+    const r = await buildTransactionLinks(
+      txSource({
+        txs: { s2: { feePayer: 'P', participants: ['A', 'B'] } },
+        throwFor: 's1',
+      }),
+      ['A', 'B'],
+      ['s1', 's2'],
+    );
+    expect(r.examined).toBe(1);
+    expect(r.notes.join(' ')).toMatch(/unreadable/);
+    expect(r.links.length).toBeGreaterThan(0);
+  });
+
+  it('fetches nothing the caller did not ask for', async () => {
+    // The budget stays with the caller. This examines exactly the signatures
+    // it was handed and never goes looking for more.
+    let calls = 0;
+    const source: TransactionSource = {
+      participantsOf: async () => {
+        calls += 1;
+        return { feePayer: null, participants: [] };
+      },
+      transfersIn: async () => [],
+    };
+    await buildTransactionLinks(source, ['A'], ['s1', 's2', 's3']);
+    expect(calls).toBe(3);
+  });
+
+  it('folds the stronger links into a funder-built result without losing holders', async () => {
+    const base = await buildEntityLinks(
+      source({ first: { A: 's1', B: 's2' }, payer: { s1: 'F', s2: 'G' } }),
+      holders(['A', 60n], ['B', 40n]),
+    );
+    expect(base.links).toEqual([]);
+    const merged = withExtraLinks(base, [
+      { a: 'A', b: 'B', kind: 'DIRECT_TRANSFER', evidence: 'A -> B' },
+    ]);
+    expect(merged.holders.length).toBe(2);
+    // One entity now, where the funder pass alone saw two.
+    expect(entityConcentrationFrom(merged).entityCount).toBe(1);
+    expect(entityConcentrationFrom(base).entityCount).toBe(2);
   });
 });

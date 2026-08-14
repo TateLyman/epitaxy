@@ -444,6 +444,66 @@ per arm; at three per day per arm across six arms that is ~17 days, with the
 mark-scheduler backlog an open blocker. What is wired is the allocation, so
 arriving trajectories are already assigned rather than labelled afterwards.
 
+## 19f. The mechanics floor is not a constant (P14, offline)
+
+`artifacts/fee-tier-surface.json`, `pnpm fee:tier-surface`.
+
+The size surface measured 241.5 bps of AMM drag, **flat across every size in its
+grid**. That is correct and easy to misread. PumpSwap's fee is a table keyed on
+the pool's **market cap**, decoded from fee-config bytes already sitting in the
+round-trip fixture:
+
+```
+25 tiers       round trip 250 bps at the bottom -> 60 bps at the top
+               a 190 bps spread
+24 boundaries  the parity matrix straddled NONE of them
+```
+
+Every mint in the size surface sat in the **bottom tier — the most expensive
+one**. The drag is flat in *size* and a step function across *tokens*, so
+241.5 bps is a floor for small-cap tokens, not a constant of the venue. A pool
+above ~44,000 SOL pays roughly a quarter of it.
+
+That matters for something written earlier the same day:
+`DEVELOPMENT_TOURNAMENT.md` said `MECHANICS_DRAG_CONSUMES_EDGE` is judged
+against "the size surface's own number — 241.5 bps". An arm trading larger-cap
+tokens would have been eliminated for a cost it does not pay. `judgeArm` already
+takes `mechanicsDragBps` per arm, so the code was right and the doc was wrong;
+both now say the floor must come from the tiers of the mints an arm traded.
+
+## 19g. What the mint corpus says (P11 read back, offline)
+
+`artifacts/mint-facts-status.json`, `pnpm mint:facts-status`.
+
+The first read-back of what P11 collected, and it answers a P14 coverage
+question without a single call:
+
+```
+22,748 mints read       21,869 Token-2022, 879 legacy SPL
+hostile                 24 (0.11%)
+  live freeze authority   18
+  live mint authority     11
+  transfer hook            3
+  permanent delegate       1
+transfer fees           90 mints — 89 at 300 bps, 1 at 500
+unknown extensions       0
+pending fee changes      0
+provider disagreements   0
+```
+
+**Legacy SPL base is a sampling gap in the parity matrix, not a universe gap** —
+the corpus holds 879 of them.
+
+A 300 bps transfer fee is charged on both legs, so it is **600 bps per round
+trip against a 241.5 bps baseline** — 3.5× the mechanics floor. I checked
+whether that fee actually reaches the admission gate rather than assuming it: it
+does. The entry path refuses outright when the fee is unmeasured, and
+`immediateRoundTrip` is computed from measured settlements that carry it.
+
+Zero provider disagreements is worth stating precisely: where Jupiter's audit
+fields and the chain both had an answer, they agreed. That makes the provider
+*reliable so far*, not authoritative.
+
 ## 20. Not done, and why
 
 - **The live write of `mayhem_facts` and `entity_concentration`.** Both run only
@@ -459,11 +519,17 @@ arriving trajectories are already assigned rather than labelled afterwards.
   trajectories.
 - **P22** confirmatory window. Gated on an arm being selected by P19.
 - **P14** remaining matrix cells (§11): USDC quote, legacy SPL base, bonding
-  curve, Mayhem vs non-Mayhem, fee-tier boundaries, and parity against a landed
-  mainnet transaction.
-- **P11 entity links beyond `COMMON_FUNDER`** — shared fee payer, same
-  transaction, direct transfer, bundle co-occurrence. Each needs full
-  transaction bodies per holder, a different order of RPC spend.
+  curve, Mayhem vs non-Mayhem, and parity against a landed mainnet transaction.
+  §19g establishes that legacy SPL base is a **sampling** gap rather than a
+  universe gap; all of these need the network.
+- **Wiring the three stronger entity link kinds.** `SHARED_FEE_PAYER`,
+  `SAME_TRANSACTION` and `DIRECT_TRANSFER` are implemented and tested
+  (`buildTransactionLinks`), behind a separate `TransactionSource` so a caller
+  with a small budget can decline them and get a smaller claim rather than a
+  wrong one. No production caller supplies that source yet — it needs full
+  transaction bodies per holder, and the RPC cap is exhausted.
+- **A parity cell that straddles a fee-tier boundary** (§19f). The boundaries
+  are now enumerated; sampling across one needs the network.
 
 ## 21. Commands
 
