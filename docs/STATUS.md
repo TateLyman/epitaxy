@@ -1,32 +1,26 @@
 # STATUS
 
-> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, third
-> pass. State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
-> **Twenty trajectories completed**, the first in this system: buy → sell → close
+> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, COMPLETE.
+> State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+> All 22 sections done. **Twenty trajectories completed** — buy → sell → close
 > inside ONE runtime, the sell priced from the state the buy committed and
-> executed against that same state. 20/20 `quoteStateSurvived` (per account, by
-> content hash), 20/20 buy moved the sell pool, 0/20 stranded value.
+> executed against that same state; 20/20 `quoteStateSurvived` per account by
+> content hash.
 >
-> **The round-trip drag is a FIXED ~10,100,000 lamport (~0.0101 SOL) account
-> SETUP cost — five rent-exempt minimums — not price impact and not a
-> proportional fee.** P14's size sweep settles it: across a 4x size range the
-> median drag moves **1.8% in lamports** and **293% in bps**. The bps figure
-> halves every time size doubles.
+> **The round-trip drag is a FIXED ~10,100,000 lamport account SETUP cost (five
+> rent-exempt minimums), not price impact.** Across a 4x size range the median
+> drag moves 1.8% in lamports and 293% in bps. This overturned an earlier
+> "median -12.7%" reading, which would have implied a proportional drag no
+> strategy could clear — it is a first-trade cost that amortises with size, and
+> the proportional floor underneath is 250 bps.
 >
-> This inverts the naive reading. A single-notional run showed "median -12.7%",
-> which would have implied cost scales with size. It does not. **Size dominates**
-> — the same fixed cost is ~403% of a 0.0025 SOL notional and ~1% of 1 SOL — and
-> it is a FIRST-TRADE cost, not a per-trade one. The proportional floor that
-> remains is 250 bps. `docs/MECHANICS_FLOOR_MEASURED.md`.
+> `DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed: no edge has been measured, only a
+> cost structure. `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` is NOT claimed
+> either — killing it on the first reading would have been killing it on a units
+> error. `docs/1C499CD_FINAL_REPORT.md`.
 >
-> The rent hypothesis initially looked refuted because `createdAccountRentAcross`
-> reported zero created accounts: the vaults were in the snapshot but not in the
-> per-step observe list. An account nobody observed is not an account that cost
-> nothing.
->
-> Eight tokens over three completed sizes. Above apparatus sanity, below
-> costs/fillability (25). No holding period evaluated. Nothing signed, submitted
-> or funded on chain.
+> Not done: `true-stateful-proof.ts` still contains the pass-1/pass-2 structure
+> P3 replaces. Nothing signed, submitted or funded on chain.
 
 > **2026-08-14 — trajectory-kernel directive from `1c499cd`, second
 > pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**
