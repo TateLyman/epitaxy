@@ -2,10 +2,12 @@
 
 > **2026-08-14 — true-stateful directive from `3bc708d`. State:
 > `MEASUREMENT_REPAIR_REQUIRED`.**
-> The sequential runtime now produces complete, correctly classified
+> The sequential runtime produces complete, correctly classified
 > buy → sell → close lifecycles whose economics reconcile to **one lamport**.
-> **The running paper engine does not yet drive it**, and no complete production
-> trajectory exists. `docs/3BC708D_FINAL_REPORT.md`.
+> The shadow lifecycle now triggers and awaits a later fill, which voided all
+> **1,038** shadow results that existed before it
+> (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
+> through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
 
 Last updated: 2026-08-14T00:10Z
 
@@ -14,7 +16,7 @@ Last updated: 2026-08-14T00:10Z
 | | |
 |---|---|
 | mode | `paper`, engine LIVE |
-| schema | v31 |
+| schema | v34 |
 | strategy version | `delayed-momentum-v0.6.0` |
 | positions with executable PnL | **0** |
 | direct mint facts collected | yes, in every mode (was capital-only) |
@@ -29,6 +31,8 @@ Last updated: 2026-08-14T00:10Z
 | the mechanics floor is 241.5 bps of AMM drag, flat in size | `artifacts/true-stateful-size-surface.json` | 4 mints, 24 points |
 | 20 of 24 gates refuse tokens with no canonical pool | `artifacts/reject-panel.json` | 68 mints, 24 strata, seeded |
 | the Jupiter upgrade is not justified | `artifacts/rate-budget.json` | bottleneck is the scheduler at 0.30/s of a 1 RPS ceiling |
+| every required production call edge holds | `artifacts/production-call-graph.json` | 15 edges, resolved through the TypeScript checker |
+| a shadow trigger no longer closes a position | live database | 40 positions `AWAITING_FILL_OBSERVATION` |
 
 ## What is disabled
 
@@ -55,9 +59,20 @@ Last updated: 2026-08-14T00:10Z
 
 ## Not done from this directive
 
-`P5` production core split · `P6` shadow trajectories · `P11` Mayhem and entity
-facts · `P19` tournament (gated on P5 and P6) · `P22` confirmatory window (gated
-on P19).
+- **`P11` Mayhem** — the table exists, nothing populates it, and there is no
+  verified on-chain read for agent state or the burn transition. The one
+  requirement left with nothing behind it.
+- **`P19` execution** — preregistered and allocating arms; zero completed
+  trajectories against a first checkpoint of ten per arm.
+- **`P22`** — gated on an arm being selected by P19.
+- **`P14`** remaining matrix cells: USDC quote, legacy SPL base, bonding curve,
+  fee-tier boundaries, parity against a landed mainnet transaction.
+
+## Voided by this directive
+
+All **1,038** closed shadow positions and the −18,338,967,174 lamports summed
+across them. Each was closed at its triggering mark's own value.
+`fill_latency_ms IS NULL` marks a pre-P6 row.
 
 ---
 

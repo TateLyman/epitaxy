@@ -318,20 +318,18 @@ ceiling; below it, the bottleneck is the scheduler and no plan buys that.
 Nothing else is purchased. The artifact says no to archival RPC, premium gRPC,
 shreds, colocation, a large VPS and a dedicated validator by name.
 
-## 19. Required tests
+## 18b. Required tests
 
 `tests/unit/p24-required-3bc708d.test.ts` is the index, and it is **asserted**:
 every named home must exist and contain tests, the uncovered items must be
 exactly the ones named with reasons, and the count is checked.
 
 ```
-46 of 48 covered
+47 of 48 covered
 ```
 
-The two that are not, and why:
+The one that is not, and why:
 
-- **14** the paper shell calls core shadow lifecycle — P6 is not built, so there
-  is no core shadow lifecycle to call
 - **32** Mayhem flow is excluded from organic breadth — the table exists and
   nothing populates it, so there is nothing to exclude from
 
@@ -340,21 +338,113 @@ exist. Both were then written.
 
 Suite: **84 files, 1,157 tests, 4 skipped.**
 
+## 19b. Production core and call graph (P5) — DONE
+
+`scripts/call-graph.ts`, `artifacts/production-call-graph.json`, `pnpm callgraph`.
+
+Machine-generated and resolved through the TypeScript **checker**, not by
+matching text: `db.prepare(...)` and a local `prepare` are different things, and
+a graph that conflated them would report edges nobody wrote. It exits non-zero
+on a missing edge, so CI fails on a lifecycle that has been quietly unhooked.
+
+All 15 required edges hold, and **0 of 8 lifecycle functions are declared in the
+process shell** — admission and mark selection live in `paper-core.ts`,
+settlement in `domain/settlement.ts`.
+
+The reason this exists rather than a source-substring test: this system has
+twice shipped a decision path nothing called — the urgent-mark queue that ended
+in a `Set.add`, the exploration arm allocated a budget of zero. Both would have
+passed a grep for a reassuring identifier, because the identifier was there.
+
+## 19c. Shadow trajectories (P6) — DONE, and it voided the shadow corpus
+
+The call graph found it on its first run:
+
+```
+MISS manageShadowBooks -> admitPortfolioExit
+```
+
+The shadow loop ran `decideExit` on a mark and closed on **that same mark, at
+that same mark's value**. That books a fill at the price which *caused* the
+decision to exit, observed before the decision existed — the one price a real
+exit can never get, and one that flatters in both directions: a stop fires on a
+drop and fills at the drop, a take-profit fires on a spike and fills at the
+spike.
+
+`packages/domain/src/shadow-lifecycle.ts` has forbidden that transition since it
+was written, and its guard says so in words. **No production file imported it.**
+
+**All 1,038 closed shadow positions are void**, and so is the −18,338,967,174
+lamports summed across them. `docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`.
+`fill_latency_ms IS NULL` marks a pre-P6 row.
+
+The loop now runs on the machine, and a fill must be strictly later than the
+trigger, past the frozen 1,200 ms latency, same route family, effect-valid on
+its own, and priced. The **first** such observation is the fill — choosing among
+later observations after seeing them all is look-ahead under another name.
+`EXIT_BLOCKED` is not terminal.
+
+Live after the restart: **40 positions `AWAITING_FILL_OBSERVATION`**, where
+before every one of them would have closed.
+
+## 19d. Entity links (P11) — DONE; Mayhem still has no source
+
+`intelligence/entity.ts` clustered holders by union-find over a list of links,
+and **no production caller ever produced a link**. `cluster()` was always called
+with an empty list, every holder was its own entity, and the entity-adjusted
+concentration equalled the address concentration exactly — a number that looked
+like a second opinion and was the first one restated. Third dead module this
+session.
+
+`entity-links.ts` builds `COMMON_FUNDER` from real history: the funder is the
+fee payer of a holder's first transaction. The other link kinds the directive
+lists need full transaction bodies per holder and are left unbuilt rather than
+approximated.
+
+**The generic-funder guard was wrong on the first attempt and its own test
+caught it.** I had suppressed any funder behind a large share of one mint's top
+holders, reasoning about exchange hot wallets. That is backwards: an exchange
+funds people who then buy many different tokens, so it sits behind a small
+fraction of any one token's holders, while a funder behind sixty per cent of a
+memecoin's top wallets is precisely the sniper cluster the measurement exists to
+find. Genericness is a cross-mint property and the caller now supplies it.
+
+**Mayhem remains unsourced.** The table exists as of migration 31 and nothing
+populates it. Inventing a source would be fabrication.
+
+## 19e. Tournament (P19) — PREREGISTERED AND ALLOCATED, NOT RUN
+
+`packages/domain/src/tournament.ts`, `docs/DEVELOPMENT_TOURNAMENT.md`.
+
+Three entry arms × two exit arms, no parameter grid. Checkpoints at 10 / 25 /
+50 / 100 completed trajectories per arm. Seven elimination reasons, each a pure
+function of a preregistered observation. `MECHANICS_DRAG_CONSUMES_EDGE` is
+judged against the size surface's own 241.5 bps.
+
+Allocation is balanced, deterministic, and **blind to the candidate** —
+`allocateArm` takes one argument, so there is nowhere to pass a score.
+
+**It does not run.** Zero valid trajectories exist; the first checkpoint is ten
+per arm; at three per day per arm across six arms that is ~17 days, with the
+mark-scheduler backlog an open blocker. What is wired is the allocation, so
+arriving trajectories are already assigned rather than labelled afterwards.
+
 ## 20. Not done, and why
 
-- **P5** production core refactor. `paper-core.ts` exists and owns entry
-  admission; the full split (mark selection, trigger, later fill, blocked retry,
-  portfolio close, ledger settlement) and the machine-generated call graph are
-  not done.
-- **P6** shadow trajectories. The shared trajectory table and the
-  `POSITION_OPEN → EXIT_TRIGGERED → AWAITING_FILL_OBSERVATION → EXIT_BLOCKED →
-  POSITION_CLOSED` lifecycle are not built.
-- **P11 Mayhem and entity facts.** The `mayhem_facts` table landed with
-  migration 31; no source populates it.
-- **P19** development tournament. The directive gates it on P2–P15 passing.
-  P5 and P6 do not.
+- **P11 Mayhem.** `mayhem_facts` landed with migration 31 and no source
+  populates it. There is no documented on-chain read for agent state, agent
+  inventory or the burn transition that I could verify, and inventing one would
+  be fabrication. This is the one directive requirement left with nothing
+  behind it.
+- **P19 execution.** Preregistered and allocated (§19e); it cannot run without
+  trajectories.
 - **P22** confirmatory window. Gated on an arm being selected by P19.
-- **P14** remaining matrix cells (§11).
+- **P14** remaining matrix cells (§11): USDC quote, legacy SPL base, bonding
+  curve, Mayhem vs non-Mayhem, fee-tier boundaries, and parity against a landed
+  mainnet transaction.
+- **P11 entity links beyond `COMMON_FUNDER`** — shared fee payer, same
+  transaction, direct transfer, bundle co-occurrence. Each needs full
+  transaction bodies per holder, a different order of RPC spend.
 
 ## 21. Commands
 
@@ -380,6 +470,10 @@ pnpm reject:panel
 
 ```bash
 pnpm rate:budget
+```
+
+```bash
+pnpm callgraph
 ```
 
 ## 22. Every unresolved blocker
@@ -418,11 +512,16 @@ the running paper engine
 → clean current context
 ```
 
-The sequential runtime now exists and produces complete, correctly classified
-buy→sell→close lifecycles with reconciled economics. **The running paper engine
-does not yet drive it**, and no balanced cohort trajectory exists. The
-measurement apparatus is repaired; the generator that would use it is not
-finished.
+The sequential runtime produces complete, correctly classified buy→sell→close
+lifecycles with economics that reconcile to one lamport. The shadow lifecycle
+now triggers and awaits a later fill, and 40 positions are in that state right
+now. Tournament arms are allocated as trajectories open.
 
-Not `DEVELOPMENT_ARM_SELECTED` either: P19 is gated on P5 and P6, and both are
-open.
+**No trajectory has completed through the repaired lifecycle**, the paper engine
+does not drive the sequential runtime, and every one of the 1,038 shadow results
+that existed before this directive is void. The measurement apparatus is
+repaired; the generator that would use it has produced nothing yet.
+
+Not `DEVELOPMENT_ARM_SELECTED` either. P5 and P6 now pass, so P19 is no longer
+blocked by them — it is blocked by having zero completed trajectories against a
+first checkpoint of ten per arm.
