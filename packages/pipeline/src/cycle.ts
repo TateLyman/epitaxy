@@ -541,16 +541,18 @@ async function measureMayhem(deps: CycleDeps, mint: string): Promise<void> {
 async function measureEntities(deps: CycleDeps, mint: string, facts: ConcentrationFacts): Promise<void> {
   const rpc = deps.rpc;
   if (rpc === undefined || rpc === null) return;
+  // Cluster on the OWNER; read history from the TOKEN ACCOUNT, whose first
+  // transaction is its creation and whose fee payer is the funder.
   const holders = facts.holders
     .filter((h) => h.owner !== null && !h.programControlled)
-    .map((h) => ({ address: h.owner as string, amount: h.amount }));
+    .map((h) => ({ address: h.owner as string, amount: h.amount, historyAddress: h.tokenAccount }));
   if (holders.length < 2) return;
 
   try {
     const built = await buildEntityLinks(
       {
         oldestSignatures: async (address, limit) => {
-          const sigs = await rpc.getSignaturesForAddress(address, 50);
+          const sigs = await rpc.getSignaturesForAddress(address, 200);
           // The RPC returns newest first. The FIRST transaction is the funding
           // one, so the oldest page entry is the one that matters.
           return sigs.slice(-limit);

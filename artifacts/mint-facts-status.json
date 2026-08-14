@@ -1,26 +1,26 @@
 {
   "provenance": {
-    "generatedUtcMs": 1786724213466,
-    "sourceCommit": "e5ea702e3de47712603790148b69438f13d25d9d",
+    "generatedUtcMs": 1786730298203,
+    "sourceCommit": "3f91b6272c865ebb861b6a08572472480734b8d2",
     "dirty": true,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "schema-v34",
     "contextHash": null,
     "sampleInclusionQuery": "direct_mint_facts, every mint the screening loop has read"
   },
-  "mints": 41641,
+  "mints": 45907,
   "read": 22748,
-  "unread": 18893,
+  "unread": 23159,
   "byTokenProgram": [
+    {
+      "program": "(unread)",
+      "label": "unread",
+      "mints": 23159
+    },
     {
       "program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "label": "Token-2022",
       "mints": 21869
-    },
-    {
-      "program": "(unread)",
-      "label": "unread",
-      "mints": 18893
     },
     {
       "program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",

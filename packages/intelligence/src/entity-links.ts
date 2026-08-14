@@ -104,9 +104,32 @@ export interface BuildOptions {
  */
 const DEFAULT_IGNORED = new Set<string>(['11111111111111111111111111111111']);
 
+/**
+ * A holder, and the account whose history establishes who funded it.
+ *
+ * These are deliberately two addresses. Clustering happens over the OWNER,
+ * because that is the actor who can sell. But the owner's wallet may be years
+ * old with thousands of transactions, and its first one says nothing about this
+ * token. The TOKEN ACCOUNT was created for this mint, usually has a handful of
+ * transactions, and its first one is its creation — whose fee payer is exactly
+ * the funder this is looking for.
+ *
+ * Reading the owner's history instead was the first implementation, and it made
+ * every reading untrustworthy: `getSignaturesForAddress` returns newest-first,
+ * so the "oldest" of a bounded page is the Nth-newest transaction of an active
+ * wallet, not its first. Its fee payer is then usually the wallet itself, which
+ * links nobody.
+ */
+export interface HolderForLinking {
+  readonly address: string;
+  readonly amount: bigint;
+  /** The account to read history from. Defaults to `address`. */
+  readonly historyAddress?: string;
+}
+
 export async function buildEntityLinks(
   source: HistorySource,
-  holders: readonly { address: string; amount: bigint }[],
+  holders: readonly HolderForLinking[],
   opts: BuildOptions = {},
 ): Promise<LinkBuildResult> {
   const maxHolders = opts.maxHolders ?? 20;
@@ -123,7 +146,7 @@ export async function buildEntityLinks(
   const funderOf = new Map<string, string>();
   for (const h of examine) {
     try {
-      const sigs = await source.oldestSignatures(h.address, 1);
+      const sigs = await source.oldestSignatures(h.historyAddress ?? h.address, 1);
       const first = sigs[0];
       if (first === undefined) continue;
       const payer = await source.feePayerOf(first.signature);
