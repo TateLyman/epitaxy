@@ -1673,6 +1673,109 @@ CREATE INDEX IF NOT EXISTS idx_direct_events_kind ON direct_chain_events(kind, r
 `,
   },
 
+  {
+    id: 28,
+    name: 'bounded_event_pipeline',
+    sql: `
+-- P8 -- compact, decision-useful events instead of a firehose.
+--
+-- The previous build wrote every raw notification synchronously to this
+-- database: 1,055 events/second, 6,981,407 rows in 111 minutes, a projected
+-- 91 million rows/day, and 2.97 GB -> 6.15 GB in one session. Sixty-eight per
+-- cent were UNKNOWN. The decision-useful yield was 43 migration events.
+--
+-- direct_chain_events is RETAINED but no longer written by the engine. The
+-- rows already there are evidence of what the firehose did and deleting them
+-- would erase the finding.
+CREATE TABLE IF NOT EXISTS chain_events (
+  signature             TEXT NOT NULL,
+  program_id            TEXT NOT NULL,
+  slot                  INTEGER NOT NULL,
+  kind                  TEXT NOT NULL,
+  instruction           TEXT,
+  -- The identity a decision needs. NULL means the logs did not name one, which
+  -- is why an event without either is dropped rather than stored.
+  mint                  TEXT,
+  pool                  TEXT,
+  commitment            TEXT NOT NULL,
+  received_monotonic_ms INTEGER NOT NULL,
+  received_utc_ms       INTEGER NOT NULL,
+  tx_error              TEXT,
+  -- Set when a later read at confirmed/finalized disagrees with processed.
+  reversal_status       TEXT,
+  PRIMARY KEY (signature, program_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chain_events_mint ON chain_events(mint, received_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_chain_events_kind ON chain_events(kind, received_utc_ms);
+
+-- Aggregate flow, so throughput is measurable without keeping every row.
+CREATE TABLE IF NOT EXISTS chain_flow_bars (
+  bucket_utc_ms         INTEGER NOT NULL,
+  program_id            TEXT NOT NULL,
+  trades                INTEGER NOT NULL DEFAULT 0,
+  migrations            INTEGER NOT NULL DEFAULT 0,
+  launches              INTEGER NOT NULL DEFAULT 0,
+  configs               INTEGER NOT NULL DEFAULT 0,
+  unknown               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_utc_ms, program_id)
+);
+
+-- What the pipeline dropped, and why. A dropped event is a coverage fact.
+CREATE TABLE IF NOT EXISTS chain_pipeline_health (
+  observed_utc_ms       INTEGER PRIMARY KEY,
+  received              INTEGER NOT NULL,
+  parsed                INTEGER NOT NULL,
+  unknown               INTEGER NOT NULL,
+  duplicates            INTEGER NOT NULL,
+  dropped               INTEGER NOT NULL,
+  persisted             INTEGER NOT NULL,
+  queue_high_water      INTEGER NOT NULL,
+  bytes_in              INTEGER NOT NULL
+);
+
+-- A bounded sample of what the parser could NOT name, so it stays auditable.
+CREATE TABLE IF NOT EXISTS chain_unknown_samples (
+  signature             TEXT PRIMARY KEY,
+  program_id            TEXT NOT NULL,
+  slot                  INTEGER NOT NULL,
+  logs_json             TEXT NOT NULL,
+  received_utc_ms       INTEGER NOT NULL
+);
+`,
+  },
+
+  {
+    id: 29,
+    name: 'flow_bars_by_mint',
+    sql: `
+-- P8 -- trades are AGGREGATED, not stored.
+--
+-- Trades outnumber every other kind by two orders of magnitude and no decision
+-- reads an individual one: the candidate queue wants launches, migration age
+-- wants migrations, and the flow signal wants COUNTS per mint per interval.
+-- Storing each trade reproduced the firehose at a seventh of the size, which
+-- is still 19 million rows a day.
+--
+-- A NEW table rather than a rebuilt one. The v1 bars keep the 46 rows they
+-- already hold: the project guard refuses destructive SQL against the ledger,
+-- and it is right to - dropping a table to change a primary key is exactly the
+-- move that loses data nobody noticed was load-bearing.
+CREATE TABLE IF NOT EXISTS chain_flow_bars_v2 (
+  bucket_utc_ms         INTEGER NOT NULL,
+  program_id            TEXT NOT NULL,
+  -- Empty string when the logs did not name a mint. Never NULL, so the
+  -- primary key stays usable.
+  mint                  TEXT NOT NULL DEFAULT '',
+  trades                INTEGER NOT NULL DEFAULT 0,
+  migrations            INTEGER NOT NULL DEFAULT 0,
+  launches              INTEGER NOT NULL DEFAULT 0,
+  configs               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_utc_ms, program_id, mint)
+);
+CREATE INDEX IF NOT EXISTS idx_flow_bars_v2_mint ON chain_flow_bars_v2(mint, bucket_utc_ms);
+`,
+  },
+
 ];
 
 export interface OpenOptions {

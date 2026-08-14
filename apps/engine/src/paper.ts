@@ -66,12 +66,9 @@ import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
 import { ReserveAlarm } from './risk-alarm.js';
-import {
-  LogsWatcher,
-  pumpInstructionFromLogs,
-  TRADE_INSTRUCTIONS,
-  MIGRATION_INSTRUCTIONS,
-} from '../../../packages/adapters/src/logswatch.js';
+import { LogsWatcher } from '../../../packages/adapters/src/logswatch.js';
+import { EventPipeline } from '../../../packages/adapters/src/event-pipeline.js';
+import type { ParsedEvent } from '../../../packages/adapters/src/event-pipeline.js';
 import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
 import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
@@ -259,17 +256,69 @@ async function main(): Promise<void> {
           secrets.rpcWs,
         );
   /**
-   * P12 — the direct chain event clock, running alongside the provider poll.
+   * P8 — the direct chain clock, BOUNDED.
    *
-   * Not a replacement yet: the executable oracle is still an exact
-   * BUILD_CUSTOM observation, and a log line is notice that something
-   * happened rather than a price. What this changes is WHEN the engine knows.
+   * The previous build inserted every raw notification synchronously: 1,055
+   * events/second, 91 million rows/day projected, 68% of them a log block
+   * whose instruction the parser could not name. The database grew from
+   * 2.97 GB to 6.15 GB in a single session, and the decision-useful yield was
+   * 43 migration events out of seven million rows.
    *
-   * `processed` is used deliberately — it sees a change soonest and can see
-   * one that never finalises. For an alarm that is the right trade, and the
-   * commitment is stored on every row so a reversal can be reconciled rather
-   * than assumed away.
+   * Now: a bounded queue, a program-stack-aware parse, deduplication, and
+   * persistence only of events that carry an identity a decision could use.
+   * Everything else becomes a counter and a one-in-a-thousand sample.
+   *
+   * `processed` is still the commitment, because an alarm wants the earliest
+   * signal — and every row says so, so a reversal can be reconciled.
    */
+  const flowBars = new Map<string, { trades: number; migrations: number; launches: number; configs: number }>();
+  /** Batched between flushes: one transaction beats one INSERT per event. */
+  const pendingEventRows: ParsedEvent[] = [];
+
+  const pipeline = new EventPipeline({
+    maxQueue: 5_000,
+    unknownSampleRate: 1_000,
+    onEvent: (e) => {
+      /**
+       * A TRADE is aggregated, never stored as a row.
+       *
+       * Trades are the high-volume kind by two orders of magnitude, and no
+       * decision reads an individual one: the candidate queue wants launches,
+       * the migration age wants migrations, and the flow signal wants COUNTS
+       * per mint per interval. Storing each trade reproduced the firehose at a
+       * seventh of the size, which is still 19 million rows a day.
+       *
+       * Launches, migrations and config changes ARE stored: they are rare, and
+       * each one is individually decision-useful.
+       */
+      if (e.kind !== 'TRADE') {
+        pendingEventRows.push(e);
+      }
+      // Five-second bars, flushed by the cycle. Aggregate flow survives even
+      // when individual rows are not worth keeping.
+      const bucket = Math.floor(e.receivedUtcMs / 5_000) * 5_000;
+      // Keyed by MINT as well as program, so per-token flow is recoverable
+      // from the bars without keeping the trades.
+      const key = `${bucket}:${e.programId}:${e.mint ?? ''}`;
+      const bar = flowBars.get(key) ?? { trades: 0, migrations: 0, launches: 0, configs: 0 };
+      if (e.kind === 'TRADE') bar.trades += 1;
+      else if (e.kind === 'MIGRATION') bar.migrations += 1;
+      else if (e.kind === 'LAUNCH') bar.launches += 1;
+      else if (e.kind === 'CONFIG') bar.configs += 1;
+      flowBars.set(key, bar);
+    },
+    onUnknownSample: (e) => {
+      try {
+        db.prepare(
+          `INSERT OR IGNORE INTO chain_unknown_samples
+             (signature,program_id,slot,logs_json,received_utc_ms) VALUES (?,?,?,?,?)`,
+        ).run(e.signature, e.programId, e.slot, JSON.stringify(e.logs).slice(0, 4_000), e.receivedUtcMs);
+      } catch {
+        /* a sample nobody could store is not worth failing over */
+      }
+    },
+  });
+
   const directClock =
     secrets.rpcWs === null
       ? null
@@ -277,36 +326,10 @@ async function main(): Promise<void> {
           wsUrl: secrets.rpcWs,
           programs: [PUMP_PROGRAM, PUMPSWAP_PROGRAM],
           commitment: 'processed',
+          // OFFER, never insert. The socket's rate is no longer the database's
+          // write rate.
           onEvent: (e) => {
-            const ix = pumpInstructionFromLogs(e.logs);
-            const kind = ix === null
-              ? 'UNKNOWN'
-              : MIGRATION_INSTRUCTIONS.has(ix)
-                ? 'MIGRATION'
-                : TRADE_INSTRUCTIONS.has(ix)
-                  ? 'TRADE'
-                  : 'OTHER';
-            try {
-              db.prepare(
-                `INSERT OR IGNORE INTO direct_chain_events
-                   (signature,program_id,slot,instruction,kind,commitment,
-                    received_monotonic_ms,received_utc_ms,tx_error)
-                 VALUES (?,?,?,?,?,?,?,?,?)`,
-              ).run(
-                e.signature,
-                e.programId,
-                e.slot,
-                ix,
-                kind,
-                e.commitment,
-                e.receivedMonotonicMs,
-                e.receivedUtcMs,
-                e.err,
-              );
-            } catch {
-              // A dropped event is a coverage fact, not a reason to kill the
-              // socket. The gap surfaces through `directClock.coverage`.
-            }
+            pipeline.offer(e);
           },
           onGap: (detail) => {
             recordHealth(db, 'direct_clock_gap', 'warn', detail.slice(0, 200));
@@ -314,15 +337,80 @@ async function main(): Promise<void> {
         });
   if (directClock !== null) {
     directClock.connect();
-    recordHealth(
-      db,
-      'direct_clock_started',
-      'info',
-      `logsSubscribe on ${PUMP_PROGRAM.slice(0, 8)} and ${PUMPSWAP_PROGRAM.slice(0, 8)} at processed`,
-    );
+    recordHealth(db, 'direct_clock_started', 'info', 'bounded pipeline on Pump and PumpSwap at processed');
   } else {
     recordHealth(db, 'direct_clock_absent', 'warn', 'no SOLANA_RPC_WS; the signal clock is the provider poll only');
   }
+
+  /** Flush the bars and the pipeline counters. Called once per cycle. */
+  const flushEventPipeline = (): void => {
+    // One transaction for the whole batch. Per-event synchronous INSERTs made
+    // the socket's arrival rate the database's write rate, which is what put
+    // the queue on its ceiling and dropped 3,534 events.
+    if (pendingEventRows.length > 0) {
+      try {
+        db.exec('BEGIN');
+        const stmt = db.prepare(
+          `INSERT OR IGNORE INTO chain_events
+             (signature,program_id,slot,kind,instruction,mint,pool,commitment,
+              received_monotonic_ms,received_utc_ms,tx_error)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        );
+        for (const e of pendingEventRows) {
+          stmt.run(
+            e.signature,
+            e.programId,
+            e.slot,
+            e.kind,
+            e.instruction,
+            e.mint,
+            e.pool,
+            e.commitment,
+            e.receivedMonotonicMs,
+            e.receivedUtcMs,
+            e.err,
+          );
+        }
+        db.exec('COMMIT');
+      } catch {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          /* the batch is lost and the counters say so */
+        }
+      }
+      pendingEventRows.length = 0;
+    }
+
+    for (const [key, bar] of flowBars) {
+      const [bucketStr, programId, mint] = key.split(':');
+      try {
+        db.prepare(
+          `INSERT INTO chain_flow_bars_v2 (bucket_utc_ms,program_id,mint,trades,migrations,launches,configs)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(bucket_utc_ms,program_id,mint) DO UPDATE SET
+             trades=trades+excluded.trades, migrations=migrations+excluded.migrations,
+             launches=launches+excluded.launches, configs=configs+excluded.configs`,
+        ).run(Number(bucketStr), programId ?? '', mint ?? '', bar.trades, bar.migrations, bar.launches, bar.configs);
+      } catch {
+        /* aggregation is best-effort */
+      }
+    }
+    flowBars.clear();
+    const c = pipeline.counters;
+    try {
+      db.prepare(
+        `INSERT OR REPLACE INTO chain_pipeline_health
+           (observed_utc_ms,received,parsed,unknown,duplicates,dropped,persisted,queue_high_water,bytes_in)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+      ).run(Date.now(), c.received, c.parsed, c.unknown, c.duplicates, c.dropped, c.persisted, c.queueHighWater, c.bytesIn);
+    } catch {
+      /* health is best-effort */
+    }
+    if (c.dropped > 0) {
+      recordHealth(db, 'event_pipeline_backpressure', 'warn', `${c.dropped} event(s) dropped; queue high water ${c.queueHighWater}`);
+    }
+  };
 
   if (alarm !== null) {
     alarm.start();
@@ -653,6 +741,10 @@ async function main(): Promise<void> {
     const open = managedPositions(db);
     const exposure = open.reduce((a, p) => a + BigInt(p.cost_lamports), 0n);
     const c = counters(db);
+
+
+    // P8 — one aggregate write per cycle instead of one per notification.
+    flushEventPipeline();
 
     log.info(
       {

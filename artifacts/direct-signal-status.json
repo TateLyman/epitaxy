@@ -1,0 +1,48 @@
+{
+  "generatedUtcMs": 1786680694604,
+  "sourceCommit": "b989b888c65b16033ce966a3fa215860e66e3577",
+  "dirty": true,
+  "strategyVersion": "delayed-momentum-v0.4.0",
+  "schemaVersion": 29,
+  "windowSeconds": 173.037,
+  "throughput": {
+    "receivedPerSecond": 1097.673,
+    "parsedFraction": 0.1663,
+    "droppedInWindow": 0,
+    "queueHighWater": 3251,
+    "bytesInPerSecond": 1615637.072
+  },
+  "storage": {
+    "eventRows": 1008,
+    "barRows": 1437,
+    "unknownSampleRows": 178,
+    "totalRowsPerDay": 1309738,
+    "databaseBytes": 6197293056
+  },
+  "yield": {
+    "byKind": [
+      {
+        "kind": "LAUNCH",
+        "n": 972
+      },
+      {
+        "kind": "CONFIG",
+        "n": 28
+      },
+      {
+        "kind": "MIGRATION",
+        "n": 8
+      }
+    ],
+    "tradesAggregatedIntoBars": 29224,
+    "compressionRatio": 20.3
+  },
+  "replacedFirehose": {
+    "rows": 7023666,
+    "windowSeconds": 6657,
+    "rowsPerSecond": 1055,
+    "projectedRowsPerDay": 91155852,
+    "note": "Retained, not deleted. These rows are the evidence of what the firehose did, and the engine no longer writes to that table."
+  },
+  "feedsProductionDecisions": false
+}
