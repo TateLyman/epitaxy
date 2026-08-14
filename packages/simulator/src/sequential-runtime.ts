@@ -248,6 +248,36 @@ export function createdAccountRent(
 }
 
 /**
+ * Rent still locked in accounts the WHOLE SEQUENCE opened.
+ *
+ * Per-step is the wrong unit for a lifecycle. The coin-creator fee vault and
+ * the user volume accumulator are opened by the BUY and are still open after
+ * the close, so a per-step reading of the sell finds nothing and the four
+ * million lamports they hold get attributed to the trade's economics instead of
+ * to one-time setup. That difference is the whole point of separating a first
+ * trade on a mint from a repeat one.
+ *
+ * Baseline is the first step's pre-state and the final state is the last step's
+ * post-state, so an account opened and then closed inside the sequence — the
+ * wrapped-SOL account, every time — correctly costs nothing.
+ */
+export function createdAccountRentAcross(
+  steps: readonly SequentialStepResult[],
+  exclude: readonly string[] = [],
+): {
+  lamports: bigint;
+  accounts: { pubkey: string; rentLamports: string; excessLamports: string }[];
+} {
+  const first = steps[0];
+  const last = steps[steps.length - 1];
+  if (first === undefined || last === undefined) return { lamports: 0n, accounts: [] };
+  return createdAccountRent(
+    { ...last, preAccounts: first.preAccounts, postAccounts: last.postAccounts },
+    exclude,
+  );
+}
+
+/**
  * The rent-exempt minimum for an account of `dataLen` bytes.
  *
  * The chain's own constants: 3,480 lamports per byte-year, a two-year

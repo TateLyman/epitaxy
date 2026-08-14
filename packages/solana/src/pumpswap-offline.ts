@@ -509,7 +509,13 @@ export async function buildSellFrom(
 export async function buildBuyFrom(
   src: AccountBytesSource,
   p: { poolKey: string; user: string; quoteLamports: bigint; slippagePct: number },
-): Promise<{ instructions: readonly TransactionInstruction[]; baseOutAtoms: bigint; maxQuoteIn: bigint }> {
+): Promise<{
+  instructions: readonly TransactionInstruction[];
+  /** Every account the leg touches. A caller that does not observe these cannot see what it opened. */
+  accounts: readonly string[];
+  baseOutAtoms: bigint;
+  maxQuoteIn: bigint;
+}> {
   const sdk = new PumpAmmSdk();
   const state = swapStateFrom(src, p.poolKey, p.user);
   const q = quoteBuyFrom(src, p.poolKey, p.quoteLamports, p.slippagePct);
@@ -518,5 +524,10 @@ export async function buildBuyFrom(
     new BN(q.baseOutAtoms.toString()),
     new BN(q.maxQuoteInLamports.toString()),
   );
-  return { instructions, baseOutAtoms: q.baseOutAtoms, maxQuoteIn: q.maxQuoteInLamports };
+  const accounts = new Set<string>();
+  for (const ix of instructions) {
+    accounts.add(ix.programId.toBase58());
+    for (const k of ix.keys) accounts.add(k.pubkey.toBase58());
+  }
+  return { instructions, accounts: [...accounts], baseOutAtoms: q.baseOutAtoms, maxQuoteIn: q.maxQuoteInLamports };
 }

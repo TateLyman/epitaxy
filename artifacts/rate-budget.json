@@ -1,10 +1,27 @@
 {
-  "generatedUtcMs": 1786660694965,
+  "generatedUtcMs": 1786689912183,
   "windowMs": 3600000,
-  "totalCalls": 0,
-  "callsPerSecond": 0,
+  "totalCalls": 1066,
+  "callsPerSecond": 0.2961111111111111,
   "duplicateGroups": 0,
-  "byPurpose": [],
+  "byPurpose": [
+    {
+      "purpose": "alpha_shadow_mark",
+      "n": 529
+    },
+    {
+      "purpose": "canary_shadow_mark",
+      "n": 523
+    },
+    {
+      "purpose": "shadow_entry_roundtrip",
+      "n": 7
+    },
+    {
+      "purpose": "shadow_entry",
+      "n": 7
+    }
+  ],
   "markLagMs": {
     "p50": null,
     "p95": null,
@@ -12,14 +29,39 @@
     "samples": 0
   },
   "rateLimitEvents": 0,
-  "backlogWarnings": 0,
+  "backlogWarnings": 263,
   "admissionsRefused": 0,
-  "effectVerifiedLabels": 0,
-  "labelsPerDay": 0,
+  "effectVerifiedLabels": 9,
+  "labelsPerDay": 216,
+  "triggerToFillMs": {
+    "p50": null,
+    "p95": null,
+    "samples": 0
+  },
+  "websocket": {
+    "received": 0,
+    "parsed": 0,
+    "dropped": 0,
+    "queueHigh": 0
+  },
+  "offlineWorkerJobs": 0,
+  "offlineWorkerJobsPerHour": 0,
+  "bottleneck": "mark_scheduler_below_rate_ceiling",
+  "freeTierRps": 1,
+  "atRateCeiling": false,
   "upgrade": {
-    "generatorCorrect": false,
+    "generatorCorrect": true,
     "duplicatesEliminated": true,
     "limitBinds": false,
     "justified": false
+  },
+  "notPurchased": {
+    "archivalRpc": false,
+    "premiumGrpc": false,
+    "shreds": false,
+    "colocation": false,
+    "largeVps": false,
+    "dedicatedValidator": false,
+    "reason": "no untouched positive edge exists, so no infrastructure spend can be justified by one"
   }
 }
