@@ -79,8 +79,15 @@ describe('P20 — the four mathematical defects stay fixed', () => {
       0,
       5 * 60_000,
     );
-    // Absent drops out of the weighting; a real zero is scored as a zero.
-    expect(missing.score).toBeGreaterThan(zero.score);
+    /**
+     * P18 — absent and a provider zero are the SAME statement, so these are
+     * equal. The comment this replaces said "a real zero is scored as a zero",
+     * which assumed the provider distinguishes them. It does not: the field is
+     * 0 for every token under about an hour old, n=461 with no exceptions, and
+     * the organic_score_unavailable gate already prices that absence. Scoring
+     * the zero again at full weight charged one gap twice.
+     */
+    expect(missing.score).toBe(zero.score);
   });
 
   it('4. unknown never satisfies a hard gate', () => {

@@ -31,7 +31,15 @@ import { normalize } from '../../intelligence/src/gates.js';
  *   - sizing assumes catastrophic rather than stop-bounded loss.
  * Rows written under v0.3.0 are not comparable and replay must not pool them.
  */
-export const STRATEGY_VERSION = 'delayed-momentum-v0.4.0';
+/**
+ * v0.5.0 — P18 corrected four scoring defects that are wrong independent of any
+ * outcome, so the number this produces is not comparable to a v0.4.0 number.
+ * A decision-bearing semantic change is a version, not a patch note.
+ */
+export const STRATEGY_VERSION = 'delayed-momentum-v0.5.0';
+
+/** Below this fraction of total weight, the score is refused. Frozen. */
+export const MIN_SCORE_COVERAGE = 0.5;
 
 export interface ScoreResult {
   readonly score: number;
@@ -84,10 +92,27 @@ export function opportunityScore(
   // makes wash trading look like breadth.
   const netBuyers = known(s5?.numNetBuyers, 'numNetBuyers');
   const traders = known(s5?.numTraders, 'numTraders');
-  const breadth =
-    netBuyers === null && traders === null
-      ? null
-      : 0.6 * normalize(netBuyers ?? 0, 0, 60) + 0.4 * normalize(traders ?? 0, 0, 150);
+  /**
+   * P18 — renormalised WITHIN the component.
+   *
+   * This was `0.6 * f(netBuyers ?? 0) + 0.4 * f(traders ?? 0)`. With one
+   * subfeature missing the other was multiplied by 0.6 or 0.4 — and then the
+   * whole component still received its full 0.30 weight. A token with strong
+   * trader breadth and no net-buyer figure scored 40% of what the same token
+   * scored with both, for a gap in our coverage rather than a fact about it.
+   */
+  const breadthTerms: readonly (readonly [number, number | null])[] = [
+    [0.6, netBuyers === null ? null : normalize(netBuyers, 0, 60)],
+    [0.4, traders === null ? null : normalize(traders, 0, 150)],
+  ];
+  let breadthWeighted = 0;
+  let breadthWeight = 0;
+  for (const [w, v] of breadthTerms) {
+    if (v === null) continue;
+    breadthWeighted += w * v;
+    breadthWeight += w;
+  }
+  const breadth = breadthWeight === 0 ? null : breadthWeighted / breadthWeight;
 
   // Liquidity: log-ish shape. Past ~$150k the marginal safety gain is small.
   const liq = known(info.liquidity, 'liquidity');
@@ -103,23 +128,42 @@ export function opportunityScore(
   // one place. Two penalties for one absence is not caution, it is an error
   // that compounds against exactly the young tokens this strategy trades.
   const organicRaw = known(info.organicScore, 'organicScore');
-  const organic = organicRaw === null ? null : normalize(organicRaw, 0, 80);
+  /**
+   * P18 — a provider zero here is NOT COMPUTED, and the gate already says so.
+   *
+   * The `organic_score_unavailable` soft-risk gate treats 0 as "not computed"
+   * — it is 0 for every token under about an hour old, n=461 with no
+   * exceptions. The score treated the same 0 as an OBSERVED zero and charged
+   * it at full weight. One absence, two penalties, landing hardest on exactly
+   * the young tokens this strategy trades.
+   *
+   * Null here means the component drops out and the gap is priced once.
+   */
+  const organic = organicRaw === null || organicRaw === 0 ? null : normalize(organicRaw, 0, 80);
+  if (organicRaw === 0 && !unknown.includes('organicScore')) unknown.push('organicScore');
 
   // Tradability: the actual measured cost of getting in and back out.
   const rtLoss = roundTrip?.roundTripLossBps ?? null;
-  const tradability = rtLoss === null ? 0 : 1 - normalize(rtLoss, 100, 600);
+  // P18 — unknown tradability is NULL. A zero here is the maximum penalty and
+  // it was being applied for not having measured, which is our gap.
+  const tradability = rtLoss === null ? null : 1 - normalize(rtLoss, 100, 600);
+  if (rtLoss === null) unknown.push('roundTripLossBps');
 
   // Freshness: peaks in the middle of the eligible window. Too young is
   // unverifiable, too old means the move has already been distributed.
-  const ageMin = tokenAgeMs === null ? 0 : tokenAgeMs / 60_000;
-  const freshness = ageMin <= 0 ? 0 : ageMin <= 10 ? normalize(ageMin, 2, 10) : 1 - normalize(ageMin, 10, 60);
+  // P18 — an unknown age is NULL. Scoring it zero says "too young to verify",
+  // which is a claim about the token made from an absence in our data.
+  const ageMin = tokenAgeMs === null ? null : tokenAgeMs / 60_000;
+  const freshness =
+    ageMin === null ? null : ageMin <= 0 ? 0 : ageMin <= 10 ? normalize(ageMin, 2, 10) : 1 - normalize(ageMin, 10, 60);
+  if (ageMin === null) unknown.push('tokenAgeMs');
 
   const components: Record<string, number> = {
     breadth: round4(breadth ?? 0),
     liquidity: round4(liquidity ?? 0),
     organic: round4(organic ?? 0),
-    tradability: round4(tradability),
-    freshness: round4(freshness),
+    tradability: round4(tradability ?? 0),
+    freshness: round4(freshness ?? 0),
   };
 
   /**
@@ -150,11 +194,35 @@ export function opportunityScore(
   }
   const raw = observedWeight === 0 ? 0 : weighted / observedWeight;
 
+  /**
+   * P18 — a score assembled from too little is not a score.
+   *
+   * Renormalising keeps the SCALE honest but not the CONFIDENCE: two of five
+   * components renormalise to a number between 0 and 1 that looks exactly like
+   * one built from all five. Below half the total weight the number is
+   * refused rather than reported, because a ranking built on it is a ranking
+   * of which tokens happened to have data.
+   */
+  const totalWeight = terms.reduce((acc, [w]) => acc + w, 0);
+  const coverage = totalWeight === 0 ? 0 : observedWeight / totalWeight;
+  const insufficientCoverage = coverage < MIN_SCORE_COVERAGE;
+
+  /**
+   * Coverage is REPORTED, not folded into the number.
+   *
+   * Zeroing the score here would make a token we barely measured
+   * indistinguishable from one measured thoroughly and found worthless. Those
+   * are opposite facts. `insufficientCoverage` is the flag eligibility reads;
+   * the score stays on its own scale so a ranking of the well-measured tokens
+   * is still a ranking.
+   */
   const riskAdjusted = raw * (1 - Math.max(0, Math.min(1, softRiskScore)));
   components['raw'] = round4(raw);
   components['softRisk'] = round4(softRiskScore);
   components['observedWeight'] = round4(observedWeight);
   components['unknownComponents'] = unknown.length;
+  components['coverage'] = round4(coverage);
+  components['insufficientCoverage'] = insufficientCoverage ? 1 : 0;
 
   return { score: round4(riskAdjusted), components };
 }
