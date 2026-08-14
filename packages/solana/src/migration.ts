@@ -86,6 +86,26 @@ export function migrationDedupKey(e: {
   return `${e.signature}:${e.instructionIndex}:${e.programId}`;
 }
 
+/**
+ * Anchor discriminators, read from the shipped `pump_amm` IDL.
+ *
+ * These are what distinguish a pool CREATION from an ordinary swap, and without
+ * them this module has a defect in exactly the shape of the one it fixes.
+ *
+ * The PDA check alone is not sufficient: a `buy` or a `sell` references the very
+ * same pool address, so "the derived pool is in the account keys" is true for
+ * every trade against that pool. Verified on live data - scanning recent
+ * PumpSwap activity, one mint was recorded as having migrated SEVEN times,
+ * because seven of its swaps each looked like a migration.
+ *
+ * Identity by PDA answers WHICH pool. The discriminator answers WHETHER this
+ * instruction created it. Both are required.
+ */
+export const CREATE_POOL_DISCRIMINATOR = 'e992d18ecf6840bc';
+export const MIGRATE_POOL_COIN_CREATOR_DISCRIMINATOR = 'd0089f044aaf103a';
+
+export const MIGRATION_DISCRIMINATORS: readonly string[] = [CREATE_POOL_DISCRIMINATOR];
+
 export interface MigrationTxView {
   readonly signature: string;
   readonly slot: number | null;
@@ -94,8 +114,18 @@ export interface MigrationTxView {
   readonly accountKeys: readonly string[];
   /** Mints the chain itself named in the token balances. Not parsed from logs. */
   readonly tokenBalanceMints: readonly string[];
-  /** Per-instruction program + account addresses, in order. */
-  readonly instructions: readonly { programId: string; accounts: readonly string[] }[];
+  /**
+   * Per-instruction program, accounts and DATA, in order.
+   *
+   * `dataHex` carries the raw instruction bytes; its first eight are the anchor
+   * discriminator. Null when the provider returned a parsed form with no raw
+   * data, which is refused rather than assumed to be a migration.
+   */
+  readonly instructions: readonly {
+    programId: string;
+    accounts: readonly string[];
+    dataHex: string | null;
+  }[];
 }
 
 export interface PoolByteReader {
@@ -110,7 +140,12 @@ export interface PoolByteReader {
  */
 export function decodeMigrations(
   tx: MigrationTxView,
-  opts: { commitment: MigrationCommitment; migrationProgramIds: readonly string[] },
+  opts: {
+    commitment: MigrationCommitment;
+    migrationProgramIds: readonly string[];
+    /** Defaults to MIGRATION_DISCRIMINATORS. */
+    migrationDiscriminators?: readonly string[];
+  },
 ): readonly MigrationEventIdentity[] {
   // A failed transaction migrated nothing. Counting it as flow is how a corpus
   // comes to be 99.75% events that never happened.
@@ -120,11 +155,25 @@ export function decodeMigrations(
   const keys = new Set(tx.accountKeys);
   const out: MigrationEventIdentity[] = [];
   const seen = new Set<string>();
+  let sawNonMigrationInstruction = false;
+  let sawUndecodableData = false;
 
   for (let ix = 0; ix < tx.instructions.length; ix++) {
     const instruction = tx.instructions[ix];
     if (instruction === undefined) continue;
     if (!opts.migrationProgramIds.includes(instruction.programId)) continue;
+
+    // THE DISCRIMINATOR CHECK. Without it a swap against the pool decodes as a
+    // migration of it, because a swap references the same pool address.
+    if (instruction.dataHex === null) {
+      sawUndecodableData = true;
+      continue;
+    }
+    const discriminator = instruction.dataHex.slice(0, 16).toLowerCase();
+    if (!(opts.migrationDiscriminators ?? MIGRATION_DISCRIMINATORS).includes(discriminator)) {
+      sawNonMigrationInstruction = true;
+      continue;
+    }
 
     // Candidate mints come from the chain's own token balance records and from
     // this instruction's account list — never from log string ordering.
@@ -179,6 +228,11 @@ export function decodeMigrations(
   }
 
   if (out.length === 0) {
+    // Distinguished, because "this was a swap" and "this was a migration whose
+    // mint we could not identify" are different facts and only the second is a
+    // gap in this decoder.
+    if (sawUndecodableData) throw new MigrationUndecodable('the instruction data was not readable');
+    if (sawNonMigrationInstruction) throw new MigrationUndecodable('no instruction carried a migration discriminator');
     throw new MigrationUndecodable('no candidate mint derives a pool present in the account keys');
   }
   return out;
@@ -220,6 +274,84 @@ export async function enrichMigration(
   } catch {
     return m;
   }
+}
+
+export interface SignatureHistoryReader {
+  getSignaturesForAddress(
+    address: string,
+    limit?: number,
+    before?: string,
+  ): Promise<{ signature: string; blockTime: number | null }[]>;
+  getTransactionInstructions(signature: string): Promise<MigrationTxView | null>;
+}
+
+/**
+ * Find the transaction that CREATED a pool.
+ *
+ * Two things make this harder than it sounds, and both were measured rather than
+ * assumed:
+ *
+ * 1. **`getSignaturesForAddress` returns newest first.** The last entry of one
+ *    page is the oldest of the most recent N, not the oldest overall. One live
+ *    pool needed 25 pages of 1,000 to reach its creation, and without paging it
+ *    is indistinguishable from a pool created 30 signatures ago.
+ *
+ * 2. **The oldest signature is often NOT the creation.** Bots submit buys
+ *    against the deterministic pool PDA *before* the migration lands, so the
+ *    earliest entries are frequently FAILED snipe attempts. On the first live
+ *    pool examined, the oldest signature was a failed `buy_exact_quote_in`.
+ *
+ * So: page to the end, then walk forward from the oldest until an instruction
+ * actually carries a creation discriminator.
+ */
+export async function findPoolCreation(
+  rpc: SignatureHistoryReader,
+  pool: string,
+  opts: { commitment: MigrationCommitment; migrationProgramIds: readonly string[]; maxPages?: number; scanOldest?: number },
+): Promise<{ migrations: readonly MigrationEventIdentity[]; signature: string; pagesWalked: number } | { refusal: string; pagesWalked: number }> {
+  const maxPages = opts.maxPages ?? 40;
+  let before: string | undefined;
+  let lastPage: { signature: string }[] = [];
+  let pages = 0;
+
+  for (;;) {
+    let page: { signature: string }[];
+    try {
+      page = await rpc.getSignaturesForAddress(pool, 1_000, before);
+    } catch {
+      return { refusal: 'the pool history was unreadable', pagesWalked: pages };
+    }
+    pages++;
+    if (page.length === 0) break;
+    lastPage = page;
+    before = page[page.length - 1]?.signature;
+    if (page.length < 1_000) break;
+    if (pages >= maxPages) break;
+  }
+
+  if (lastPage.length === 0) return { refusal: 'the pool has no signature history', pagesWalked: pages };
+
+  const oldestFirst = [...lastPage].reverse().slice(0, opts.scanOldest ?? 30);
+  let lastRefusal = 'no creation instruction in the oldest signatures';
+  for (const { signature } of oldestFirst) {
+    let tx: MigrationTxView | null;
+    try {
+      tx = await rpc.getTransactionInstructions(signature);
+    } catch {
+      continue;
+    }
+    if (tx === null) continue;
+    try {
+      const migrations = decodeMigrations(tx, {
+        commitment: opts.commitment,
+        migrationProgramIds: opts.migrationProgramIds,
+      });
+      return { migrations, signature, pagesWalked: pages };
+    } catch (e) {
+      lastRefusal = e instanceof MigrationUndecodable ? e.reason : (e as Error).message.slice(0, 70);
+    }
+  }
+  return { refusal: lastRefusal, pagesWalked: pages };
 }
 
 /**

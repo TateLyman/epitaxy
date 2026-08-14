@@ -93,7 +93,12 @@ async function main(): Promise<void> {
       for (const e of events) {
         const rich = await enrichMigration(rpc, e);
         decoded.push({
-          dedupKey: migrationDedupKey(rich),
+          // Truncated, and the DEDUP KEY has to be truncated too — it embeds
+          // the signature, so publishing it whole reintroduces exactly what
+          // truncating `signature` was for. A 64-byte signature and a 64-byte
+          // secret key are indistinguishable by shape, which is why the
+          // scanner cannot tell them apart and why this is not cosmetic.
+          dedupKey: migrationDedupKey({ ...rich, signature: rich.signature.slice(0, 32) }),
           signaturePrefix: rich.signature.slice(0, 32),
           instructionIndex: rich.instructionIndex,
           programId: rich.programId,

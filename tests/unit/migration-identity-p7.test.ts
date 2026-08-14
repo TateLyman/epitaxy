@@ -4,6 +4,7 @@ import {
   migrationDedupKey,
   reconcileCommitment,
   MigrationUndecodable,
+  CREATE_POOL_DISCRIMINATOR,
   type MigrationTxView,
 } from '../../packages/solana/src/migration.js';
 import { canonicalPool, AMM_PROGRAM_ID } from '../../packages/solana/src/pumpswap-offline.js';
@@ -28,6 +29,11 @@ const MINT_A = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const MINT_B = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const PROGRAMS = [AMM_PROGRAM_ID];
 
+/** A real `create_pool`: the anchor discriminator followed by its arguments. */
+const CREATE_POOL = CREATE_POOL_DISCRIMINATOR + '0000000000000000';
+/** A real `buy`. It references the SAME pool, which is the whole problem. */
+const BUY = '66063d1201daebea' + '0000000000000000';
+
 function tx(over: Partial<MigrationTxView> = {}): MigrationTxView {
   const pool = canonicalPool(MINT_A);
   return {
@@ -37,7 +43,7 @@ function tx(over: Partial<MigrationTxView> = {}): MigrationTxView {
     failed: false,
     accountKeys: [pool, MINT_A, 'someOtherAccount11111111111111111111111111'],
     tokenBalanceMints: [MINT_A],
-    instructions: [{ programId: AMM_PROGRAM_ID, accounts: [pool, MINT_A] }],
+    instructions: [{ programId: AMM_PROGRAM_ID, accounts: [pool, MINT_A], dataHex: CREATE_POOL }],
     ...over,
   };
 }
@@ -55,7 +61,11 @@ describe('P7 — identity comes from a verified PDA, not from string position', 
     // The old parser would have returned the first base58 string it saw. The
     // program cannot have created a pool whose address it never named, so a
     // mint failing this check is not this transaction's migration.
-    const t = tx({ accountKeys: [MINT_B, 'x'], tokenBalanceMints: [MINT_B], instructions: [{ programId: AMM_PROGRAM_ID, accounts: [MINT_B] }] });
+    const t = tx({
+      accountKeys: [MINT_B, 'x'],
+      tokenBalanceMints: [MINT_B],
+      instructions: [{ programId: AMM_PROGRAM_ID, accounts: [MINT_B], dataHex: CREATE_POOL }],
+    });
     expect(() => decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS })).toThrow(
       /no candidate mint derives a pool present/,
     );
@@ -74,10 +84,56 @@ describe('P7 — identity comes from a verified PDA, not from string position', 
   });
 
   it('ignores instructions belonging to other programs', () => {
-    const t = tx({ instructions: [{ programId: 'SomeOtherProgram1111111111111111111111111', accounts: [MINT_A] }] });
+    const t = tx({
+      instructions: [
+        { programId: 'SomeOtherProgram1111111111111111111111111', accounts: [MINT_A], dataHex: CREATE_POOL },
+      ],
+    });
     expect(() => decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS })).toThrow(
       MigrationUndecodable,
     );
+  });
+});
+
+describe('P7 — a swap against a pool is not a migration of it', () => {
+  it('REFUSES a buy, even though it references the very same pool', () => {
+    // Found on live data, not reasoned about: scanning recent PumpSwap
+    // activity with only the PDA check, one mint was recorded as having
+    // migrated SEVEN times, because seven of its swaps each referenced the
+    // pool the check was looking for.
+    //
+    // The PDA answers WHICH pool. The discriminator answers WHETHER this
+    // instruction created it. Both are required.
+    const t = tx({
+      instructions: [{ programId: AMM_PROGRAM_ID, accounts: [canonicalPool(MINT_A), MINT_A], dataHex: BUY }],
+    });
+    expect(() => decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS })).toThrow(
+      /no instruction carried a migration discriminator/,
+    );
+  });
+
+  it('refuses unreadable instruction data rather than assuming a migration', () => {
+    const t = tx({
+      instructions: [{ programId: AMM_PROGRAM_ID, accounts: [canonicalPool(MINT_A), MINT_A], dataHex: null }],
+    });
+    expect(() => decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS })).toThrow(
+      /the instruction data was not readable/,
+    );
+  });
+
+  it('picks the create_pool out of a transaction that also swaps', () => {
+    const pool = canonicalPool(MINT_A);
+    const t = tx({
+      instructions: [
+        { programId: AMM_PROGRAM_ID, accounts: [pool, MINT_A], dataHex: BUY },
+        { programId: AMM_PROGRAM_ID, accounts: [pool, MINT_A], dataHex: CREATE_POOL },
+        { programId: AMM_PROGRAM_ID, accounts: [pool, MINT_A], dataHex: BUY },
+      ],
+    });
+    const out = decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS });
+    expect(out).toHaveLength(1);
+    // And it is attributed to the instruction that actually created the pool.
+    expect(out[0]?.instructionIndex).toBe(1);
   });
 });
 
@@ -110,8 +166,8 @@ describe('P7 — the dedup key keeps two migrations in one transaction as two', 
       accountKeys: [poolA, MINT_A, poolB, MINT_B],
       tokenBalanceMints: [MINT_A, MINT_B],
       instructions: [
-        { programId: AMM_PROGRAM_ID, accounts: [poolA, MINT_A] },
-        { programId: AMM_PROGRAM_ID, accounts: [poolB, MINT_B] },
+        { programId: AMM_PROGRAM_ID, accounts: [poolA, MINT_A], dataHex: CREATE_POOL },
+        { programId: AMM_PROGRAM_ID, accounts: [poolB, MINT_B], dataHex: CREATE_POOL },
       ],
     });
     const out = decodeMigrations(t, { commitment: 'confirmed', migrationProgramIds: PROGRAMS });

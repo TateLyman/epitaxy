@@ -17,9 +17,29 @@ const DECODE_MAP: Int8Array = (() => {
 
 export class Base58Error extends Error {}
 
-export function base58Decode(input: string): Uint8Array {
+/**
+ * The default bound suits an address or a signature.
+ *
+ * The decode is O(n²) in the input length, so an unbounded one is a denial of
+ * service on hostile input. 128 characters covers a 64-byte signature with room
+ * to spare.
+ *
+ * INSTRUCTION DATA IS LEGITIMATELY LONGER, and that is a real failure this
+ * constant caused: `getTransactionInstructions` decodes each instruction's
+ * base58 data to read its 8-byte anchor discriminator, and every instruction
+ * above 128 characters threw — silently becoming "data not readable", which the
+ * migration decoder correctly refuses. On live PumpSwap traffic that was 108 of
+ * 200 instructions. A caller with genuinely longer input must say so and pick
+ * its own bound, rather than the bound being invisible.
+ */
+export const BASE58_DEFAULT_MAX_LENGTH = 128;
+
+/** Enough for a 1232-byte transaction's worth of instruction data. */
+export const BASE58_INSTRUCTION_DATA_MAX_LENGTH = 2_048;
+
+export function base58Decode(input: string, maxLength = BASE58_DEFAULT_MAX_LENGTH): Uint8Array {
   if (input.length === 0) return new Uint8Array(0);
-  if (input.length > 128) throw new Base58Error(`base58 input too long: ${input.length}`);
+  if (input.length > maxLength) throw new Base58Error(`base58 input too long: ${input.length} > ${maxLength}`);
 
   const bytes: number[] = [];
   for (let i = 0; i < input.length; i++) {

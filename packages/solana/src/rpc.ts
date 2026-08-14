@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { classifyHolder, loadEntityRegistry, type HolderClass } from './entity-registry.js';
 import { fetchJson, SourceFetchError } from '../../adapters/src/http.js';
 import type { RateLimiter } from '../../adapters/src/ratelimit.js';
-import { assertPubkey, base58Encode as base58EncodeBytes } from './base58.js';
+import {
+  assertPubkey,
+  base58Encode as base58EncodeBytes,
+  base58Decode as base58DecodeBytes,
+  BASE58_INSTRUCTION_DATA_MAX_LENGTH,
+} from './base58.js';
 import { decodeMint, MintDecodeError, type DecodedMint } from './mint.js';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
@@ -266,13 +271,23 @@ export class SolanaRpc {
    * account's FIRST transaction, and a token account that has thousands of them
    * is not a fresh holder of a fresh memecoin.
    */
-  async getSignaturesForAddress(address: string, limit = 50): Promise<{ signature: string; blockTime: number | null }[]> {
+  /**
+   * `before` walks BACKWARD through history.
+   *
+   * Without it a caller can only ever see the newest page, and "the last entry
+   * of the newest page" is not the oldest transaction — it is simply the oldest
+   * of the most recent N. A pool needing 25 pages to reach its creation looks
+   * identical to one created 30 signatures ago.
+   */
+  async getSignaturesForAddress(
+    address: string,
+    limit = 50,
+    before?: string,
+  ): Promise<{ signature: string; blockTime: number | null }[]> {
     assertPubkey(address, 'signatures address');
-    const env = await this.call(
-      'getSignaturesForAddress',
-      [address, { limit, commitment: 'confirmed' }],
-      GetSignaturesSchema,
-    );
+    const cfg: Record<string, unknown> = { limit, commitment: 'confirmed' };
+    if (before !== undefined) cfg['before'] = before;
+    const env = await this.call('getSignaturesForAddress', [address, cfg], GetSignaturesSchema);
     return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
       signature: r.signature,
       blockTime: r.blockTime ?? null,
@@ -323,7 +338,7 @@ export class SolanaRpc {
     failed: boolean;
     accountKeys: string[];
     tokenBalanceMints: string[];
-    instructions: { programId: string; accounts: string[] }[];
+    instructions: { programId: string; accounts: string[]; dataHex: string | null }[];
   } | null> {
     const env = await this.call(
       'getTransaction',
@@ -339,16 +354,29 @@ export class SolanaRpc {
       return typeof o.pubkey === 'string' ? o.pubkey : '';
     });
 
-    const readIx = (raw: unknown): { programId: string; accounts: string[] } | null => {
-      const o = raw as { programId?: unknown; accounts?: unknown };
+    const readIx = (raw: unknown): { programId: string; accounts: string[]; dataHex: string | null } | null => {
+      const o = raw as { programId?: unknown; accounts?: unknown; data?: unknown };
       if (typeof o.programId !== 'string') return null;
       const accounts = Array.isArray(o.accounts)
         ? o.accounts.filter((a): a is string => typeof a === 'string')
         : [];
-      return { programId: o.programId, accounts };
+      // jsonParsed leaves an unrecognised program's instruction data as a
+      // base58 string. That is what carries the anchor discriminator, and
+      // without it a swap against a pool is indistinguishable from the
+      // instruction that created it. Null when the node returned a fully
+      // parsed form with no raw data — refused rather than assumed.
+      let dataHex: string | null = null;
+      if (typeof o.data === 'string' && o.data.length > 0) {
+        try {
+          dataHex = Buffer.from(base58DecodeBytes(o.data, BASE58_INSTRUCTION_DATA_MAX_LENGTH)).toString('hex');
+        } catch {
+          dataHex = null;
+        }
+      }
+      return { programId: o.programId, accounts, dataHex };
     };
 
-    const instructions: { programId: string; accounts: string[] }[] = [];
+    const instructions: { programId: string; accounts: string[]; dataHex: string | null }[] = [];
     for (const raw of tx.transaction.message.instructions ?? []) {
       const ix = readIx(raw);
       if (ix !== null) instructions.push(ix);
