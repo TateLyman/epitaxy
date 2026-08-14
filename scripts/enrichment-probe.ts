@@ -16,19 +16,51 @@ import { openDb } from '../packages/storage/src/db.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { SolanaRpc, fetchConcentration } from '../packages/solana/src/rpc.js';
 import { canonicalPool, poolAddressesFrom, accountSourceOf } from '../packages/solana/src/pumpswap-offline.js';
-import { mayhemFactsOf, breadthUsability } from '../packages/solana/src/mayhem.js';
+import {
+  mayhemFactsOf,
+  breadthUsability,
+  bondingCurveAddresses,
+  bondingCurveMayhemMode,
+} from '../packages/solana/src/mayhem.js';
 import { buildEntityLinks, entityConcentrationFrom } from '../packages/intelligence/src/entity-links.js';
 
 const secrets = loadSecrets();
 const db = openDb({ path: secrets.databasePath });
-if (secrets.rpcHttp === null) {
-  console.error('an RPC endpoint is required');
+
+/**
+ * An EXPLICIT endpoint override, never a silent fallback.
+ *
+ * The configured provider has a monthly quota, and when it is exhausted every
+ * enrichment read fails. The keyless public mainnet endpoint answers
+ * `getAccountInfo`, `getSignaturesForAddress` and `getTransaction` — which is
+ * everything the Mayhem read needs — but throttles
+ * `getTokenLargestAccounts` away, which is everything the entity read needs.
+ *
+ * So it is opted into by name and STAMPED into every row it produces. A silent
+ * fallback would put rows from two different sources in one table with nothing
+ * to tell them apart, and this system's whole position is that provenance is
+ * not optional.
+ */
+const OVERRIDE = process.env['RPC_ENDPOINT'] ?? null;
+const endpoint = OVERRIDE ?? secrets.rpcHttp;
+if (endpoint === null) {
+  console.error('an RPC endpoint is required: set RPC_ENDPOINT or configure one');
   process.exit(1);
 }
-const rpc = new SolanaRpc(RateLimiter.fromConfig(true), {
-  primary: secrets.rpcHttp,
-  fallback: secrets.rpcHttpFallback,
+const sourceHost = (() => {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return 'unknown';
+  }
+})();
+// The unkeyed limiter when overriding: a public endpoint is throttled hard and
+// hammering it earns a ban rather than data.
+const rpc = new SolanaRpc(RateLimiter.fromConfig(OVERRIDE === null), {
+  primary: endpoint,
+  fallback: OVERRIDE === null ? secrets.rpcHttpFallback : null,
 });
+console.log(`endpoint: ${sourceHost}${OVERRIDE === null ? '' : ' (explicit override)'}\n`);
 
 const LIMIT = Number(process.env['PROBE_MINTS'] ?? 4);
 /**
@@ -67,17 +99,67 @@ for (const { mint } of mints) {
   } catch {
     isMayhem = null;
   }
-  const f = mayhemFactsOf({ mint, nowUtcMs: Date.now(), poolIsMayhemMode: isMayhem });
+  /**
+   * The bonding curve, for the pre-migration majority.
+   *
+   * Most Pump mints never migrate, so a pool-only read returns null for almost
+   * everything — correct, and nearly useless. The curve carries the same flag
+   * and exists from launch.
+   */
+  let curveIsMayhem: boolean | null = null;
+  let curveVersion: string | null = null;
+  if (isMayhem === null) {
+    const addrs = bondingCurveAddresses(mint);
+    for (const [version, addr] of [
+      ['v1', addrs.v1],
+      ['v2', addrs.v2],
+    ] as const) {
+      try {
+        const raw = await rpc.getAccountRaw(addr);
+        const read = bondingCurveMayhemMode(Buffer.from(raw.dataBase64, 'base64'));
+        if (read !== null) {
+          curveIsMayhem = read;
+          curveVersion = version;
+          break;
+        }
+      } catch {
+        // Absent at this derivation. Try the other before concluding anything.
+      }
+    }
+  }
+
+  const f = mayhemFactsOf({
+    mint,
+    nowUtcMs: Date.now(),
+    poolIsMayhemMode: isMayhem,
+    bondingCurveIsMayhemMode: curveIsMayhem,
+  });
   const breadth = breadthUsability(f);
   db.prepare(
     `INSERT INTO mayhem_facts (mint, observed_utc_ms, enabled, agent_state, source)
      VALUES (?,?,?,?,?)
      ON CONFLICT(mint) DO UPDATE SET observed_utc_ms=excluded.observed_utc_ms,
        enabled=excluded.enabled, agent_state=excluded.agent_state, source=excluded.source`,
-  ).run(mint, f.observedUtcMs, f.enabled === null ? null : f.enabled ? 1 : 0, `${breadth.usability}: ${breadth.reason}`.slice(0, 400), f.source);
+  ).run(
+    mint,
+    f.observedUtcMs,
+    f.enabled === null ? null : f.enabled ? 1 : 0,
+    `${breadth.usability}: ${breadth.reason}`.slice(0, 400),
+    `${f.source}${curveVersion === null ? '' : ` ${curveVersion}`} via ${sourceHost}`.slice(0, 200),
+  );
 
   // ---- entity links, from real funding history ---------------------------
+  //
+  // `getTokenLargestAccounts` is the gate here and the public endpoint
+  // throttles it away. Set PROBE_ENTITIES=0 to run the Mayhem half alone
+  // rather than spend a call per mint learning the same refusal.
   let entityLine = 'concentration unavailable';
+  if (process.env['PROBE_ENTITIES'] === '0') {
+    entityLine = 'skipped (PROBE_ENTITIES=0)';
+    console.log(`${mint.slice(0, 12)}  mayhem=${f.enabled} (${f.source})  ${breadth.usability}`);
+    done += 1;
+    continue;
+  }
   try {
     const facts = await fetchConcentration(rpc, mint);
     const holders = facts.holders

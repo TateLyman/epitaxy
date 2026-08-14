@@ -51,6 +51,7 @@
     "release:manifest": "tsx scripts/release-manifest.ts",
     "replay": "tsx packages/research/src/replay-cli.ts",
     "report": "tsx packages/research/src/report-cli.ts",
+    "rpc:capacity": "tsx scripts/rpc-capacity.ts",
     "secretscan": "tsx scripts/secretscan.ts",
     "settlement:check": "tsx scripts/settlement-check.ts",
     "shadow:development": "tsx scripts/evidence-status.ts shadow",

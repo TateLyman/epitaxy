@@ -1,3 +1,5 @@
+import { PublicKey } from '@solana/web3.js';
+
 /**
  * P11 — Mayhem, from what the chain actually establishes.
  *
@@ -26,6 +28,35 @@
 
 /** The Mayhem program. Recorded for provenance; its layout is not decoded here. */
 export const MAYHEM_PROGRAM = 'MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e';
+
+/** The pump program, which owns every bonding curve. */
+export const PUMP_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+
+/**
+ * A mint's bonding curve accounts, v1 first.
+ *
+ * There are TWO derivations — `bonding-curve` and `bonding-curve-v2` — and a
+ * mint has whichever its launch used. Deriving only v1 returns "no account" for
+ * every newer mint, which reads exactly like "this is not a pump token" and is
+ * not the same statement at all.
+ *
+ * Seeds derived here rather than imported: `@pump-fun/pump-sdk` exports the
+ * helpers and its ESM build does not load under the test runner, so importing
+ * would trade a two-line derivation for an untestable module.
+ */
+export function bondingCurveAddresses(mint: string): { v1: string; v2: string } {
+  const key = new PublicKey(mint).toBuffer();
+  const program = new PublicKey(PUMP_PROGRAM);
+  return {
+    v1: PublicKey.findProgramAddressSync([Buffer.from('bonding-curve'), key], program)[0].toBase58(),
+    v2: PublicKey.findProgramAddressSync([Buffer.from('bonding-curve-v2'), key], program)[0].toBase58(),
+  };
+}
+
+/** The v1 address alone, for callers that only want the original derivation. */
+export function bondingCurveAddress(mint: string): string {
+  return bondingCurveAddresses(mint).v1;
+}
 
 export type MayhemSource = 'pumpswap_pool' | 'bonding_curve' | 'none';
 
