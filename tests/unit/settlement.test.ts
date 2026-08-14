@@ -94,7 +94,10 @@ describe('P2 — the one measured settlement', () => {
     // which is the floor the router promised not to go below, and the two
     // differ by the slippage allowance on every single trade.
     expect(acquiredTokens(BUY)).toBe(16_227_715_590n);
-    expect(acquiredTokens(BUY) - BUY.output.minimumAtoms!).toBe(486_209_916n);
+    expect(BUY.output.kind).toBe('token');
+    if (BUY.output.kind === 'token') {
+      expect(acquiredTokens(BUY) - BUY.output.minimumAtoms).toBe(486_209_916n);
+    }
   });
 
   it('refuses to answer for the wrong side', () => {
@@ -131,7 +134,10 @@ describe('P3 — the round trip the gate refuses on', () => {
     // This was `realized + rentRecovered` = 19,288,556: the gross credit, with
     // the cost of taking the exit dropped. The payer received 15,202,728.
     expect(exitCashIn(SELL)).toBe(15_202_728n);
-    expect(exitCashIn(SELL)).toBeLessThan(SELL.output.actualCreditLamports!);
+    expect(SELL.output.kind).toBe('native_sol');
+    if (SELL.output.kind === 'native_sol') {
+      expect(exitCashIn(SELL)).toBeLessThan(SELL.output.actualCreditLamports);
+    }
   });
 
   it('separates the trading loss from locked rent', () => {

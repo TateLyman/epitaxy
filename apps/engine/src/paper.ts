@@ -66,6 +66,7 @@ import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
 import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
+import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
 import {
   acquiredTokens,
   entryCashOut,
@@ -752,6 +753,8 @@ async function tryEnter(
     inputMint: WSOL_MINT,
     outputMint: mint,
     inputAmount: lamportsIn,
+    routeFamily: entry.family,
+    capabilityFingerprint: fingerprintForObservation(db, blobs, entry.observationId),
     // The buy RECEIVES this token, so its program must be named or the credit
     // cannot be bound to an account. Production never passed it, which is why
     // production produced no effect-verified leg while the proof harness did.
@@ -881,6 +884,8 @@ async function tryEnter(
     inputMint: mint,
     outputMint: WSOL_MINT,
     inputAmount: tokensReceived,
+    routeFamily: entrySell.family,
+    capabilityFingerprint: fingerprintForObservation(db, blobs, entrySell.observationId),
     inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId, taker, mint),
     fundingLamports: 100_000_000n,
     maxLamportsSpent: 20_000_000n,
@@ -1265,6 +1270,8 @@ async function openShadowBooks(
       inputMint: WSOL_MINT,
       outputMint: mint,
       inputAmount: notional,
+      routeFamily: obs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, obs.observationId),
       outputTokenProgram: tokenProgramFor(db, blobs, obs.observationId, taker, mint),
       fundingLamports: notional * 10n,
       maxLamportsSpent: notional * 2n,
@@ -1324,6 +1331,8 @@ async function openShadowBooks(
       // Exactly the amount the buy would have acquired: the hypothetical
       // position, not a convenient number.
       inputAmount: tokensIn,
+      routeFamily: exitObs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, exitObs.observationId),
       inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, mint),
       fundingLamports: notional,
       maxLamportsSpent: notional * 2n,
@@ -1884,6 +1893,8 @@ async function manageOpenPositions(
       inputMint: row.mint,
       outputMint: WSOL_MINT,
       inputAmount: tokenAmount,
+      routeFamily: exitObs.family,
+      capabilityFingerprint: fingerprintForObservation(db, blobs, exitObs.observationId),
       inputTokenProgram: tokenProgramFor(db, blobs, exitObs.observationId, taker, row.mint),
       // Fees and rent only. A sell does not spend SOL on the trade itself, and
       // funding it as though it might would hide a route that quietly does.
@@ -1911,6 +1922,8 @@ async function manageOpenPositions(
               inputMint: leg.inputMint,
               outputMint: leg.outputMint,
               inputAmount: leg.inputAmount,
+              routeFamily: (row.route_family ?? config.primaryRouteFamily) as string,
+              capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
               inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
               outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
               fundingLamports: 100_000_000n,

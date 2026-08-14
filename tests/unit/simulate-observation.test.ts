@@ -13,9 +13,9 @@ import {
 } from '../../apps/engine/src/simulate-observation.js';
 import { SIMULATION_PROTOCOL_VERSION, ACCOUNT_SNAPSHOT_SCHEMA_VERSION } from '../../packages/simulator/src/protocol.js';
 import {
-  economicBoundsFor,
-  provisioningMutations,
-} from '../../packages/simulator/src/request-bounds.js';
+  legSpec,
+  buildSimulationRequestForLeg,
+} from '../../packages/simulator/src/leg.js';
 import type { SimulationResponse } from '../../packages/simulator/src/protocol.js';
 
 /**
@@ -161,23 +161,27 @@ const PAYER = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
 
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
-/** The same leg `opts` describes, for building the expected request. */
-const LEG = {
-  side: 'buy' as const,
+/** The same leg `opts` describes, assembled by the one assembler. */
+const LEG_SPEC = legSpec({
+  side: 'buy',
+  routeFamily: 'BUILD_CUSTOM',
+  capabilityFingerprint: 'fixture-fingerprint',
   taker: PAYER,
   inputMint: WSOL,
   outputMint: MINT_B,
   inputAmount: 20_000_000n,
+  maxTotalPayerDebitLamports: 40_000_000n,
   inputTokenProgram: null,
   outputTokenProgram: TOKEN_PROGRAM,
-  maxLamportsSpent: 40_000_000n,
   minimumOutput: null,
   expectedOutput: null,
-};
+});
 
 /** A BUY: spends SOL, receives the token. */
 const opts = {
   mode: 'DEVELOPMENT_JIT' as const,
+  routeFamily: 'BUILD_CUSTOM',
+  capabilityFingerprint: 'fixture-fingerprint',
   side: 'buy' as const,
   inputMint: WSOL,
   outputMint: MINT_B,
@@ -256,8 +260,10 @@ describe('§9 simulator integration', () => {
         if (path === '/v1/simulate') return response({ jobId, requestHash: reqHash });
         return {};
       });
-      // The client derives the job id from the request hash, so mirror it.
-      const built = client.buildRequest({
+      // Through the SAME function production uses. Hand-writing the request
+      // here is how this test kept passing while production sent a differently
+      // shaped one — which is the entire defect P2 exists to close.
+      const built = buildSimulationRequestForLeg(client, LEG_SPEC, {
         executionObservationId: 'obs-1',
         mode: 'DEVELOPMENT_JIT',
         transactionBase64: 'AQID',
@@ -265,18 +271,10 @@ describe('§9 simulator integration', () => {
         originalMessageHash: 'mh',
         originalBlockhash: 'BH',
         originalLastValidBlockHeight: 400,
-        routeFamily: 'BUILD_CUSTOM',
-        // The EXACT input, not zero. A leg that spends nothing is not a leg,
-        // and every economic bound over it is vacuous.
-        requestedAmount: '20000000',
         targetSlot: 438_000_000,
         snapshotManifestHash: 'jit-no-frozen-snapshot',
         snapshotAccounts: [],
-        // Through the SAME builder production uses. Hand-writing the bounds
-        // here is how this test kept passing while production sent a request
-        // shaped differently from the one being asserted.
-        balanceMutations: provisioningMutations(LEG, opts.fundingLamports),
-        bounds: economicBoundsFor(LEG),
+        fundingLamports: opts.fundingLamports,
         contextHash: null,
       });
       jobId = built.jobId;

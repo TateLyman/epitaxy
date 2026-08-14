@@ -104,6 +104,8 @@ for (const r of failed) {
   // conflict, which is the database correctly refusing to overwrite evidence.
   const outcome = await simulateLeg(db, blobs, client, r.observation_id, taker, {
     mode: 'DEVELOPMENT_JIT',
+    routeFamily: 'BUILD_CUSTOM',
+    capabilityFingerprint: 'fixture-fingerprint',
     side: 'sell',
     inputMint: r.mint,
     outputMint: WSOL,

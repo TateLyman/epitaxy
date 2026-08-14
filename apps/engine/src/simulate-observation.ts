@@ -1,9 +1,9 @@
 import type { Db } from '../../../packages/storage/src/db.js';
 import {
-  economicBoundsFor,
-  provisioningMutations,
-  type LegEconomics,
-} from '../../../packages/simulator/src/request-bounds.js';
+  legSpec,
+  buildSimulationRequestForLeg,
+  type EconomicLegSpec,
+} from '../../../packages/simulator/src/leg.js';
 import { BlobStore, type ExactTransactionBlob } from '../../../packages/storage/src/blobstore.js';
 import {
   recordSimulationRequested,
@@ -79,6 +79,10 @@ export interface SimulateOptions {
   /** Token program of the INPUT asset, when the input is a token. */
   readonly inputTokenProgram?: string | null;
   readonly outputTokenProgram?: string | null;
+  /** The observation's actual route family. Never defaulted to a constant. */
+  readonly routeFamily: string;
+  /** The route identity, so two different pool paths cannot share one label. */
+  readonly capabilityFingerprint: string;
   /** Enough SOL for fees, rent and (on a buy) the input itself. */
   readonly fundingLamports: bigint;
   readonly maxLamportsSpent: bigint;
@@ -182,42 +186,42 @@ export async function simulateObservation(
   }
 
   /**
-   * P2.4 — production and the proof harness build the SAME request.
+   * P2 — production and the proof harness build the SAME request, through the
+   * SAME function, from the SAME immutable leg spec.
    *
-   * This block previously constructed the compatibility bounds by hand:
-   * one generic `mint + minTokenDelta` for both directions. The proof
-   * harness built the asset-aware form and produced effect-verified legs;
-   * production built this and produced none. The proof transferred nothing
-   * because it was not proving the request that runs.
+   * This block once constructed the compatibility bounds by hand: one generic
+   * `mint + minTokenDelta` for both directions, and no name at all for the
+   * asset a buy received. The harness built the asset-aware form and produced
+   * effect-verified legs; production built this and produced none. The proof
+   * transferred nothing, because it was not proving the request that runs.
    *
-   * `economicBoundsFor` throws rather than degrading. A leg whose assets
-   * cannot be named is refused here, where it is a caller defect, instead of
-   * being recorded as a simulation outcome it is not.
+   * `legSpec` throws rather than degrading. A leg whose assets cannot be named
+   * is refused here, where it is a caller defect, instead of being recorded as
+   * a simulation outcome it is not.
    */
-  const leg: LegEconomics = {
-    side: opts.side,
-    taker,
-    inputMint: opts.inputMint,
-    outputMint: opts.outputMint,
-    inputAmount: opts.inputAmount,
-    inputTokenProgram: opts.inputTokenProgram ?? null,
-    outputTokenProgram: opts.outputTokenProgram ?? null,
-    maxLamportsSpent: opts.maxLamportsSpent,
-    minimumOutput: opts.minimumOutput ?? null,
-    expectedOutput: opts.expectedOutput ?? null,
-  };
-
-  let bounds;
-  let mutations;
+  let leg: EconomicLegSpec;
   try {
-    bounds = economicBoundsFor(leg);
-    mutations = provisioningMutations(leg, opts.fundingLamports);
+    leg = legSpec({
+      side: opts.side,
+      // The observation's ACTUAL family, never a constant.
+      routeFamily: opts.routeFamily,
+      capabilityFingerprint: opts.capabilityFingerprint,
+      taker,
+      inputMint: opts.inputMint,
+      outputMint: opts.outputMint,
+      inputAmount: opts.inputAmount,
+      maxTotalPayerDebitLamports: opts.maxLamportsSpent,
+      inputTokenProgram: opts.inputTokenProgram ?? null,
+      outputTokenProgram: opts.outputTokenProgram ?? null,
+      minimumOutput: opts.minimumOutput ?? null,
+      expectedOutput: opts.expectedOutput ?? null,
+    });
   } catch (e) {
     recordHealth(db, 'simulation_setup_invalid', 'critical', `${observationId}: ${(e as Error).message}`);
     return { kind: 'skipped', reason: (e as Error).message };
   }
 
-  const request = client.buildRequest({
+  const request = buildSimulationRequestForLeg(client, leg, {
     executionObservationId: observationId,
     mode: opts.mode,
     transactionBase64: blob.transactionBase64,
@@ -225,16 +229,12 @@ export async function simulateObservation(
     originalMessageHash: blob.messageHash,
     originalBlockhash: blob.blockhash,
     originalLastValidBlockHeight: blob.lastValidBlockHeight,
-    routeFamily: 'BUILD_CUSTOM',
-    // The exact input. Zero described no leg and made every bound vacuous.
-    requestedAmount: opts.inputAmount.toString(),
     // JIT fetches its own state, so there is nothing frozen to name. A
     // confirmatory run would carry a real manifest and a real snapshot.
     targetSlot: blob.contextSlot,
     snapshotManifestHash: opts.mode === 'DEVELOPMENT_JIT' ? 'jit-no-frozen-snapshot' : blob.transactionHash,
     snapshotAccounts: [],
-    balanceMutations: mutations,
-    bounds,
+    fundingLamports: opts.fundingLamports,
     contextHash: opts.contextHash,
   });
 
