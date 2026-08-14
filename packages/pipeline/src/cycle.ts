@@ -3,10 +3,13 @@ import type { Candidate, LaunchpadName, RoundTrip } from '../../domain/src/types
 import { WSOL_MINT } from '../../domain/src/types.js';
 import { COHORT_BOUNDS } from '../../domain/src/cohort.js';
 import { allocate } from '../../strategy/src/exploration.js';
-import { capitalAtRisk } from '../../domain/src/types.js';
-import { TOKEN_2022_PROGRAM } from '../../solana/src/pda.js';
-import { decodeToken2022Mint } from '../../solana/src/token2022.js';
-import type { Token2022Facts } from '../../strategy/src/screen.js';
+import {
+  readMintFacts,
+  gateFactsFrom,
+  MintFactsCache,
+  type DirectMintFacts,
+} from '../../intelligence/src/mintfacts-source.js';
+import { disagreements } from '../../intelligence/src/mintfacts.js';
 
 /** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
 function hashSeed(s: string): number {
@@ -108,7 +111,24 @@ export interface CycleDeps {
    * in observe/paper and refuse outright once capital is at stake.
    */
   readonly rpc?: SolanaRpc | null;
+  /**
+   * The current epoch, when it is known.
+   *
+   * A Token-2022 transfer-fee config carries an older and a newer schedule and
+   * the epoch selects between them. Absent, the WORST of the two is used: an
+   * unknown epoch means either could be live, and only one direction of that
+   * error is safe.
+   */
+  readonly currentEpoch?: bigint | null;
 }
+
+/**
+ * Process-lifetime, bounded, TTL'd.
+ *
+ * A cycle-scoped cache would miss on every candidate every ten seconds,
+ * which is the same as no cache with extra allocation.
+ */
+const mintFactsCache = new MintFactsCache();
 
 export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
   const { db, jupiter, config, seen, cycleIndex } = deps;
@@ -210,18 +230,24 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     const updatedAt = parseUtc(info.updatedAt);
     const sourceAgeMs = updatedAt === null ? null : nowUtcMs - updatedAt;
     /**
-     * P14 — read the MINT, in modes where being wrong costs money.
+     * P11 — read the MINT, in EVERY mode.
      *
-     * `evaluateCheapGates` has always read `token2022` and no caller ever
-     * supplied it, so `token2022_money_critical` could not fire: a transfer
-     * hook, a permanent delegate, a pausable mint and a default-frozen mint
-     * all presented as silence.
+     * This used to be gated on `capitalAtRisk(mode)` with the reasoning that
+     * observe and paper risk nothing. They risk nothing and they produce the
+     * entire research corpus, so the effect was that no row anywhere records
+     * how often a candidate carries a freeze authority, a transfer hook or a
+     * permanent delegate — and the gate that would refuse one in a capital mode
+     * had therefore never fired, on any token, ever. Its false-positive rate,
+     * its cost in missed winners and its actual protective value were all
+     * unmeasured, and the first run with money on it would have been the first
+     * run at all.
      *
-     * Only in capital modes, because it costs an RPC call per candidate and
-     * observe/paper risk nothing. In those modes an unread Token-2022 mint is
-     * refused by `screenCheap` rather than passed as unknown.
+     * The mode still decides what a hostile fact DOES. It no longer decides
+     * whether the fact is looked at.
      */
-    const t22 = await token2022FactsFor(deps, info);
+    const direct = await directMintFactsFor(deps, info, nowUtcMs);
+    const t22 = direct === null ? null : gateFactsFrom(direct);
+    if (direct !== null) persistMintFacts(deps, info, direct);
     /**
      * P9 — screen under THIS candidate's cohort window.
      *
@@ -425,31 +451,94 @@ async function measureConcentration(
 }
 
 /**
- * The mint's Token-2022 behaviour, decoded from its own account bytes.
+ * The mint's own bytes, graded.
  *
- * Null when we did not read it — never a fabricated "no extensions". The
- * caller decides what null means, and in a capital mode it means refused.
+ * Null only when there is no RPC to read with. Everything else — an unreadable
+ * account, an undecodable one, an extension newer than this build — comes back
+ * as facts whose verdict is UNKNOWN, because those are three different reasons
+ * to distrust a token and none of them is "it is fine".
+ *
+ * Legacy mints are read too. Mint authority and freeze authority live on a
+ * plain SPL mint as much as on a Token-2022 one, and the gates were taking the
+ * provider's word for both.
  */
-async function token2022FactsFor(
+async function directMintFactsFor(
   deps: CycleDeps,
   info: MintInformation,
-): Promise<Token2022Facts | null> {
-  if (!capitalAtRisk(deps.config.mode)) return null;
-  if (info.tokenProgram !== TOKEN_2022_PROGRAM) return null;
+  nowUtcMs: number,
+): Promise<DirectMintFacts | null> {
   if (deps.rpc === undefined || deps.rpc === null) return null;
+  return readMintFacts(deps.rpc, info.id, {
+    nowUtcMs,
+    currentEpoch: deps.currentEpoch ?? null,
+    cache: mintFactsCache,
+  });
+}
+
+/**
+ * One row per mint, replaced on a re-read.
+ *
+ * Failure here never costs the screening: a mint-facts write that throws would
+ * drop a candidate, and a filter whose rejects are not stored can never be
+ * evaluated.
+ */
+function persistMintFacts(deps: CycleDeps, info: MintInformation, f: DirectMintFacts): void {
   try {
-    const raw = await deps.rpc.getAccountRaw(info.id);
-    const facts = decodeToken2022Mint(Buffer.from(raw.dataBase64, 'base64'), raw.owner);
-    return {
-      hasMoneyCriticalBehaviour: facts.hasMoneyCriticalBehaviour,
-      hasUnknownExtension: facts.hasUnknownExtension,
-      transferFeeBps: facts.transferFeeBps,
-      detail: facts.detail,
-    };
+    const disagree = disagreements(f, info.audit ?? null);
+    deps.db
+      .prepare(
+        `INSERT INTO direct_mint_facts (
+           mint, read_utc_ms, token_program, mint_authority, freeze_authority,
+           permanent_delegate, default_account_state, transfer_hook, non_transferable,
+           pausable, confidential, overall, current_epoch_fee_bps, worst_case_fee_bps,
+           maximum_fee_atoms, extension_types, has_unknown_extension, decode_failure,
+           reasons, provider_disagreements)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           read_utc_ms = excluded.read_utc_ms,
+           token_program = excluded.token_program,
+           mint_authority = excluded.mint_authority,
+           freeze_authority = excluded.freeze_authority,
+           permanent_delegate = excluded.permanent_delegate,
+           default_account_state = excluded.default_account_state,
+           transfer_hook = excluded.transfer_hook,
+           non_transferable = excluded.non_transferable,
+           pausable = excluded.pausable,
+           confidential = excluded.confidential,
+           overall = excluded.overall,
+           current_epoch_fee_bps = excluded.current_epoch_fee_bps,
+           worst_case_fee_bps = excluded.worst_case_fee_bps,
+           maximum_fee_atoms = excluded.maximum_fee_atoms,
+           extension_types = excluded.extension_types,
+           has_unknown_extension = excluded.has_unknown_extension,
+           decode_failure = excluded.decode_failure,
+           reasons = excluded.reasons,
+           provider_disagreements = excluded.provider_disagreements`,
+      )
+      .run(
+        f.mint,
+        f.readUtcMs,
+        f.tokenProgram,
+        f.mintAuthority,
+        f.freezeAuthority,
+        f.permanentDelegate,
+        f.defaultAccountState,
+        f.transferHook,
+        f.nonTransferable,
+        f.pausable,
+        f.confidential,
+        f.overall,
+        f.currentEpochTransferFeeBps,
+        f.worstCaseTransferFeeBps,
+        f.maximumFeeAtoms === null ? null : f.maximumFeeAtoms.toString(),
+        f.extensionTypes.join(','),
+        f.hasUnknownExtension ? 1 : 0,
+        f.decodeFailure,
+        f.reasons.join('; ').slice(0, 400),
+        disagree.length === 0 ? null : JSON.stringify(disagree),
+      );
   } catch {
-    // Unreadable is UNKNOWN, and in a capital mode `screenCheap` refuses on
-    // null. Returning EMPTY here would assert the mint is plain.
-    return null;
+    // A missing table is a migration problem, not a reason to lose the row.
   }
 }
 

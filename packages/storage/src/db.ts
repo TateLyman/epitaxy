@@ -1868,6 +1868,75 @@ WHERE
 `,
   },
 
+  {
+    id: 31,
+    name: 'direct_mint_facts',
+    sql: `
+-- P11 -- what the CHAIN says about a mint, kept per mint rather than per row.
+--
+-- The pipeline read the mint only when capital was at risk, so paper -- the
+-- mode that produces the entire research corpus -- never read one. Nothing in
+-- the corpus can currently say how often a candidate carries a freeze
+-- authority, a transfer hook or a permanent delegate, which means the gate
+-- that would refuse those in a capital mode has never been exercised and its
+-- cost has never been measured. A risk control first run with money on it is
+-- not a risk control.
+--
+-- Keyed by mint and not by screening: these facts belong to the token, they
+-- change on the order of a governance action, and duplicating them per row
+-- would make a re-read look like a new fact.
+CREATE TABLE IF NOT EXISTS direct_mint_facts (
+  mint                        TEXT PRIMARY KEY,
+  read_utc_ms                 INTEGER NOT NULL,
+  token_program               TEXT,
+  -- SAFE / HOSTILE / UNKNOWN. Three states everywhere, never two.
+  mint_authority              TEXT NOT NULL,
+  freeze_authority            TEXT NOT NULL,
+  permanent_delegate          TEXT NOT NULL,
+  default_account_state       TEXT NOT NULL,
+  transfer_hook               TEXT NOT NULL,
+  non_transferable            TEXT NOT NULL,
+  pausable                    TEXT NOT NULL,
+  confidential                TEXT NOT NULL,
+  overall                     TEXT NOT NULL,
+  -- The fee that applies THIS epoch, and the worst any schedule allows.
+  current_epoch_fee_bps       INTEGER,
+  worst_case_fee_bps          INTEGER,
+  maximum_fee_atoms           TEXT,
+  -- Extension discriminants, comma separated, so the corpus can be counted.
+  extension_types             TEXT,
+  has_unknown_extension       INTEGER NOT NULL DEFAULT 0,
+  decode_failure              TEXT,
+  reasons                     TEXT,
+  -- Where the provider and the chain disagreed, if they did.
+  provider_disagreements      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_direct_mint_facts_overall
+  ON direct_mint_facts(overall, read_utc_ms DESC);
+
+-- P11 -- Mayhem, which is not organic activity.
+--
+-- Agent buys and sells are flow, and counting them as breadth or momentum
+-- measures the agent rather than the market. Persisted separately so it can be
+-- SUBTRACTED rather than quietly included.
+CREATE TABLE IF NOT EXISTS mayhem_facts (
+  mint                    TEXT PRIMARY KEY,
+  observed_utc_ms         INTEGER NOT NULL,
+  enabled                 INTEGER,
+  agent_identity          TEXT,
+  agent_state             TEXT,
+  agent_inventory_atoms   TEXT,
+  agent_buy_count         INTEGER,
+  agent_sell_count        INTEGER,
+  agent_buy_lamports      TEXT,
+  agent_sell_lamports     TEXT,
+  additional_supply_atoms TEXT,
+  burn_transition         TEXT,
+  hours_since_launch      REAL,
+  source                  TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export interface OpenOptions {

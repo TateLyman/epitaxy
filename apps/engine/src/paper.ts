@@ -192,6 +192,28 @@ const CLOCK_CHECKPOINT_INTERVAL_MS = 300_000;
  */
 const EXIT_RETRY_INTERVAL_MS = 30_000;
 
+/**
+ * The current epoch, cached for an epoch's worth of time.
+ *
+ * Refreshed on a timer rather than per cycle: an epoch is roughly two days and
+ * asking every ten seconds spends a call to learn a number that did not move.
+ * Null when it could not be read, and null means the fee decoder takes the
+ * worst of the mint's two schedules — the safe direction.
+ */
+let cachedEpoch: { value: bigint; readUtcMs: number } | null = null;
+async function currentEpochOf(rpc: { configured: boolean; getEpoch(): Promise<bigint> }): Promise<bigint | null> {
+  if (!rpc.configured) return null;
+  const now = Date.now();
+  if (cachedEpoch !== null && now - cachedEpoch.readUtcMs < 30 * 60_000) return cachedEpoch.value;
+  try {
+    const value = await rpc.getEpoch();
+    cachedEpoch = { value, readUtcMs: now };
+    return value;
+  } catch {
+    return cachedEpoch?.value ?? null;
+  }
+}
+
 async function main(): Promise<void> {
   const config = loadConfig(modeFromArgv());
   const secrets = loadSecrets();
@@ -720,6 +742,7 @@ async function main(): Promise<void> {
           cycleIndex: cycle,
           skip: heldMints,
           rpc: rpc.configured ? rpc : null,
+          currentEpoch: await currentEpochOf(rpc),
           onEligible: async (info, result) => {
             if (entriesHalted) return;
             await tryEnter(

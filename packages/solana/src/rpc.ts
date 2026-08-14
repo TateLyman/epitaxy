@@ -54,6 +54,7 @@ const GetAccountInfoSchema = rpcEnvelope(
 );
 
 const GetSlotSchema = rpcEnvelope(z.number());
+const GetEpochInfoSchema = rpcEnvelope(z.object({ epoch: z.number() }).passthrough());
 
 const GetHealthSchema = rpcEnvelope(z.string());
 
@@ -180,6 +181,24 @@ export class SolanaRpc {
   async getSlot(): Promise<number> {
     const env = await this.call('getSlot', [{ commitment: 'confirmed' }], GetSlotSchema);
     return this.unwrap(env, 'getSlot');
+  }
+
+  /**
+   * The current epoch.
+   *
+   * A Token-2022 transfer-fee config carries an older and a newer schedule and
+   * the epoch is what selects between them. Without it the decoder has to
+   * assume the worst of the two, which is safe and is also wrong most of the
+   * time — the newer schedule is usually not live yet, and grading every such
+   * mint at its future fee rejects tokens for a cost nobody is paying.
+   */
+  async getEpoch(): Promise<bigint> {
+    const env = await this.call('getEpochInfo', [{ commitment: 'confirmed' }], GetEpochInfoSchema);
+    const value = this.unwrap(env, 'getEpochInfo').epoch;
+    if (!Number.isSafeInteger(value)) {
+      throw new RpcError('rpc_error', `getEpochInfo returned unsafe integer ${value}`);
+    }
+    return BigInt(value);
   }
 
   async getHealth(): Promise<string> {

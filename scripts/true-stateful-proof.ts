@@ -29,7 +29,7 @@ import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { SolanaRpc } from '../packages/solana/src/rpc.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { captureSnapshot } from '../packages/solana/src/snapshot-capture.js';
-import { runSequential, tokenAmountOf } from '../packages/simulator/src/sequential-runtime.js';
+import { runSequential, tokenAmountOf, createdAccountRent } from '../packages/simulator/src/sequential-runtime.js';
 import type { ObservedAccount, SequentialStepResult } from '../packages/simulator/src/sequential-runtime.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../packages/solana/src/pda.js';
 import {
@@ -118,7 +118,7 @@ interface Case {
   walletAfterClose: string | null;
   recoveredRentLamports: string | null;
   /** Accounts the legs had to CREATE, and what their rent cost. */
-  createdAccounts: { pubkey: string; lamports: string }[];
+  createdAccounts: { pubkey: string; rentLamports: string; excessLamports: string }[];
   setupRentLamports: string | null;
   /** Buy debit above the principal: entry rent, base fee, priority, tip. */
   buyOverheadLamports: string | null;
@@ -452,10 +452,11 @@ for (const c of candidates) {
   ).toString('base64');
 
   // ---- 6. pass two: buy THEN sell THEN close, in one committed state ------
+  const sellObserve = [...new Set([...observe, ...built.accounts])];
   const pass2 = runOnce([
     { label: 'buy', transactionBase64: buyBytes, observe },
-    { label: 'sell', transactionBase64: sellBytes, observe },
-    { label: 'close', transactionBase64: closeBytes, observe },
+    { label: 'sell', transactionBase64: sellBytes, observe: sellObserve },
+    { label: 'close', transactionBase64: closeBytes, observe: sellObserve },
   ]);
   if (pass2 === null) {
     fail('INSTRUMENT_RUNTIME_FAILED', r.detail ?? undefined);
@@ -497,17 +498,9 @@ for (const c of candidates) {
    * sequence and holds lamports after it, which is a measurement of these
    * runs rather than a list of names this script expects.
    */
-  const preOf = new Map(pass2.steps[0]?.preAccounts.map((a) => [a.pubkey, a]) ?? []);
-  let setupRent = 0n;
-  for (const a of closeStep.postAccounts) {
-    if (a.pubkey === taker) continue;
-    const prior = preOf.get(a.pubkey);
-    const existed = prior !== undefined && (prior.lamports > 0 || prior.dataBase64.length > 0);
-    if (!existed && a.lamports > 0) {
-      r.createdAccounts.push({ pubkey: a.pubkey, lamports: String(a.lamports) });
-      setupRent += BigInt(a.lamports);
-    }
-  }
+  const created = createdAccountRent(sellStep, [taker]);
+  r.createdAccounts = created.accounts;
+  const setupRent = created.lamports;
   r.setupRentLamports = setupRent.toString();
 
   const afterBuy = BigInt(r.walletAfterBuy === '' ? '0' : r.walletAfterBuy);

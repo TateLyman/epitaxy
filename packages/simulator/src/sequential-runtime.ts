@@ -199,6 +199,72 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
 }
 
 /**
+ * Rent paid into accounts this step had to CREATE.
+ *
+ * A leg's cash flow is not its price. A sell whose pool pays exactly what the
+ * model quoted still shows a four-million-lamport shortfall in the payer's
+ * native balance when it had to open the coin-creator fee vault and the user
+ * volume accumulator on the way — and that shortfall is CONSTANT, so measured
+ * as a rate it reads as a 41,818 bps pricing error at 0.001 SOL and a 1,044 bps
+ * one at 0.04 SOL. The same defect, reported as six different numbers.
+ *
+ * An account counts as created when the step began with nothing at that address
+ * and ended with lamports in it. That is a measurement of the step rather than
+ * a list of account names this code expects to see, so it stays correct when
+ * the protocol adds another one.
+ */
+export function createdAccountRent(
+  step: SequentialStepResult,
+  exclude: readonly string[] = [],
+): {
+  lamports: bigint;
+  accounts: { pubkey: string; rentLamports: string; excessLamports: string }[];
+} {
+  const skip = new Set(exclude);
+  const pre = new Map(step.preAccounts.map((a) => [a.pubkey, a]));
+  const accounts: { pubkey: string; rentLamports: string; excessLamports: string }[] = [];
+  let lamports = 0n;
+  for (const a of step.postAccounts) {
+    if (skip.has(a.pubkey)) continue;
+    const prior = pre.get(a.pubkey);
+    const existed = prior !== undefined && (prior.lamports > 0 || prior.dataBase64.length > 0);
+    if (existed || a.lamports <= 0) continue;
+    // Only the EXEMPTION is rent. The coin-creator fee vault is opened and paid
+    // in the same transaction, so its closing balance is rent PLUS a fee the
+    // pool sent it; crediting the whole balance back to the payer flattered
+    // every sell by a few basis points and by 94 on one of them.
+    const bytes = BigInt(Buffer.from(a.dataBase64, 'base64').length);
+    const rent = rentExemptLamports(bytes);
+    const actual = BigInt(a.lamports);
+    const charged = actual < rent ? actual : rent;
+    accounts.push({
+      pubkey: a.pubkey,
+      rentLamports: charged.toString(),
+      excessLamports: (actual - charged).toString(),
+    });
+    lamports += charged;
+  }
+  return { lamports, accounts };
+}
+
+/**
+ * The rent-exempt minimum for an account of `dataLen` bytes.
+ *
+ * The chain's own constants: 3,480 lamports per byte-year, a two-year
+ * exemption threshold, and 128 bytes of storage overhead charged to every
+ * account. A 165-byte SPL token account is (128 + 165) x 3480 x 2 =
+ * 2,039,280, which is the figure this system has been quoting for ATA rent all
+ * along — derived here rather than hard-coded, so a Token-2022 account with
+ * extensions gets its own larger number instead of that one.
+ */
+export function rentExemptLamports(dataLen: bigint): bigint {
+  const LAMPORTS_PER_BYTE_YEAR = 3_480n;
+  const EXEMPTION_YEARS = 2n;
+  const ACCOUNT_STORAGE_OVERHEAD = 128n;
+  return (ACCOUNT_STORAGE_OVERHEAD + dataLen) * LAMPORTS_PER_BYTE_YEAR * EXEMPTION_YEARS;
+}
+
+/**
  * The SPL token amount an observed account holds. u64 LE at offset 64.
  *
  * Returns null for anything that is not a token account. Null is the honest

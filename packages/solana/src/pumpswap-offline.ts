@@ -8,6 +8,8 @@ import {
   GLOBAL_CONFIG_PDA,
   PUMP_AMM_FEE_CONFIG_PDA,
   PUMP_AMM_PROGRAM_ID,
+  PUMP_PROGRAM_ID,
+  PUMP_FEE_PROGRAM_ID,
   PUMP_AMM_EVENT_AUTHORITY_PDA,
   GLOBAL_VOLUME_ACCUMULATOR_PDA,
   userVolumeAccumulatorPda,
@@ -120,6 +122,22 @@ export const AMM_EVENT_AUTHORITY = PUMP_AMM_EVENT_AUTHORITY_PDA.toBase58();
 export const GLOBAL_VOLUME_ACCUMULATOR = GLOBAL_VOLUME_ACCUMULATOR_PDA.toBase58();
 export const GLOBAL_CONFIG_ADDR = GLOBAL_CONFIG_PDA.toBase58();
 export const FEE_CONFIG_ADDR = PUMP_AMM_FEE_CONFIG_PDA.toBase58();
+
+/**
+ * Every program a PumpSwap swap executes, including the ones it reaches by
+ * CPI and therefore names in no instruction.
+ *
+ * The AMM calls into the pump program for the volume accumulator and into the
+ * fee program for the dynamic tier. Loading only the AMM left both as accounts
+ * with no executable behind them, which the runtime reports as anchor 3009,
+ * `InvalidProgramExecutable`, at whichever instruction index happened to reach
+ * one first.
+ */
+export const SWAP_PROGRAM_IDS: readonly string[] = [
+  PUMP_AMM_PROGRAM_ID.toBase58(),
+  PUMP_PROGRAM_ID.toBase58(),
+  PUMP_FEE_PROGRAM_ID.toBase58(),
+];
 
 /** The canonical pool for a base mint, from the SDK's own PDA derivation. */
 export function canonicalPool(baseMint: string, quoteMint = WSOL_MINT): string {
