@@ -1937,6 +1937,42 @@ CREATE TABLE IF NOT EXISTS mayhem_facts (
 );
 `,
   },
+  {
+    id: 32,
+    name: 'shadow_trigger_lifecycle',
+    sql: `
+-- P6 -- a shadow trigger stops closing the position.
+--
+-- The shadow loop fired decideExit on a mark and closed on that same mark, at
+-- that same mark's value, with no later fill of any kind. Every shadow result
+-- in the corpus is therefore a fill at the trigger price, which is the one
+-- price a real exit can never get: it is the price that CAUSED the decision to
+-- exit, observed before the decision existed.
+--
+-- packages/domain/src/shadow-lifecycle.ts has had the state machine that
+-- forbids this since it was written, including the transition guard whose
+-- error message is 'a shadow may not close at its trigger observation'. No
+-- production file imported it. The machine-generated call graph found that:
+-- manageShadowBooks could not reach admitPortfolioExit by any path.
+--
+-- These columns are what the machine needs to remember between cycles.
+ALTER TABLE shadow_positions ADD COLUMN triggered_utc_ms INTEGER;
+ALTER TABLE shadow_positions ADD COLUMN trigger_observation_id TEXT;
+-- What the position was worth AT the trigger. Kept so the look-ahead bias the
+-- old design was booking can be measured rather than described.
+ALTER TABLE shadow_positions ADD COLUMN trigger_value_lamports TEXT;
+ALTER TABLE shadow_positions ADD COLUMN trigger_reason TEXT;
+ALTER TABLE shadow_positions ADD COLUMN fill_latency_ms INTEGER;
+ALTER TABLE shadow_positions ADD COLUMN look_ahead_bias_lamports TEXT;
+-- How many marks have gone by since the trigger without a valid fill. A
+-- position stuck here is exposure nobody is reporting.
+ALTER TABLE shadow_positions ADD COLUMN exit_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE shadow_positions ADD COLUMN blocked_reason TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_shadow_positions_state
+  ON shadow_positions(state, triggered_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

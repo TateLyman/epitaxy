@@ -12,6 +12,7 @@
     "audit:state": "tsx scripts/audit-baseline.ts",
     "backtest": "tsx packages/research/src/backtest-cli.ts",
     "baseline": "tsx scripts/baseline-5b89953.ts",
+    "callgraph": "tsx scripts/call-graph.ts",
     "canary": "tsx apps/executor/src/main.ts --mode=canary",
     "capability": "tsx scripts/capability.ts",
     "capability:matrix": "tsx scripts/capability-matrix.ts",

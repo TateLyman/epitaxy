@@ -1,0 +1,233 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1786719424834,
+    "sourceCommit": "d3189a874ff6cc5dcbfed52dc7853783a67bf9a2",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "schema-v31",
+    "contextHash": null,
+    "sampleInclusionQuery": null
+  },
+  "functions": 482,
+  "edges": 600,
+  "required": [
+    {
+      "from": "main",
+      "to": "runCycle",
+      "why": "the shell drives discovery",
+      "reached": true,
+      "path": [
+        "main",
+        "runCycle"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/pipeline/src/cycle.ts"
+    },
+    {
+      "from": "main",
+      "to": "tryEnter",
+      "why": "the cycle reaches entry",
+      "reached": true,
+      "path": [
+        "main",
+        "tryEnter"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper.ts"
+    },
+    {
+      "from": "tryEnter",
+      "to": "admitPortfolioEntry",
+      "why": "entry goes through the core admission",
+      "reached": true,
+      "path": [
+        "tryEnter",
+        "admitPortfolioEntry"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "from": "tryEnter",
+      "to": "measuredSettlementOf",
+      "why": "the position is booked from canonical settlement",
+      "reached": true,
+      "path": [
+        "tryEnter",
+        "measuredSettlementOf"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/storage/src/settlement-repo.ts"
+    },
+    {
+      "from": "tryEnter",
+      "to": "entryCashOut",
+      "why": "entry cash out comes from the settlement module",
+      "reached": true,
+      "path": [
+        "tryEnter",
+        "entryCashOut"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "from": "main",
+      "to": "manageOpenPositions",
+      "why": "the shell drives the position loop",
+      "reached": true,
+      "path": [
+        "main",
+        "manageOpenPositions"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper.ts"
+    },
+    {
+      "from": "manageOpenPositions",
+      "to": "chooseDecisionMark",
+      "why": "marks come from the core selector",
+      "reached": true,
+      "path": [
+        "manageOpenPositions",
+        "chooseDecisionMark"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "from": "manageOpenPositions",
+      "to": "admitPortfolioExit",
+      "why": "exits go through the core admission",
+      "reached": true,
+      "path": [
+        "manageOpenPositions",
+        "admitPortfolioExit"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "from": "manageOpenPositions",
+      "to": "measuredSettlementOf",
+      "why": "the close is booked from canonical settlement",
+      "reached": true,
+      "path": [
+        "manageOpenPositions",
+        "measuredSettlementOf"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/storage/src/settlement-repo.ts"
+    },
+    {
+      "from": "manageOpenPositions",
+      "to": "exitCashIn",
+      "why": "exit cash in comes from the settlement module",
+      "reached": true,
+      "path": [
+        "manageOpenPositions",
+        "exitCashIn"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "from": "manageOpenPositions",
+      "to": "executionCost",
+      "why": "cost excludes principal, from the one module that knows",
+      "reached": true,
+      "path": [
+        "manageOpenPositions",
+        "executionCost"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "from": "main",
+      "to": "manageShadowBooks",
+      "why": "the shell drives the shadow lifecycle",
+      "reached": true,
+      "path": [
+        "main",
+        "manageShadowBooks"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper.ts"
+    },
+    {
+      "from": "manageShadowBooks",
+      "to": "admitPortfolioExit",
+      "why": "a shadow exit uses the same admission",
+      "reached": true,
+      "path": [
+        "manageShadowBooks",
+        "admitPortfolioExit"
+      ],
+      "hops": 1,
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "from": "runCycle",
+      "to": "readMintFacts",
+      "why": "screening reads the mint from the chain",
+      "reached": true,
+      "path": [
+        "runCycle",
+        "directMintFactsFor",
+        "readMintFacts"
+      ],
+      "hops": 2,
+      "declaredIn": "packages/intelligence/src/mintfacts-source.ts"
+    },
+    {
+      "from": "runCycle",
+      "to": "screenCheap",
+      "why": "screening actually runs",
+      "reached": true,
+      "path": [
+        "runCycle",
+        "screenCheap"
+      ],
+      "hops": 1,
+      "declaredIn": "packages/strategy/src/screen.ts"
+    }
+  ],
+  "missing": [],
+  "lifecyclePlacement": [
+    {
+      "fn": "admitPortfolioEntry",
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "fn": "chooseDecisionMark",
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "fn": "admitPortfolioExit",
+      "declaredIn": "apps/engine/src/paper-core.ts"
+    },
+    {
+      "fn": "measuredSettlementOf",
+      "declaredIn": "packages/storage/src/settlement-repo.ts"
+    },
+    {
+      "fn": "entryCashOut",
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "fn": "exitCashIn",
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "fn": "immediateRoundTrip",
+      "declaredIn": "packages/domain/src/settlement.ts"
+    },
+    {
+      "fn": "executionCost",
+      "declaredIn": "packages/domain/src/settlement.ts"
+    }
+  ],
+  "lifecycleStillInShell": 0,
+  "note": "Edges are resolved through the TypeScript checker, not by matching text. A path absent from this graph did not happen, whatever the source says about itself."
+}

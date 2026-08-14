@@ -29,7 +29,7 @@ const COVERAGE: Readonly<Record<number, { what: string; home: Home }>> = {
   11: { what: 'an actual successful leg pays no fictional failure', home: 'tests/unit/settlement-p4.test.ts' },
   12: { what: 'position close writes every explicit field', home: 'tests/unit/explicit-pnl.test.ts' },
   13: { what: 'the paper shell calls core entry', home: 'tests/unit/paper-core.test.ts' },
-  14: { what: 'the paper shell calls core shadow lifecycle', home: null },
+  14: { what: 'the paper shell calls core shadow lifecycle', home: 'tests/unit/shadow-trajectory-p6.test.ts' },
   15: { what: 'a trigger observation cannot be its own fill', home: 'tests/unit/trigger-fill-p10.test.ts' },
   16: { what: 'a blocked shadow remains managed', home: 'tests/unit/shadow-lifecycle.test.ts' },
   17: { what: 'the urgent WSS queue is consumed', home: 'tests/unit/risk-alarm.test.ts' },
@@ -68,7 +68,6 @@ const COVERAGE: Readonly<Record<number, { what: string; home: Home }>> = {
 
 /** The ones deliberately left, each with the reason it could not be written. */
 const NOT_COVERED: Readonly<Record<number, string>> = {
-  14: 'P6 shadow trajectories are not built, so there is no core shadow lifecycle to call',
   32: 'P11 Mayhem facts have a table but no source populating it, so nothing to exclude from',
 };
 
@@ -111,6 +110,6 @@ describe('P24 — every required test has a home, or is named as missing', () =>
 
   it('reports the count, so a regression in coverage is visible', () => {
     const covered = Object.values(COVERAGE).filter((e) => e.home !== null).length;
-    expect(covered).toBe(46);
+    expect(covered).toBe(47);
   });
 });

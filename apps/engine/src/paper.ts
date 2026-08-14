@@ -70,7 +70,6 @@ import { LogsWatcher } from '../../../packages/adapters/src/logswatch.js';
 import { EventPipeline } from '../../../packages/adapters/src/event-pipeline.js';
 import type { ParsedEvent } from '../../../packages/adapters/src/event-pipeline.js';
 import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
-import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
 
 /**
  * P15 — the running alarm, set once by `main()`.
@@ -110,6 +109,16 @@ import {
 } from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
 import {
+  assertTransition,
+  holdsExposure,
+  type ShadowState,
+} from '../../../packages/domain/src/shadow-lifecycle.js';
+import {
+  resolveFill,
+  lookAheadBiasLamports,
+  FROZEN_FILL_LATENCY_MS,
+} from '../../../packages/domain/src/fill-latency.js';
+import {
   bindEntryObservation,
   bindExitObservation,
   managedPositions,
@@ -117,7 +126,11 @@ import {
   openShadowPosition,
   openShadowPositions,
   insertShadowMark,
-  closeShadowPosition,
+  triggerShadowExit,
+  blockShadowExit,
+  resumeShadowExit,
+  fillShadowExit,
+  fillCandidatesSince,
   updateShadowPeak,
   unmanagedPositions,
   claimSignalEpisode,
@@ -656,7 +669,7 @@ async function main(): Promise<void> {
     // Shadow books are worked after the realizable wallet, never before: the
     // wallet is the only book that can actually lose money.
     try {
-      await manageShadowBooks(db, jupiter, config, taker, contextHash);
+      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator);
     } catch (e) {
       log.warn({ err: (e as Error).message }, 'shadow book management failed');
     }
@@ -1687,6 +1700,11 @@ async function manageShadowBooks(
   config: AppConfig,
   taker: string | null,
   contextHash: string,
+  // P6 -- a shadow exit is admitted by the same core function the realizable
+  // portfolio uses, and that function simulates before it judges. It therefore
+  // needs the same two collaborators.
+  blobs: BlobStore,
+  simulator: SimulationClient | null,
 ): Promise<number> {
   if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
 
@@ -1779,29 +1797,141 @@ async function manageShadowBooks(
     const peak = BigInt(row.peak_value_lamports ?? row.cost_lamports);
     if (value !== null && value > peak) updateShadowPeak(db, row.shadow_position_id, value);
 
-    const decision = decideExit(
-      {
-        costLamports,
-        peakValueLamports: value !== null && value > peak ? value : peak,
-        markLamports: value,
-        openedUtcMs: row.opened_utc_ms,
-        nowUtcMs: nowMs,
-        exitRouteExists: routeAvailable,
-      },
-      config.exits,
+    /**
+     * P6 — the trajectory lifecycle, driven by the state machine that has
+     * existed since it was written and that nothing imported.
+     *
+     *   POSITION_OPEN
+     *     -> EXIT_TRIGGERED / AWAITING_FILL_OBSERVATION   on the exit rule
+     *     -> POSITION_CLOSED                              on a LATER valid fill
+     *     -> EXIT_BLOCKED                                 when no fill exists yet
+     *
+     * The old loop went from `decideExit` straight to `closeShadowPosition`, at
+     * the triggering mark's own value. That books a fill at the price which
+     * CAUSED the decision to exit, observed before the decision existed — the
+     * one price a real exit can never get. `assertTransition` refuses it in
+     * words: "a shadow may not close at its trigger observation".
+     */
+    const state = (row.state as ShadowState) ?? 'POSITION_OPEN';
+
+    if (state === 'POSITION_OPEN') {
+      const decision = decideExit(
+        {
+          costLamports,
+          peakValueLamports: value !== null && value > peak ? value : peak,
+          markLamports: value,
+          openedUtcMs: row.opened_utc_ms,
+          nowUtcMs: nowMs,
+          exitRouteExists: routeAvailable,
+        },
+        config.exits,
+      );
+      if (!decision.exit) continue;
+
+      // The machine hop is asserted rather than assumed. EXIT_TRIGGERED and
+      // AWAITING_FILL_OBSERVATION are the same instant and two different
+      // claims: the rule fired, and nothing has filled it.
+      assertTransition('POSITION_OPEN', 'EXIT_TRIGGERED');
+      assertTransition('EXIT_TRIGGERED', 'AWAITING_FILL_OBSERVATION');
+      triggerShadowExit(db, row.shadow_position_id, {
+        triggeredUtcMs: nowMs,
+        observationId: obs.observationId,
+        valueLamports: value,
+        reason: decision.reason ?? 'unknown',
+      });
+      log.info(
+        { book: row.book, mint: row.mint, reason: decision.reason },
+        'shadow exit TRIGGERED; awaiting a later fill observation',
+      );
+      continue;
+    }
+
+    if (!holdsExposure(state)) continue;
+
+    // ---- awaiting or blocked: is there a fill yet? ------------------------
+    const triggeredAt = row.triggered_utc_ms === null ? null : Number(row.triggered_utc_ms);
+    if (triggeredAt === null) {
+      // A managed state with no trigger is a row from before this migration.
+      // It is left alone rather than silently reinterpreted.
+      continue;
+    }
+
+    const outcome = resolveFill(
+      triggeredAt,
+      config.primaryRouteFamily,
+      fillCandidatesSince(db, row.shadow_position_id, triggeredAt),
+      FROZEN_FILL_LATENCY_MS,
     );
-    if (!decision.exit) continue;
 
-    // A shadow exit needs a buildable route for the same reason a real one
-    // does. Without it the position stays open and keeps being worked.
-    if (!routeAvailable) continue;
+    if (outcome.kind === 'blocked') {
+      if (state === 'AWAITING_FILL_OBSERVATION') assertTransition(state, 'EXIT_BLOCKED');
+      blockShadowExit(db, row.shadow_position_id, outcome.reason);
+      continue;
+    }
 
-    closeShadowPosition(db, row.shadow_position_id, {
-      realizedLamports: (value ?? 0n) - costLamports,
+    if (state === 'EXIT_BLOCKED') {
+      assertTransition('EXIT_BLOCKED', 'AWAITING_FILL_OBSERVATION');
+      resumeShadowExit(db, row.shadow_position_id);
+    }
+
+    /**
+     * The same admission the realizable portfolio uses.
+     *
+     * A shadow that closes on a route the portfolio would have refused is a
+     * shadow measuring a different strategy. The call graph asserts this edge
+     * exists; before P6 it did not.
+     */
+    const admission = await admitPortfolioExit(
+      {
+        simulator: {
+          simulate: async (observationId, leg) => {
+            await simulateLeg(db, blobs, simulator, observationId, taker, {
+              mode: 'DEVELOPMENT_JIT',
+              side: leg.side,
+              inputMint: leg.inputMint,
+              outputMint: leg.outputMint,
+              inputAmount: leg.inputAmount,
+              routeFamily: config.primaryRouteFamily,
+              capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
+              inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+              outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
+              fundingLamports: 100_000_000n,
+              maxLamportsSpent: 20_000_000n,
+              expectedOutput: leg.expectedOutput,
+              minimumOutput: leg.minimumOutput,
+              contextHash,
+            });
+            return {
+              simulation: simulationStatusOf(db, observationId),
+              effect: simulationEffectOf(db, observationId),
+            };
+          },
+        },
+      },
+      {
+        exit: obs,
+        mint: row.mint,
+        tokenAmount,
+        requireLocalSimulation: config.requireLocalSimulation === true,
+      },
+    );
+    if (!admission.ok) {
+      assertTransition('AWAITING_FILL_OBSERVATION', 'EXIT_BLOCKED');
+      blockShadowExit(db, row.shadow_position_id, admission.reasons.join('; '));
+      continue;
+    }
+
+    const fillValue = outcome.at.executableLamports;
+    const bias = lookAheadBiasLamports(BigInt(row.trigger_value_lamports ?? '0'), outcome);
+    assertTransition('AWAITING_FILL_OBSERVATION', 'POSITION_CLOSED');
+    fillShadowExit(db, row.shadow_position_id, {
+      realizedLamports: (fillValue ?? 0n) - costLamports,
       closedUtcMs: nowMs,
-      exitReason: decision.reason ?? 'unknown',
-      diagnostic: routeAvailable ? 'NONE' : 'NO_EXIT_ROUTE',
-      exitObservationId: obs.observationId,
+      exitReason: row.trigger_reason ?? 'unknown',
+      diagnostic: 'NONE',
+      exitObservationId: outcome.at.observationId,
+      fillLatencyMs: outcome.latencyMs,
+      lookAheadBiasLamports: bias,
     });
     /**
      * P11 — the episode ends when the book flattens.
@@ -1819,10 +1949,12 @@ async function manageShadowBooks(
       {
         book: row.book,
         mint: row.mint,
-        pnlSol: formatAmount((value ?? 0n) - costLamports, 9),
-        reason: decision.reason,
+        pnlSol: formatAmount((fillValue ?? 0n) - costLamports, 9),
+        reason: row.trigger_reason,
+        fillLatencyMs: outcome.latencyMs,
+        lookAheadBiasSol: bias === null ? null : formatAmount(bias, 9),
       },
-      'shadow position closed (NOT a wallet result and never summed with one)',
+      'shadow position closed at a LATER fill (NOT a wallet result and never summed with one)',
     );
   }
   return closed;
