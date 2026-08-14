@@ -458,7 +458,11 @@ const candidates = db
      FROM execution_observations o
      LEFT JOIN candidates c ON c.mint = o.mint
      WHERE o.side='buy' AND o.exact_transaction_blob IS NOT NULL AND o.received_utc_ms > ?
-     ORDER BY c.decimals DESC, o.received_utc_ms DESC
+     -- P3 requires a LIVE case above 2^53 atoms. The cheapest tokens per atom
+     -- are the ones that can reach it at a fixed notional, and the last
+     -- observation already measured how many atoms a buy of this size bought.
+     ORDER BY CAST(o.expected_output AS REAL) / NULLIF(CAST(o.requested_amount AS REAL),0) DESC,
+              o.received_utc_ms DESC
      LIMIT 120`,
   )
   .all(Date.now() - 24 * 3_600_000) as { mint: string; symbol: string; decimals: number | null }[];

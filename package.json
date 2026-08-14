@@ -64,7 +64,8 @@
     "shadow:development": "tsx scripts/evidence-status.ts shadow",
     "simulator:stateful-roundtrip-proof": "tsx scripts/stateful-roundtrip-proof.ts",
     "settlement:check": "tsx scripts/settlement-check.ts",
-    "size:admission-surface": "tsx scripts/economic-admission-surface.ts"
+    "size:admission-surface": "tsx scripts/economic-admission-surface.ts",
+    "simulator:big-atoms-proof": "tsx scripts/big-atoms-proof.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
