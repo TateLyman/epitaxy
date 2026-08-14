@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | starting (audited master) | `02483ca45b2c40a98637f88c01d8bbef5e1c5496` |
-| ending | `67e6692` |
-| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface |
+| ending | `e8c687a` |
+| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface · `5547f31` preregistration · `7604024` trigger≠fill · `b7dae95` confirmatory v2 · `e8c687a` migration split |
 
 ## 2. Local differences from committed head
 
@@ -242,11 +242,40 @@ ranking did **not** take, with `selection_arm`, `inclusion_probability` and
 admitted is evaluated on its own output. The draw is seeded rather than
 `Math.random()`, so a cycle replays.
 
-## 17–23. Trigger/later-fill, direct Pump clock, parity, Mayhem, entities
+## 17. Trigger → later fill (P10) — DONE
 
-**P10 (trigger → later fill), P12 (direct Pump/PumpSwap event clock), P13
-(official SDK parity), P14 (Mayhem, Token-2022 facts, entities into runCycle)
-are NOT done.**
+`fill-latency.ts` held `resolveFill` and `FROZEN_FILL_LATENCY_MS` and had
+**zero production callers**. The engine observed a route, decided to exit, and
+closed against that same observation — a fill at the instant of noticing, with
+no reaction, build, simulation, signature or landing in between. Every exit in
+the corpus was priced at a moment no real exit could reach, and the bias is
+systematically favourable because a policy fires when the price is most extreme.
+
+The trigger is persisted and the position moves to
+`AWAITING_FILL_OBSERVATION`, which is in `MANAGED_STATES` because it still
+holds the tokens. The fill must be a later same-family effect-verified priced
+observation, at least 1,200 ms after the trigger, and `resolveFill` takes the
+**first** valid one rather than the best — taking the best would be choosing
+the fill after seeing the outcomes.
+
+## 18. Readiness and the canonical view (P21) — DONE
+
+`confirmatory_positions_v2`. v1 is kept unchanged, because a view edited in
+place rewrites history. v2 additionally requires the explicit cash-flow fields,
+the identity `net = cash_in − cash_out` **recomputed in the view**, a residual
+that is present and zero, a trigger with a fill latency ≥ 1,200 ms, a durable
+manifest and `REPLAYABLE` on both legs, and a frozen strategy version and
+cohort. Readiness reads v2.
+
+A schema defect this caught: the P10 and P17 statements were appended to
+migration 25 **after 25 had already run**, so they never executed — the schema
+believed it was current while the columns did not exist. Split into migration
+26 and verified against the live database (`schema-v26`).
+
+## 19–23. Direct Pump clock, parity, Mayhem, entities
+
+**P12 (direct Pump/PumpSwap event clock), P13 (official SDK parity), P14
+(Mayhem, Token-2022 facts, entities into runCycle) are NOT done.**
 
 P13 and P14 in particular require pinning and verifying external SDKs against
 current official documentation and then proving parity to the lamport — that is
@@ -289,14 +318,12 @@ is measured to reduce valid stateful labels per day.
 6. Offline Pump replay blocked; no Rust/LiteSVM worker (P20).
 7. Durable ordering state machine (P4) not implemented — a crash between
    runtime return and effect persistence still leaves an unrepairable cached job.
-8. P10 trigger→later-fill lifecycle not running; the trigger mark can still be
-   its own fill.
-9. P12 direct Pump/PumpSwap event clock not built; the signal clock is still a
+8. P12 direct Pump/PumpSwap event clock not built; the signal clock is still a
    30-second provider poll.
 10. P13 official Pump/PumpSwap model and parity not implemented.
 11. P14 Mayhem, Token-2022 mint facts and entity links do not reach `runCycle`.
-12. P21 readiness/canonical-view repairs and P24 confirmatory window untouched —
-    both are downstream of having any valid label.
+12. P24 confirmatory window untouched, and P25 executor deliberately so — both
+    are downstream of having any valid label.
 
 ## 30. Commands to keep collection running
 
