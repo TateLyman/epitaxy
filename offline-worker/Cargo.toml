@@ -1,0 +1,18 @@
+[package]
+name = "epitaxy-offline-worker"
+version = "0.1.0"
+edition = "2021"
+
+# P20 -- litesvm brings solana-sdk itself. Naming both pins two lines of the
+# same crate graph and cannot resolve; Cargo.lock records the exact set.
+[dependencies]
+litesvm = "=0.6.1"
+solana-sdk = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+bincode = "1"
+# Built from source rather than linked against a system package. The build box
+# has no passwordless sudo, and vendoring also makes the binary hash the worker
+# reports actually describe what ran.
+openssl = { version = "0.10", features = ["vendored"] }
