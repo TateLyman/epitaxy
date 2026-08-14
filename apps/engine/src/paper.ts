@@ -65,6 +65,7 @@ import { formatAmount } from '../../../packages/domain/src/amounts.js';
 import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
+import { admitPortfolioEntry } from './paper-core.js';
 import { tokenProgramFromTransaction } from '../../../packages/solana/src/tokenprogram.js';
 import { fingerprintForObservation } from '../../../packages/research/src/fingerprint-of-observation.js';
 import {
@@ -92,9 +93,9 @@ import {
   unmanagedPositions,
   claimSignalEpisode,
   bindEpisode,
+  closeSignalEpisode,
 } from '../../../packages/storage/src/observation-repo.js';
 import {
-  legIsExecutable,
   netExpectedOutput,
   netMinimumOutput,
   totalEntryCost,
@@ -720,220 +721,141 @@ async function tryEnter(
     return;
   }
 
-  // ONE observation. Amount, expected output, minimum output, route plan, fee
-  // model, instructions, blockhash and expiry all come from this single
-  // response. Nothing is borrowed from the `/order` quote that screened it —
-  // that quote is a QUOTE_ONLY_BENCHMARK and is never mixed in.
-  const entry = await observeRoute(db, jupiter, {
-    family: config.primaryRouteFamily as 'BUILD_CUSTOM',
-    mint,
-    side: 'buy',
-    positionId: null,
-    shadowPositionId: null,
-    purpose: 'entry',
-    inputMint: WSOL_MINT,
-    outputMint: mint,
-    amount: lamportsIn,
-    taker,
-    slippageBps: config.risk.maxSlippageBps,
-    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-    priority: 'risk',
-    contextHash,
-  });
-
-  // §9 — simulate the EXACT bytes before asking whether the leg is executable.
-  //
-  // Order matters: legIsExecutable requires SIMULATED_OK when
-  // requireLocalSimulation is set, so running it first would refuse every entry
-  // for a simulation that was never attempted. That is what has been happening.
-  await simulateLeg(db, blobs, simulator, entry.observationId, taker, {
-    mode: 'DEVELOPMENT_JIT',
-    side: 'buy',
-    inputMint: WSOL_MINT,
-    outputMint: mint,
-    inputAmount: lamportsIn,
-    routeFamily: entry.family,
-    capabilityFingerprint: fingerprintForObservation(db, blobs, entry.observationId),
-    // The buy RECEIVES this token, so its program must be named or the credit
-    // cannot be bound to an account. Production never passed it, which is why
-    // production produced no effect-verified leg while the proof harness did.
-    outputTokenProgram: tokenProgramFor(db, blobs, entry.observationId, taker, mint),
-    // Enough hypothetical SOL to cover the leg, its fees and any rent it
-    // creates, inside a throwaway SVM. Not a wallet.
-    fundingLamports: lamportsIn * 10n,
-    maxLamportsSpent: lamportsIn * 2n,
-    expectedOutput: entry.expectedOutput,
-    minimumOutput: entry.minimumOutput,
-    contextHash,
-  });
-  // Re-read: the simulation wrote onto the row, and the in-memory observation
-  // predates it.
-  const simulated = simulationStatusOf(db, entry.observationId);
-
-  // §2.2 / §3.1 — every gate is re-evaluated at the size actually being
-  // entered, against the response that priced it.
-  const executable = legIsExecutable(
-    { ...entry, simulation: simulated, simulationEffect: simulationEffectOf(db, entry.observationId) },
-    { requireLocalSimulation: config.requireLocalSimulation },
+  /**
+   * P8 — the entry DECISION is `admitPortfolioEntry`. This function supplies
+   * collaborators and persists the outcome; it no longer decides.
+   *
+   * The observe → simulate → measure → observe exit → simulate → measure →
+   * gate sequence lived here AND in `paper-core.ts`, and only this copy ran.
+   * Two implementations of one decision is two chances to forget a term, and
+   * the way you find out is that the tested behaviour and the shipped
+   * behaviour disagree about whether an exit was ever required.
+   *
+   * The core cannot reach the database, so the measured credit and the
+   * measured round trip are read here and handed in. The core decides on them.
+   */
+  const admission = await admitPortfolioEntry(
+    {
+      observer: {
+        observe: async (req) =>
+          await observeRoute(db, jupiter, {
+            family: config.primaryRouteFamily as 'BUILD_CUSTOM',
+            mint,
+            side: req.side,
+            positionId: null,
+            shadowPositionId: null,
+            purpose: req.purpose,
+            inputMint: req.inputMint,
+            outputMint: req.outputMint,
+            amount: req.amount,
+            taker,
+            slippageBps:
+              req.side === 'sell' ? Math.min(config.risk.maxSlippageBps, 300) : config.risk.maxSlippageBps,
+            maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
+            broadcasterTipLamports: config.assumedBroadcasterTipLamports,
+            priority: 'risk',
+            contextHash,
+          }).catch(() => null),
+      },
+      simulator: {
+        simulate: async (observationId, leg) => {
+          await simulateLeg(db, blobs, simulator, observationId, taker, {
+            mode: 'DEVELOPMENT_JIT',
+            side: leg.side,
+            inputMint: leg.inputMint,
+            outputMint: leg.outputMint,
+            inputAmount: leg.inputAmount,
+            routeFamily: config.primaryRouteFamily,
+            capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
+            // Each side named as the asset it is. A buy RECEIVES the token, so
+            // its program must be given or the credit has no account to bind
+            // to — the defect that produced zero effect-verified legs.
+            inputTokenProgram:
+              leg.inputMint === WSOL_MINT ? null : tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
+            outputTokenProgram:
+              leg.outputMint === WSOL_MINT ? null : tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
+            fundingLamports: leg.side === 'buy' ? leg.inputAmount * 10n : 100_000_000n,
+            maxLamportsSpent: leg.side === 'buy' ? leg.inputAmount * 2n : 30_000_000n,
+            expectedOutput: leg.expectedOutput,
+            minimumOutput: leg.minimumOutput,
+            contextHash,
+          });
+          // Re-read: the simulation wrote onto the row and the in-memory
+          // observation predates it.
+          return {
+            simulation: simulationStatusOf(db, observationId),
+            effect: simulationEffectOf(db, observationId),
+          };
+        },
+      },
+      acquired: {
+        measure: (observationId) => {
+          const jobId = latestJobFor(db, observationId);
+          if (jobId === null) return null;
+          const st = measuredSettlementOf(db, observationId, jobId, taker);
+          if (st === null || !isPnlEligible(st).ok) return null;
+          try {
+            return acquiredTokens(st);
+          } catch {
+            return null;
+          }
+        },
+      },
+      roundTrip: {
+        measure: (buyId, sellId) => {
+          const buyJob = latestJobFor(db, buyId);
+          const sellJob = latestJobFor(db, sellId);
+          if (buyJob === null || sellJob === null) return null;
+          const b = measuredSettlementOf(db, buyId, buyJob, taker);
+          const x = measuredSettlementOf(db, sellId, sellJob, taker);
+          if (b === null || x === null) return null;
+          const rt = immediateRoundTrip(b, x);
+          return {
+            tradingLossBps: rt.tradingLossBps,
+            allInLossBps: rt.lossBps,
+            netLamports: rt.netLamports,
+            recoverableRentLamports: rt.recoverableRentLamports,
+            complete: rt.complete,
+            reasons: rt.reasons,
+          };
+        },
+      },
+    },
+    {
+      mint,
+      lamportsIn,
+      economics: {
+        allInCostLamports: lamportsIn + config.assumedSignatureFeeLamports + config.assumedPriorityFeeLamports,
+        requireLocalSimulation: config.requireLocalSimulation,
+        maxRoundTripLossBps: config.gates.maxRoundTripLossBps,
+      },
+    },
   );
-  if (!executable.ok) {
-    recordHealth(
-      db,
-      'entry_not_executable',
-      'warn',
-      `${mint.slice(0, 12)} refused: ${executable.reasons.join('; ')}`,
-    );
-    log.info(
-      { mint, symbol, reasons: executable.reasons, observationId: entry.observationId },
-      'entry refused — the exact-size observation is not an executable leg',
-    );
-    // §5 — the realizable portfolio declining is exactly the case the shadow
-    // book exists for, but a shadow position may only be opened on an
-    // observation that was itself obtained. An unbuildable route is a fact
-    // about the token and there is nothing to shadow.
+
+  const entry = admission.buy;
+  const entrySell = admission.sell;
+  if (entry === null) {
+    recordHealth(db, 'entry_unobservable', 'warn', `${mint.slice(0, 12)}: ${admission.reasons.join('; ').slice(0, 200)}`);
+    return;
+  }
+  if (!admission.ok || entrySell === null || admission.tokensAcquired === null) {
+    recordHealth(db, 'entry_refused', 'warn', `${mint.slice(0, 12)}: ${admission.reasons.join('; ').slice(0, 200)}`);
+    log.info({ mint, symbol, reasons: admission.reasons }, 'entry refused by core admission');
     return;
   }
 
-  // §3.2 — the fee is charged ONCE, by the family contract. BUILD_CUSTOM
-  // returns no fee fields at all (verified live), so there is nothing to
-  // deduct; the old code multiplied by (1 - feeBps) on top of an /order amount
-  // that already had the fee taken out.
-  /**
-   * P3 — the acquired amount is the simulator's MEASURED token credit.
-   *
-   * This was `netMinimumOutput(entry)`: the router's floor, what it promised
-   * not to go below. Booking that as the acquired amount records a position
-   * the simulator never verified, and the two differ by the slippage allowance
-   * on every single trade.
-   *
-   * The measured credit is read from the canonical settlement. No fallback: a
-   * leg whose credit could not be measured is refused, because proceeding on
-   * an estimate is exactly the divergence this directive exists to close.
-   */
+  const tokensReceived = admission.tokensAcquired;
+
+  // The settlement the position is booked from. Present by construction: the
+  // core refused above unless both legs were measured.
   const entryJobId = latestJobFor(db, entry.observationId);
   const entrySettlement =
     entryJobId === null ? null : measuredSettlementOf(db, entry.observationId, entryJobId, taker);
-
-  if (entrySettlement === null || !entrySettlement.effectValid) {
-    recordHealth(
-      db,
-      'entry_not_effect_verified',
-      'warn',
-      `${mint.slice(0, 12)}: no effect-verified buy settlement; not entering on an estimate`,
-    );
+  if (entrySettlement === null) {
+    recordHealth(db, 'entry_settlement_vanished', 'critical', `${mint.slice(0, 12)}: admitted then unmeasurable`);
     return;
   }
 
-  const eligible = isPnlEligible(entrySettlement);
-  if (!eligible.ok) {
-    recordHealth(db, 'entry_settlement_incomplete', 'warn', `${mint.slice(0, 12)}: ${eligible.reasons.join('; ')}`);
-    return;
-  }
-
-  let tokensReceived: bigint;
-  try {
-    tokensReceived = acquiredTokens(entrySettlement);
-  } catch (e) {
-    recordHealth(db, 'entry_settlement_incomplete', 'warn', `${mint.slice(0, 12)}: ${(e as Error).message}`);
-    return;
-  }
-  if (tokensReceived <= 0n) {
-    recordHealth(db, 'entry_no_credit', 'warn', `${mint.slice(0, 12)}: the buy credited no tokens`);
-    return;
-  }
-
-  // P9 — a buy without a verified same-family sell is not a portfolio entry.
-  //
-  // The exit half, at the EXACT amount this buy would leave us holding,
-  // observed on the SAME family, policy-checked and effect-verified. A position
-  // opened on a buy alone is a position whose exit has never been shown to
-  // exist, and capital has already been booked into one of those.
-  const entrySell = await observeRoute(db, jupiter, {
-    family: entry.family,
-    mint,
-    side: 'sell',
-    positionId: null,
-    shadowPositionId: null,
-    purpose: 'entry_roundtrip',
-    inputMint: mint,
-    outputMint: WSOL_MINT,
-    amount: tokensReceived,
-    taker,
-    slippageBps: Math.min(config.risk.maxSlippageBps, 300),
-    maxPriorityFeeLamports: config.risk.maxPriorityFeeLamports,
-    broadcasterTipLamports: config.assumedBroadcasterTipLamports,
-    priority: 'risk',
-    contextHash,
-  }).catch(() => null);
-
-  if (entrySell === null) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'warn',
-      `${mint.slice(0, 12)}: the entry buy is executable and no same-family sell could be observed. ` +
-        'Not entered: an entry whose exit does not exist is not an entry.',
-    );
-    return;
-  }
-
-  await simulateLeg(db, blobs, simulator, entrySell.observationId, taker, {
-    mode: 'DEVELOPMENT_JIT',
-    side: 'sell',
-    inputMint: mint,
-    outputMint: WSOL_MINT,
-    inputAmount: tokensReceived,
-    routeFamily: entrySell.family,
-    capabilityFingerprint: fingerprintForObservation(db, blobs, entrySell.observationId),
-    inputTokenProgram: tokenProgramFor(db, blobs, entrySell.observationId, taker, mint),
-    fundingLamports: 100_000_000n,
-    maxLamportsSpent: 20_000_000n,
-    expectedOutput: entrySell.expectedOutput,
-    minimumOutput: entrySell.minimumOutput,
-    contextHash,
-  });
-
-  const sellExecutable = legIsExecutable(
-    {
-      ...entrySell,
-      simulation: simulationStatusOf(db, entrySell.observationId),
-      simulationEffect: simulationEffectOf(db, entrySell.observationId),
-    },
-    { requireLocalSimulation: config.requireLocalSimulation },
-  );
-  if (!sellExecutable.ok) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'warn',
-      `${mint.slice(0, 12)}: the exit half is not executable — ${sellExecutable.reasons.join('; ')}`,
-    );
-    log.info(
-      { mint, symbol, reasons: sellExecutable.reasons },
-      'entry refused — the round trip does not close',
-    );
-    return;
-  }
-  if (entrySell.family !== entry.family) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'critical',
-      `${mint.slice(0, 12)}: entry family ${entry.family} but exit family ${entrySell.family}. ` +
-        'Two families are two markets and their difference is not a round trip.',
-    );
-    return;
-  }
-
-  // §3.4 — every fixed cost, charged once each, nothing omitted for being
-  // small. The signature fee is 5000 lamports; against the 0.02 SOL canary cap
-  // that is 2.5 bps, and the whole question is whether a few hundred bps of
-  // edge exists. An accounting model that skips the costs it considers
-  // negligible cannot test a thin edge.
-  //
-  // ATA rent is LOCKED capital rather than a fee: it leaves free capital and
-  // stays in the position until a close is shown to be possible. See §P5.
   const rentLamports = config.assumedAtaRentLamports;
   const entryCosts = {
     inputLamports: lamportsIn,
@@ -969,69 +891,15 @@ async function tryEnter(
   };
   const costLamports = totalEntryCost(entryCosts);
 
-  // What this round trip actually costs, measured rather than assumed. It is
-  // the number that decides whether an edge has to clear 200 bps or 1,400.
-  /**
-   * P3 — the exact round trip, from MEASURED settlements, and it GATES.
-   *
-   * This computed the loss from the router's `expectedOutput` and recorded it
-   * at `info`. The gate existed, the measurement existed, and nothing connected
-   * them: a position whose immediate round trip lost more than
-   * `maxRoundTripLossBps` opened anyway.
-   *
-   * 401 bps against a 400 bps cap is refused. There is no "close enough": the
-   * cap is the number that says whether an edge has room to exist.
-   */
-  const sellJobId = latestJobFor(db, entrySell.observationId);
-  const sellSettlement =
-    sellJobId === null ? null : measuredSettlementOf(db, entrySell.observationId, sellJobId, taker);
-
-  if (sellSettlement === null) {
-    recordHealth(
-      db,
-      'entry_without_exit',
-      'warn',
-      `${mint.slice(0, 12)}: the exit half has no measured settlement; not entering`,
-    );
-    return;
-  }
-
-  const roundTrip = immediateRoundTrip(entrySettlement, sellSettlement);
-  if (!roundTrip.complete) {
-    recordHealth(
-      db,
-      'entry_round_trip_incomplete',
-      'warn',
-      `${mint.slice(0, 12)}: ${roundTrip.reasons.slice(0, 2).join('; ')}`,
-    );
-    return;
-  }
-
-  // The TRADING loss, not the all-in figure. Rent is capital the account holds
-  // and returns on close; charging it against the edge refuses trades for a
-  // cost the market never made. Both numbers are recorded.
-  const entryRoundTripLossBps = roundTrip.tradingLossBps;
-  if (entryRoundTripLossBps > config.gates.maxRoundTripLossBps) {
-    recordHealth(
-      db,
-      'entry_round_trip_too_expensive',
-      'warn',
-      `${mint.slice(0, 12)}: measured immediate round trip loses ${entryRoundTripLossBps} bps ` +
-        `against a ${config.gates.maxRoundTripLossBps} bps cap. Refused.`,
-    );
-    log.info(
-      { mint, symbol, lossBps: entryRoundTripLossBps, cap: config.gates.maxRoundTripLossBps },
-      'entry refused — the measured round trip breaches the cost cap',
-    );
-    return;
-  }
+  // The core already refused anything above the cap, on the same measured
+  // settlements. Recorded here so the admitted number is in the corpus too.
+  const entryRoundTripLossBps = admission.roundTripLossBps;
   recordHealth(
     db,
     'entry_round_trip',
     'info',
-    `${mint.slice(0, 12)}: measured round trip — trading ${entryRoundTripLossBps} bps ` +
-      `(cap ${config.gates.maxRoundTripLossBps}), all-in ${roundTrip.lossBps} bps, ` +
-      `rent locked ${roundTrip.recoverableRentLamports}, net ${roundTrip.netLamports}`,
+    `${mint.slice(0, 12)}: measured trading round trip ${entryRoundTripLossBps} bps ` +
+      `(cap ${config.gates.maxRoundTripLossBps})`,
   );
 
   const positionId = randomUUID();
@@ -1054,6 +922,13 @@ async function tryEnter(
     executionCostLamports: entryCashOut(entrySettlement).cashOut,
     grossProceedsLamports: null,
     netPnlLamports: null,
+    // P9 — both ends of the cash flow, with rent identified separately.
+    // Exit-side fields are NULL because an open position has not realised
+    // them; null is undetermined, not zero.
+    entryCashOutLamports: entryCashOut(entrySettlement).cashOut,
+    exitCashInLamports: null,
+    lockedRentLamports: entryCashOut(entrySettlement).lockedRent,
+    residualTokenAtoms: null,
   };
   insertPosition(db, position);
   stampContext(db, 'positions', positionId, contextHash);
@@ -1596,6 +1471,17 @@ async function manageShadowBooks(
       diagnostic: routeAvailable ? 'NONE' : 'NO_EXIT_ROUTE',
       exitObservationId: obs.observationId,
     });
+    /**
+     * P11 — the episode ends when the book flattens.
+     *
+     * Without this an episode stays open forever and the mint is never
+     * claimable again. The old wall-clock bucket needed no close because a new
+     * bucket arrived every fifteen minutes on its own — which is also why it
+     * split one signal into two trades at 14:59 and 15:01.
+     */
+    if (row.signal_episode_id !== null) {
+      closeSignalEpisode(db, row.signal_episode_id, nowMs);
+    }
     closed += 1;
     log.info(
       {
@@ -2158,7 +2044,24 @@ async function manageOpenPositions(
       tokenAmount: 0n,
       executionCostLamports: bookedCost,
       grossProceedsLamports: settledGross,
+      /**
+       * P9 — the invariant, not a second opinion.
+       *
+       *   net_pnl_lamports = exit_cash_in_lamports - entry_cash_out_lamports
+       *
+       * Both operands are written on this same row in this same statement, so
+       * a reader can check the identity rather than trust it.
+       */
       netPnlLamports: settledGross - bookedCost,
+      exitCashInLamports: settledGross,
+      entryCashOutLamports: bookedCost,
+      lockedRentLamports:
+        exitSettlement === null
+          ? undefined
+          : exitSettlement.costs.rentCreatedLamports - exitSettlement.costs.rentRecoveredLamports,
+      // The tokens the exit did NOT manage to sell. Zero is a measurement;
+      // undefined is the absence of one.
+      residualTokenAtoms: exitSettlement?.residualTokenAtoms ?? undefined,
     });
 
     ledger.freeLamports += proceeds + ataVerdict.ataRentRecoveredLamports;

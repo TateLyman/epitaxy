@@ -532,8 +532,9 @@ export function insertPosition(db: Db, p: Position): void {
     `INSERT INTO positions
       (position_id,mint,state,token_amount,cost_lamports,realized_lamports,opened_utc_ms,closed_utc_ms,
        strategy_version,simulated,exit_reason,peak_value_lamports,
-       execution_cost_lamports,gross_proceeds_lamports,net_pnl_lamports)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       execution_cost_lamports,gross_proceeds_lamports,net_pnl_lamports,
+       entry_cash_out_lamports,exit_cash_in_lamports,locked_rent_lamports,residual_token_atoms)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     p.positionId,
     p.mint,
@@ -556,6 +557,14 @@ export function insertPosition(db: Db, p: Position): void {
       ? null
       : p.grossProceedsLamports.toString(),
     p.netPnlLamports === undefined || p.netPnlLamports === null ? null : p.netPnlLamports.toString(),
+    // P9 — NULL is undetermined, never zero. An open position has no exit cash
+    // in, and an unobserved residual is not a residual of zero.
+    p.entryCashOutLamports === undefined || p.entryCashOutLamports === null
+      ? null
+      : p.entryCashOutLamports.toString(),
+    p.exitCashInLamports === undefined || p.exitCashInLamports === null ? null : p.exitCashInLamports.toString(),
+    p.lockedRentLamports === undefined || p.lockedRentLamports === null ? null : p.lockedRentLamports.toString(),
+    p.residualTokenAtoms === undefined || p.residualTokenAtoms === null ? null : p.residualTokenAtoms.toString(),
   );
 }
 
@@ -573,6 +582,10 @@ export function updatePosition(
     executionCostLamports?: bigint;
     grossProceedsLamports?: bigint;
     netPnlLamports?: bigint;
+    entryCashOutLamports?: bigint;
+    exitCashInLamports?: bigint;
+    lockedRentLamports?: bigint;
+    residualTokenAtoms?: bigint;
   },
 ): void {
   const sets: string[] = [];
@@ -581,6 +594,10 @@ export function updatePosition(
     ['executionCostLamports', 'execution_cost_lamports'],
     ['grossProceedsLamports', 'gross_proceeds_lamports'],
     ['netPnlLamports', 'net_pnl_lamports'],
+    ['entryCashOutLamports', 'entry_cash_out_lamports'],
+    ['exitCashInLamports', 'exit_cash_in_lamports'],
+    ['lockedRentLamports', 'locked_rent_lamports'],
+    ['residualTokenAtoms', 'residual_token_atoms'],
   ] as const) {
     const v = fields[field];
     if (v !== undefined) {

@@ -6,6 +6,7 @@ import { openDb } from '../../packages/storage/src/db.js';
 import type { Db } from '../../packages/storage/src/db.js';
 import {
   claimSignalEpisode,
+  closeSignalEpisode,
   bindEpisode,
   episodeStats,
   openShadowPosition,
@@ -75,6 +76,11 @@ describe('a rescreen is the same episode', () => {
 describe('a genuinely new opportunity is a new episode', () => {
   it('after the cooldown, the same mint is claimable again', () => {
     const first = claimSignalEpisode(db, MINT, 'alpha_shadow', T0, 'ctx');
+    // P11 — an OPEN episode is one episode however long it runs, so the book
+    // has to flatten before a genuinely new opportunity can be claimed. The
+    // wall-clock bucket needed no close, which is exactly why it split one
+    // signal across a boundary into two trades.
+    closeSignalEpisode(db, first.signalEpisodeId, T0 + 1_000);
     const later = claimSignalEpisode(db, MINT, 'alpha_shadow', T0 + EPISODE_COOLDOWN_MS * 2, 'ctx');
     expect(later.isNew).toBe(true);
     expect(later.signalEpisodeId).not.toBe(first.signalEpisodeId);

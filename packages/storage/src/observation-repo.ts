@@ -331,6 +331,8 @@ export interface OpenShadowRow {
   notional_lamports: string;
   peak_value_lamports: string | null;
   opened_utc_ms: number;
+  /** P11 — the episode this book position belongs to, so closing it can end it. */
+  signal_episode_id: string | null;
 }
 
 export function openShadowPositions(db: Db, book?: ShadowBook): OpenShadowRow[] {
@@ -477,25 +479,70 @@ export function claimSignalEpisode(
   nowUtcMs: number,
   contextHash: string | null,
 ): EpisodeClaim {
-  const bucket = Math.floor(nowUtcMs / EPISODE_COOLDOWN_MS);
-  const id = `${book}:${mint}:${bucket}`;
+  /**
+   * P11 — the episode is durable STATE, not a wall-clock bucket.
+   *
+   * The identity was `floor(now / 15 minutes)`. Two screenings at 14:59 and
+   * 15:01 are two minutes apart and landed in different buckets, so they became
+   * two episodes and the second opened a second position on the same signal.
+   * Meanwhile two screenings at 14:01 and 14:59 — fifty-eight minutes apart —
+   * shared a bucket and the second was refused.
+   *
+   * The boundary was doing the opposite of what it was for, twice, and which
+   * one you got depended on where the signal happened to fall against a clock
+   * it has no relationship to.
+   *
+   * Now: the same mint and book stay ONE episode while it is open, and a new
+   * one requires the cooldown to have elapsed since it was last seen. That is
+   * idempotent across restarts because it is read from the row rather than
+   * recomputed from the current time.
+   */
   const existing = db
-    .prepare('SELECT signal_episode_id FROM signal_episodes WHERE mint = ? AND book = ? AND cooldown_bucket = ?')
-    .get(mint, book, bucket) as { signal_episode_id: string } | undefined;
+    .prepare(
+      `SELECT signal_episode_id, last_seen_utc_ms, closed_utc_ms
+       FROM signal_episodes
+       WHERE mint = ? AND book = ?
+       ORDER BY opened_utc_ms DESC LIMIT 1`,
+    )
+    .get(mint, book) as
+    | { signal_episode_id: string; last_seen_utc_ms: number; closed_utc_ms: number | null }
+    | undefined;
 
   if (existing !== undefined) {
-    db.prepare(
-      'UPDATE signal_episodes SET screenings_seen = screenings_seen + 1, last_seen_utc_ms = ? WHERE signal_episode_id = ?',
-    ).run(nowUtcMs, existing.signal_episode_id);
-    return { signalEpisodeId: existing.signal_episode_id, isNew: false };
+    const open = existing.closed_utc_ms === null;
+    const sinceLastSeen = nowUtcMs - existing.last_seen_utc_ms;
+    // An OPEN episode absorbs every rescreen, however long it has run: while
+    // the book holds the position, it is still the same trade.
+    if (open || sinceLastSeen < EPISODE_COOLDOWN_MS) {
+      db.prepare(
+        'UPDATE signal_episodes SET screenings_seen = screenings_seen + 1, last_seen_utc_ms = ? WHERE signal_episode_id = ?',
+      ).run(nowUtcMs, existing.signal_episode_id);
+      return { signalEpisodeId: existing.signal_episode_id, isNew: false };
+    }
   }
 
+  // `cooldown_bucket` is retained so pre-P11 rows keep their meaning and the
+  // unique index still has a value; it is no longer the identity.
+  const bucket = Math.floor(nowUtcMs / EPISODE_COOLDOWN_MS);
+  const id = `${book}:${mint}:${nowUtcMs}`;
   db.prepare(
     `INSERT INTO signal_episodes
        (signal_episode_id,mint,book,opened_utc_ms,cooldown_bucket,screenings_seen,last_seen_utc_ms,context_hash)
      VALUES (?,?,?,?,?,1,?,?)`,
   ).run(id, mint, book, nowUtcMs, bucket, nowUtcMs, contextHash);
   return { signalEpisodeId: id, isNew: true };
+}
+
+/**
+ * Close an episode, so a genuinely new signal after the cooldown can start one.
+ *
+ * Without this every mint ever screened would remain one episode forever.
+ */
+export function closeSignalEpisode(db: Db, signalEpisodeId: string, nowUtcMs: number): void {
+  db.prepare('UPDATE signal_episodes SET closed_utc_ms = ? WHERE signal_episode_id = ? AND closed_utc_ms IS NULL').run(
+    nowUtcMs,
+    signalEpisodeId,
+  );
 }
 
 export function bindEpisode(

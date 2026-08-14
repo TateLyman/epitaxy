@@ -281,6 +281,19 @@ export interface Position {
   readonly executionCostLamports?: bigint | null;
   readonly grossProceedsLamports?: bigint | null;
   readonly netPnlLamports?: bigint | null;
+
+  /**
+   * P9 — the two ends of the cash flow, and the rent held between them.
+   *
+   * `netPnlLamports = exitCashInLamports - entryCashOutLamports` exactly.
+   * Rent is identified separately rather than netted into either side: it is
+   * capital the account holds, not a cost the market charged, and collapsing
+   * the two is how a 363 bps round trip reads as 3,688.
+   */
+  readonly entryCashOutLamports?: bigint | null;
+  readonly exitCashInLamports?: bigint | null;
+  readonly lockedRentLamports?: bigint | null;
+  readonly residualTokenAtoms?: bigint | null;
 }
 
 export type CircuitBreaker =

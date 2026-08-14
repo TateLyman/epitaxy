@@ -1473,6 +1473,42 @@ ALTER TABLE simulation_jobs ADD COLUMN replayable TEXT
     ('REPLAYABLE','JIT_EFFECT_VALID_BUT_NOT_REPLAYABLE','NOT_APPLICABLE'));
 `,
   },
+  {
+    id: 25,
+    name: 'explicit_position_economics',
+    sql: `
+-- P9 -- the whole cash flow of a position, named.
+--
+-- Migration 22 added net_pnl_lamports, execution_cost_lamports and
+-- gross_proceeds_lamports and no writer populated them. A migrated-but-unwritten
+-- column is worse than a missing one: its existence reads as evidence the
+-- number is kept, and every reader either recomputed PnL its own way or read
+-- NULL and reported zero.
+--
+-- These four complete the identity, so nothing has to be re-derived:
+--
+--   net_pnl_lamports = exit_cash_in_lamports - entry_cash_out_lamports
+--
+-- with locked and recovered rent identified SEPARATELY, because rent is
+-- capital the account holds rather than a cost the market charged, and netting
+-- it into either side hides the distinction that decides whether a 3,688 bps
+-- round trip is really a 363 bps one.
+--
+-- NULL means undetermined. It never means zero. An open position has no exit
+-- cash in, and a leg whose residual was not observed has no residual of zero.
+ALTER TABLE positions ADD COLUMN entry_cash_out_lamports TEXT;
+ALTER TABLE positions ADD COLUMN exit_cash_in_lamports TEXT;
+ALTER TABLE positions ADD COLUMN locked_rent_lamports TEXT;
+ALTER TABLE positions ADD COLUMN residual_token_atoms TEXT;
+
+-- P11 -- an episode ends, so a genuinely new signal after the cooldown can
+-- start one. Without a close, every mint ever screened stays one episode
+-- forever; with only a wall-clock bucket, 14:59 and 15:01 were two.
+ALTER TABLE signal_episodes ADD COLUMN closed_utc_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_episode_open ON signal_episodes(mint, book, closed_utc_ms);
+`,
+  },
+
 ];
 
 export interface OpenOptions {

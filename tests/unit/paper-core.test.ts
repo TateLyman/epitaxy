@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   admitPortfolioEntry,
+  type AcquiredReader,
+  type RoundTripReader,
+  type MeasuredRoundTrip,
   admitPortfolioExit,
   chooseDecisionMark,
   type RouteObserver,
@@ -82,16 +85,37 @@ function simulator(
   };
 }
 
-const ECON = { allInCostLamports: 20_500_000n, requireLocalSimulation: true };
-const TOKENS = (): bigint => 1_000_000n;
+const ECON = { allInCostLamports: 20_500_000n, requireLocalSimulation: true, maxRoundTripLossBps: 400 };
+
+/** The MEASURED credit, as the caller reads it off the settlement. */
+function acquired(atoms: bigint | null = 1_000_000n): AcquiredReader {
+  return { measure: () => atoms };
+}
+
+/** A measured round trip. Defaults to comfortably inside the cap. */
+function roundTrip(over: Partial<MeasuredRoundTrip> = {}): RoundTripReader {
+  return {
+    measure: () => ({
+      tradingLossBps: 120,
+      allInLossBps: 3_688,
+      netLamports: -250_000n,
+      recoverableRentLamports: 2_039_280n,
+      complete: true,
+      reasons: [],
+      ...over,
+    }),
+  };
+}
+
+const DEPS = { acquired: acquired(), roundTrip: roundTrip() };
 
 describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => {
   it('refuses an entry whose exit route cannot be observed', async () => {
     // THE defect. The old path opened the position here: the buy was fine, and
     // nobody asked whether it could ever be closed.
     const r = await admitPortfolioEntry(
-      { observer: observer({ sell: null }), simulator: simulator() },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { observer: observer({ sell: null }), simulator: simulator(), ...DEPS },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(r.ok).toBe(false);
     expect(r.reasons.join(' ')).toMatch(/exit route could not be observed/);
@@ -100,8 +124,8 @@ describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => 
   it('observes the sell at the EXACT amount the buy would acquire', async () => {
     const o = observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) });
     await admitPortfolioEntry(
-      { observer: o, simulator: simulator() },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { observer: o, simulator: simulator(), ...DEPS },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     // A sell observed at a round number is a price for a trade nobody is going
     // to make, and it flatters exactly the positions too large for their pool.
@@ -116,8 +140,9 @@ describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => 
       {
         observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) }),
         simulator: simulator({ 'obs-sell': { simulation: 'SIMULATED_OK', effect: 'EFFECT_REFUSED' } }),
+        ...DEPS,
       },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(r.ok).toBe(false);
     expect(r.reasons.join(' ')).toMatch(/sell: simulation effect EFFECT_REFUSED/);
@@ -128,27 +153,80 @@ describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => 
       {
         observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell', family: 'ORDER_EXECUTE' }) }),
         simulator: simulator(),
+        ...DEPS,
       },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(r.ok).toBe(false);
     expect(r.reasons.join(' ')).toMatch(/does not match the entry family/);
   });
 
-  it('admits a complete round trip and measures its loss against the ALL-IN cost', async () => {
+  it('admits on the MEASURED round trip, not on a router quote', async () => {
     const r = await admitPortfolioEntry(
       {
+        // The router says the sell returns 18,000,000. The core must not use
+        // it: that is what the route promised, not what the simulator measured.
         observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell', expectedOutput: 18_000_000n }) }),
         simulator: simulator(),
+        ...DEPS,
       },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(r.reasons).toEqual([]);
     expect(r.ok).toBe(true);
-    // (20_500_000 - 18_000_000) / 20_500_000 = 1219 bps. Against the input
-    // alone it would read 1000 bps, and the 219 bps difference is the fees,
-    // tip and rent that make a break-even strategy a losing one.
-    expect(r.roundTripLossBps).toBe(1219);
+    expect(r.roundTripLossBps).toBe(120);
+  });
+
+  it('REFUSES an entry whose measured round trip breaches the cap', async () => {
+    // The defect this kills: the number was computed correctly and recorded at
+    // info. The gate existed, the measurement existed, and nothing connected
+    // them, so a mechanically losing position opened anyway.
+    //
+    // 10,002 bps is not hypothetical. It is what a sub-10^9-atom position
+    // measured on a live route, where the sell returned 5 lamports on a
+    // 20,000,000 lamport buy.
+    const r = await admitPortfolioEntry(
+      {
+        observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) }),
+        simulator: simulator(),
+        acquired: acquired(),
+        roundTrip: roundTrip({ tradingLossBps: 10_002 }),
+      },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/mechanics: the measured round trip loses 10002 bps/);
+  });
+
+  it('refuses when the round trip was never measured, rather than assuming it is fine', async () => {
+    const r = await admitPortfolioEntry(
+      {
+        observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) }),
+        simulator: simulator(),
+        acquired: acquired(),
+        roundTrip: { measure: () => null },
+      },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/never measured/);
+  });
+
+  it('refuses to book the router floor when the credit was not measured', async () => {
+    // `netMinimumOutput` is the floor the router promised not to go below. The
+    // two differ by the slippage allowance on every trade, and booking it
+    // records a position the simulator never verified.
+    const r = await admitPortfolioEntry(
+      {
+        observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) }),
+        simulator: simulator(),
+        acquired: { measure: () => null },
+        roundTrip: roundTrip(),
+      },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/no measured token credit/);
   });
 
   it('simulates BOTH legs, each with its own side and amount', async () => {
@@ -157,8 +235,9 @@ describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => 
       {
         observer: observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) }),
         simulator: sim,
+        ...DEPS,
       },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: TOKENS, economics: ECON },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(sim.seen).toEqual([
       { id: 'obs-buy', side: 'buy', amount: 20_000_000n },
@@ -169,8 +248,8 @@ describe('P8/P9 — portfolio entry executes a round trip, not a phrase', () => 
   it('refuses an entry that acquires nothing before it ever looks for an exit', async () => {
     const o = observer({ sell: obs({ observationId: 'obs-sell', side: 'sell' }) });
     const r = await admitPortfolioEntry(
-      { observer: o, simulator: simulator() },
-      { mint: MINT, lamportsIn: 20_000_000n, tokensFrom: () => 0n, economics: ECON },
+      { observer: o, simulator: simulator(), acquired: acquired(0n), roundTrip: roundTrip() },
+      { mint: MINT, lamportsIn: 20_000_000n, economics: ECON },
     );
     expect(r.ok).toBe(false);
     expect(o.calls.filter((c) => c.side === 'sell')).toEqual([]);
