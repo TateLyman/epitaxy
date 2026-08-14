@@ -59,6 +59,56 @@ export function candidateExists(db: Db, mint: string): boolean {
  * while the strategy deliberately refuses to touch anything that young. Without
  * this queue the two never intersect and no candidate can ever be evaluated.
  */
+/**
+ * P16 — the maturing queue, per COHORT.
+ *
+ * `maturingMints` takes one window from `config.gates`, so only the configured
+ * 2m–60m band was ever fed. `AGE_1H_5H`, `AGE_5H_24H` and `AGE_24H_7D` were
+ * defined, given bounds, assigned to rows, and never had a single candidate
+ * mature into them. Four arms on paper, one arm running — and comparing them
+ * would have compared one populated cohort against three empty ones.
+ *
+ * Each cohort gets its OWN quota rather than sharing one limit. A shared limit
+ * ordered by last-screened would be consumed by whichever band has the most
+ * candidates, which is always the youngest, and the older arms would starve
+ * exactly as they did before.
+ */
+export function maturingByCohort(
+  db: Db,
+  nowUtcMs: number,
+  bounds: Readonly<Record<string, { fromMs: number; toMs: number }>>,
+  perCohortLimit: number,
+): { cohort: string; mint: string }[] {
+  const out: { cohort: string; mint: string }[] = [];
+  const seen = new Set<string>();
+  for (const [cohort, b] of Object.entries(bounds)) {
+    let rows: { mint: string }[];
+    try {
+      rows = db
+        .prepare(
+          `SELECT c.mint AS mint FROM candidates c
+            LEFT JOIN (SELECT mint, MAX(evaluated_utc_ms) AS last_eval FROM screenings GROUP BY mint) s
+              ON s.mint = c.mint
+            WHERE COALESCE(c.created_at_utc_ms, c.first_seen_utc_ms) BETWEEN ? AND ?
+            ORDER BY COALESCE(s.last_eval, 0) ASC
+            LIMIT ?`,
+        )
+        .all(nowUtcMs - b.toMs, nowUtcMs - b.fromMs, perCohortLimit) as { mint: string }[];
+    } catch {
+      rows = [];
+    }
+    for (const r of rows) {
+      // The bands are half-open and disjoint, so a mint cannot legitimately
+      // appear twice; if it does, the first (younger) cohort keeps it rather
+      // than the same token being screened once per band.
+      if (seen.has(r.mint)) continue;
+      seen.add(r.mint);
+      out.push({ cohort, mint: r.mint });
+    }
+  }
+  return out;
+}
+
 export function maturingMints(
   db: Db,
   nowUtcMs: number,

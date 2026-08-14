@@ -1506,6 +1506,21 @@ ALTER TABLE positions ADD COLUMN residual_token_atoms TEXT;
 -- forever; with only a wall-clock bucket, 14:59 and 15:01 were two.
 ALTER TABLE signal_episodes ADD COLUMN closed_utc_ms INTEGER;
 CREATE INDEX IF NOT EXISTS idx_episode_open ON signal_episodes(mint, book, closed_utc_ms);
+
+-- P17 -- which arm bought this screening, and with what probability.
+--
+-- The whole quote budget went to the highest-liquidity survivors, so the
+-- corpus could only answer "how do high-liquidity survivors perform". It could
+-- not answer what the gates refused that would have worked, because a gate
+-- evaluated only on what it admitted is evaluated on its own output.
+--
+-- inclusion_probability is what makes the sample reweightable. A biased
+-- sample whose bias is unrecorded is worse than no sample: it looks like
+-- evidence.
+ALTER TABLE screenings ADD COLUMN selection_arm TEXT;
+ALTER TABLE screenings ADD COLUMN inclusion_probability REAL;
+ALTER TABLE screenings ADD COLUMN selection_stratum TEXT;
+CREATE INDEX IF NOT EXISTS idx_screening_arm ON screenings(selection_arm, evaluated_utc_ms);
 `,
   },
 
