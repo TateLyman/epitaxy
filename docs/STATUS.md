@@ -1,6 +1,25 @@
 # STATUS
 
-> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, second
+> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, third
+> pass. State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+> **Six trajectories completed.** Freshly migrated PumpSwap tokens from the
+> confirmed-migration queue, each buy → sell → close inside ONE runtime with the
+> sell priced from the state the buy committed and executed against that same
+> state. Six of six had `quoteStateSurvived = true`, compared per account by
+> content hash. This is the first time a trajectory has completed in this system.
+>
+> **The mechanics floor is now measured, and it is high.** Every one of the six
+> loses money on an immediate round trip: median **−12.7%** of notional, best
+> case **−2.54%** — which is exactly the decoded 250 bps bottom-tier round-trip
+> fee, and that agreement is what makes the rest credible. Everything above the
+> fee floor is price impact into thin post-migration pools.
+> `docs/MECHANICS_FLOOR_MEASURED.md`.
+>
+> Six tokens is below the directive's own apparatus-sanity checkpoint of 10. No
+> arm may be selected or eliminated on it, and no holding period has been
+> evaluated. Nothing was signed, submitted or funded on chain.
+
+> **2026-08-14 — trajectory-kernel directive from `1c499cd`, second
 > pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**
 > The candidate stream was the binding constraint and it is now measured: only
 > **6 of 185** screened mints have a canonical PumpSwap pool (~3%), against
