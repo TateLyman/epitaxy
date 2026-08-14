@@ -33,6 +33,8 @@ Last updated: 2026-08-14T00:10Z
 | the Jupiter upgrade is not justified | `artifacts/rate-budget.json` | bottleneck is the scheduler at 0.30/s of a 1 RPS ceiling |
 | every required production call edge holds | `artifacts/production-call-graph.json` | 15 edges, resolved through the TypeScript checker |
 | a shadow trigger no longer closes a position | live database | 40 positions `AWAITING_FILL_OBSERVATION` |
+| the model matches transactions that LANDED | `artifacts/landed-parity.json` | direct single-hop swaps at 0–1 bps, small sample |
+| the mechanics floor is a step function of market cap | `artifacts/fee-tier-surface.json` | 25 tiers, 250 → 60 bps |
 
 ## What is disabled
 

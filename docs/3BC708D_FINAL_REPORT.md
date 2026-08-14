@@ -504,6 +504,61 @@ Zero provider disagreements is worth stating precisely: where Jupiter's audit
 fields and the chain both had an answer, they agreed. That makes the provider
 *reliable so far*, not authoritative.
 
+## 19h. Parity against landed transactions (P14)
+
+`artifacts/landed-parity.json`, `pnpm pumpswap:landed-parity`.
+
+Every other parity arm compares the model to something this system produced —
+another decode, or the local runtime. They can all agree and all be wrong in the
+same way. This one compares against what the chain recorded.
+
+No archival node needed: a landed transaction carries `meta.preTokenBalances`,
+so the pool vaults' contents *before* the swap travel with the transaction.
+
+**Two corrections, both to the comparison rather than the model:**
+
+The first pass compared against the **pool vault** delta and found a residual of
+exactly **−123 bps**. That is not a model error — it is the protocol and creator
+fee, 93 + 30 bps at the bottom tier, leaving the vault for accounts that are not
+the taker. The vault moves by the taker's proceeds *plus* those fees. Switching
+to the taker delta gave three exact matches out of four.
+
+The second pass, on a wider sample, scattered — and its median of 0 bps was an
+artefact of the spread, not a result. Two causes, both attribution: a routed
+transaction moves the fee payer's balance for several legs at once, and a buy
+funds its wrapped-SOL account with a slippage-padded `maxQuoteIn` that returns on
+close, so neither the account delta nor the native delta is what the swap
+consumed.
+
+The headline therefore counts only **direct single-hop swaps whose taker-side
+quantity can be isolated**. Direct cases land at **0 and 1 bps**. Routed cases,
+and cases whose residual exceeds what the fee table can explain, are kept in the
+artifact with their numbers and excluded from the summary.
+
+**The sample is small** — most PumpSwap traffic is routed, and the public
+endpoint limits how many transactions a run can examine.
+
+## 19i. RPC capacity
+
+`pnpm rpc:capacity`. Prints hosts and verdicts, never URLs: the configured
+endpoints carry API keys in their query strings.
+
+```
+primary   mainnet.helius-rpc.com        CAPPED (plan quota exhausted)
+fallback  (not configured)
+public    api.mainnet-beta.solana.com   OK
+```
+
+The keyless public endpoint serves `getAccountInfo`, `getTokenSupply`,
+`getSignaturesForAddress` and `getTransaction`, and throttles
+`getTokenLargestAccounts` away. So the Mayhem read and landed parity are
+unblocked; the entity read is not, because the holder set is exactly what
+`getTokenLargestAccounts` provides.
+
+`RPC_ENDPOINT` is an **explicit override, never a silent fallback**, and is
+stamped into every row it produces. A silent fallback would put rows from two
+sources in one table with nothing to tell them apart.
+
 ## 20. Not done, and why
 
 - **The live write of `mayhem_facts` and `entity_concentration`.** Both run only
@@ -519,9 +574,11 @@ fields and the chain both had an answer, they agreed. That makes the provider
   trajectories.
 - **P22** confirmatory window. Gated on an arm being selected by P19.
 - **P14** remaining matrix cells (§11): USDC quote, legacy SPL base, bonding
-  curve, Mayhem vs non-Mayhem, and parity against a landed mainnet transaction.
-  §19g establishes that legacy SPL base is a **sampling** gap rather than a
-  universe gap; all of these need the network.
+  curve, Mayhem vs non-Mayhem. §19g establishes that legacy SPL base is a
+  **sampling** gap rather than a universe gap. Landed-transaction parity is now
+  done (§19h) on a small sample.
+- **Entity concentration at scale.** Blocked on `getTokenLargestAccounts`, which
+  the capped provider served and the public endpoint does not (§19i).
 - **Wiring the three stronger entity link kinds.** `SHARED_FEE_PAYER`,
   `SAME_TRANSACTION` and `DIRECT_TRANSFER` are implemented and tested
   (`buildTransactionLinks`), behind a separate `TransactionSource` so a caller
