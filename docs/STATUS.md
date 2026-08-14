@@ -33,7 +33,8 @@ Last updated: 2026-08-14T00:10Z
 | the Jupiter upgrade is not justified | `artifacts/rate-budget.json` | bottleneck is the scheduler at 0.30/s of a 1 RPS ceiling |
 | every required production call edge holds | `artifacts/production-call-graph.json` | 15 edges, resolved through the TypeScript checker |
 | a shadow trigger no longer closes a position | live database | 40 positions `AWAITING_FILL_OBSERVATION` |
-| the model matches transactions that LANDED | `artifacts/landed-parity.json` | 12 of 21 direct swaps exact, median 0 bps |
+| the model matches transactions that LANDED | `artifacts/landed-parity.json` | 13 of 13 measured-quote swaps exact |
+| the model matches on a LEGACY SPL base pool | `artifacts/pumpswap-parity-v2.json` | 12/12 cells exact |
 | holders cluster into far fewer actors | `entity_concentration` | 20 addresses → 13 entities, top-10 5,242 → 8,574 bps |
 | the mechanics floor is a step function of market cap | `artifacts/fee-tier-surface.json` | 25 tiers, 250 → 60 bps |
 

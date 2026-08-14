@@ -568,17 +568,57 @@ quantity can be isolated**. Routed cases, and cases whose residual exceeds what
 the fee table can explain, are kept in the artifact with their numbers and
 excluded from the summary.
 
-On a working endpoint, over 200 transactions examined:
+**The residuals are explained.** Splitting the direct cases by how the quote
+side was read separates them perfectly:
 
-```
-direct, isolatable   21     (4 buys, 17 sells)
-EXACT (0 bps)        12
-median residual       0 bps
-routed               52     excluded
-attribution uncertain 34     excluded
-```
+| reading | cases | result |
+|---|---|---|
+| taker **wrapped-quote account** | 13 | **all exactly 0 bps** |
+| taker **native balance** | 5 | median 117 bps |
 
-The non-zero direct residuals run 1 to 239 bps and are **not yet explained**.
+The first is a direct reading of the swap's proceeds. The second is an inference
+from a balance that also moves for priority fees, tips and account rent — the
+transaction fee is added back, and nothing else can be, because nothing else is
+separable from outside. **Every non-zero residual is an inferred case.**
+
+The headline is now the measured set alone; the inferred set sits beside it as
+indicative rather than as evidence about the model. Routed cases (36) and
+attribution-uncertain cases (11) stay in the artifact with their numbers.
+
+I had recorded these residuals as "not yet explained" and moved on. They were
+one query away.
+
+## 19h3. The parity coverage cells (P14)
+
+`artifacts/parity-coverage.json`, `pnpm parity:coverage`.
+
+The matrix had sampled whatever was recent, and every pool turned out
+Token-2022 base, wrapped-SOL quote, bottom fee tier. `parity-coverage` searches
+the corpus and the chain for each uncovered cell and writes the candidates as a
+**reviewable artifact**, rather than hiding the selection inside a run.
+
+**Legacy SPL base — CLOSED.** A legacy-base pool was found and the matrix on it
+is **12/12 exact**: six sizes, both sides, base token program `TokenkegQ…`. It
+was a *sampling* gap exactly as §19g predicted from 879 legacy mints in the
+corpus.
+
+**Non-SOL quote — not a sampling gap.** No canonical pool in the scanned
+universe quotes anything but wrapped SOL.
+
+**Fee-tier boundary — not reachable from this candidate stream.** Every pool
+scanned sits in the bottom tier. This system discovers new small tokens, so a
+44,000 SOL pool is not something its candidate stream contains. Recorded as
+scope, not as a to-do.
+
+Two defects surfaced here, both the same kind — something that looked like
+absence and was not:
+
+- The parity matrix skipped a mint with a bare `continue`, so a rate-limited
+  pool read was indistinguishable from a bonding-curve token. It now says why.
+- Three scripts had grown an `RPC_ENDPOINT` override and three had not, so a run
+  explicitly pointed at one endpoint silently used another and reported *that*
+  endpoint's quota error. `researchRpc` is now the single place that decides,
+  and it reports the host it chose.
 
 ## 19i. RPC capacity
 
@@ -613,13 +653,15 @@ sources in one table with nothing to tell them apart.
 - **P19 execution.** Preregistered and allocated (§19e); it cannot run without
   trajectories.
 - **P22** confirmatory window. Gated on an arm being selected by P19.
-- **P14** remaining matrix cells (§11): USDC quote, legacy SPL base, bonding
-  curve, Mayhem vs non-Mayhem. §19g establishes that legacy SPL base is a
-  **sampling** gap rather than a universe gap. Landed-transaction parity is now
-  done (§19h) on a small sample.
-- **A trustworthy entity reading.** 111 links exist and no mint yet has enough
-  holder histories read for `concentration()` to call its entity figure
-  trustworthy. That is a coverage problem, not a correctness one.
+- **P14 bonding-curve and Mayhem-vs-non-Mayhem cells.** The other cells are
+  resolved: legacy SPL base is closed (§19h3), landed-transaction parity is done
+  and its residuals explained (§19h), and non-SOL quote and the fee-tier
+  boundary are not reachable from this candidate stream rather than unsampled.
+- **Trustworthy entity readings at scale.** 136 links across 42 mints, and
+  **one** mint now clears the trustworthiness bar — 20 addresses collapsing to 3
+  entities, top-10 concentration 5,538 → **10,000 bps**. The rest are held back
+  by rate-limited history reads, which is now a budget question rather than the
+  bug it started as (§19h2).
 - **Wiring the three stronger entity link kinds.** `SHARED_FEE_PAYER`,
   `SAME_TRANSACTION` and `DIRECT_TRANSFER` are implemented and tested
   (`buildTransactionLinks`), behind a separate `TransactionSource` so a caller
