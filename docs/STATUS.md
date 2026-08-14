@@ -59,9 +59,13 @@ Last updated: 2026-08-14T00:10Z
 
 ## Not done from this directive
 
-- **`P11` Mayhem** — the table exists, nothing populates it, and there is no
-  verified on-chain read for agent state or the burn transition. The one
-  requirement left with nothing behind it.
+- **The live write of `mayhem_facts` and `entity_concentration`** — wired and
+  decoding correctly against real pool bytes, but both run only on eligible
+  candidates (~0.25%), and the direct probe hit the RPC **daily** cap. Run
+  `pnpm enrichment:probe` once it resets.
+- **The Mayhem program's account layout** — no published IDL, so agent
+  inventory, buys, sells and the burn transition are refused rather than
+  guessed. The Mayhem *flag* itself is read from the pool and the bonding curve.
 - **`P19` execution** — preregistered and allocating arms; zero completed
   trajectories against a first checkpoint of ten per arm.
 - **`P22`** — gated on an arm being selected by P19.

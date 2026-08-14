@@ -325,13 +325,12 @@ every named home must exist and contain tests, the uncovered items must be
 exactly the ones named with reasons, and the count is checked.
 
 ```
-47 of 48 covered
+48 of 48 covered
 ```
 
-The one that is not, and why:
-
-- **32** Mayhem flow is excluded from organic breadth — the table exists and
-  nothing populates it, so there is nothing to exclude from
+`NOT_COVERED` is empty. Item 32 was in it, on my claim that Mayhem had no
+verifiable source; that claim was wrong and the item is now covered by
+`tests/unit/mayhem-p11.test.ts`.
 
 The index found two of its own errors on first run: two homes it named did not
 exist. Both were then written.
@@ -409,8 +408,24 @@ fraction of any one token's holders, while a funder behind sixty per cent of a
 memecoin's top wallets is precisely the sniper cluster the measurement exists to
 find. Genericness is a cross-mint property and the caller now supplies it.
 
-**Mayhem remains unsourced.** The table exists as of migration 31 and nothing
-populates it. Inventing a source would be fabrication.
+**Mayhem: I was wrong that it had no source.** I recorded the requirement as
+unsourceable and left the table empty. `isMayhemMode` is a decoded field on the
+PumpSwap **pool** account — in the same IDL this system already uses to price
+every swap — and `is_mayhem_mode` is a field on the pump **bonding curve**,
+which covers the pre-migration half of a token's life. The pool bytes were
+already being captured. I found it only because the question was asked again and
+I checked the IDL instead of repeating the claim.
+
+What is genuinely unavailable is the Mayhem *program's* account layout;
+`MAyhSm…` publishes no IDL. Agent identity, inventory, buys, sells, additional
+supply and the burn transition stay null with the reason attached rather than
+being read out of guessed offsets — a guessed inventory is worse than an absent
+one, because it would be subtracted from organic flow with confidence.
+
+The grading follows honestly: a Mayhem venue's breadth is **unusable, not
+adjustable**. There is deliberately no function returning an "organic volume"
+number, because subtracting an unmeasured quantity is a guess with a minus sign.
+An unread venue is not organic either.
 
 ## 19e. Tournament (P19) — PREREGISTERED AND ALLOCATED, NOT RUN
 
@@ -431,11 +446,15 @@ arriving trajectories are already assigned rather than labelled afterwards.
 
 ## 20. Not done, and why
 
-- **P11 Mayhem.** `mayhem_facts` landed with migration 31 and no source
-  populates it. There is no documented on-chain read for agent state, agent
-  inventory or the burn transition that I could verify, and inventing one would
-  be fabrication. This is the one directive requirement left with nothing
-  behind it.
+- **The live write of `mayhem_facts` and `entity_concentration`.** Both run only
+  for candidates that reach the quote stage; eligibility is ~0.25%, and the
+  probe that would have exercised them directly hit HTTP 429 `max usage
+  reached` — the RPC **daily cap**, not a per-second limit. The decode itself is
+  verified against real captured mainnet pool bytes. `pnpm enrichment:probe`
+  exercises the path once the cap resets.
+- **The Mayhem program's own account layout.** No IDL is published, so agent
+  inventory, buys, sells and the burn transition are refused rather than
+  guessed.
 - **P19 execution.** Preregistered and allocated (§19e); it cannot run without
   trajectories.
 - **P22** confirmatory window. Gated on an arm being selected by P19.
