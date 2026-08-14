@@ -1,0 +1,41 @@
+{
+  "generatedUtcMs": 1786682101471,
+  "sourceCommit": "450a812d4d6bc8dcfc3b946ee1887730cf3be490",
+  "dirty": true,
+  "runtime": "litesvm",
+  "litesvmVersion": "0.6.1",
+  "binarySha256": "b85c38faf7c22e6804d3e9173ade2e340bd639268edd8753242d70bef231d5cb",
+  "sequentialComplete": true,
+  "observed": {
+    "step1": {
+      "status": "SIMULATED_OK",
+      "preB": 0,
+      "postB": 1000000000
+    },
+    "step2": {
+      "status": "SIMULATED_OK",
+      "preB": 1000000000,
+      "postB": 3000000000
+    }
+  },
+  "expected": {
+    "step1PostB": 1000000000,
+    "step2PreB": 1000000000,
+    "step2PostB": 3000000000,
+    "note": "Two fresh states would show step2.preB = 0 and step2.postB = 2 SOL."
+  },
+  "sequentialPropertyHolds": true,
+  "incompleteness": [],
+  "steps": [
+    {
+      "label": "transfer-1",
+      "status": "SIMULATED_OK",
+      "error": null
+    },
+    {
+      "label": "transfer-2",
+      "status": "SIMULATED_OK",
+      "error": null
+    }
+  ]
+}
