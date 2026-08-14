@@ -1,5 +1,15 @@
 # STATUS
 
+> **2026-08-14 (later) — trajectory-kernel directive from `1c499cd`. State:
+> `MEASUREMENT_REPAIR_REQUIRED`.**
+> The later-fill deadlock is repaired: 169 trajectories had been waiting up to
+> 4.6 hours because `resolveFill` required an effect-valid candidate and nothing
+> ever simulated one. **Zero trajectories have still completed** — 93% of marks
+> have no exit route, because the exit still runs through a router that declines
+> tokens with no canonical pool. `docs/1C499CD_PROGRESS_REPORT.md`.
+
+---
+
 > **2026-08-14 — true-stateful directive from `3bc708d`. State:
 > `MEASUREMENT_REPAIR_REQUIRED`.**
 > The sequential runtime produces complete, correctly classified

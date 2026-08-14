@@ -61,6 +61,8 @@ export interface CycleStats {
   discovered: number;
   /** P17 — how many of this cycle's quotes went to the exploration arm. */
   explored?: number;
+  /** Finding G — fractional exploration entitlement carried to the next cycle. */
+  explorationDebt?: number;
   /** P16 — how many candidates each age cohort actually matured this cycle. */
   maturingByCohort?: Readonly<Record<string, number>>;
   newCandidates: number;
@@ -296,6 +298,27 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    * cycles the realised share converges on the target from below, which is the
    * honest direction.
    */
+  /**
+   * Finding G — the entitlement is read from the corpus, not recomputed.
+   *
+   * `allocate()` has always accepted a carried remainder and returned the next
+   * one. Nothing read or stored it, so every cycle started from zero and
+   * `floor(2 * 0.25) = 0` meant the exploration arm never ran. Four cycles of
+   * two quotes now spend one exploration slot between them, which is the 25%
+   * the design claims.
+   */
+  const debtKey = deps.config.strategyVersion;
+  const carriedDebt = (() => {
+    try {
+      const r = deps.db
+        .prepare('SELECT debt FROM exploration_debt WHERE strategy_version = ? AND stratum = ?')
+        .get(debtKey, 'ALL') as { debt: number } | undefined;
+      return r?.debt ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+
   const allocation = allocate(
     promoted.map((p) => ({
       item: p,
@@ -308,8 +331,25 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     // Deterministic: the same corpus and code reproduce the same decisions, so
     // a replay divergence still means a defect rather than a coin flip.
     hashSeed(deps.config.strategyVersion) + Math.floor(nowUtcMs / 60_000),
+    carriedDebt,
   );
   stats.explored = allocation.filter((a) => a.arm === 'explore').length;
+
+  // Store the remainder back. A debt that is not persisted is not a debt.
+  try {
+    const nextDebt = (allocation as { nextDebt?: number }).nextDebt ?? 0;
+    deps.db
+      .prepare(
+        `INSERT INTO exploration_debt (strategy_version, stratum, debt, updated_utc_ms)
+         VALUES (?,?,?,?)
+         ON CONFLICT(strategy_version, stratum) DO UPDATE SET
+           debt = excluded.debt, updated_utc_ms = excluded.updated_utc_ms`,
+      )
+      .run(debtKey, 'ALL', nextDebt, Date.now());
+    stats.explorationDebt = nextDebt;
+  } catch {
+    // A missing table is a migration problem, not a reason to lose the cycle.
+  }
 
   for (const sel of allocation) {
     const { info, gates, sourceAgeMs } = sel.item;

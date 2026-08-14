@@ -1,0 +1,165 @@
+{
+  "generatedUtcMs": 1786736537422,
+  "sourceCommit": "1c499cdf0d2b5381f31e1ffe842eb32d16101846",
+  "auditedHead": "1c499cdf0d2b5381f31e1ffe842eb32d16101846",
+  "matchesAuditedHead": true,
+  "dirty": true,
+  "unpushed": 0,
+  "node": "v24.12.0",
+  "backup": {
+    "path": "data/backups/baseline-1c499cd-2026-08-14T19-37-47-409Z.db",
+    "bytes": 6800842752,
+    "sha256": "6d2a9ec3bec0e68f78adcb3018b999274738d4aaef93365d9dbaa1baeefccca2",
+    "integrity": "ok",
+    "foreignKeyViolations": 0
+  },
+  "tables": 41,
+  "countMismatches": [],
+  "readBackWitness": {
+    "positionsHoldingTokens": 0,
+    "shadowsHoldingTokens": 173
+  },
+  "liveCounts": {
+    "build_attempts": 0,
+    "candidates": 98245,
+    "chain_events": 356027,
+    "chain_flow_bars": 92,
+    "chain_flow_bars_v2": 156329,
+    "chain_pipeline_health": 1637,
+    "chain_unknown_samples": 11731,
+    "clock_checkpoints": 560,
+    "daily_accounting": 2,
+    "decision_snapshots": 567816,
+    "direct_chain_events": 7023666,
+    "direct_mint_facts": 50078,
+    "entity_concentration": 56,
+    "execution_attempts": 0,
+    "execution_observations": 41786,
+    "fills": 40,
+    "health_events": 40376,
+    "intents": 0,
+    "ledger_entries": 1572,
+    "mayhem_facts": 62,
+    "position_exits": 20,
+    "position_marks": 603,
+    "positions": 20,
+    "process_locks": 1,
+    "quotes": 5797,
+    "raw_payloads": 4943,
+    "regime_samples": 0,
+    "reject_tracking": 1126065,
+    "replay_runs": 1,
+    "run_contexts": 40,
+    "schema_migrations": 34,
+    "screenings": 567816,
+    "shadow_marks": 39736,
+    "shadow_positions": 1211,
+    "sign_refusals": 0,
+    "signal_episodes": 1080,
+    "simulation_jobs": 260,
+    "snapshot_manifests": 114,
+    "source_health": 27176,
+    "sqlite_sequence": 1,
+    "trials": 0
+  },
+  "state": {
+    "schemaVersion": 34,
+    "strategyVersions": [
+      {
+        "v": "delayed-momentum-v0.4.0",
+        "n": 292793
+      },
+      {
+        "v": "delayed-momentum-v0.2.0",
+        "n": 137461
+      },
+      {
+        "v": "delayed-momentum-v0.6.0",
+        "n": 81821
+      },
+      {
+        "v": "delayed-momentum-v0.3.0",
+        "n": 50580
+      },
+      {
+        "v": "delayed-momentum-v0.1.0",
+        "n": 5161
+      }
+    ],
+    "openPositions": 20,
+    "positionsHoldingTokens": 0,
+    "shadowsByState": [
+      {
+        "state": "POSITION_CLOSED",
+        "n": 1038
+      },
+      {
+        "state": "AWAITING_FILL_OBSERVATION",
+        "n": 165
+      },
+      {
+        "state": "EXIT_BLOCKED",
+        "n": 4
+      },
+      {
+        "state": "POSITION_OPEN",
+        "n": 4
+      }
+    ],
+    "shadowsHoldingTokens": 173,
+    "triggeredShadows": 169,
+    "oldestTriggerAgeMs": 16365405,
+    "simulationJobs": [
+      {
+        "status": "SIMULATED_OK",
+        "n": 175
+      },
+      {
+        "status": "SIMULATION_FAILED",
+        "n": 76
+      },
+      {
+        "status": "SIMULATION_UNKNOWN",
+        "n": 9
+      }
+    ],
+    "effectVerified": 81,
+    "observations": 41786,
+    "screenings": 567816,
+    "eligible": 1280,
+    "directMintFacts": 50078,
+    "entityConcentration": 56,
+    "mayhemFacts": 62,
+    "cohorts": [
+      {
+        "cohort": "AGE_1H_5H",
+        "n": 4
+      },
+      {
+        "cohort": "AGE_2M_60M",
+        "n": 242
+      }
+    ],
+    "selectionArms": [
+      {
+        "arm": "exploit",
+        "n": 219
+      }
+    ],
+    "tournamentArms": [
+      {
+        "e": "HARD_GATES_RANDOM",
+        "x": "FIXED_TIME_CONTROL",
+        "n": 1
+      },
+      {
+        "e": "HARD_GATES_RANDOM",
+        "x": "FLOW_DETERIORATION_V1",
+        "n": 1
+      }
+    ],
+    "closedPositions": 0,
+    "closedShadowsPreP6": 1038,
+    "closedShadowsPostP6": 0
+  }
+}

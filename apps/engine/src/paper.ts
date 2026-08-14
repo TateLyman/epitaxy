@@ -108,6 +108,9 @@ import {
   latestJobFor,
 } from '../../../packages/storage/src/settlement-repo.js';
 import { chooseDecisionMark, admitPortfolioExit } from './paper-core.js';
+import { legIsExecutable } from '../../../packages/domain/src/execution.js';
+import { directSellMark, DirectMarkUnavailable } from '../../../packages/pipeline/src/direct-mark.js';
+import { GLOBAL_CONFIG_ADDR, FEE_CONFIG_ADDR } from '../../../packages/solana/src/pumpswap-offline.js';
 import {
   assertTransition,
   holdsExposure,
@@ -127,6 +130,7 @@ import {
   openShadowPosition,
   openShadowPositions,
   insertShadowMark,
+  observationById,
   armCounts,
   assignTournamentArm,
   triggerShadowExit,
@@ -672,7 +676,7 @@ async function main(): Promise<void> {
     // Shadow books are worked after the realizable wallet, never before: the
     // wallet is the only book that can actually lose money.
     try {
-      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator);
+      await manageShadowBooks(db, jupiter, config, taker, contextHash, blobs, simulator, rpc);
     } catch (e) {
       log.warn({ err: (e as Error).message }, 'shadow book management failed');
     }
@@ -1724,6 +1728,9 @@ async function manageShadowBooks(
   // needs the same two collaborators.
   blobs: BlobStore,
   simulator: SimulationClient | null,
+  // P4/P7 -- the direct mark reads the pool itself, so the loop needs chain
+  // access. Without it the exit is whatever a router is willing to quote.
+  rpc: SolanaRpc,
 ): Promise<number> {
   if (taker === null || config.maxShadowMarksPerCycle === 0) return 0;
 
@@ -1796,8 +1803,45 @@ async function manageShadowBooks(
     });
 
     const nowMs = Date.now();
-    const routeAvailable = obs.instructionSetHash !== null && obs.expectedOutput > 0n;
-    const value = routeAvailable ? netExpectedOutput(obs) : null;
+    const routerAvailable = obs.instructionSetHash !== null && obs.expectedOutput > 0n;
+
+    /**
+     * P4/P7 — price from the POOL when the router will not quote.
+     *
+     * The repaired fill loop could not fire because none of its marks were
+     * priced: 93% of every mark ever recorded has `route_available = 0`, and in
+     * ten minutes of the repaired loop it was 100%. The router declines a sell
+     * for a token with no canonical pool, and an unpriced mark can never become
+     * a fill however correct the ordering above it is.
+     *
+     * A canonical PumpSwap pool needs no router. Its reserves are two token
+     * accounts and the official model prices the sell from those bytes, which
+     * is both cheaper and more exact than asking whether a router feels like
+     * quoting. The refusal reason is recorded rather than collapsed into "no
+     * route", because that one word hid six different facts.
+     */
+    let directMark = null;
+    let directRefusal: string | null = null;
+    if (rpc.configured) {
+      try {
+        directMark = await directSellMark(
+          rpc,
+          { mint: row.mint, tokenAmount, slippagePct: 3 },
+          { globalConfig: GLOBAL_CONFIG_ADDR, feeConfig: FEE_CONFIG_ADDR },
+        );
+      } catch (e) {
+        directRefusal = e instanceof DirectMarkUnavailable ? e.reason : (e as Error).message.slice(0, 90);
+      }
+    }
+
+    // The direct quote wins when it exists: it is the venue's own arithmetic on
+    // the venue's own current bytes, where the router is one venue's opinion.
+    const routeAvailable = directMark !== null || routerAvailable;
+    const value =
+      directMark !== null ? directMark.executableLamports : routerAvailable ? netExpectedOutput(obs) : null;
+    if (directMark === null && directRefusal !== null && !routerAvailable) {
+      recordHealth(db, 'direct_mark_unavailable', 'info', `${row.mint.slice(0, 12)}: ${directRefusal}`);
+    }
 
     const seq = (
       db
@@ -1875,6 +1919,57 @@ async function manageShadowBooks(
       continue;
     }
 
+    /**
+     * P9 — SIMULATE THIS OBSERVATION FIRST. The deadlock lived in the order.
+     *
+     * The previous sequence was:
+     *
+     *     resolveFill(candidates)      needs an effect-valid candidate
+     *       -> none, because nothing simulates a mark
+     *       -> blocked
+     *       -> simulate something else
+     *
+     * `resolveFill` asked for a thing the loop never produced. 169 trajectories
+     * sat in AWAITING_FILL_OBSERVATION for up to 4.6 hours with 96 later
+     * observations each, all recorded as "not effect-valid, unpriced", and not
+     * one trajectory in the corpus ever completed through it.
+     *
+     * The candidate has to exist before it can be chosen, so this observation is
+     * simulated and settled BEFORE anything is asked about fills. Only a priced
+     * observation is worth the simulation: an unroutable mark cannot become a
+     * fill however it is verified.
+     */
+    if (routeAvailable && value !== null) {
+      try {
+        await simulateLeg(db, blobs, simulator, obs.observationId, taker, {
+          mode: 'DEVELOPMENT_JIT',
+          side: 'sell',
+          inputMint: row.mint,
+          outputMint: WSOL_MINT,
+          inputAmount: tokenAmount,
+          routeFamily: config.primaryRouteFamily,
+          capabilityFingerprint: fingerprintForObservation(db, blobs, obs.observationId),
+          inputTokenProgram: tokenProgramFor(db, blobs, obs.observationId, taker, row.mint),
+          outputTokenProgram: tokenProgramFor(db, blobs, obs.observationId, taker, WSOL_MINT),
+          fundingLamports: 100_000_000n,
+          maxLamportsSpent: 20_000_000n,
+          expectedOutput: obs.expectedOutput,
+          minimumOutput: obs.minimumOutput,
+          contextHash,
+        });
+      } catch (e) {
+        // A simulation that could not run leaves the candidate unverified,
+        // which `resolveFill` will decline on its own. It is not a reason to
+        // lose the trajectory.
+        recordHealth(
+          db,
+          'fill_candidate_simulation_failed',
+          'warn',
+          `${row.mint.slice(0, 12)}: ${(e as Error).message.slice(0, 140)}`,
+        );
+      }
+    }
+
     const outcome = resolveFill(
       triggeredAt,
       config.primaryRouteFamily,
@@ -1894,53 +1989,73 @@ async function manageShadowBooks(
     }
 
     /**
+     * The SELECTED candidate, which is not necessarily the one just observed.
+     *
+     * `resolveFill` returns the FIRST valid later observation, and on a blocked
+     * trajectory that may be one from a previous cycle. The old code then
+     * simulated `obs` — the current mark — and booked `outcome.at`. Simulating
+     * B while booking A verifies a price nobody is filling at.
+     *
+     * Everything from here reads the selected observation's own identity.
+     */
+    const selectedId = outcome.at.observationId;
+    const selectedJobId = latestJobFor(db, selectedId);
+    const selectedSettlement =
+      selectedJobId === null ? null : measuredSettlementOf(db, selectedId, selectedJobId, taker);
+
+    if (selectedSettlement === null) {
+      // No measured settlement for the observation actually being filled. The
+      // alternative is a router fallback, which is a number nobody measured.
+      assertTransition('AWAITING_FILL_OBSERVATION', 'EXIT_BLOCKED');
+      blockShadowExit(
+        db,
+        row.shadow_position_id,
+        `selected candidate ${selectedId.slice(0, 12)} has no measured settlement`,
+      );
+      continue;
+    }
+
+    /**
      * The same admission the realizable portfolio uses.
      *
      * A shadow that closes on a route the portfolio would have refused is a
      * shadow measuring a different strategy. The call graph asserts this edge
      * exists; before P6 it did not.
      */
-    const admission = await admitPortfolioExit(
-      {
-        simulator: {
-          simulate: async (observationId, leg) => {
-            await simulateLeg(db, blobs, simulator, observationId, taker, {
-              mode: 'DEVELOPMENT_JIT',
-              side: leg.side,
-              inputMint: leg.inputMint,
-              outputMint: leg.outputMint,
-              inputAmount: leg.inputAmount,
-              routeFamily: config.primaryRouteFamily,
-              capabilityFingerprint: fingerprintForObservation(db, blobs, observationId),
-              inputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.inputMint),
-              outputTokenProgram: tokenProgramFor(db, blobs, observationId, taker, leg.outputMint),
-              fundingLamports: 100_000_000n,
-              maxLamportsSpent: 20_000_000n,
-              expectedOutput: leg.expectedOutput,
-              minimumOutput: leg.minimumOutput,
-              contextHash,
-            });
-            return {
-              simulation: simulationStatusOf(db, observationId),
-              effect: simulationEffectOf(db, observationId),
-            };
-          },
-        },
-      },
-      {
-        exit: obs,
-        mint: row.mint,
-        tokenAmount,
-        requireLocalSimulation: config.requireLocalSimulation === true,
-      },
-    );
-    if (!admission.ok) {
+    /**
+     * The admission, on the observation being BOOKED.
+     *
+     * It is already simulated — either just now, or in the cycle that first
+     * observed it — so this reads its stored verdicts rather than simulating
+     * anything. A simulator here would be the same defect in a new place:
+     * verifying one observation and filling at another.
+     */
+    const selectedObs = observationById(db, selectedId);
+    if (selectedObs === null) {
       assertTransition('AWAITING_FILL_OBSERVATION', 'EXIT_BLOCKED');
-      blockShadowExit(db, row.shadow_position_id, admission.reasons.join('; '));
+      blockShadowExit(db, row.shadow_position_id, `selected candidate ${selectedId.slice(0, 12)} is not stored`);
+      continue;
+    }
+    const selectedExecutable = legIsExecutable(
+      {
+        ...selectedObs,
+        simulation: simulationStatusOf(db, selectedId),
+        simulationEffect: simulationEffectOf(db, selectedId),
+      },
+      { requireLocalSimulation: config.requireLocalSimulation === true },
+    );
+    if (!selectedExecutable.ok) {
+      assertTransition('AWAITING_FILL_OBSERVATION', 'EXIT_BLOCKED');
+      blockShadowExit(db, row.shadow_position_id, selectedExecutable.reasons.join('; '));
       continue;
     }
 
-    const fillValue = outcome.at.executableLamports;
+    /**
+     * The realized value comes from the SELECTED observation's measured
+     * settlement, not from the mark's quoted value. A quote is what a router
+     * expected; the settlement is what the simulated leg actually moved.
+     */
+    const fillValue = exitCashIn(selectedSettlement);
     const bias = lookAheadBiasLamports(BigInt(row.trigger_value_lamports ?? '0'), outcome);
     assertTransition('AWAITING_FILL_OBSERVATION', 'POSITION_CLOSED');
     fillShadowExit(db, row.shadow_position_id, {
