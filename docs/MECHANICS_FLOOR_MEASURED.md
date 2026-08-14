@@ -1,75 +1,108 @@
-# The mechanics floor, measured
+# The immediate round trip, measured
 
 `scripts/live-one-pass-trajectory.ts` → `artifacts/live-one-pass-trajectory.json`
 `pnpm trajectory:one-pass`
 
 ## What was run
 
-Six freshly migrated PumpSwap tokens, taken from the `confirmed_migrations`
-queue — **not** from the screening stream, because only ~3% of screened mints
-have a canonical pool and a trajectory budget spent on the other 97% measures
-nothing.
+Twenty freshly migrated PumpSwap tokens from the `confirmed_migrations` queue —
+**not** the screening stream, because only ~1.7% of screened mints have a
+canonical pool (20 found against 1,180 refused for having none).
 
-Each one went **buy → sell → close inside one runtime**, with the sell built from
-the state the buy committed and executed against that same state. Six of six
-completed. **Six of six had `quoteStateSurvived = true`** — the state the sell
-was priced from was, per account by content hash, the state it executed against.
+Each went **buy → sell → close inside one runtime**, the sell built from the
+state the buy committed and executed against that same state.
 
-This is the first time trajectories have completed in this system.
+```
+complete round trips                20 of 20
+quoteStateSurvived                  20 of 20
+buy actually moved the sell pool    20 of 20
+wrapped SOL stranded at close        0 of 20
+residual tokens at close             0 of 20
+```
+
+These are the first trajectories to complete in this system. The apparatus works.
 
 ## The result
 
-Net lamports on a 20,000,000 lamport (0.02 SOL) buy:
+**Every one of the twenty loses money on an immediate round trip.** Drag as a
+fraction of the 20,000,000 lamport notional:
 
-| mint | acquired atoms | net lamports | drag |
-|---|---|---|---|
-| `C7TNyyj4AG` | 487,852,742,069 | −508,829 | **−2.54%** |
-| `3M86JjNiFQ` | 1,040,332,317,438,418 | −2,545,568 | −12.73% |
-| `FzoGxtVtxU` | 111,924,651,639,204 | −2,547,840 | −12.74% |
-| `24WQ29ENFu` | 410,059,847,598,882 | −2,824,215 | −14.12% |
-| `A7Peht9JUj` | 582,579,539,822 | −4,333,248 | −21.67% |
-| `HLwz7bUo1Y` | 894,642,501,529 | −6,372,528 | −31.86% |
+```
+-2.53  -2.54  -2.54  -2.54
+-12.73 -12.74 -12.74 -12.74 -12.74 -12.74
+-14.12
+-21.67 -21.67 -21.67 -21.67 -21.67 -21.67 -21.67 -21.67
+-31.86
+```
 
-**Every single one loses money. Median drag −12.7%.**
+The accounting is complete: wrapped SOL and residual tokens are both zero at
+close on all twenty, so this is realised cash rather than value parked somewhere
+unmeasured.
 
-## Why the best case is the check that this is real
+## What is established
 
-−2.54% is **exactly** the 250 bps round-trip fee at the bottom canonical tier,
-decoded live from the fee config (LP 2 + protocol 93 + creator 30 = 125 bps per
-leg, doubled).
+**The best case is −2.54%**, and that is *exactly* the 250 bps round-trip fee at
+the bottom canonical tier decoded live from the fee config (LP 2 + protocol 93 +
+creator 30 = 125 bps per leg, doubled), plus base and priority fees. A best case
+*below* the fee floor would have meant the fee model was wrong; it is not.
 
-The floor landing precisely where the fee table says it should is what makes the
-rest credible. Had the best case come in *below* 250 bps, the fee model would be
-wrong rather than the trade good.
+**An immediate round trip is never profitable.** Twenty of twenty. Any strategy
+must clear the drag within its holding period before it earns anything.
 
-Everything above that floor is **price impact into thin post-migration pools**.
-At 0.02 SOL — a deliberately small research notional — the impact is already
-five to twelve times the fee.
+## What is NOT established, and I am not going to pretend otherwise
 
-## What this means for any strategy
+**The losses cluster on repeated exact values, and I have not explained why.**
 
-A strategy must clear **~12.7% gross in its holding period just to break even**,
-on the median token, at 0.02 SOL. That is the bar, and it is set by mechanics
-rather than by anything the strategy does.
+`-21.67%` appears eight times across eight *different* tokens, to the lamport
+(4,333,248 ± 2). `-12.74%` appears six times. Genuine price impact into twenty
+different pools would be continuous, not quantised.
 
-This does not by itself kill the strategy. It is an *immediate* round trip: the
-strategy holds for a frozen 15-minute horizon and exits on a signal, so the
-relevant question is whether a 15-minute move exceeds the drag often enough. But
-it establishes the number that question has to beat, and the number is large.
+Worse for any simple explanation: **the same token gives different values on
+different runs.** `C7TNyyj4` measured −22.94% on one run and −2.54% on another;
+`GKhe46z6` −12.73% then −2.53%. That rules out a per-token property.
 
-It also says something concrete about sizing: drag is dominated by impact, and
-impact grows with size, so the drag measured here is a **floor**, not an average.
-A larger notional is worse, not better.
+Hypotheses tested and **rejected**:
+
+- **Cross-venue artifact** — that the Jupiter-built buy landed somewhere other
+  than the pool the sell used. Rejected: the buy mutated the sell pool's base
+  vault on 20 of 20.
+- **Unrecovered rent** — that the trade opened protocol-owned accounts whose
+  rent-exempt minimum the payer funded. Rejected: `createdAccountRentAcross`
+  reports **zero** created accounts on every trip. The step gaps are suspiciously
+  close to 2,039,280 (the 165-byte rent-exempt minimum), which is what motivated
+  the hypothesis, but no account was actually created.
+- **Value stranded in wrapped SOL or residual tokens** — rejected, both zero.
+
+So the clustering remains open. Until it is explained, **the median is not a
+mechanics floor and must not be quoted as one.** The number that survives
+scrutiny is the *best* case of −2.54%, which is a hard lower bound on round-trip
+cost and is independently corroborated by the fee table.
+
+## Why this distinction matters
+
+The previous directive recorded this exact failure mode: a constant shortfall
+"measured as a rate reads as a 41,818 bps pricing error at 0.001 SOL and a 1,044
+bps one at 0.04 SOL — the same defect, reported as six different numbers."
+
+Publishing "median −12.7% mechanics drag" would repeat it. A number with an
+unexplained quantised structure is a measurement of something, and until it is
+known what, it cannot be attributed to the market.
 
 ## What is NOT claimed
 
-- **These are not fills.** No transaction was signed or submitted; nothing was
-  funded on chain. The wallet balance in the runtime is a local mutation so an
-  unfunded payer does not fail for a reason that is not about the token.
-- **Six tokens is six tokens.** The directive's own checkpoints put apparatus
-  sanity at 10 and costs/fillability at 25. This is below apparatus sanity, and
-  no arm may be eliminated or selected on it.
+- **These are not fills.** Nothing was signed, submitted or funded on chain. The
+  wallet balance is a local runtime mutation so an unfunded payer does not fail
+  for a reason that is not about the token.
 - **No holding period was evaluated.** Every number here is an immediate round
-  trip.
-- **Evidence grade is `SIMULATED_EXECUTION`**, not `BOUNDED_COUNTERFACTUAL`:
-  these are exact sequential mechanics, with no future state involved at all.
+  trip; the strategy holds for a frozen 15 minutes.
+- **Twenty tokens clears apparatus sanity (10) but not costs/fillability (25).**
+  No arm may be selected or eliminated on this.
+- **Evidence grade is `SIMULATED_EXECUTION`** — exact sequential mechanics, no
+  future state involved.
+
+## Next
+
+Resolve the clustering before quoting any median. The concrete next step is to
+dump the full per-step lamport deltas for two trips that landed on the same
+cluster value and diff them account by account: whatever is equal to the lamport
+across different tokens will name itself.

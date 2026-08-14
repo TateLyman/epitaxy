@@ -2,22 +2,28 @@
 
 > **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, third
 > pass. State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
-> **Six trajectories completed.** Freshly migrated PumpSwap tokens from the
-> confirmed-migration queue, each buy → sell → close inside ONE runtime with the
-> sell priced from the state the buy committed and executed against that same
-> state. Six of six had `quoteStateSurvived = true`, compared per account by
-> content hash. This is the first time a trajectory has completed in this system.
+> **Twenty trajectories completed**, the first in this system. Freshly migrated
+> PumpSwap tokens from the confirmed-migration queue, each buy → sell → close
+> inside ONE runtime with the sell priced from the state the buy committed and
+> executed against that same state. 20/20 had `quoteStateSurvived = true`
+> (per account, by content hash), 20/20 had the buy actually move the sell pool,
+> and 0/20 left value stranded in wrapped SOL or residual tokens.
 >
-> **The mechanics floor is now measured, and it is high.** Every one of the six
-> loses money on an immediate round trip: median **−12.7%** of notional, best
-> case **−2.54%** — which is exactly the decoded 250 bps bottom-tier round-trip
-> fee, and that agreement is what makes the rest credible. Everything above the
-> fee floor is price impact into thin post-migration pools.
+> **An immediate round trip is never profitable — 20 of 20 lose.** The best case
+> is **−2.54%**, exactly the decoded 250 bps bottom-tier round-trip fee, which
+> is a hard lower bound on round-trip cost and is corroborated by the fee table.
+>
+> **The median is NOT quoted, deliberately.** The losses cluster on repeated
+> exact values across different tokens (−21.67% eight times, to the lamport) and
+> the same token varies between runs. Cross-venue routing, unrecovered rent and
+> stranded wrapped SOL were each tested and rejected. Until the clustering is
+> explained it is a measurement of something unidentified, and quoting it would
+> repeat a failure this repo already recorded once.
 > `docs/MECHANICS_FLOOR_MEASURED.md`.
 >
-> Six tokens is below the directive's own apparatus-sanity checkpoint of 10. No
-> arm may be selected or eliminated on it, and no holding period has been
-> evaluated. Nothing was signed, submitted or funded on chain.
+> Twenty clears apparatus sanity (10) but not costs/fillability (25). No arm may
+> be selected or eliminated on it, and no holding period has been evaluated.
+> Nothing was signed, submitted or funded on chain.
 
 > **2026-08-14 — trajectory-kernel directive from `1c499cd`, second
 > pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**

@@ -17,6 +17,7 @@ import {
 import { buildCloseAccount } from '../packages/solana/src/closeaccount.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from '../packages/pipeline/src/sequential-round-trip.js';
 import { SequentialWorker } from '../packages/simulator/src/sequential-worker.js';
+import { createdAccountRentAcross } from '../packages/simulator/src/sequential-runtime.js';
 import type { RawInstruction } from '../packages/solana/src/instructionpolicy.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 
@@ -260,6 +261,20 @@ async function main(): Promise<void> {
         worker,
       );
 
+      /**
+       * Did the buy actually move the pool the SELL will use?
+       *
+       * The buy comes from Jupiter and may route anywhere; the sell is built
+       * directly against the canonical PumpSwap pool. If the buy landed on some
+       * other venue, the round trip crosses two markets and its loss is a
+       * cross-venue spread rather than a mechanics floor — and a "stateful"
+       * claim over an untouched pool is vacuous.
+       */
+      const baseBefore = trip.buy?.preAccounts.find((a) => a.pubkey === addrs.poolBaseTokenAccount)?.dataSha256 ?? null;
+      const baseAfter = trip.buy?.postAccounts.find((a) => a.pubkey === addrs.poolBaseTokenAccount)?.dataSha256 ?? null;
+      r['buyMutatedSellPool'] = baseBefore !== null && baseAfter !== null ? baseBefore !== baseAfter : null;
+      r['buyProgramIds'] = [...new Set(buy.instructions.map((i) => i.programId))];
+
       r['acquiredAtoms'] = trip.acquiredAtoms?.toString() ?? null;
       r['quoteStateSurvived'] = trip.quoteStateSurvived;
       r['selfImpactLamports'] = trip.selfImpactLamports?.toString() ?? null;
@@ -278,7 +293,79 @@ async function main(): Promise<void> {
       const after = trip.close?.postAccounts.find((a) => a.pubkey === taker)?.lamports ?? null;
       r['walletBefore'] = before;
       r['walletAfterClose'] = after;
-      r['netLamports'] = before !== null && after !== null ? after - before : null;
+      const net = before !== null && after !== null ? after - before : null;
+      r['netLamports'] = net;
+
+      /**
+       * RENT IS NOT PRICE, and conflating them is a documented trap in this
+       * repository.
+       *
+       * A trade that has to OPEN the coin-creator fee vault or the user volume
+       * accumulator pays their rent-exempt minimum out of the payer's balance.
+       * That rent is not a trading cost: it is capital parked in an account,
+       * it is paid once per (creator, mint) rather than per trade, and those
+       * accounts are protocol-owned so this system cannot close them to recover
+       * it.
+       *
+       * The shortfall is CONSTANT, so measured as a rate it reads as a wildly
+       * different "pricing error" at every notional — the same defect reported
+       * as six different numbers. Measured here as an amount, and separated.
+       *
+       * An account counts as created when the step began with nothing at that
+       * address and ended with lamports in it. That is a measurement of the
+       * step rather than a list of account names, so it stays correct when the
+       * protocol adds another one.
+       */
+      // The base ATA is excluded: the close recovers its rent, so it is not a
+      // cost. Everything else the trade opened is rent this system cannot get
+      // back, because those accounts are protocol-owned.
+      const created = createdAccountRentAcross(
+        [trip.buy, trip.sell, trip.close].filter((x) => x !== null) as never,
+        [takerAta],
+      );
+      r['rentCreatedLamports'] = created.lamports.toString();
+      r['rentCreatedAccounts'] = created.accounts;
+      const unrecoveredRent = created.lamports;
+      r['unrecoveredRentLamports'] = unrecoveredRent.toString();
+
+      /**
+       * WRAPPED SOL IS STILL THE WALLET'S VALUE.
+       *
+       * The native balance alone is not the trajectory's economics. A buy that
+       * wraps SOL and a sell that leaves proceeds wrapped both move value into
+       * the WSOL associated account, where it is still the taker's — it simply
+       * is not in the native balance the payer delta measures.
+       *
+       * Measuring only the native side made the same token report -2.54% on one
+       * run and -22.94% on another, which is not a property of the token. It is
+       * an incomplete measurement varying with whatever the router decided to
+       * wrap that time.
+       */
+      const wsolAtClose = trip.close?.postAccounts.find((a) => a.pubkey === takerWsol);
+      const wsolLamports =
+        wsolAtClose === undefined
+          ? 0n
+          : (() => {
+              const b = Buffer.from(wsolAtClose.dataBase64, 'base64');
+              return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
+            })();
+      r['wsolHeldAtCloseLamports'] = wsolLamports.toString();
+
+      const residualAcct = trip.close?.postAccounts.find((a) => a.pubkey === takerAta);
+      const residualAtoms =
+        residualAcct === undefined
+          ? 0n
+          : (() => {
+              const b = Buffer.from(residualAcct.dataBase64, 'base64');
+              return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
+            })();
+      r['residualTokenAtoms'] = residualAtoms.toString();
+
+      // The complete cash view: native delta, plus value still held in wrapped
+      // SOL, plus the rent this system cannot recover.
+      const fullNet = net === null ? null : BigInt(net) + wsolLamports;
+      r['netIncludingWrappedLamports'] = fullNet?.toString() ?? null;
+      r['tradingCostLamports'] = fullNet === null ? null : (fullNet + unrecoveredRent).toString();
       r['ok'] = true;
       record('COMPLETE_ROUND_TRIP');
     }
