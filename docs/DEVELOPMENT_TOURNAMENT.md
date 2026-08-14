@@ -79,9 +79,23 @@ Any one of these kills or deprioritises an arm:
 | `VALID_LABEL_THROUGHPUT_TOO_LOW` | < 3 valid trajectories/day |
 | `ONE_MINT_OR_DAY_CARRIES_RESULT` | > 50% of net from one mint, or one day |
 
-`MECHANICS_DRAG_CONSUMES_EDGE` is measured against the size surface's own
-number — **241.5 bps at the development notional**, from
-`artifacts/true-stateful-size-surface.json`. An edge below the floor is a cost.
+`MECHANICS_DRAG_CONSUMES_EDGE` compares an arm's gross edge to its own
+`mechanicsDragBps`, supplied per arm rather than fixed here — and that matters
+more than it first looked.
+
+The size surface measured **241.5 bps**, flat across every size in its grid. It
+is flat in *size* and a **step function across tokens**: PumpSwap's fee is a
+table keyed on the pool's market cap, and the round trip ranges from **250 bps
+at the bottom tier to 60 bps at the top**, a 190 bps spread over 25 tiers
+(`artifacts/fee-tier-surface.json`).
+
+Every mint in the size surface sat in the bottom tier — the most expensive one.
+So 241.5 bps is a floor for *small-cap* tokens and roughly four times the floor a
+44,000 SOL pool pays. An arm trading larger-cap tokens judged against 241.5 would
+be killed for a cost it does not pay.
+
+Each arm's `mechanicsDragBps` must therefore be computed from the tiers of the
+mints that arm actually traded.
 
 **The original 2m–60m thesis gets no protection.** That is enforced by there
 being no branch that could give it any: `judgeArm` is a pure function of a

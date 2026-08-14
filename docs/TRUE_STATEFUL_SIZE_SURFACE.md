@@ -29,10 +29,20 @@ Four mints, 24 measured points, grid frozen before the first result.
 
 Three things are visible and each is a different mechanism:
 
-**The AMM drag is flat.** 241.5 bps at every size. At these notionals it is
-*fee*, not impact — the position never exceeds 5.5 bps of the base reserve, so
-the curve barely moves. Anyone reading a round-trip loss at one size as "slippage"
-is reading the fee.
+**The AMM drag is flat in SIZE, and is not a constant of the venue.** 241.5 bps
+at every notional here. At these sizes it is *fee*, not impact — the position
+never exceeds 5.5 bps of the base reserve, so the curve barely moves. Anyone
+reading a round-trip loss at one size as "slippage" is reading the fee.
+
+And the fee is a **step function of the pool's market cap**. PumpSwap's fee
+config carries 25 tiers; the round trip runs from **250 bps at the bottom tier
+to 60 bps at the top** (`artifacts/fee-tier-surface.json`,
+`pnpm fee:tier-surface`). Every mint sampled here sat in the bottom tier, the
+most expensive one.
+
+So this table is the floor for *small-cap* tokens. Quoting 241.5 bps as the
+mechanics floor of the venue would overstate the cost for anything above about
+420 SOL of market cap, by up to a factor of four.
 
 **What falls with size is fixed cost amortising.** The gap between the repeat
 drag and the flat 241.5 is 550 bps at 0.001 SOL and 13.5 bps at 0.04 — the same
@@ -80,6 +90,10 @@ repeat-trade drag clears a 300 bps mechanics gate. No return was looked at, and
 the grid and the gate were both fixed before the first point was measured.
 
 ## What this does not establish
+
+- **The tier boundary itself is untested.** 24 boundaries exist and every mint
+  sampled sat inside one tier, so nothing here says the model prices the *step*
+  correctly. A parity matrix that straddles a boundary is the missing test.
 
 - The minimum representable output is **zero lamports** for one atom of these
   tokens. Dust cannot be exited, and residual atoms after a partial fill are
