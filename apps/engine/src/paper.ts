@@ -66,6 +66,13 @@ import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
 import { ReserveAlarm } from './risk-alarm.js';
+import {
+  LogsWatcher,
+  pumpInstructionFromLogs,
+  TRADE_INSTRUCTIONS,
+  MIGRATION_INSTRUCTIONS,
+} from '../../../packages/adapters/src/logswatch.js';
+import { PUMP_PROGRAM, PUMPSWAP_PROGRAM } from '../../../packages/solana/src/pump.js';
 import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
 
@@ -251,6 +258,72 @@ async function main(): Promise<void> {
           },
           secrets.rpcWs,
         );
+  /**
+   * P12 — the direct chain event clock, running alongside the provider poll.
+   *
+   * Not a replacement yet: the executable oracle is still an exact
+   * BUILD_CUSTOM observation, and a log line is notice that something
+   * happened rather than a price. What this changes is WHEN the engine knows.
+   *
+   * `processed` is used deliberately — it sees a change soonest and can see
+   * one that never finalises. For an alarm that is the right trade, and the
+   * commitment is stored on every row so a reversal can be reconciled rather
+   * than assumed away.
+   */
+  const directClock =
+    secrets.rpcWs === null
+      ? null
+      : new LogsWatcher({
+          wsUrl: secrets.rpcWs,
+          programs: [PUMP_PROGRAM, PUMPSWAP_PROGRAM],
+          commitment: 'processed',
+          onEvent: (e) => {
+            const ix = pumpInstructionFromLogs(e.logs);
+            const kind = ix === null
+              ? 'UNKNOWN'
+              : MIGRATION_INSTRUCTIONS.has(ix)
+                ? 'MIGRATION'
+                : TRADE_INSTRUCTIONS.has(ix)
+                  ? 'TRADE'
+                  : 'OTHER';
+            try {
+              db.prepare(
+                `INSERT OR IGNORE INTO direct_chain_events
+                   (signature,program_id,slot,instruction,kind,commitment,
+                    received_monotonic_ms,received_utc_ms,tx_error)
+                 VALUES (?,?,?,?,?,?,?,?,?)`,
+              ).run(
+                e.signature,
+                e.programId,
+                e.slot,
+                ix,
+                kind,
+                e.commitment,
+                e.receivedMonotonicMs,
+                e.receivedUtcMs,
+                e.err,
+              );
+            } catch {
+              // A dropped event is a coverage fact, not a reason to kill the
+              // socket. The gap surfaces through `directClock.coverage`.
+            }
+          },
+          onGap: (detail) => {
+            recordHealth(db, 'direct_clock_gap', 'warn', detail.slice(0, 200));
+          },
+        });
+  if (directClock !== null) {
+    directClock.connect();
+    recordHealth(
+      db,
+      'direct_clock_started',
+      'info',
+      `logsSubscribe on ${PUMP_PROGRAM.slice(0, 8)} and ${PUMPSWAP_PROGRAM.slice(0, 8)} at processed`,
+    );
+  } else {
+    recordHealth(db, 'direct_clock_absent', 'warn', 'no SOLANA_RPC_WS; the signal clock is the provider poll only');
+  }
+
   if (alarm !== null) {
     alarm.start();
     recordHealth(db, 'reserve_alarm_started', 'info', 'websocket reserve alarm connected');

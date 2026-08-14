@@ -1635,6 +1635,44 @@ WHERE
 `,
   },
 
+  {
+    id: 27,
+    name: 'direct_chain_events',
+    sql: `
+-- P12 -- the signal clock, from the chain.
+--
+-- Discovery is a 30-second poll of a provider's feeds, and every candidate's
+-- age is whatever that provider's updatedAt says. The clock the strategy
+-- reacts to is somebody else's polling interval rather than the event.
+--
+-- logsSubscribe on the Pump and PumpSwap programs gives the event at
+-- processed, with a slot. That is the earliest an alarm can exist.
+--
+-- commitment is stored because processed CAN be reverted. A row that does not
+-- say which commitment it arrived at cannot be reconciled later, and treating
+-- processed as settled is how a reorg becomes a fill.
+CREATE TABLE IF NOT EXISTS direct_chain_events (
+  signature             TEXT NOT NULL,
+  program_id            TEXT NOT NULL,
+  slot                  INTEGER NOT NULL,
+  instruction           TEXT,
+  kind                  TEXT NOT NULL,
+  commitment            TEXT NOT NULL,
+  -- Monotonic, so a wall-clock adjustment cannot reorder the corpus.
+  received_monotonic_ms INTEGER NOT NULL,
+  received_utc_ms       INTEGER NOT NULL,
+  tx_error              TEXT,
+  -- Set when a later read at confirmed/finalized disagrees with what
+  -- processed reported. NULL means not yet reconciled, which is not the same
+  -- as reconciled and fine.
+  reversal_status       TEXT,
+  PRIMARY KEY (signature, program_id)
+);
+CREATE INDEX IF NOT EXISTS idx_direct_events_slot ON direct_chain_events(slot);
+CREATE INDEX IF NOT EXISTS idx_direct_events_kind ON direct_chain_events(kind, received_utc_ms);
+`,
+  },
+
 ];
 
 export interface OpenOptions {

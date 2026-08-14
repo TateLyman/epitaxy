@@ -19,6 +19,15 @@ interface FakeSocket {
 }
 
 const sockets: FakeSocket[] = [];
+/**
+ * The real global, restored after each test.
+ *
+ * Replacing `globalThis.WebSocket` and leaving it replaced leaks into every
+ * file the worker runs afterwards, and the failure surfaces in a SIBLING test
+ * that looks unrelated. A stub that outlives its test is a defect in the
+ * harness, not in the code under test.
+ */
+const REAL_WEBSOCKET = (globalThis as unknown as { WebSocket?: unknown }).WebSocket;
 
 function makeSocket(): FakeSocket {
   const s: FakeSocket = {
@@ -59,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  (globalThis as unknown as { WebSocket?: unknown }).WebSocket = REAL_WEBSOCKET;
 });
 
 function watcher(onGap: (d: string) => void = () => {}) {
