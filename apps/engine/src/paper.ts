@@ -113,6 +113,7 @@ import {
   holdsExposure,
   type ShadowState,
 } from '../../../packages/domain/src/shadow-lifecycle.js';
+import { allocateArm } from '../../../packages/domain/src/tournament.js';
 import {
   resolveFill,
   lookAheadBiasLamports,
@@ -126,6 +127,8 @@ import {
   openShadowPosition,
   openShadowPositions,
   insertShadowMark,
+  armCounts,
+  assignTournamentArm,
   triggerShadowExit,
   blockShadowExit,
   resumeShadowExit,
@@ -1607,6 +1610,22 @@ async function openShadowBooks(
       strategyVersion: config.strategyVersion,
       contextHash,
     });
+
+    /**
+     * P19 — the tournament arm, assigned AS THE TRAJECTORY OPENS.
+     *
+     * Balanced across the six entry-by-exit cells, deterministic given the
+     * counts already in the corpus, and independent of everything about this
+     * candidate. Allocating by score or liquidity or age would measure each arm
+     * on a different population, and labelling an existing corpus afterwards is
+     * how an arm ends up holding the trajectories that happen to suit it.
+     *
+     * The tournament itself does not run yet — the first checkpoint is ten
+     * completed trajectories per arm and there are none. This is what makes the
+     * ones that arrive usable when they do.
+     */
+    const arm = allocateArm(armCounts(db));
+    assignTournamentArm(db, id, arm.entry, arm.exit);
 
     // Written straight after the insert rather than threaded through the
     // repository signature, because the cohort is a property of the DECISION

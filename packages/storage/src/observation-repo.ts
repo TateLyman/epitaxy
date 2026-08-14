@@ -355,6 +355,42 @@ export interface OpenShadowRow {
   blocked_reason: string | null;
 }
 
+/**
+ * How many trajectories each tournament arm already holds.
+ *
+ * Read from the corpus rather than kept in memory, so two processes and a
+ * restart all see the same allocation state.
+ */
+export function armCounts(db: Db): Map<string, number> {
+  const out = new Map<string, number>();
+  try {
+    const rows = db
+      .prepare(
+        `SELECT tournament_entry_arm AS e, tournament_exit_arm AS x, COUNT(*) AS n
+           FROM shadow_positions
+          WHERE tournament_entry_arm IS NOT NULL
+          GROUP BY 1, 2`,
+      )
+      .all() as { e: string; x: string; n: number }[];
+    for (const r of rows) out.set(`${r.e}|${r.x}`, Number(r.n));
+  } catch {
+    // Before the migration there are no arms, which is the same as none held.
+  }
+  return out;
+}
+
+/** Stamp the arm on a trajectory. Never on a closed one. */
+export function assignTournamentArm(db: Db, shadowPositionId: string, entry: string, exit: string): void {
+  try {
+    db.prepare(
+      `UPDATE shadow_positions SET tournament_entry_arm = ?, tournament_exit_arm = ?
+        WHERE shadow_position_id = ? AND tournament_entry_arm IS NULL AND state != 'POSITION_CLOSED'`,
+    ).run(entry, exit, shadowPositionId);
+  } catch {
+    // A missing column is a migration problem, not a reason to lose the row.
+  }
+}
+
 export function openShadowPositions(db: Db, book?: ShadowBook): OpenShadowRow[] {
   const sql =
     book === undefined

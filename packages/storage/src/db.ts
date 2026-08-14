@@ -2015,6 +2015,27 @@ CREATE INDEX IF NOT EXISTS idx_entity_concentration_gap
   ON entity_concentration(trustworthy, measured_utc_ms DESC);
 `,
   },
+  {
+    id: 34,
+    name: 'tournament_arm',
+    sql: `
+-- P19 -- the arm a trajectory belongs to, assigned AS IT OPENS.
+--
+-- Retrospective labelling of an existing corpus is how an arm ends up holding
+-- the trajectories that suit it. The allocation is balanced by construction and
+-- deterministic given the counts, so a restart does not reshuffle it, and it
+-- depends on nothing about the candidate -- assigning by score or liquidity or
+-- age would measure each arm on a different population.
+--
+-- The tournament does not run yet: zero valid trajectories exist and the first
+-- checkpoint is ten per arm. What this column does now is make sure that when
+-- they arrive they are already allocated.
+ALTER TABLE shadow_positions ADD COLUMN tournament_entry_arm TEXT;
+ALTER TABLE shadow_positions ADD COLUMN tournament_exit_arm TEXT;
+CREATE INDEX IF NOT EXISTS idx_shadow_positions_arm
+  ON shadow_positions(tournament_entry_arm, tournament_exit_arm, state);
+`,
+  },
 ];
 
 export interface OpenOptions {
