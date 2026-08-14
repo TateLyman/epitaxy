@@ -155,6 +155,45 @@ export interface ObservationStats {
   readonly assembled: number;
 }
 
+/**
+ * One stored observation, by id.
+ *
+ * P9 needs this because the observation being FILLED is not always the one just
+ * observed: `resolveFill` returns the first valid later candidate, which on a
+ * blocked trajectory may be from an earlier cycle. Judging the current mark and
+ * booking an older one verifies a price nobody is filling at, so the caller has
+ * to be able to load the one it actually selected.
+ */
+export function observationById(db: Db, observationId: string): ExecutionObservation | null {
+  const r = db
+    .prepare(`SELECT * FROM execution_observations WHERE observation_id = ?`)
+    .get(observationId) as Record<string, unknown> | undefined;
+  if (r === undefined) return null;
+  const str = (k: string): string | null => (typeof r[k] === 'string' ? (r[k] as string) : null);
+  const big = (k: string): bigint => {
+    const v = r[k];
+    return typeof v === 'string' || typeof v === 'number' ? BigInt(v) : 0n;
+  };
+  return {
+    observationId: String(r['observation_id']),
+    receivedUtcMs: Number(r['received_utc_ms'] ?? 0),
+    family: String(r['family']) as ExecutionObservation['family'],
+    side: String(r['side']) as ExecutionObservation['side'],
+    mint: String(r['mint']),
+    inputMint: String(r['input_mint']),
+    outputMint: String(r['output_mint']),
+    requestedAmount: big('requested_amount'),
+    expectedOutput: big('expected_output'),
+    minimumOutput: big('minimum_output'),
+    instructionSetHash: str('instruction_set_hash'),
+    rawPayloadHash: str('raw_payload_hash'),
+    instructionPolicy: (str('instruction_policy') ?? 'UNKNOWN') as ExecutionObservation['instructionPolicy'],
+    transactionPolicy: (str('transaction_policy') ?? 'UNKNOWN') as ExecutionObservation['transactionPolicy'],
+    simulation: (str('simulation') ?? 'NOT_SIMULATED') as ExecutionObservation['simulation'],
+    simulationEffect: str('simulation_effect') as ExecutionObservation['simulationEffect'],
+  } as ExecutionObservation;
+}
+
 export function observationStats(db: Db, sinceUtcMs: number | null): ObservationStats {
   const where = sinceUtcMs === null ? '' : ' WHERE requested_utc_ms >= ?';
   const args = sinceUtcMs === null ? [] : [sinceUtcMs];
