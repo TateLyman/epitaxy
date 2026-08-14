@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { classifyHolder, loadEntityRegistry, type HolderClass } from './entity-registry.js';
 import { fetchJson, SourceFetchError } from '../../adapters/src/http.js';
 import type { RateLimiter } from '../../adapters/src/ratelimit.js';
-import { assertPubkey, base58Encode as base58EncodeBytes } from './base58.js';
+import {
+  assertPubkey,
+  base58Encode as base58EncodeBytes,
+  base58Decode as base58DecodeBytes,
+  BASE58_INSTRUCTION_DATA_MAX_LENGTH,
+} from './base58.js';
 import { decodeMint, MintDecodeError, type DecodedMint } from './mint.js';
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
@@ -72,11 +77,16 @@ const GetTransactionMetaSchema = rpcEnvelope(
           preBalances: z.array(z.number()).nullable().optional(),
           postBalances: z.array(z.number()).nullable().optional(),
           logMessages: z.array(z.string()).nullable().optional(),
+          innerInstructions: z.array(z.unknown()).nullable().optional(),
         })
         .passthrough()
         .nullable(),
       transaction: z
-        .object({ message: z.object({ accountKeys: z.array(z.unknown()) }).passthrough() })
+        .object({
+          message: z
+            .object({ accountKeys: z.array(z.unknown()), instructions: z.array(z.unknown()).optional() })
+            .passthrough(),
+        })
         .passthrough(),
     })
     .passthrough()
@@ -116,6 +126,8 @@ const GetTokenSupplySchema = rpcEnvelope(
   z.object({ context: z.object({ slot: z.number() }).passthrough(), value: TokenAmountSchema }).passthrough(),
 );
 
+const GetBlockTimeSchema = rpcEnvelope(z.number().nullable());
+
 const GetMultipleAccountsSchema = rpcEnvelope(
   z
     .object({
@@ -133,6 +145,19 @@ export class RpcError extends Error {
     super(message);
     this.name = 'RpcError';
   }
+}
+
+export interface CoherentRawAccount {
+  readonly pubkey: string;
+  /** The slot the NODE served this batch at, not one the caller assumed. */
+  readonly slot: number;
+  readonly owner: string;
+  readonly executable: boolean;
+  readonly lamports: bigint;
+  readonly dataBase64: string;
+  /** null when the provider omitted it. Never silently 0. */
+  readonly rentEpoch: bigint | null;
+  readonly space: number | null;
 }
 
 export interface RawAccount {
@@ -246,13 +271,23 @@ export class SolanaRpc {
    * account's FIRST transaction, and a token account that has thousands of them
    * is not a fresh holder of a fresh memecoin.
    */
-  async getSignaturesForAddress(address: string, limit = 50): Promise<{ signature: string; blockTime: number | null }[]> {
+  /**
+   * `before` walks BACKWARD through history.
+   *
+   * Without it a caller can only ever see the newest page, and "the last entry
+   * of the newest page" is not the oldest transaction — it is simply the oldest
+   * of the most recent N. A pool needing 25 pages to reach its creation looks
+   * identical to one created 30 signatures ago.
+   */
+  async getSignaturesForAddress(
+    address: string,
+    limit = 50,
+    before?: string,
+  ): Promise<{ signature: string; blockTime: number | null }[]> {
     assertPubkey(address, 'signatures address');
-    const env = await this.call(
-      'getSignaturesForAddress',
-      [address, { limit, commitment: 'confirmed' }],
-      GetSignaturesSchema,
-    );
+    const cfg: Record<string, unknown> = { limit, commitment: 'confirmed' };
+    if (before !== undefined) cfg['before'] = before;
+    const env = await this.call('getSignaturesForAddress', [address, cfg], GetSignaturesSchema);
     return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
       signature: r.signature,
       blockTime: r.blockTime ?? null,
@@ -282,6 +317,96 @@ export class SolanaRpc {
       return typeof k === 'string' ? k : null;
     }
     return null;
+  }
+
+  /**
+   * A transaction's instructions, in order, with their accounts resolved.
+   *
+   * P7 needs this because migration identity must come from an instruction's
+   * OWN account list, not from the order strings happen to appear in the logs.
+   * Log ordering is not an interface; it is an implementation detail of whatever
+   * emitted it, and taking `mint` from the first base58 string and `pool` from
+   * the second produced zero correct pairs out of three hundred.
+   *
+   * Inner (CPI) instructions are included and flattened in execution order,
+   * because a migration invoked through a router appears only there.
+   */
+  async getTransactionInstructions(signature: string): Promise<{
+    signature: string;
+    slot: number | null;
+    blockTime: number | null;
+    failed: boolean;
+    accountKeys: string[];
+    tokenBalanceMints: string[];
+    instructions: { programId: string; accounts: string[]; dataHex: string | null }[];
+  } | null> {
+    const env = await this.call(
+      'getTransaction',
+      [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+      GetTransactionMetaSchema,
+    );
+    const tx = this.unwrap(env, 'getTransaction');
+    if (tx === null || tx.meta === null || tx.meta === undefined) return null;
+
+    const accountKeys = tx.transaction.message.accountKeys.map((k) => {
+      if (typeof k === 'string') return k;
+      const o = k as { pubkey?: unknown };
+      return typeof o.pubkey === 'string' ? o.pubkey : '';
+    });
+
+    const readIx = (raw: unknown): { programId: string; accounts: string[]; dataHex: string | null } | null => {
+      const o = raw as { programId?: unknown; accounts?: unknown; data?: unknown };
+      if (typeof o.programId !== 'string') return null;
+      const accounts = Array.isArray(o.accounts)
+        ? o.accounts.filter((a): a is string => typeof a === 'string')
+        : [];
+      // jsonParsed leaves an unrecognised program's instruction data as a
+      // base58 string. That is what carries the anchor discriminator, and
+      // without it a swap against a pool is indistinguishable from the
+      // instruction that created it. Null when the node returned a fully
+      // parsed form with no raw data — refused rather than assumed.
+      let dataHex: string | null = null;
+      if (typeof o.data === 'string' && o.data.length > 0) {
+        try {
+          dataHex = Buffer.from(base58DecodeBytes(o.data, BASE58_INSTRUCTION_DATA_MAX_LENGTH)).toString('hex');
+        } catch {
+          dataHex = null;
+        }
+      }
+      return { programId: o.programId, accounts, dataHex };
+    };
+
+    const instructions: { programId: string; accounts: string[]; dataHex: string | null }[] = [];
+    for (const raw of tx.transaction.message.instructions ?? []) {
+      const ix = readIx(raw);
+      if (ix !== null) instructions.push(ix);
+    }
+    for (const group of tx.meta.innerInstructions ?? []) {
+      const g = group as { instructions?: unknown };
+      if (!Array.isArray(g.instructions)) continue;
+      for (const raw of g.instructions) {
+        const ix = readIx(raw);
+        if (ix !== null) instructions.push(ix);
+      }
+    }
+
+    const mints = new Set<string>();
+    for (const rows of [tx.meta.preTokenBalances, tx.meta.postTokenBalances]) {
+      for (const r of rows ?? []) {
+        const m = (r as { mint?: unknown }).mint;
+        if (typeof m === 'string') mints.add(m);
+      }
+    }
+
+    return {
+      signature,
+      slot: tx.slot ?? null,
+      blockTime: tx.blockTime ?? null,
+      failed: tx.meta.err !== null && tx.meta.err !== undefined,
+      accountKeys,
+      tokenBalanceMints: [...mints],
+      instructions,
+    };
   }
 
   /**
@@ -439,6 +564,71 @@ export class SolanaRpc {
       out.set(tokenAccount, { owner, systemOwned: program === SYSTEM_PROGRAM_ID, ownerProgram: program });
     }
     return out;
+  }
+
+  /**
+   * A batched read that keeps what a coherent snapshot needs.
+   *
+   * `getMultipleAccountsRaw` drops the context slot and the rent epoch, so a
+   * caller cannot tell whether two accounts it received were ever true at the
+   * same time. That is the difference between a snapshot and a bag of reads:
+   * this returns the slot the NODE says each batch was served at, so the caller
+   * can enforce coherence instead of assuming it.
+   *
+   * `minContextSlot` makes the node refuse rather than serve a stale replica.
+   * A refusal is information; a silently older account is a state that never
+   * coexisted with the ones around it.
+   */
+  async getMultipleAccountsAtSlot(
+    pubkeys: readonly string[],
+    opts: { minContextSlot?: number; commitment?: 'confirmed' | 'finalized' } = {},
+  ): Promise<{ contextSlot: number; accounts: Map<string, CoherentRawAccount | null> }> {
+    const commitment = opts.commitment ?? 'confirmed';
+    const out = new Map<string, CoherentRawAccount | null>();
+    let low: number | null = null;
+    let high: number | null = null;
+
+    for (let i = 0; i < pubkeys.length; i += 100) {
+      const chunk = pubkeys.slice(i, i + 100);
+      for (const k of chunk) assertPubkey(k, 'account');
+      const cfg: Record<string, unknown> = { encoding: 'base64', commitment };
+      if (opts.minContextSlot !== undefined) cfg['minContextSlot'] = opts.minContextSlot;
+      const env = await this.call('getMultipleAccounts', [chunk, cfg], GetMultipleAccountsSchema);
+      const result = this.unwrap(env, 'getMultipleAccounts');
+      if (result.value.length !== chunk.length) {
+        throw new RpcError('rpc_error', `getMultipleAccounts returned ${result.value.length} of ${chunk.length}`);
+      }
+      const slot = result.context.slot;
+      low = low === null || slot < low ? slot : low;
+      high = high === null || slot > high ? slot : high;
+      chunk.forEach((key, idx) => {
+        const v = result.value[idx];
+        out.set(
+          key,
+          v == null
+            ? null
+            : {
+                pubkey: key,
+                slot,
+                owner: v.owner,
+                executable: v.executable,
+                lamports: BigInt(v.lamports),
+                dataBase64: v.data[0],
+                // Never hardcoded to 0. A wrong rent epoch changes whether an
+                // account is rent-exempt in a replayed runtime.
+                rentEpoch: v.rentEpoch === undefined ? null : BigInt(v.rentEpoch),
+                space: v.space ?? null,
+              },
+        );
+      });
+    }
+    return { contextSlot: high ?? low ?? 0, accounts: out };
+  }
+
+  /** The chain's own time for a slot. `Date.now()` is this machine's opinion. */
+  async getBlockTime(slot: number): Promise<number | null> {
+    const env = await this.call('getBlockTime', [slot], GetBlockTimeSchema);
+    return this.unwrap(env, 'getBlockTime');
   }
 
   private async getMultipleAccountsRaw(

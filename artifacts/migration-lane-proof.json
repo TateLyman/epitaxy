@@ -1,0 +1,41 @@
+{
+  "host": "thrilling-radial-sea.solana-mainnet.quiknode.pro",
+  "storedCorpusBefore": {
+    "migrationEvents": 256880,
+    "erroredTransactions": 256235,
+    "erroredShare": 0.9975,
+    "distinctMints": 56,
+    "identityCheckPassRate": "0 of 300 sampled (canonicalPool(storedMint) === storedPool)"
+  },
+  "migratedMintsFound": 6,
+  "decodedMigrations": 1,
+  "identitiesCorrect": 1,
+  "refusals": {
+    "no instruction carried a migration discriminator": 2,
+    "no candidate mint derives a pool present in the account keys": 2,
+    "the transaction failed; nothing migrated": 1
+  },
+  "refusedFailedTransaction": "the transaction failed; nothing migrated",
+  "decoded": [
+    {
+      "dedupKey": "3XMMmryDt5ufyBkBUVbx7cH2L1GiibNb:25:pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+      "signaturePrefix": "3XMMmryDt5ufyBkBUVbx7cH2L1GiibNb",
+      "instructionIndex": 25,
+      "programId": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+      "mint": "8PESB1JC75cCdPtTnqeeTRqJ9oR9G9QzU8XsAbkcpump",
+      "canonicalPool": "7ogWTymgkk93ZTeYVawWFGPF5Ae1PbtduKW2AoQR1PFE",
+      "bondingCurve": "Fm2nb5orakxFZtVUwHuDkMj39gSL6sTcKQ2BzxP7NvpL",
+      "poolBaseTokenAccount": "35NGjyPqpTEpMQ63kXhs1mjMWqBqsAqhZQzw7KL2M2FY",
+      "poolQuoteTokenAccount": "HTgn36LyyZUk1adJp9C8H2KNDWTKyVvNF88LgNFJ64aM",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "isMayhemMode": false,
+      "isCashbackCoin": false,
+      "slot": 439272783,
+      "blockTime": 1786730009,
+      "identitySource": "pda_verified_in_account_keys",
+      "derivedPoolMatchesExpected": true,
+      "derivedMintMatchesExpected": true
+    }
+  ],
+  "ok": true
+}

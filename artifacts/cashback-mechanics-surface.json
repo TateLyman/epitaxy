@@ -1,0 +1,430 @@
+{
+  "host": "thrilling-radial-sea.solana-mainnet.quiknode.pro",
+  "derivationsCrossCheckedAgainstSdk": {
+    "userVolumeAccumulator": {
+      "mine": "CdUPz4c3j4G4ndL71oLoYVHhovFqoAmAbFJMPX6bHzua",
+      "sdk": "CdUPz4c3j4G4ndL71oLoYVHhovFqoAmAbFJMPX6bHzua",
+      "agree": true
+    },
+    "globalVolumeAccumulator": {
+      "mine": "C2aFPdENg4A2HQsmrd5rTw5TaYBX5Ku887cWjbFKtZpw",
+      "sdk": "C2aFPdENg4A2HQsmrd5rTw5TaYBX5Ku887cWjbFKtZpw",
+      "agree": true
+    },
+    "accumulatorWsolAta": {
+      "mine": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "sdk": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "agree": true
+    }
+  },
+  "idlFacts": {
+    "sellHasNoVolumeAccumulator": true,
+    "sellHasNoVolumeAccumulatorNote": "Only `buy` carries user_volume_accumulator in the pump_amm IDL. Cashback accrues on BUY volume, not round-trip volume.",
+    "accumulatorWsolAtaIsOptionalRemainingAccount": true,
+    "buyDocs": "For cashback coins, optionally pass user_volume_accumulator_wsol_ata as remaining_accounts[0]. If provided and valid, the ATA will be initialized if needed.",
+    "failClosedConsequence": "Optional means a builder that omits it still lands a valid trade that accrues nothing, and the creator fee goes to the creator.",
+    "claimCashbackAccounts": [
+      "user",
+      "user_volume_accumulator",
+      "quote_mint",
+      "quote_token_program",
+      "user_volume_accumulator_wsol_token_account",
+      "user_wsol_token_account",
+      "system_program",
+      "event_authority",
+      "program"
+    ]
+  },
+  "feeAndCashbackSurface": [
+    {
+      "marketCapLamportsThreshold": "0",
+      "lpBps": 2,
+      "protocolBps": 93,
+      "creatorBps": 30,
+      "perLegTotalBps": 125,
+      "roundTripBps": 250,
+      "creatorBpsPerLeg": 30,
+      "maxCashbackRecoverableRoundTripBps": 30,
+      "roundTripBpsIfCashbackFullyRecovered": 220
+    },
+    {
+      "marketCapLamportsThreshold": "420000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 95,
+      "perLegTotalBps": 120,
+      "roundTripBps": 240,
+      "creatorBpsPerLeg": 95,
+      "maxCashbackRecoverableRoundTripBps": 95,
+      "roundTripBpsIfCashbackFullyRecovered": 145
+    },
+    {
+      "marketCapLamportsThreshold": "1470000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 90,
+      "perLegTotalBps": 115,
+      "roundTripBps": 230,
+      "creatorBpsPerLeg": 90,
+      "maxCashbackRecoverableRoundTripBps": 90,
+      "roundTripBpsIfCashbackFullyRecovered": 140
+    },
+    {
+      "marketCapLamportsThreshold": "2460000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 85,
+      "perLegTotalBps": 110,
+      "roundTripBps": 220,
+      "creatorBpsPerLeg": 85,
+      "maxCashbackRecoverableRoundTripBps": 85,
+      "roundTripBpsIfCashbackFullyRecovered": 135
+    },
+    {
+      "marketCapLamportsThreshold": "3440000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 80,
+      "perLegTotalBps": 105,
+      "roundTripBps": 210,
+      "creatorBpsPerLeg": 80,
+      "maxCashbackRecoverableRoundTripBps": 80,
+      "roundTripBpsIfCashbackFullyRecovered": 130
+    },
+    {
+      "marketCapLamportsThreshold": "4420000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 75,
+      "perLegTotalBps": 100,
+      "roundTripBps": 200,
+      "creatorBpsPerLeg": 75,
+      "maxCashbackRecoverableRoundTripBps": 75,
+      "roundTripBpsIfCashbackFullyRecovered": 125
+    },
+    {
+      "marketCapLamportsThreshold": "9820000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 70,
+      "perLegTotalBps": 95,
+      "roundTripBps": 190,
+      "creatorBpsPerLeg": 70,
+      "maxCashbackRecoverableRoundTripBps": 70,
+      "roundTripBpsIfCashbackFullyRecovered": 120
+    },
+    {
+      "marketCapLamportsThreshold": "14740000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 65,
+      "perLegTotalBps": 90,
+      "roundTripBps": 180,
+      "creatorBpsPerLeg": 65,
+      "maxCashbackRecoverableRoundTripBps": 65,
+      "roundTripBpsIfCashbackFullyRecovered": 115
+    },
+    {
+      "marketCapLamportsThreshold": "19650000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 60,
+      "perLegTotalBps": 85,
+      "roundTripBps": 170,
+      "creatorBpsPerLeg": 60,
+      "maxCashbackRecoverableRoundTripBps": 60,
+      "roundTripBpsIfCashbackFullyRecovered": 110
+    },
+    {
+      "marketCapLamportsThreshold": "24560000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 55,
+      "perLegTotalBps": 80,
+      "roundTripBps": 160,
+      "creatorBpsPerLeg": 55,
+      "maxCashbackRecoverableRoundTripBps": 55,
+      "roundTripBpsIfCashbackFullyRecovered": 105
+    },
+    {
+      "marketCapLamportsThreshold": "29470000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 50,
+      "perLegTotalBps": 75,
+      "roundTripBps": 150,
+      "creatorBpsPerLeg": 50,
+      "maxCashbackRecoverableRoundTripBps": 50,
+      "roundTripBpsIfCashbackFullyRecovered": 100
+    },
+    {
+      "marketCapLamportsThreshold": "34380000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 45,
+      "perLegTotalBps": 70,
+      "roundTripBps": 140,
+      "creatorBpsPerLeg": 45,
+      "maxCashbackRecoverableRoundTripBps": 45,
+      "roundTripBpsIfCashbackFullyRecovered": 95
+    },
+    {
+      "marketCapLamportsThreshold": "39300000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 40,
+      "perLegTotalBps": 65,
+      "roundTripBps": 130,
+      "creatorBpsPerLeg": 40,
+      "maxCashbackRecoverableRoundTripBps": 40,
+      "roundTripBpsIfCashbackFullyRecovered": 90
+    },
+    {
+      "marketCapLamportsThreshold": "44210000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 35,
+      "perLegTotalBps": 60,
+      "roundTripBps": 120,
+      "creatorBpsPerLeg": 35,
+      "maxCashbackRecoverableRoundTripBps": 35,
+      "roundTripBpsIfCashbackFullyRecovered": 85
+    },
+    {
+      "marketCapLamportsThreshold": "49120000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 30,
+      "perLegTotalBps": 55,
+      "roundTripBps": 110,
+      "creatorBpsPerLeg": 30,
+      "maxCashbackRecoverableRoundTripBps": 30,
+      "roundTripBpsIfCashbackFullyRecovered": 80
+    },
+    {
+      "marketCapLamportsThreshold": "54030000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 28,
+      "perLegTotalBps": 53,
+      "roundTripBps": 106,
+      "creatorBpsPerLeg": 28,
+      "maxCashbackRecoverableRoundTripBps": 28,
+      "roundTripBpsIfCashbackFullyRecovered": 78
+    },
+    {
+      "marketCapLamportsThreshold": "58940000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 25,
+      "perLegTotalBps": 50,
+      "roundTripBps": 100,
+      "creatorBpsPerLeg": 25,
+      "maxCashbackRecoverableRoundTripBps": 25,
+      "roundTripBpsIfCashbackFullyRecovered": 75
+    },
+    {
+      "marketCapLamportsThreshold": "63860000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 23,
+      "perLegTotalBps": 48,
+      "roundTripBps": 96,
+      "creatorBpsPerLeg": 23,
+      "maxCashbackRecoverableRoundTripBps": 23,
+      "roundTripBpsIfCashbackFullyRecovered": 73
+    },
+    {
+      "marketCapLamportsThreshold": "68770000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 20,
+      "perLegTotalBps": 45,
+      "roundTripBps": 90,
+      "creatorBpsPerLeg": 20,
+      "maxCashbackRecoverableRoundTripBps": 20,
+      "roundTripBpsIfCashbackFullyRecovered": 70
+    },
+    {
+      "marketCapLamportsThreshold": "73681000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 18,
+      "perLegTotalBps": 43,
+      "roundTripBps": 86,
+      "creatorBpsPerLeg": 18,
+      "maxCashbackRecoverableRoundTripBps": 18,
+      "roundTripBpsIfCashbackFullyRecovered": 68
+    },
+    {
+      "marketCapLamportsThreshold": "78590000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 15,
+      "perLegTotalBps": 40,
+      "roundTripBps": 80,
+      "creatorBpsPerLeg": 15,
+      "maxCashbackRecoverableRoundTripBps": 15,
+      "roundTripBpsIfCashbackFullyRecovered": 65
+    },
+    {
+      "marketCapLamportsThreshold": "83500000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 13,
+      "perLegTotalBps": 38,
+      "roundTripBps": 76,
+      "creatorBpsPerLeg": 13,
+      "maxCashbackRecoverableRoundTripBps": 13,
+      "roundTripBpsIfCashbackFullyRecovered": 63
+    },
+    {
+      "marketCapLamportsThreshold": "88400000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 10,
+      "perLegTotalBps": 35,
+      "roundTripBps": 70,
+      "creatorBpsPerLeg": 10,
+      "maxCashbackRecoverableRoundTripBps": 10,
+      "roundTripBpsIfCashbackFullyRecovered": 60
+    },
+    {
+      "marketCapLamportsThreshold": "93330000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 8,
+      "perLegTotalBps": 33,
+      "roundTripBps": 66,
+      "creatorBpsPerLeg": 8,
+      "maxCashbackRecoverableRoundTripBps": 8,
+      "roundTripBpsIfCashbackFullyRecovered": 58
+    },
+    {
+      "marketCapLamportsThreshold": "98240000000000",
+      "lpBps": 20,
+      "protocolBps": 5,
+      "creatorBps": 5,
+      "perLegTotalBps": 30,
+      "roundTripBps": 60,
+      "creatorBpsPerLeg": 5,
+      "maxCashbackRecoverableRoundTripBps": 5,
+      "roundTripBpsIfCashbackFullyRecovered": 55
+    }
+  ],
+  "liveCoins": [
+    {
+      "mint": "57QvxnRo7Q9dRrASbqdgLouCVMXB9kJRE5Kn7QXRpump",
+      "pool": "3Z2pLSzHcEp3wwePTttF2F5AsqaZ33fi8UAat8UyeiQk",
+      "isCashbackCoin": false,
+      "isMayhemMode": false,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "G4CdaNdV2qqJV5C5tN32EoRajLHpLCNY5JitQTgApump",
+      "pool": "78BMS1AHD5acJiknqiaKY4aZVXxSyyzpekqHiqKT1QDb",
+      "isCashbackCoin": false,
+      "isMayhemMode": true,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "B5NfmUnAAsRKzKMXEeM2GPPk81hHPUTtfAhrRN1Tpump",
+      "pool": "5e24NPYneZuGTg1KJsEFwqBtebn4zHxCkm1TPfm2L4Wc",
+      "isCashbackCoin": false,
+      "isMayhemMode": true,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "D3pHN7kAJMvcbWrUBECjcr2MZjPgNTrzo3kCerYwpump",
+      "pool": "4B9ZkXruaoQppLn7ykd6xnz2mgtssgovttmTM7iH1br1",
+      "isCashbackCoin": false,
+      "isMayhemMode": false,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "2sCnMRa6WdVzGDxftSMJEs2yHLmBjdejSe3Q8zwKpump",
+      "pool": "4umR5uvzmKBDcK685jchDiLTc14ETHsEGop3maNk7x3a",
+      "isCashbackCoin": false,
+      "isMayhemMode": false,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "D83fcVkYATiKy9Kn8jgYjiqaNegtWai8NTt6Khcmpump",
+      "pool": "7sbTHqvWsh1v9Y1cnY7V4LbHPBKgY57tCjThAU9Bt5aq",
+      "isCashbackCoin": false,
+      "isMayhemMode": true,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "6EefBK6eZNVWyhZipxRk7DbUfgpCCHphjBeNs3mPpump",
+      "pool": "ADojyeudBaqcJNmbYEfcEeNZx9BrjX4sQdscRLfTinvY",
+      "isCashbackCoin": false,
+      "isMayhemMode": false,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    },
+    {
+      "mint": "Hfe2batxzmTU6XKRPorpJTsjUva1WJQ6wjghWZ2Zpump",
+      "pool": "8T2c4jA9BX67DjortyibV34EL7pYkbNpgz4nJkRVVTaj",
+      "isCashbackCoin": false,
+      "isMayhemMode": false,
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "bottomTierRoundTripBps": 250,
+      "accumulatorWsolAtaForSampleUser": "DQRMRE6hZfWjKnxTBiAQfGnscsDRaahJigmYtTUZjjeF",
+      "refusalWhenBuilderOmitsTheAccount": "the coin is not cashback enabled",
+      "refusalWhenBuilderIncludesIt": "the coin is not cashback enabled"
+    }
+  ],
+  "sampleAccumulator": {
+    "exists": false,
+    "note": "the sample user has never traded a cashback coin"
+  },
+  "claimAmortisation": {
+    "tinyClaimIsALoss": {
+      "worthwhile": false,
+      "netLamports": "-4100",
+      "reason": "claiming 900 costs 5000, which is a loss"
+    },
+    "realClaimIsWorthwhile": {
+      "worthwhile": true,
+      "netLamports": "395000",
+      "reason": "395000 lamports net, amortised over 40 trajectories"
+    }
+  },
+  "ok": true
+}

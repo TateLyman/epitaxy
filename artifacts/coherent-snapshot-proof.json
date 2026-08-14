@@ -1,0 +1,72 @@
+{
+  "generatedForHost": "thrilling-radial-sea.solana-mainnet.quiknode.pro",
+  "mint": "DecisLbb93cHmKueeU4322jXXDMSFLGqHczcGEtRpump",
+  "pool": "5ZFsPGRTuk5TkMWrrS95wbZ5sjKZrjPcqGGF2LTr3ewx",
+  "readerA": {
+    "snapshotHash": "85b0ba125506181f5df37d61da422c451204616abd29beb48b200201b1dbf3ee",
+    "captureSlotLow": 439297339,
+    "captureSlotHigh": 439297339,
+    "economicDriftSlots": 0,
+    "blockTimeUnix": 1786740196,
+    "batchSlots": [
+      439297339,
+      439297339
+    ],
+    "accounts": 9,
+    "omissions": [],
+    "incompleteness": [
+      "the cluster feature set is not captured; a replayed runtime may activate different features"
+    ],
+    "clockSlot": "439297339",
+    "rentLamportsPerByteYear": "6960",
+    "slotsPerEpoch": "432000",
+    "feeConfigHash": "7e3892e1c25b9bbd59c28548067f4c222c7e640bb4f696d59a6061b425c11813"
+  },
+  "readerB": {
+    "snapshotHash": "ee846a8702b6d7bc61e2abe7af8088afeb42d46b499f1bc6aa14e0cb6367a7fd",
+    "captureSlotLow": 439297340,
+    "captureSlotHigh": 439297340,
+    "economicDriftSlots": 0,
+    "blockTimeUnix": 1786740196,
+    "batchSlots": [
+      439297340,
+      439297341
+    ],
+    "accounts": 9,
+    "feeConfigHash": "7e3892e1c25b9bbd59c28548067f4c222c7e640bb4f696d59a6061b425c11813"
+  },
+  "comparison": {
+    "sameAccountSet": true,
+    "accountsWhoseBytesChangedBetweenCaptures": [
+      "SysvarC1ock11111111111111111111111111111111"
+    ],
+    "economicAccountsWhoseBytesChanged": [],
+    "bytesIdentical": false,
+    "economicBytesIdentical": true,
+    "poolFactsA": {
+      "base": "668843984873984",
+      "quote": "9045099304",
+      "virtualQuote": "17584505645",
+      "mayhem": false,
+      "cashback": true
+    },
+    "poolFactsB": {
+      "base": "668843984873984",
+      "quote": "9045099304",
+      "virtualQuote": "17584505645",
+      "mayhem": false,
+      "cashback": true
+    },
+    "poolFactsIdentical": true,
+    "feeTierA": 250,
+    "feeTierB": 250,
+    "feeTierIdentical": true,
+    "derivationIsAFunctionOfBytes": true
+  },
+  "coherence": {
+    "readerAInternallyCoherent": true,
+    "readerBInternallyCoherent": true
+  },
+  "refusedWhenBoundImpossible": "economic accounts span slots 439297342..439297342 (drift 0 > bound -1); these bytes were never simultaneously true",
+  "ok": true
+}

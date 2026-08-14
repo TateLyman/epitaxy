@@ -133,17 +133,40 @@ export function parseEvent(e: ProgramLogEvent): ParsedEvent | null {
   if (kind === 'UNKNOWN') return null;
 
   const addrs = addressesIn(e.logs).filter((a) => !SYSTEM_ADDRESSES.has(a) && a !== e.programId);
+
+  /**
+   * Identity is NOT taken from log string position.
+   *
+   * The comment that used to sit here said "a wrong mint is worse than no mint"
+   * and then took `mint` from the first base58 string in the logs and `pool`
+   * from the second. Measured against the only check that matters —
+   * `canonicalPool(mint) === pool` — that produced **zero** correct pairs out of
+   * three hundred sampled, across 256,880 stored migration rows spanning 56
+   * distinct mints.
+   *
+   * Log ordering is not an interface. It is an implementation detail of
+   * whatever emitted the log, and it changes without notice.
+   *
+   * A MIGRATION's identity is established by `packages/solana/src/migration.ts`,
+   * which derives the pool as a PDA of a candidate mint and then REQUIRES that
+   * address to appear in the transaction's account list. That is a verification
+   * the program itself cannot fake: it cannot have created a pool whose address
+   * it never referenced.
+   *
+   * For a TRADE the log-derived address is still the only identity available
+   * cheaply, so it is kept — but it is kept only where it is used as a routing
+   * hint, never as the identity a migration candidate is built from.
+   */
+  const identityIsTrustworthy = kind === 'TRADE' || kind === 'LAUNCH';
+
   return {
     signature: e.signature,
     slot: e.slot,
     programId: e.programId,
     kind,
     instruction: ix,
-    // Best-effort identity from the logs. Null rather than a guess: a wrong
-    // mint is worse than no mint, because it attributes flow to a token that
-    // had none.
-    mint: addrs[0] ?? null,
-    pool: addrs[1] ?? null,
+    mint: identityIsTrustworthy ? (addrs[0] ?? null) : null,
+    pool: identityIsTrustworthy ? (addrs[1] ?? null) : null,
     commitment: e.commitment,
     receivedMonotonicMs: e.receivedMonotonicMs,
     receivedUtcMs: e.receivedUtcMs,
@@ -248,6 +271,14 @@ export class EventPipeline {
         if (e === undefined) break;
 
         // The same signature reaches us once per program it mentions.
+        //
+        // This is a NOTIFICATION filter, not an event identity. A log
+        // subscription carries no instruction index, so this is the finest key
+        // available here and it is the right one for "have I already seen this
+        // socket message". It is NOT the key a migration is deduplicated by:
+        // that is `migrationDedupKey` in packages/solana/src/migration.ts, which
+        // includes the instruction index so two migrations bundled into one
+        // transaction stay two.
         const key = `${e.signature}:${e.programId}`;
         if (this.seen.has(key)) {
           this.counters.duplicates += 1;

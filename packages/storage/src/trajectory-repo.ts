@@ -1,0 +1,212 @@
+import type { Db } from './db.js';
+import type { SettledTrajectory, TrajectoryIdentity, TrajectoryState } from '../../pipeline/src/trajectory-kernel.js';
+import type { EvidenceGrade } from '../../domain/src/trajectory-evidence.js';
+import type { EntryImpactBound } from '../../domain/src/trajectory-evidence.js';
+import type { MigrationEventIdentity, ReversalStatus } from '../../solana/src/migration.js';
+
+/**
+ * P8 — persistence for development trajectories and confirmed migrations.
+ *
+ * Every amount is TEXT because SQLite INTEGER is 64-bit SIGNED and these are
+ * u64. A lamport figure stored as INTEGER is fine until it is not, and the
+ * failure is silent.
+ */
+
+export interface OpenTrajectoryRow {
+  readonly identity: TrajectoryIdentity;
+  readonly entryPolicy: string;
+  readonly exitPolicy: string;
+  readonly state: TrajectoryState;
+  readonly impact: EntryImpactBound;
+  readonly maxAttainableGrade: EvidenceGrade;
+  readonly refusals: readonly string[];
+  readonly openedUtcMs: number;
+}
+
+export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO development_trajectories (
+       trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
+       venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
+       migration_age_ms, notional_lamports, entry_policy_inputs,
+       entry_policy, exit_policy, state,
+       evidence_grade, max_attainable_grade,
+       quote_impact_ratio, base_impact_ratio, max_impact_ratio, haircut_bps, within_small_impact,
+       opened_utc_ms, refusals
+     ) VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,?)`,
+  ).run(
+    r.identity.trajectoryId,
+    r.identity.entryObservationId,
+    r.identity.entrySimulationJobId,
+    r.identity.entrySettlementId,
+    r.identity.venue,
+    r.identity.pool,
+    r.identity.capabilityFingerprint,
+    r.identity.snapshotHash,
+    r.identity.mint,
+    r.identity.cohort,
+    r.identity.stratum,
+    r.identity.migrationAgeMs,
+    r.identity.notionalLamports.toString(),
+    JSON.stringify(r.identity.entryPolicyInputs),
+    r.entryPolicy,
+    r.exitPolicy,
+    r.state,
+    // An open trajectory has established its entry and nothing more.
+    'SIMULATED_EXECUTION',
+    r.maxAttainableGrade,
+    finite(r.impact.quoteImpactRatio),
+    finite(r.impact.baseImpactRatio),
+    finite(r.impact.maxImpactRatio),
+    r.impact.haircutBps,
+    r.impact.withinSmallImpactBound ? 1 : 0,
+    r.openedUtcMs,
+    JSON.stringify(r.refusals),
+  );
+}
+
+/**
+ * An infinite ratio is what a zero reserve produces, and SQLite will not store
+ * it. Null means "the denominator was zero", which is a different fact from a
+ * ratio of zero and must not be flattened into one.
+ */
+function finite(x: number): number | null {
+  return Number.isFinite(x) ? x : null;
+}
+
+export function settleTrajectory(
+  db: Db,
+  t: SettledTrajectory,
+  extra: { exitObservationId: string | null; fillLatencyMs: number | null; settledUtcMs: number },
+): void {
+  const s = t.settlement;
+  db.prepare(
+    `UPDATE development_trajectories SET
+       state = ?, evidence_grade = ?,
+       entry_cash_out_lamports = ?, exit_cash_in_lamports = ?, haircut_exit_lamports = ?,
+       execution_cost_lamports = ?, net_pnl_lamports = ?, pnl_blocked_reasons = ?,
+       cashback_accrued = ?, cashback_claimable = ?, cashback_claimed = ?, cashback_claim_cost = ?,
+       exit_observation_id = ?, fill_latency_ms = ?, settled_utc_ms = ?
+     WHERE trajectory_id = ?`,
+  ).run(
+    s.exitCashInLamports === null ? 'AWAITING_FILL_OBSERVATION' : 'SETTLED',
+    t.evidenceGrade,
+    s.entryCashOutLamports.toString(),
+    s.exitCashInLamports === null ? null : s.exitCashInLamports.toString(),
+    t.haircutExitCashInLamports === null ? null : t.haircutExitCashInLamports.toString(),
+    s.executionCostLamports.toString(),
+    s.netPnlLamports === null ? null : s.netPnlLamports.toString(),
+    JSON.stringify(s.pnlBlockedReasons),
+    s.cashbackAccruedLamports.toString(),
+    s.cashbackClaimableLamports.toString(),
+    s.cashbackClaimedLamports.toString(),
+    s.cashbackClaimCostLamports.toString(),
+    extra.exitObservationId,
+    extra.fillLatencyMs,
+    extra.settledUtcMs,
+    t.identity.trajectoryId,
+  );
+}
+
+export function trajectoryCounts(db: Db): Record<string, number> {
+  const rows = db
+    .prepare('SELECT state, COUNT(*) c FROM development_trajectories GROUP BY state')
+    .all() as { state: string; c: number }[];
+  return Object.fromEntries(rows.map((r) => [r.state, r.c]));
+}
+
+export function settledTrajectories(
+  db: Db,
+  limit = 500,
+): {
+  trajectory_id: string;
+  mint: string;
+  stratum: string;
+  entry_policy: string;
+  exit_policy: string;
+  evidence_grade: string;
+  net_pnl_lamports: string | null;
+  haircut_exit_lamports: string | null;
+  entry_cash_out_lamports: string | null;
+  fill_latency_ms: number | null;
+}[] {
+  return db
+    .prepare(
+      `SELECT trajectory_id, mint, stratum, entry_policy, exit_policy, evidence_grade,
+              net_pnl_lamports, haircut_exit_lamports, entry_cash_out_lamports, fill_latency_ms
+         FROM development_trajectories
+        WHERE state = 'SETTLED'
+        ORDER BY settled_utc_ms DESC
+        LIMIT ?`,
+    )
+    .all(limit) as never;
+}
+
+/** P7 — a confirmed migration, keyed by signature + instruction index + program. */
+export function insertConfirmedMigration(
+  db: Db,
+  m: MigrationEventIdentity,
+  reversal: ReversalStatus | null,
+  observedUtcMs: number,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO confirmed_migrations (
+       signature, instruction_index, program_id,
+       mint, bonding_curve, canonical_pool,
+       pool_base_token_account, pool_quote_token_account, quote_mint, creator,
+       is_mayhem_mode, is_cashback_coin,
+       slot, block_time, commitment, reversal_status, identity_source, observed_utc_ms
+     ) VALUES (?,?,?, ?,?,?, ?,?,?,?, ?,?, ?,?,?,?,?,?)`,
+  ).run(
+    m.signature,
+    m.instructionIndex,
+    m.programId,
+    m.mint,
+    m.bondingCurve,
+    m.canonicalPool,
+    m.poolBaseTokenAccount,
+    m.poolQuoteTokenAccount,
+    m.quoteMint,
+    m.creator,
+    m.isMayhemMode === null ? null : m.isMayhemMode ? 1 : 0,
+    m.isCashbackCoin === null ? null : m.isCashbackCoin ? 1 : 0,
+    m.slot,
+    m.blockTime,
+    m.commitment,
+    reversal,
+    m.identitySource,
+    observedUtcMs,
+  );
+}
+
+/**
+ * The primary candidate queue.
+ *
+ * Confirmed migrations only, newest first. A `processed` sighting that has not
+ * been reconciled is excluded rather than ranked lower: acting on a migration
+ * that was rolled back means building a trajectory for a pool that does not
+ * exist.
+ */
+export function migrationCandidates(
+  db: Db,
+  limit = 50,
+): { mint: string; canonical_pool: string; slot: number; block_time: number | null; is_cashback_coin: number | null; is_mayhem_mode: number | null }[] {
+  return db
+    .prepare(
+      `SELECT mint, canonical_pool, slot, block_time, is_cashback_coin, is_mayhem_mode
+         FROM confirmed_migrations
+        WHERE reversal_status = 'CONFIRMED'
+        ORDER BY slot DESC
+        LIMIT ?`,
+    )
+    .all(limit) as never;
+}
+
+export function confirmedMigrationCounts(db: Db): Record<string, number> {
+  const rows = db
+    .prepare(
+      "SELECT COALESCE(reversal_status,'UNRECONCILED') s, COUNT(*) c FROM confirmed_migrations GROUP BY s",
+    )
+    .all() as { s: string; c: number }[];
+  return Object.fromEntries(rows.map((r) => [r.s, r.c]));
+}

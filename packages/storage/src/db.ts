@@ -2059,6 +2059,121 @@ CREATE TABLE IF NOT EXISTS exploration_debt (
 );
 `,
   },
+  {
+    id: 36,
+    name: 'development_trajectories',
+    sql: `
+-- P8 -- development trajectories, which do NOT pretend to own capital.
+--
+-- The portfolio risk budget prevents opening and must not be loosened to
+-- manufacture paper positions. A research trajectory is not a position: it has
+-- no NAV, consumes no free capital and is bounded by no portfolio position
+-- limit. It is bounded by hard safety facts, mechanics viability and a frozen
+-- sampling design, which are the things that actually make it informative.
+--
+-- Kept in its own table for exactly that reason. Writing these into positions
+-- would make every capital-bearing invariant in the e2e suite meaningless, and
+-- those invariants are asserted against the DATABASE rather than the code path.
+CREATE TABLE IF NOT EXISTS development_trajectories (
+  trajectory_id            TEXT PRIMARY KEY,
+
+  -- The immutable economic identity. No row may change any of these; a
+  -- different observation is a different economic event and gets a new row.
+  entry_observation_id     TEXT NOT NULL,
+  entry_simulation_job_id  TEXT NOT NULL,
+  entry_settlement_id      TEXT NOT NULL,
+  venue                    TEXT NOT NULL,
+  pool                     TEXT NOT NULL,
+  capability_fingerprint   TEXT NOT NULL,
+  snapshot_hash            TEXT NOT NULL,
+  mint                     TEXT NOT NULL,
+  cohort                   TEXT NOT NULL,
+  stratum                  TEXT NOT NULL,
+  migration_age_ms         INTEGER,
+  notional_lamports        TEXT NOT NULL,
+  entry_policy_inputs      TEXT NOT NULL,
+
+  -- The treatments this trajectory was evaluated under. Shared trajectory,
+  -- many policies -- which is what makes the comparison a comparison.
+  entry_policy             TEXT NOT NULL,
+  exit_policy              TEXT NOT NULL,
+
+  state                    TEXT NOT NULL,
+
+  -- Evidence. A trajectory carries the grade of what it actually rests on.
+  evidence_grade           TEXT NOT NULL,
+  max_attainable_grade     TEXT NOT NULL,
+
+  -- The counterfactual bound. A future pool state does not contain this
+  -- entry, so its own impact is measured and haircut rather than ignored.
+  quote_impact_ratio       REAL,
+  base_impact_ratio        REAL,
+  max_impact_ratio         REAL,
+  haircut_bps              INTEGER,
+  within_small_impact      INTEGER NOT NULL DEFAULT 0,
+
+  -- Amounts as TEXT: SQLite INTEGER is 64-bit SIGNED and these are u64.
+  entry_cash_out_lamports  TEXT,
+  exit_cash_in_lamports    TEXT,
+  haircut_exit_lamports    TEXT,
+  execution_cost_lamports  TEXT,
+  net_pnl_lamports         TEXT,
+  pnl_blocked_reasons      TEXT NOT NULL DEFAULT '[]',
+
+  cashback_accrued         TEXT NOT NULL DEFAULT '0',
+  cashback_claimable       TEXT NOT NULL DEFAULT '0',
+  cashback_claimed         TEXT NOT NULL DEFAULT '0',
+  cashback_claim_cost      TEXT NOT NULL DEFAULT '0',
+
+  exit_observation_id      TEXT,
+  fill_latency_ms          INTEGER,
+
+  opened_utc_ms            INTEGER NOT NULL,
+  settled_utc_ms           INTEGER,
+  refusals                 TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_devtraj_state ON development_trajectories(state, opened_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_devtraj_stratum ON development_trajectories(stratum, cohort);
+CREATE INDEX IF NOT EXISTS idx_devtraj_policies ON development_trajectories(entry_policy, exit_policy);
+
+-- P7 -- confirmed migrations, keyed the way the directive requires.
+--
+-- (signature, program_id) -- the key chain_events uses -- collapses every
+-- instruction in a transaction to one row, so a transaction migrating more
+-- than one thing keeps one arbitrary member of the set. The instruction index
+-- is what keeps two migrations in one transaction as two.
+CREATE TABLE IF NOT EXISTS confirmed_migrations (
+  signature              TEXT NOT NULL,
+  instruction_index      INTEGER NOT NULL,
+  program_id             TEXT NOT NULL,
+
+  mint                   TEXT NOT NULL,
+  bonding_curve          TEXT NOT NULL,
+  canonical_pool         TEXT NOT NULL,
+  pool_base_token_account  TEXT,
+  pool_quote_token_account TEXT,
+  quote_mint             TEXT,
+  creator                TEXT,
+
+  is_mayhem_mode         INTEGER,
+  is_cashback_coin       INTEGER,
+
+  slot                   INTEGER NOT NULL,
+  block_time             INTEGER,
+  commitment             TEXT NOT NULL,
+  -- processed is a claim that can be rolled back. NULL means not yet checked,
+  -- which is not the same as checked and fine.
+  reversal_status        TEXT,
+  identity_source        TEXT NOT NULL,
+  observed_utc_ms        INTEGER NOT NULL,
+
+  PRIMARY KEY (signature, instruction_index, program_id)
+);
+CREATE INDEX IF NOT EXISTS idx_confmig_mint ON confirmed_migrations(mint);
+CREATE INDEX IF NOT EXISTS idx_confmig_slot ON confirmed_migrations(slot DESC);
+CREATE INDEX IF NOT EXISTS idx_confmig_pool ON confirmed_migrations(canonical_pool);
+`,
+  },
 ];
 
 export interface OpenOptions {
