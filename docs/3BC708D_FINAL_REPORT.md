@@ -504,6 +504,39 @@ Zero provider disagreements is worth stating precisely: where Jupiter's audit
 fields and the chain both had an answer, they agreed. That makes the provider
 *reliable so far*, not authoritative.
 
+## 19h2. Entity concentration at scale (P11)
+
+`artifacts/` rows in `entity_concentration`, `pnpm enrichment:probe`.
+
+**The history was read from the wrong account.** `buildEntityLinks` asked for the
+OWNER wallet's oldest signature. `getSignaturesForAddress` returns newest-first,
+so the "oldest" of a bounded page is the *N*th-newest transaction of an active
+wallet, not its first — and its fee payer is usually the wallet itself, which
+links nobody. Every reading came back with zero links and an honest
+`trustworthy: false`, which is exactly why it looked like the module ran and
+found nothing.
+
+Clustering still happens over the **owner**, because that is the actor who can
+sell. History now comes from the **token account**, which was created for this
+mint, has a handful of transactions, and whose first one is its creation — whose
+fee payer is the funder being looked for.
+
+With that fixed, 42 mints and 111 links, and the pattern is consistent:
+
+| | by address | by entity |
+|---|---|---|
+| holders | 20 | 13 |
+| top-10 share | 5,242 bps | **8,574 bps** |
+
+Roughly **+3,000 bps** on the worst cases. A token that looks 53% concentrated
+by address is 86% concentrated by actor — which is the whole reason the
+entity-versus-address comparison exists.
+
+`trustworthy` is still **false everywhere**. With seven links out of twenty
+holders, too many histories remain unread for the entity figure to be a better
+number than the address one, and it says so rather than presenting itself as
+authoritative.
+
 ## 19h. Parity against landed transactions (P14)
 
 `artifacts/landed-parity.json`, `pnpm pumpswap:landed-parity`.
@@ -531,12 +564,21 @@ close, so neither the account delta nor the native delta is what the swap
 consumed.
 
 The headline therefore counts only **direct single-hop swaps whose taker-side
-quantity can be isolated**. Direct cases land at **0 and 1 bps**. Routed cases,
-and cases whose residual exceeds what the fee table can explain, are kept in the
-artifact with their numbers and excluded from the summary.
+quantity can be isolated**. Routed cases, and cases whose residual exceeds what
+the fee table can explain, are kept in the artifact with their numbers and
+excluded from the summary.
 
-**The sample is small** — most PumpSwap traffic is routed, and the public
-endpoint limits how many transactions a run can examine.
+On a working endpoint, over 200 transactions examined:
+
+```
+direct, isolatable   21     (4 buys, 17 sells)
+EXACT (0 bps)        12
+median residual       0 bps
+routed               52     excluded
+attribution uncertain 34     excluded
+```
+
+The non-zero direct residuals run 1 to 239 bps and are **not yet explained**.
 
 ## 19i. RPC capacity
 
@@ -561,12 +603,10 @@ sources in one table with nothing to tell them apart.
 
 ## 20. Not done, and why
 
-- **The live write of `mayhem_facts` and `entity_concentration`.** Both run only
-  for candidates that reach the quote stage; eligibility is ~0.25%, and the
-  probe that would have exercised them directly hit HTTP 429 `max usage
-  reached` — the RPC **daily cap**, not a per-second limit. The decode itself is
-  verified against real captured mainnet pool bytes. `pnpm enrichment:probe`
-  exercises the path once the cap resets.
+- **The live write through the CYCLE.** `mayhem_facts` (48 rows) and
+  `entity_concentration` (42 rows) are populated by `pnpm enrichment:probe`; the
+  in-cycle path runs only for candidates reaching the quote stage, and
+  eligibility is ~0.25%, so it will fill slowly on its own.
 - **The Mayhem program's own account layout.** No IDL is published, so agent
   inventory, buys, sells and the burn transition are refused rather than
   guessed.
@@ -577,8 +617,9 @@ sources in one table with nothing to tell them apart.
   curve, Mayhem vs non-Mayhem. §19g establishes that legacy SPL base is a
   **sampling** gap rather than a universe gap. Landed-transaction parity is now
   done (§19h) on a small sample.
-- **Entity concentration at scale.** Blocked on `getTokenLargestAccounts`, which
-  the capped provider served and the public endpoint does not (§19i).
+- **A trustworthy entity reading.** 111 links exist and no mint yet has enough
+  holder histories read for `concentration()` to call its entity figure
+  trustworthy. That is a coverage problem, not a correctness one.
 - **Wiring the three stronger entity link kinds.** `SHARED_FEE_PAYER`,
   `SAME_TRANSACTION` and `DIRECT_TRANSFER` are implemented and tested
   (`buildTransactionLinks`), behind a separate `TransactionSource` so a caller

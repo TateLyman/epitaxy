@@ -1,25 +1,25 @@
 {
-  "generatedUtcMs": 1786689912183,
+  "generatedUtcMs": 1786730352931,
   "windowMs": 3600000,
-  "totalCalls": 1066,
-  "callsPerSecond": 0.2961111111111111,
+  "totalCalls": 134,
+  "callsPerSecond": 0.03722222222222222,
   "duplicateGroups": 0,
   "byPurpose": [
     {
-      "purpose": "alpha_shadow_mark",
-      "n": 529
+      "purpose": "canary_shadow_mark",
+      "n": 66
     },
     {
-      "purpose": "canary_shadow_mark",
-      "n": 523
+      "purpose": "alpha_shadow_mark",
+      "n": 66
     },
     {
       "purpose": "shadow_entry_roundtrip",
-      "n": 7
+      "n": 1
     },
     {
       "purpose": "shadow_entry",
-      "n": 7
+      "n": 1
     }
   ],
   "markLagMs": {
@@ -29,10 +29,10 @@
     "samples": 0
   },
   "rateLimitEvents": 0,
-  "backlogWarnings": 263,
+  "backlogWarnings": 33,
   "admissionsRefused": 0,
-  "effectVerifiedLabels": 9,
-  "labelsPerDay": 216,
+  "effectVerifiedLabels": 2,
+  "labelsPerDay": 48,
   "triggerToFillMs": {
     "p50": null,
     "p95": null,
