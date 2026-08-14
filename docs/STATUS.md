@@ -1,5 +1,19 @@
 # STATUS
 
+> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, second
+> pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> The candidate stream was the binding constraint and it is now measured: only
+> **6 of 185** screened mints have a canonical PumpSwap pool (~3%), against
+> **6 of 6** for migration-sourced candidates. The stored migration corpus is
+> noise — 256,880 rows of which **256,235 are errored transactions** and **zero
+> of 300** sampled identities survive `canonicalPool(mint) == pool`.
+> Coherent snapshots, verified migration identity, Pump cashback mechanics, the
+> trajectory kernel and real entry/exit treatments are built and proven against
+> the live chain. **`pnpm trajectory:collect` deliberately refuses to open a
+> trajectory**: doing so without the one-pass sequential worker (P3) would price
+> the exit from a state that never contained the entry.
+> **Zero trajectories have completed.** `docs/1C499CD_TRAJECTORY_KERNEL_REPORT.md`.
+
 > **2026-08-14 (later) — trajectory-kernel directive from `1c499cd`. State:
 > `MEASUREMENT_REPAIR_REQUIRED`.**
 > The later-fill deadlock is repaired: 169 trajectories had been waiting up to
@@ -26,7 +40,7 @@ Last updated: 2026-08-14T00:10Z
 | | |
 |---|---|
 | mode | `paper`, engine LIVE |
-| schema | v34 |
+| schema | v36 |
 | strategy version | `delayed-momentum-v0.6.0` |
 | positions with executable PnL | **0** |
 | direct mint facts collected | yes, in every mode (was capital-only) |
