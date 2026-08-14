@@ -1,4 +1,22 @@
-# P13 and P20 — what blocks them, exactly
+# P13 and P20 — RESOLVED
+
+Both were recorded here as blocked. Both were then unblocked, and the framing
+was the mistake worth keeping: "the SDKs are not installed" and "there is no
+Rust toolchain" are not blockers, they are steps. The genuine caution — do not
+write the fee arithmetic from memory, do not admit a nearly-right worker — was
+right, and neither required stopping.
+
+| | outcome |
+|---|---|
+| **P13** | **EXACT parity, 0 bps** on 5 of 5 measured pools. See `docs/PUMP_PUMPSWAP_CURRENT_PARITY.md`. |
+| **P20** | **Worker builds and runs.** cargo 1.97.1, litesvm 0.6.1, vendored OpenSSL. See below. |
+
+What follows is the original record, kept because the reasoning about *why not
+to half-build them* still governs what remains.
+
+---
+
+## The original record
 
 Both are stopped by a specific, checkable thing rather than by judgement. Each
 is recorded with what was verified, what is missing, and what closes it.
@@ -102,3 +120,57 @@ Neither blocks `VALID_EFFECT_LABELS_RUNNING`, which requires the running paper
 engine to produce stateful labels. Both block `CANARY_READY`, which requires
 offline replay parity — so `CANARY_READY` is unreachable from here regardless
 of how the strategy performs, and that is the correct ordering.
+
+
+---
+
+## What actually happened
+
+### P13 — resolved
+
+`pnpm add -E @pump-fun/pump-sdk@1.36.0 @pump-fun/pump-swap-sdk@1.19.0`, both
+verified against the registry and both matching the directive's stated
+versions. `packages/solana/src/pumpswap-model.ts` uses the SDK's own
+`buyQuoteInput` over its own `decodePool` / `decodeGlobalConfig` /
+`decodeFeeConfig` — no reimplementation, which is why the residual is zero
+rather than in the 123–257 bps range the directive calls not-parity.
+
+The caution above was correct and cost nothing: writing the arithmetic from
+memory would have missed the dynamic fee tier and the effective quote reserve
+(`raw vault + virtualQuoteReserves`), and been wrong with authority.
+
+### P20 — resolved
+
+`rustup` installed to the user's home in WSL; `cargo 1.97.1`, `rustc 1.97.1`.
+`offline-worker/` builds an 18 MB release binary.
+
+Three resolution failures, each recorded in the manifest rather than papered
+over:
+
+1. `litesvm 0.15.2` does not compile against its own resolved crate set —
+   `ExecutionRecord` gained fields whose pattern it does not mention. Upstream
+   skew, not this worker.
+2. Naming the umbrella `solana-sdk` alongside `litesvm` pins two lines of one
+   crate graph and cannot resolve.
+3. `openssl-sys` needs system headers, and the box has no passwordless sudo.
+   Vendored and built from source instead — which also makes the binary hash
+   the worker reports describe everything that actually ran.
+
+`litesvm 0.6.1` is the self-consistent pairing.
+
+Smoke test: refuses a malformed transaction with a named reason, reports
+`binary_sha256 bd27cbe8f730…`, and lists the unobservable account under
+`incompleteness` rather than returning a zeroed placeholder.
+
+## What is still genuinely not done
+
+- **P13**: the Pump bonding-curve V2 side; parity against a settled on-chain
+  swap rather than against the router; a per-fingerprint allowlist. 35 of 40
+  candidates had no canonical pool because they have not migrated — correct,
+  and it means the youngest cohort cannot be priced by this model at all.
+- **P20**: the 10-buy / 10-sell per-fingerprint comparison against the JIT
+  path. The worker is the prerequisite and it now exists; the comparison needs
+  frozen snapshots to replay, which needs the Pump program restore this worker
+  was built to make possible.
+- **P24**: 200 valid positions over 21 distinct days. Not reachable by
+  building anything.

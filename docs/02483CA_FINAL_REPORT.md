@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | starting (audited master) | `02483ca45b2c40a98637f88c01d8bbef5e1c5496` |
-| ending | `9840618` |
+| ending | `a5747a7` |
 | commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface · `5547f31` preregistration · `7604024` trigger≠fill · `b7dae95` confirmatory v2 · `e8c687a` migration split · `75cd524` capitalAtRisk · `7ce50ea` >2^53 · `9840618` direct clock |
 
 ## 2. Local differences from committed head
@@ -323,9 +323,40 @@ In capital modes the pipeline now decodes the mint and passes the facts, and an
 **Not done:** Mayhem lifecycle fields and entity linking (common funder, shared
 fee payer, bundle co-occurrence) do not reach `runCycle`.
 
-## 21–23. Official SDK parity and the offline worker
+## 21. Official PumpSwap parity (P13) — DONE, EXACT
 
-**P13 and P20 are NOT done.** `docs/P13_P20_BLOCKERS.md` records exactly what
+`artifacts/pumpswap-parity.json`, `docs/PUMP_PUMPSWAP_CURRENT_PARITY.md`.
+
+Both SDKs installed at the pinned versions the directive names. **5 of 5
+measured pools matched to the atom — median and worst residual 0 bps**, against
+a bar that says 123-257 bps is not parity.
+
+The local side is the SDK's own `buyQuoteInput` over its own decoders, not a
+reimplementation. That is why it is exact: the fee tier is dynamic and the
+quote reserve is effective (`raw vault + virtualQuoteReserves`), and neither
+survives being written from memory.
+
+Still missing: the bonding-curve V2 side, parity against a settled on-chain
+swap, and a per-fingerprint allowlist. 35 of 40 candidates had no canonical
+pool because they have not migrated — so the youngest cohort, which is the one
+this strategy is defined over, cannot be priced by this model at all.
+
+## 22. Offline Rust/LiteSVM worker (P20) — BUILT AND RUNNING
+
+`offline-worker/`. cargo 1.97.1, litesvm 0.6.1, vendored OpenSSL, an 18 MB
+release binary. Immutable job file in, immutable result file out, one process
+per job, no network. Every result carries the runtime identity and the binary's
+own sha256, because there is no global parity boolean.
+
+It restores accounts with the executable flag set — which Surfpool's
+`setAccount` could not, so a program restored through it came back
+NON-executable and every route through it failed with an error that looked like
+a fact about the token.
+
+Still missing: the 10-buy / 10-sell per-fingerprint comparison against the JIT
+path.
+
+## 23. What remains `docs/P13_P20_BLOCKERS.md` records exactly what
 blocks each: the two SDK versions are verified as published (1.36.0 / 1.19.0,
 matching the directive) but not installed, and there is no Rust toolchain on
 Windows or in WSL. Neither is written from memory, because P13's own bar is
