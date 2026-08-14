@@ -101,13 +101,44 @@ an absent account is named, not zeroed    true
   shortcut: nothing here ever signs, and these transactions carry a mainnet
   blockhash this runtime has never seen.
 
+## The round trip
+
+`packages/pipeline/src/sequential-round-trip.ts` is the loop itself:
+
+```
+init → step(buy) → observe → buildSell(observedState, acquiredAtoms)
+     → step(sell) → assertQuoteStateSurvived → step(close)
+```
+
+Three decisions in it are worth stating:
+
+**The sell builder is injected**, and a test is why. Calling the pool decoder
+inside the module made the *order of operations* — the thing the two-pass design
+got wrong — untestable without a live pool, which is precisely the code least
+able to afford being hard to test. The module owns the order; the caller owns
+pricing. `standardPumpSwapSell` is provided so the seam does not push pool
+decoding onto every caller.
+
+**`selfImpactLamports` is null, never zero, when it cannot be measured.** Zero
+would claim the entry had no effect on its own exit price — the assumption this
+module exists to stop being made silently.
+
+**The quote-state assertion runs before a successful sell is believed.** A sell
+reporting `SIMULATED_OK` against a state it was not priced from is still a wrong
+price, and checking afterwards would let the number escape first.
+
 ## What is NOT done
 
-**The real buy → observe → build-sell → sell loop against a live pool is not
-wired in.** The runtime property is proven, and `scripts/true-stateful-proof.ts`
-still contains the pass-1/pass-2 structure this replaces. Converting it needs the
-sell builder to be driven from `observe` output rather than from a first-pass
-result, which is the next change and is not made here.
+`scripts/true-stateful-proof.ts` **still contains the pass-1/pass-2 structure**.
+The replacement exists and is tested, but that script has not been converted to
+call it, so the old two-pass path is still what produces the checked-in
+true-stateful artifacts.
 
-So this module makes a correct sequential trajectory *possible*. It does not by
-itself make one *exist*, and the terminal state does not move on it.
+No trajectory has been run end to end against a live pool through this path. The
+runtime property is proven and the loop is proven in ordering; what has not
+happened is a real migrated token going buy → sell → close through it and
+producing a settlement.
+
+So this makes a correct sequential trajectory *possible* and gives the kernel the
+call it needs. It does not by itself make a trajectory *exist*, and the terminal
+state does not move on it.
