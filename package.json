@@ -25,6 +25,7 @@
     "dev:status": "tsx scripts/development-status.ts --mode=paper",
     "direct-signal:status": "tsx scripts/direct-signal-status.ts",
     "doctor": "tsx scripts/doctor.ts",
+    "enrichment:probe": "tsx scripts/enrichment-probe.ts",
     "evidence:status": "tsx scripts/evidence-status.ts all",
     "exploration:status": "tsx scripts/evidence-status.ts cohort",
     "health": "tsx scripts/health.ts",

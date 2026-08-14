@@ -11,6 +11,8 @@ import {
 } from '../../intelligence/src/mintfacts-source.js';
 import { disagreements } from '../../intelligence/src/mintfacts.js';
 import { buildEntityLinks, entityConcentrationFrom } from '../../intelligence/src/entity-links.js';
+import { mayhemFactsOf, breadthUsability } from '../../solana/src/mayhem.js';
+import { canonicalPool, poolAddressesFrom, accountSourceOf } from '../../solana/src/pumpswap-offline.js';
 
 /** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
 function hashSeed(s: string): number {
@@ -443,12 +445,79 @@ async function measureConcentration(
     recordSourceHealth(deps.db, 'solana.rpc.concentration', true, null, null);
     stats.concentrationMeasured += 1;
     await measureEntities(deps, mint, facts);
+    await measureMayhem(deps, mint);
     return facts;
   } catch (e) {
     recordSourceHealth(deps.db, 'solana.rpc.concentration', false, null, (e as Error).message);
     stats.concentrationUnavailable += 1;
     log.warn({ mint, err: (e as Error).message }, 'concentration unavailable');
     return null;
+  }
+}
+
+/**
+ * P11 — Mayhem, recorded where it can be established and refused where it cannot.
+ *
+ * I first recorded this requirement as having no verifiable source. That was
+ * wrong: `isMayhemMode` is a decoded field on the PumpSwap pool account, in the
+ * same IDL already used to price every swap. What genuinely is not available is
+ * the Mayhem program's own account layout, so agent inventory, buys, sells and
+ * the burn transition stay null with the reason attached rather than being read
+ * out of guessed offsets.
+ */
+async function measureMayhem(deps: CycleDeps, mint: string): Promise<void> {
+  const rpc = deps.rpc;
+  if (rpc === undefined || rpc === null) return;
+  try {
+    const poolKey = canonicalPool(mint);
+    let isMayhem: boolean | null = null;
+    try {
+      const raw = await rpc.getAccountRaw(poolKey);
+      isMayhem = poolAddressesFrom(
+        accountSourceOf([
+          { pubkey: poolKey, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports },
+        ]),
+        poolKey,
+      ).isMayhemMode;
+    } catch {
+      // No canonical pool: nothing has been shown about this mint's Mayhem
+      // mode, which is null and not false.
+      isMayhem = null;
+    }
+
+    const f = mayhemFactsOf({ mint, nowUtcMs: Date.now(), poolIsMayhemMode: isMayhem });
+    const breadth = breadthUsability(f);
+    deps.db
+      .prepare(
+        `INSERT INTO mayhem_facts
+           (mint, observed_utc_ms, enabled, agent_identity, agent_state, agent_inventory_atoms,
+            agent_buy_count, agent_sell_count, agent_buy_lamports, agent_sell_lamports,
+            additional_supply_atoms, burn_transition, hours_since_launch, source)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           observed_utc_ms = excluded.observed_utc_ms,
+           enabled = excluded.enabled,
+           agent_state = excluded.agent_state,
+           source = excluded.source`,
+      )
+      .run(
+        mint,
+        f.observedUtcMs,
+        f.enabled === null ? null : f.enabled ? 1 : 0,
+        null,
+        `${breadth.usability}: ${breadth.reason}`.slice(0, 400),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        f.source,
+      );
+  } catch (e) {
+    log.warn({ mint, err: (e as Error).message }, 'mayhem facts unavailable');
   }
 }
 

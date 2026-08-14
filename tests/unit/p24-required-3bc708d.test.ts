@@ -47,7 +47,7 @@ const COVERAGE: Readonly<Record<number, { what: string; home: Home }>> = {
   29: { what: 'direct mint facts reach screening', home: 'tests/unit/mintfacts-p11.test.ts' },
   30: { what: 'paper collects Token-2022 facts', home: 'tests/unit/mintfacts-p11.test.ts' },
   31: { what: 'the current epoch transfer fee reaches settlement', home: 'tests/unit/mintfacts-p11.test.ts' },
-  32: { what: 'Mayhem flow is excluded from organic breadth', home: null },
+  32: { what: 'Mayhem flow is excluded from organic breadth', home: 'tests/unit/mayhem-p11.test.ts' },
   33: { what: 'insufficient score coverage blocks or stratifies eligibility', home: 'tests/unit/score-defects.test.ts' },
   34: { what: 'the config strategy version equals the score semantics', home: 'tests/unit/score-frozen.test.ts' },
   35: { what: 'PumpSwap sell parity', home: 'tests/unit/parity-v2-p24.test.ts' },
@@ -66,10 +66,14 @@ const COVERAGE: Readonly<Record<number, { what: string; home: Home }>> = {
   48: { what: 'live remains blocked until positive real canary evidence', home: 'tests/unit/executor-downstream-p23.test.ts' },
 };
 
-/** The ones deliberately left, each with the reason it could not be written. */
-const NOT_COVERED: Readonly<Record<number, string>> = {
-  32: 'P11 Mayhem facts have a table but no source populating it, so nothing to exclude from',
-};
+/**
+ * The ones deliberately left, each with the reason it could not be written.
+ *
+ * Empty. Item 32 was here, on my claim that Mayhem had no verifiable source.
+ * That was wrong: `isMayhemMode` is a decoded field on the PumpSwap pool
+ * account, in the IDL this system already uses to price every swap.
+ */
+const NOT_COVERED: Readonly<Record<number, string>> = {};
 
 describe('P24 — every required test has a home, or is named as missing', () => {
   it('covers all 48 items', () => {
@@ -106,10 +110,11 @@ describe('P24 — every required test has a home, or is named as missing', () =>
       .sort((a, b) => a - b);
     expect(uncovered).toEqual(Object.keys(NOT_COVERED).map(Number).sort((a, b) => a - b));
     for (const id of uncovered) expect(NOT_COVERED[id]?.length ?? 0).toBeGreaterThan(20);
+    expect(uncovered).toEqual([]);
   });
 
   it('reports the count, so a regression in coverage is visible', () => {
     const covered = Object.values(COVERAGE).filter((e) => e.home !== null).length;
-    expect(covered).toBe(47);
+    expect(covered).toBe(48);
   });
 });

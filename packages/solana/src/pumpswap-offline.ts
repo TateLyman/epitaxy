@@ -216,6 +216,9 @@ export interface OfflinePoolAddresses {
   readonly poolQuoteTokenAccount: string;
   readonly coinCreator: string;
   readonly creator: string;
+  /** P11 — Mayhem mode, decoded from the pool rather than looked for elsewhere. */
+  readonly isMayhemMode: boolean | null;
+  readonly isCashbackCoin: boolean | null;
 }
 
 /**
@@ -236,6 +239,8 @@ export function poolAddressesFrom(src: AccountBytesSource, poolKey: string): Off
     quoteMint: PublicKey;
     coinCreator: PublicKey;
     creator: PublicKey;
+    isMayhemMode?: boolean;
+    isCashbackCoin?: boolean;
   };
   return {
     poolKey,
@@ -245,6 +250,10 @@ export function poolAddressesFrom(src: AccountBytesSource, poolKey: string): Off
     poolQuoteTokenAccount: pool.poolQuoteTokenAccount.toBase58(),
     coinCreator: pool.coinCreator.toBase58(),
     creator: pool.creator.toBase58(),
+    // Undefined means this build of the IDL has no such field, which is a
+    // different thing from a pool that is not in Mayhem mode.
+    isMayhemMode: pool.isMayhemMode ?? null,
+    isCashbackCoin: pool.isCashbackCoin ?? null,
   };
 }
 
