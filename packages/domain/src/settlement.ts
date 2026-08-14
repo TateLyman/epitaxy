@@ -84,11 +84,28 @@ export interface SettlementCosts {
   /**
    * Lamports that left the payer and no named cost explains.
    *
+   * DERIVED from an identity, never read from a stored column:
+   *
+   *   residual = payer's native delta - (credit - tradeDebit - fees - tip
+   *                                      - rentCreated + rentRecovered)
+   *
    * Must be zero for a PnL-eligible leg. A residue is not rounding: it is a
    * cost the model does not know about, and a cost the model does not know
    * about is exactly what turns a positive backtest into a negative account.
    */
   readonly unexplainedLamports: bigint;
+  /**
+   * Value that reached accounts the request did not name.
+   *
+   * NOT a residual, and this distinction cost a full measurement cycle. Every
+   * AMM swap moves lamports into pool vaults and into the token account it
+   * creates, so this is large and non-zero on every SUCCESSFUL trade. Read as
+   * "unexplained cost" it condemns exactly the legs that worked.
+   *
+   * It is kept because it is the number a skim is found in — against a route
+   * plan, not against zero.
+   */
+  readonly valueToUnnamedAccountsLamports: bigint;
 }
 
 export interface MeasuredLegSettlement {
@@ -106,6 +123,16 @@ export interface MeasuredLegSettlement {
   readonly closedAccounts: readonly string[];
   /** What the leg still holds of the input asset. Null when unobserved. */
   readonly residualTokenAtoms: bigint | null;
+
+  /**
+   * The payer's own native balance change. Negative when it spent.
+   *
+   * THE primitive every cash figure is derived from, because it is the one
+   * quantity that cannot disagree with itself. Building the round trip out of
+   * a credit here and a debit there is how the exit's fees and rent went
+   * missing from it entirely.
+   */
+  readonly payerNativeDeltaLamports: bigint;
 
   readonly fullAccountCoverage: boolean;
   readonly effectValid: boolean;
@@ -136,6 +163,8 @@ export function isPnlEligible(s: MeasuredLegSettlement): { ok: boolean; reasons:
   if (s.costs.unexplainedLamports !== 0n) {
     reasons.push(`${s.costs.unexplainedLamports} lamports left the payer with no named cost`);
   }
+  // Deliberately NOT gated on `valueToUnnamedAccountsLamports`. See its doc.
+
   return { ok: reasons.length === 0, reasons };
 }
 
@@ -170,20 +199,28 @@ export function realizedLamports(s: MeasuredLegSettlement): bigint {
 /**
  * Everything that left the payer to open this position.
  *
- * Includes locked rent, because it did leave. `lockedRentLamports` reports the
- * recoverable part separately so the caller can decide, once, whether to treat
- * it as capital or cost — rather than each caller deciding differently.
+ * From the payer's balance, not from the input side of the trade: fees, tip
+ * and rent all left too, and a cash figure that omits them is not cash.
  */
 export function entryCashOut(s: MeasuredLegSettlement): { cashOut: bigint; lockedRent: bigint } {
-  if (s.input.kind !== 'native_sol') {
-    throw new Error('entry cash out is a native-SOL concept; a token-input leg is not an entry');
-  }
-  return { cashOut: s.input.totalPayerDebitLamports, lockedRent: s.costs.rentCreatedLamports };
+  if (s.side !== 'buy') throw new Error(`entryCashOut on a ${s.side} leg`);
+  return {
+    cashOut: -s.payerNativeDeltaLamports,
+    lockedRent: s.costs.rentCreatedLamports - s.costs.rentRecoveredLamports,
+  };
 }
 
-/** What the payer actually received, net, for closing. */
+/**
+ * What the payer actually netted by closing.
+ *
+ * This was `realized + rentRecovered`: the gross credit, with the exit's own
+ * signature fee, priority fee and rent silently dropped. On a measured leg
+ * that was 19,288,556 reported against 15,202,728 actually received — the
+ * round trip was flattering the exit by the entire cost of taking it.
+ */
 export function exitCashIn(s: MeasuredLegSettlement): bigint {
-  return realizedLamports(s) + s.costs.rentRecoveredLamports;
+  if (s.side !== 'sell') throw new Error(`exitCashIn on a ${s.side} leg`);
+  return s.payerNativeDeltaLamports;
 }
 
 /**
@@ -194,10 +231,31 @@ export function exitCashIn(s: MeasuredLegSettlement): bigint {
  * different trade than the one that would be booked.
  */
 export interface RoundTripEconomics {
+  /** Everything that left the payer to open. */
   readonly cashOutLamports: bigint;
+  /** Everything the payer actually netted by closing, exit costs included. */
   readonly cashInLamports: bigint;
   readonly netLamports: bigint;
+  /** All-in, counting rent as a cost. Reported, not gated. */
   readonly lossBps: number;
+
+  /**
+   * The trading loss: slippage, fees and price, with rent excluded.
+   *
+   * THIS is what the tradability cap gates on, and the difference is not
+   * cosmetic. Measured live: 3688 bps all-in against 363 bps of trading cost,
+   * on a 0.02 SOL round trip with a 300 bps slippage allowance. The gap is
+   * account rent, which does not scale with the edge and is returned when the
+   * account is closed.
+   *
+   * Rent is locked capital, which is this system's existing treatment of it.
+   * Counting it as a trading cost refuses trades for a charge the market never
+   * made; assuming it back without closing the account would be the opposite
+   * error, so it is reported separately rather than netted away silently.
+   */
+  readonly tradingLossBps: number;
+  /** Rent this round trip locked. Recoverable only by closing the account. */
+  readonly recoverableRentLamports: bigint;
   readonly complete: boolean;
   readonly reasons: readonly string[];
 }
@@ -213,19 +271,31 @@ export function immediateRoundTrip(buy: MeasuredLegSettlement, sell: MeasuredLeg
     reasons.push(`family ${buy.family} != ${sell.family}`);
   }
 
-  const { cashOut, lockedRent } = entryCashOut(buy);
+  const { cashOut, lockedRent: buyRent } = entryCashOut(buy);
   const cashIn = exitCashIn(sell);
-  // Rent is counted ONCE: it left on the buy and came back on the sell, and
-  // the recovered part is already inside cashIn.
-  void lockedRent;
   const net = cashIn - cashOut;
   const lossBps = cashOut <= 0n ? 0 : Number(((cashOut - cashIn) * 10_000n) / cashOut);
+
+  // Rent both legs locked and neither returned. Each leg is simulated from a
+  // fresh state, so a sell provisions accounts a real round trip already holds;
+  // its rent is an artifact of measuring the legs separately.
+  const sellRent = sell.costs.rentCreatedLamports - sell.costs.rentRecoveredLamports;
+  const rentLocked = buyRent + sellRent;
+
+  // The trading question: what did the MARKET charge? Rent is capital the
+  // account holds, returned when it is closed, and it does not scale with the
+  // edge. Excluded from both sides of the ratio, never from one.
+  const tradingNet = net + rentLocked;
+  const tradingBasis = cashOut - buyRent;
+  const tradingLossBps = tradingBasis <= 0n ? 0 : Number((-tradingNet * 10_000n) / tradingBasis);
 
   return {
     cashOutLamports: cashOut,
     cashInLamports: cashIn,
     netLamports: net,
     lossBps,
+    tradingLossBps,
+    recoverableRentLamports: rentLocked,
     complete: reasons.length === 0,
     reasons,
   };

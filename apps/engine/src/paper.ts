@@ -984,7 +984,10 @@ async function tryEnter(
     return;
   }
 
-  const entryRoundTripLossBps = roundTrip.lossBps;
+  // The TRADING loss, not the all-in figure. Rent is capital the account holds
+  // and returns on close; charging it against the edge refuses trades for a
+  // cost the market never made. Both numbers are recorded.
+  const entryRoundTripLossBps = roundTrip.tradingLossBps;
   if (entryRoundTripLossBps > config.gates.maxRoundTripLossBps) {
     recordHealth(
       db,
@@ -1003,8 +1006,9 @@ async function tryEnter(
     db,
     'entry_round_trip',
     'info',
-    `${mint.slice(0, 12)}: measured immediate round trip loses ${entryRoundTripLossBps} bps ` +
-      `(cap ${config.gates.maxRoundTripLossBps}); net ${roundTrip.netLamports}`,
+    `${mint.slice(0, 12)}: measured round trip — trading ${entryRoundTripLossBps} bps ` +
+      `(cap ${config.gates.maxRoundTripLossBps}), all-in ${roundTrip.lossBps} bps, ` +
+      `rent locked ${roundTrip.recoverableRentLamports}, net ${roundTrip.netLamports}`,
   );
 
   const positionId = randomUUID();

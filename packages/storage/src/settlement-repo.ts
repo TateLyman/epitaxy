@@ -227,8 +227,38 @@ export function measuredSettlementOf(
     rentCreatedLamports: need(big(r.rent_created_lamports), 'rent created') ?? 0n,
     rentRecoveredLamports: need(big(r.rent_recovered_lamports), 'rent recovered') ?? 0n,
     failedAttemptCostLamports: 0n,
-    unexplainedLamports: big(r.unexpected_movement_lamports) ?? 0n,
+    // Filled below, from the identity. Never from a stored column.
+    unexplainedLamports: 0n,
+    valueToUnnamedAccountsLamports: big(r.unexpected_movement_lamports) ?? 0n,
   };
+
+  /**
+   * The residual: does every lamport the payer lost have a name?
+   *
+   * `unexpected_movement_lamports` was read as this and is a different
+   * quantity — it counts value reaching accounts the request did not name,
+   * which on a working swap is the pool vaults and the new token account. It
+   * measured 24,078,560 on a leg whose true residual was 0.
+   */
+  const payerDelta = (() => {
+    const pre = big(parse<Record<string, string>>(r.pre_sol_balances, {})[taker] ?? null);
+    const post = big(parse<Record<string, string>>(r.post_sol_balances, {})[taker] ?? null);
+    return pre === null || post === null ? null : post - pre;
+  })();
+
+  if (payerDelta === null) {
+    incompleteness.push("the payer's native balance was not observed on both sides");
+  } else {
+    const named =
+      (outputIsSol ? (big(r.output_credit) ?? 0n) : 0n) -
+      (inputIsSol ? (big(r.input_debit) ?? 0n) : 0n) -
+      costs.baseFeeLamports -
+      costs.priorityFeeLamports -
+      costs.tipLamports -
+      costs.rentCreatedLamports +
+      costs.rentRecoveredLamports;
+    (costs as { unexplainedLamports: bigint }).unexplainedLamports = payerDelta - named;
+  }
 
   const residual = input.kind === 'token' ? tokenSide(r.input_mint).post : null;
 
@@ -244,6 +274,7 @@ export function measuredSettlementOf(
     createdAccounts: parse<string[]>(r.created_accounts, []),
     closedAccounts: parse<string[]>(r.closed_accounts, []),
     residualTokenAtoms: residual,
+    payerNativeDeltaLamports: payerDelta ?? 0n,
     fullAccountCoverage: r.account_coverage_ok === 1,
     effectValid: r.simulated_effect_ok === 1,
     effectRefusals: parse<string[]>(r.effect_refusals, []),
