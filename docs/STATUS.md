@@ -1,6 +1,31 @@
 # STATUS
 
-> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, second
+> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, third
+> pass. State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+> **Twenty trajectories completed**, the first in this system. Freshly migrated
+> PumpSwap tokens from the confirmed-migration queue, each buy → sell → close
+> inside ONE runtime with the sell priced from the state the buy committed and
+> executed against that same state. 20/20 had `quoteStateSurvived = true`
+> (per account, by content hash), 20/20 had the buy actually move the sell pool,
+> and 0/20 left value stranded in wrapped SOL or residual tokens.
+>
+> **An immediate round trip is never profitable — 20 of 20 lose.** The best case
+> is **−2.54%**, exactly the decoded 250 bps bottom-tier round-trip fee, which
+> is a hard lower bound on round-trip cost and is corroborated by the fee table.
+>
+> **The median is NOT quoted, deliberately.** The losses cluster on repeated
+> exact values across different tokens (−21.67% eight times, to the lamport) and
+> the same token varies between runs. Cross-venue routing, unrecovered rent and
+> stranded wrapped SOL were each tested and rejected. Until the clustering is
+> explained it is a measurement of something unidentified, and quoting it would
+> repeat a failure this repo already recorded once.
+> `docs/MECHANICS_FLOOR_MEASURED.md`.
+>
+> Twenty clears apparatus sanity (10) but not costs/fillability (25). No arm may
+> be selected or eliminated on it, and no holding period has been evaluated.
+> Nothing was signed, submitted or funded on chain.
+
+> **2026-08-14 — trajectory-kernel directive from `1c499cd`, second
 > pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**
 > The candidate stream was the binding constraint and it is now measured: only
 > **6 of 185** screened mints have a canonical PumpSwap pool (~3%), against
