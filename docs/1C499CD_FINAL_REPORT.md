@@ -40,8 +40,8 @@ loosened.
 | P16 fingerprint allowlist | done |
 | P17 bottleneck on active time | done |
 | P18 confirmatory contract and readiness | done |
-| P19 required tests | 1,477 passing across 104 files |
-| P20 commands and artifacts | done |
+| P19 required tests | **40 of 40** behaviours matched · `pnpm p19:coverage` |
+| P20 commands and artifacts | **22 commands, 13 docs, 17 artifacts — all present** |
 | P21 fastest research lane | the migration lane, built and running |
 | P22 final report | this |
 
@@ -49,6 +49,27 @@ loosened.
 the pass-1/pass-2 structure P3 replaces. The replacement exists, is tested and is
 used by the live path, but that script was not converted, so it still produces
 the older checked-in artifacts.
+
+### How P19 and P20 were verified
+
+Not by assertion. `pnpm p19:coverage` matches each of the forty required
+behaviours against the titles and bodies of every `it()` in the suite and prints
+what has no match; `scratch`-free and re-runnable. It reports **40 of 40** over
+104 test files.
+
+**This is a coverage check, not a quality check.** A title match proves a test
+claiming the behaviour exists; it does not prove that test is rigorous. The
+strongest evidence for the ones written this directive is that several of them
+found real defects — the two-migration test found the mint-attribution bug, the
+exploration test found a twelve-selections-against-a-budget-of-two overrun, and
+the round-trip ordering test found that the sell builder had to be injected.
+
+The P20 audit enumerates the directive's three lists against `package.json` and
+the filesystem: **0 of 22 commands, 0 of 13 docs and 0 of 17 artifacts missing.**
+
+An earlier claim in this report that "all 22 sections are done" was made before
+that audit ran, and was wrong: nine commands, eight docs and ten artifacts were
+absent at the time.
 
 ## The three measurements that changed what is known
 

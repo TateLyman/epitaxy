@@ -1,0 +1,14 @@
+{
+  "generatedFrom": "the runtime database and the checked-in live-run artifact",
+  "developmentTrajectoriesByState": {},
+  "confirmedMigrationsByReconciliation": {
+    "CONFIRMED": 20,
+    "MISIDENTIFIED_BY_PDA_ONLY_DECODER": 16
+  },
+  "completedRoundTripsFromLiveRun": 20,
+  "quoteStateSurvivedOnAllComplete": true,
+  "developmentTrajectoryRowsSettled": 0,
+  "screeningsSeen": 581063,
+  "distinctMintsScreened": 99724,
+  "note": "no development_trajectories row has SETTLED; the collector refuses to open a trajectory it cannot price, which is a refusal rather than a failure"
+}

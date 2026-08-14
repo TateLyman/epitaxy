@@ -1,0 +1,4 @@
+{
+  "carriedDebtRows": [],
+  "note": "no exploration debt persisted yet: the arm requires production cycles to run, and none have since migration 35 landed"
+}

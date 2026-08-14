@@ -1,0 +1,8 @@
+{
+  "chainEventsStored": 356027,
+  "directChainEventsStored": 7023666,
+  "unreconciledChainEvents": 356027,
+  "erroredChainEvents": 310079,
+  "vaultSubscriptionsActive": "NOT_RUN",
+  "vaultSubscriptionsNote": "packages/pipeline/src/vault-watch.ts implements the subscription set, the urgent queue and gap resync; no live socket session has run since it landed, so there is no session to report"
+}

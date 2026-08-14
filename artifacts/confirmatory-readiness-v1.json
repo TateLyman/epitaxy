@@ -1,0 +1,167 @@
+{
+  "generatedUtcMs": 1786751645854,
+  "view": "P18 confirmatory-trajectory gates",
+  "companionTo": "artifacts/readiness.json",
+  "ready": false,
+  "failingGates": [
+    "contract held",
+    "completed trajectories",
+    "distinct UTC days",
+    "net PnL positive",
+    "expected log growth positive",
+    "robust lower bound positive",
+    "profit factor",
+    "drawdown bounded",
+    "CVaR acceptable",
+    "catastrophic incidence",
+    "blocked incidence",
+    "recent 50 positive",
+    "positive without top 1",
+    "positive without top 3",
+    "positive without top 5",
+    "positive without top 10",
+    "positive without best day",
+    "positive without best five mints or entities",
+    "positive under 2x costs",
+    "positive under stress",
+    "positive exact canary-size shadow",
+    "fingerprints stable"
+  ],
+  "gates": [
+    {
+      "name": "contract held",
+      "pass": false,
+      "detail": "the frozen contract does not hold"
+    },
+    {
+      "name": "completed trajectories",
+      "pass": false,
+      "detail": "20 of 200"
+    },
+    {
+      "name": "distinct UTC days",
+      "pass": false,
+      "detail": "1 of 21"
+    },
+    {
+      "name": "net PnL positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "expected log growth positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "robust lower bound positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "profit factor",
+      "pass": false,
+      "detail": "unknown vs 1.25 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "drawdown bounded",
+      "pass": false,
+      "detail": "frozen drawdown bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "CVaR acceptable",
+      "pass": false,
+      "detail": "frozen CVaR bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "catastrophic incidence",
+      "pass": false,
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "blocked incidence",
+      "pass": false,
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "recent 50 positive",
+      "pass": false,
+      "detail": "last 50 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 1",
+      "pass": false,
+      "detail": "drop the 1 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 3",
+      "pass": false,
+      "detail": "drop the 3 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 5",
+      "pass": false,
+      "detail": "drop the 5 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 10",
+      "pass": false,
+      "detail": "drop the 10 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without best day",
+      "pass": false,
+      "detail": "drop the best UTC day (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without best five mints or entities",
+      "pass": false,
+      "detail": "drop the best 5 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive under 2x costs",
+      "pass": false,
+      "detail": "2x actual costs (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive under stress",
+      "pass": false,
+      "detail": "latency, failure, rent, cashback claim (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive exact canary-size shadow",
+      "pass": false,
+      "detail": "at the exact canary notional (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "zero replay divergence",
+      "pass": true,
+      "detail": "0 divergence(s)"
+    },
+    {
+      "name": "zero unresolved reconciliation",
+      "pass": true,
+      "detail": "0 unresolved"
+    },
+    {
+      "name": "fingerprints stable",
+      "pass": false,
+      "detail": "approved set unchanged over the window (UNKNOWN, which is a fail)"
+    }
+  ],
+  "thresholds": {
+    "minCompletedTrajectories": 200,
+    "minDistinctUtcDays": 21,
+    "minProfitFactor": 1.25,
+    "recentWindow": 50,
+    "dropTopN": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "dropBestMintsOrEntities": 5,
+    "costStressMultiple": 2
+  },
+  "note": "NO confirmatory contract has been stamped, so readiness cannot pass and does not try. Every UNKNOWN counts as a FAIL by construction: a gate treating null as satisfied would report ready fastest when least is known."
+}

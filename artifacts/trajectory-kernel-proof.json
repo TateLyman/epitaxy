@@ -1,0 +1,43 @@
+{
+  "identitySubstitutionRefused": {
+    "entryObservationId": true,
+    "entrySimulationJobId": true,
+    "snapshotHash": true,
+    "pool": true,
+    "mint": true,
+    "trajectoryId": true
+  },
+  "evidenceCeilingDecidedAtOpen": {
+    "smallEntry": {
+      "withinBound": true,
+      "haircutBps": 4
+    },
+    "largeEntry": {
+      "withinBound": false,
+      "haircutBps": 10000
+    },
+    "note": "a trajectory whose entry moves the pool beyond the frozen bound can never be BOUNDED_COUNTERFACTUAL however well it is measured later, because the future state it would be evaluated against never contained the entry"
+  },
+  "selectedObservationIsTheBookedObservation": {
+    "selected": "B",
+    "bookedSettlementObservation": "B",
+    "identical": true,
+    "betterCandidateNotTaken": true
+  },
+  "claimsRequireTheirEvidence": {
+    "canaryOnDevelopmentEvidence": {
+      "supported": false,
+      "weakest": "BOUNDED_COUNTERFACTUAL",
+      "required": "FULL_EVENT_REPLAY",
+      "reason": "weakest evidence BOUNDED_COUNTERFACTUAL is below the required FULL_EVENT_REPLAY"
+    },
+    "kernelRunningOnSimulatedExecution": {
+      "supported": true,
+      "weakest": "SIMULATED_EXECUTION",
+      "required": "SIMULATED_EXECUTION",
+      "reason": "weakest evidence SIMULATED_EXECUTION meets SIMULATED_EXECUTION"
+    },
+    "weakestOfMixedSet": "SYNTHETIC"
+  },
+  "ok": true
+}
