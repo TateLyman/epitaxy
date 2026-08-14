@@ -1,0 +1,52 @@
+{
+  "generatedUtcMs": 1786679442015,
+  "sourceCommit": "3bc708d8ef6083989087efeb3158b34ea51ac799",
+  "dirty": true,
+  "source": {
+    "path": "./data/runtime.db",
+    "bytes": 6165217280
+  },
+  "backup": {
+    "path": "data/backups/baseline-3bc708d-2026-08-14T03-43-23-247Z.db",
+    "bytes": 5960482816,
+    "sha256": "2c3f2d099d13d43fd42aeb550f877569e5928c47056047229478faf79bebd6ed"
+  },
+  "walCheckpoint": {
+    "busy": 0,
+    "log": 1000,
+    "checkpointed": 1000
+  },
+  "integrity": "ok",
+  "foreignKeyViolations": 0,
+  "counts": {
+    "execution_observations": 35118,
+    "simulation_jobs": 174,
+    "positions": 20,
+    "shadow_positions": 1125,
+    "screenings": 479195,
+    "candidates": 80160,
+    "direct_chain_events": 7023666,
+    "signal_episodes": 994,
+    "health_events": 30341
+  },
+  "readback": {
+    "execution_observations": 35118,
+    "simulation_jobs": 174,
+    "positions": 20,
+    "shadow_positions": 1125,
+    "screenings": 479195,
+    "candidates": 80160,
+    "direct_chain_events": 7023666,
+    "signal_episodes": 994,
+    "health_events": 30341
+  },
+  "mismatchedTables": [],
+  "maxIds": {
+    "observation": 1786678960715,
+    "simulation": 1786678563520,
+    "health": 1786678960786
+  },
+  "exposureWitness": {
+    "positionsHoldingTokens": 0
+  }
+}
