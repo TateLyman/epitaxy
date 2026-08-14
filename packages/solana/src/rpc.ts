@@ -116,6 +116,8 @@ const GetTokenSupplySchema = rpcEnvelope(
   z.object({ context: z.object({ slot: z.number() }).passthrough(), value: TokenAmountSchema }).passthrough(),
 );
 
+const GetBlockTimeSchema = rpcEnvelope(z.number().nullable());
+
 const GetMultipleAccountsSchema = rpcEnvelope(
   z
     .object({
@@ -133,6 +135,19 @@ export class RpcError extends Error {
     super(message);
     this.name = 'RpcError';
   }
+}
+
+export interface CoherentRawAccount {
+  readonly pubkey: string;
+  /** The slot the NODE served this batch at, not one the caller assumed. */
+  readonly slot: number;
+  readonly owner: string;
+  readonly executable: boolean;
+  readonly lamports: bigint;
+  readonly dataBase64: string;
+  /** null when the provider omitted it. Never silently 0. */
+  readonly rentEpoch: bigint | null;
+  readonly space: number | null;
 }
 
 export interface RawAccount {
@@ -439,6 +454,71 @@ export class SolanaRpc {
       out.set(tokenAccount, { owner, systemOwned: program === SYSTEM_PROGRAM_ID, ownerProgram: program });
     }
     return out;
+  }
+
+  /**
+   * A batched read that keeps what a coherent snapshot needs.
+   *
+   * `getMultipleAccountsRaw` drops the context slot and the rent epoch, so a
+   * caller cannot tell whether two accounts it received were ever true at the
+   * same time. That is the difference between a snapshot and a bag of reads:
+   * this returns the slot the NODE says each batch was served at, so the caller
+   * can enforce coherence instead of assuming it.
+   *
+   * `minContextSlot` makes the node refuse rather than serve a stale replica.
+   * A refusal is information; a silently older account is a state that never
+   * coexisted with the ones around it.
+   */
+  async getMultipleAccountsAtSlot(
+    pubkeys: readonly string[],
+    opts: { minContextSlot?: number; commitment?: 'confirmed' | 'finalized' } = {},
+  ): Promise<{ contextSlot: number; accounts: Map<string, CoherentRawAccount | null> }> {
+    const commitment = opts.commitment ?? 'confirmed';
+    const out = new Map<string, CoherentRawAccount | null>();
+    let low: number | null = null;
+    let high: number | null = null;
+
+    for (let i = 0; i < pubkeys.length; i += 100) {
+      const chunk = pubkeys.slice(i, i + 100);
+      for (const k of chunk) assertPubkey(k, 'account');
+      const cfg: Record<string, unknown> = { encoding: 'base64', commitment };
+      if (opts.minContextSlot !== undefined) cfg['minContextSlot'] = opts.minContextSlot;
+      const env = await this.call('getMultipleAccounts', [chunk, cfg], GetMultipleAccountsSchema);
+      const result = this.unwrap(env, 'getMultipleAccounts');
+      if (result.value.length !== chunk.length) {
+        throw new RpcError('rpc_error', `getMultipleAccounts returned ${result.value.length} of ${chunk.length}`);
+      }
+      const slot = result.context.slot;
+      low = low === null || slot < low ? slot : low;
+      high = high === null || slot > high ? slot : high;
+      chunk.forEach((key, idx) => {
+        const v = result.value[idx];
+        out.set(
+          key,
+          v == null
+            ? null
+            : {
+                pubkey: key,
+                slot,
+                owner: v.owner,
+                executable: v.executable,
+                lamports: BigInt(v.lamports),
+                dataBase64: v.data[0],
+                // Never hardcoded to 0. A wrong rent epoch changes whether an
+                // account is rent-exempt in a replayed runtime.
+                rentEpoch: v.rentEpoch === undefined ? null : BigInt(v.rentEpoch),
+                space: v.space ?? null,
+              },
+        );
+      });
+    }
+    return { contextSlot: high ?? low ?? 0, accounts: out };
+  }
+
+  /** The chain's own time for a slot. `Date.now()` is this machine's opinion. */
+  async getBlockTime(slot: number): Promise<number | null> {
+    const env = await this.call('getBlockTime', [slot], GetBlockTimeSchema);
+    return this.unwrap(env, 'getBlockTime');
   }
 
   private async getMultipleAccountsRaw(
