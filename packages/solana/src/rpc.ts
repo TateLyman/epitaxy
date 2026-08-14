@@ -72,11 +72,16 @@ const GetTransactionMetaSchema = rpcEnvelope(
           preBalances: z.array(z.number()).nullable().optional(),
           postBalances: z.array(z.number()).nullable().optional(),
           logMessages: z.array(z.string()).nullable().optional(),
+          innerInstructions: z.array(z.unknown()).nullable().optional(),
         })
         .passthrough()
         .nullable(),
       transaction: z
-        .object({ message: z.object({ accountKeys: z.array(z.unknown()) }).passthrough() })
+        .object({
+          message: z
+            .object({ accountKeys: z.array(z.unknown()), instructions: z.array(z.unknown()).optional() })
+            .passthrough(),
+        })
         .passthrough(),
     })
     .passthrough()
@@ -297,6 +302,83 @@ export class SolanaRpc {
       return typeof k === 'string' ? k : null;
     }
     return null;
+  }
+
+  /**
+   * A transaction's instructions, in order, with their accounts resolved.
+   *
+   * P7 needs this because migration identity must come from an instruction's
+   * OWN account list, not from the order strings happen to appear in the logs.
+   * Log ordering is not an interface; it is an implementation detail of whatever
+   * emitted it, and taking `mint` from the first base58 string and `pool` from
+   * the second produced zero correct pairs out of three hundred.
+   *
+   * Inner (CPI) instructions are included and flattened in execution order,
+   * because a migration invoked through a router appears only there.
+   */
+  async getTransactionInstructions(signature: string): Promise<{
+    signature: string;
+    slot: number | null;
+    blockTime: number | null;
+    failed: boolean;
+    accountKeys: string[];
+    tokenBalanceMints: string[];
+    instructions: { programId: string; accounts: string[] }[];
+  } | null> {
+    const env = await this.call(
+      'getTransaction',
+      [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+      GetTransactionMetaSchema,
+    );
+    const tx = this.unwrap(env, 'getTransaction');
+    if (tx === null || tx.meta === null || tx.meta === undefined) return null;
+
+    const accountKeys = tx.transaction.message.accountKeys.map((k) => {
+      if (typeof k === 'string') return k;
+      const o = k as { pubkey?: unknown };
+      return typeof o.pubkey === 'string' ? o.pubkey : '';
+    });
+
+    const readIx = (raw: unknown): { programId: string; accounts: string[] } | null => {
+      const o = raw as { programId?: unknown; accounts?: unknown };
+      if (typeof o.programId !== 'string') return null;
+      const accounts = Array.isArray(o.accounts)
+        ? o.accounts.filter((a): a is string => typeof a === 'string')
+        : [];
+      return { programId: o.programId, accounts };
+    };
+
+    const instructions: { programId: string; accounts: string[] }[] = [];
+    for (const raw of tx.transaction.message.instructions ?? []) {
+      const ix = readIx(raw);
+      if (ix !== null) instructions.push(ix);
+    }
+    for (const group of tx.meta.innerInstructions ?? []) {
+      const g = group as { instructions?: unknown };
+      if (!Array.isArray(g.instructions)) continue;
+      for (const raw of g.instructions) {
+        const ix = readIx(raw);
+        if (ix !== null) instructions.push(ix);
+      }
+    }
+
+    const mints = new Set<string>();
+    for (const rows of [tx.meta.preTokenBalances, tx.meta.postTokenBalances]) {
+      for (const r of rows ?? []) {
+        const m = (r as { mint?: unknown }).mint;
+        if (typeof m === 'string') mints.add(m);
+      }
+    }
+
+    return {
+      signature,
+      slot: tx.slot ?? null,
+      blockTime: tx.blockTime ?? null,
+      failed: tx.meta.err !== null && tx.meta.err !== undefined,
+      accountKeys,
+      tokenBalanceMints: [...mints],
+      instructions,
+    };
   }
 
   /**
