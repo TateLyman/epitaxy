@@ -1,108 +1,123 @@
-# The immediate round trip, measured
+# The round-trip cost, and what it actually is
 
 `scripts/live-one-pass-trajectory.ts` → `artifacts/live-one-pass-trajectory.json`
-`pnpm trajectory:one-pass`
+`scripts/size-cost-surface.ts` → `artifacts/size-cost-surface.json`
+`pnpm trajectory:one-pass` · `pnpm size:surface`
 
-## What was run
+## The headline
 
-Twenty freshly migrated PumpSwap tokens from the `confirmed_migrations` queue —
-**not** the screening stream, because only ~1.7% of screened mints have a
-canonical pool (20 found against 1,180 refused for having none).
+**The round-trip drag on a freshly migrated PumpSwap token is a FIXED cost of
+roughly 10,100,000 lamports (~0.0101 SOL), not price impact and not a
+proportional fee.**
 
-Each went **buy → sell → close inside one runtime**, the sell built from the
-state the buy committed and executed against that same state.
+It is dominated by **account setup rent** — five rent-exempt minimums of
+2,039,280 lamports each, for accounts the first trade on a new token has to
+open (coin-creator fee vault, volume accumulators, associated token accounts).
 
-```
-complete round trips                20 of 20
-quoteStateSurvived                  20 of 20
-buy actually moved the sell pool    20 of 20
-wrapped SOL stranded at close        0 of 20
-residual tokens at close             0 of 20
-```
+This matters because the naive reading is exactly backwards.
 
-These are the first trajectories to complete in this system. The apparatus works.
+## How it was established
 
-## The result
-
-**Every one of the twenty loses money on an immediate round trip.** Drag as a
-fraction of the 20,000,000 lamport notional:
+P14's size sweep: five notionals against **one shared snapshot per token**, the
+buy built offline by the official PumpSwap builder so no network read is spent
+per size. Eight tokens.
 
 ```
--2.53  -2.54  -2.54  -2.54
--12.73 -12.74 -12.74 -12.74 -12.74 -12.74
--14.12
--21.67 -21.67 -21.67 -21.67 -21.67 -21.67 -21.67 -21.67
--31.86
+size (lamports)    n   drag p50 (bps)   drag p50 (lamports)
+    2,500,000      8         40,313          10,078,250
+    5,000,000      8         20,279          10,139,978
+   10,000,000      8         10,263          10,263,436
 ```
 
-The accounting is complete: wrapped SOL and residual tokens are both zero at
-close on all twenty, so this is realised cash rather than value parked somewhere
-unmeasured.
+```
+spread of median drag across sizes, in LAMPORTS  0.018   ← essentially constant
+spread of median drag across sizes, in BPS       2.928   ← varies 293%
+```
 
-## What is established
+A 4× change in size moves the lamport cost by **1.8%** and the rate by **293%**.
+The bps figure halves every time the size doubles. That is the signature of a
+fixed cost, and it is not compatible with price impact.
 
-**The best case is −2.54%**, and that is *exactly* the 250 bps round-trip fee at
-the bottom canonical tier decoded live from the fee config (LP 2 + protocol 93 +
-creator 30 = 125 bps per leg, doubled), plus base and priority fees. A best case
-*below* the fee floor would have meant the fee model was wrong; it is not.
+The arithmetic closes: `10,078,250 = 5 × 2,039,280 − 118,150`. Five rent-exempt
+minimums.
 
-**An immediate round trip is never profitable.** Twenty of twenty. Any strategy
-must clear the drag within its holding period before it earns anything.
+## Why the first reading was wrong
 
-## What is NOT established, and I am not going to pretend otherwise
+The initial 20-token run at a single 0.02 SOL notional measured losses on 20 of
+20 and a median drag of −12.7%. Publishing that as a "mechanics floor" would
+have been wrong in the most consequential way available: **it would have
+implied the cost scales with size, when it does not.**
 
-**The losses cluster on repeated exact values, and I have not explained why.**
+The tell was there and was acted on. The losses clustered on repeated *exact*
+lamport values across *different* tokens (−21.67% eight times), and the same
+token gave different values on different runs. Price impact into twenty
+different pools cannot do that.
 
-`-21.67%` appears eight times across eight *different* tokens, to the lamport
-(4,333,248 ± 2). `-12.74%` appears six times. Genuine price impact into twenty
-different pools would be continuous, not quantised.
+## The measurement bug this exposed, in my own instrument
 
-Worse for any simple explanation: **the same token gives different values on
-different runs.** `C7TNyyj4` measured −22.94% on one run and −2.54% on another;
-`GKhe46z6` −12.73% then −2.53%. That rules out a per-token property.
+`createdAccountRentAcross` reported **zero created accounts** for every trip,
+which is what made the rent hypothesis look refuted.
 
-Hypotheses tested and **rejected**:
+It was not wrong — it was blind. It decides an account was created by comparing
+its pre and post state, and the coin-creator vault and volume accumulators were
+in the *snapshot* but not in the per-step `observe` list. **An account nobody
+observed is not an account that cost nothing**, but it reports identically to
+one.
 
-- **Cross-venue artifact** — that the Jupiter-built buy landed somewhere other
-  than the pool the sell used. Rejected: the buy mutated the sell pool's base
-  vault on 20 of 20.
-- **Unrecovered rent** — that the trade opened protocol-owned accounts whose
-  rent-exempt minimum the payer funded. Rejected: `createdAccountRentAcross`
-  reports **zero** created accounts on every trip. The step gaps are suspiciously
-  close to 2,039,280 (the 165-byte rent-exempt minimum), which is what motivated
-  the hypothesis, but no account was actually created.
-- **Value stranded in wrapped SOL or residual tokens** — rejected, both zero.
+The drag was visibly moving in exact multiples of 2,039,280 while the rent
+column read 0. Two instruments disagreeing is the signal; the one reporting a
+clean zero was the one that was broken.
 
-So the clustering remains open. Until it is explained, **the median is not a
-mechanics floor and must not be quoted as one.** The number that survives
-scrutiny is the *best* case of −2.54%, which is a hard lower bound on round-trip
-cost and is independently corroborated by the fee table.
+## What this means for the strategy
 
-## Why this distinction matters
+**Size dominates.** The fixed cost is ~0.0101 SOL per new token:
 
-The previous directive recorded this exact failure mode: a constant shortfall
-"measured as a rate reads as a 41,818 bps pricing error at 0.001 SOL and a 1,044
-bps one at 0.04 SOL — the same defect, reported as six different numbers."
+| notional | fixed-cost drag alone |
+|---|---|
+| 0.0025 SOL | ~403% |
+| 0.005 SOL | ~203% |
+| 0.01 SOL | ~103% |
+| 0.02 SOL | ~50% |
+| 0.1 SOL | ~10% |
+| 1 SOL | ~1% |
 
-Publishing "median −12.7% mechanics drag" would repeat it. A number with an
-unexplained quantised structure is a measurement of something, and until it is
-known what, it cannot be attributed to the market.
+At the research notionals used so far, the setup cost *is* the result. A
+strategy cannot be evaluated at 0.0025 SOL — the answer there is arithmetic
+about rent, not about the market.
 
-## What is NOT claimed
+**It is a first-trade cost, not a per-trade cost.** Those accounts persist. A
+second trade on the same token pays the venue fee and impact but not the setup
+again, so repeat drag and first-mint drag are different regimes and must not be
+pooled. The surface stratifies on this.
 
-- **These are not fills.** Nothing was signed, submitted or funded on chain. The
-  wallet balance is a local runtime mutation so an unfunded payer does not fail
-  for a reason that is not about the token.
+**The proportional floor is still 250 bps.** The bottom canonical tier round
+trip (LP 2 + protocol 93 + creator 30, doubled) is what remains once setup is
+amortised, and the single cleanest observation in the 20-token run — −2.54% —
+is exactly that.
+
+## What is still NOT established
+
+- **The 20 and 40 million lamport sizes did not complete** in the final sweep,
+  so the constancy is demonstrated over a 4× range, not the full 16×.
+- **Eight tokens.** Above apparatus sanity (10 rows per size, 8 tokens), below
+  costs/fillability (25).
 - **No holding period was evaluated.** Every number here is an immediate round
-  trip; the strategy holds for a frozen 15 minutes.
-- **Twenty tokens clears apparatus sanity (10) but not costs/fillability (25).**
-  No arm may be selected or eliminated on this.
-- **Evidence grade is `SIMULATED_EXECUTION`** — exact sequential mechanics, no
+  trip; the strategy holds a frozen 15 minutes.
+- **Nothing was signed, submitted or funded on chain.** Wallet balances are
+  local runtime mutations.
+- **Evidence grade `SIMULATED_EXECUTION`** — exact sequential mechanics, no
   future state involved.
 
-## Next
+## The 20-token single-size run
 
-Resolve the clustering before quoting any median. The concrete next step is to
-dump the full per-step lamport deltas for two trips that landed on the same
-cluster value and diff them account by account: whatever is equal to the lamport
-across different tokens will name itself.
+Retained because the completion and coherence results stand independently:
+
+```
+complete round trips              20 of 20
+quoteStateSurvived                20 of 20   (per account, by content hash)
+buy actually moved the sell pool  20 of 20
+wrapped SOL / residual stranded    0 of 20
+```
+
+Its *drag* numbers should be read through the size surface above, not as a
+proportional cost.
