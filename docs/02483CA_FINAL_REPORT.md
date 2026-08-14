@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | starting (audited master) | `02483ca45b2c40a98637f88c01d8bbef5e1c5496` |
-| ending | `e8c687a` |
-| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface · `5547f31` preregistration · `7604024` trigger≠fill · `b7dae95` confirmatory v2 · `e8c687a` migration split |
+| ending | `9840618` |
+| commits | `08ce787` baseline · `a725afc` P2–P4 · `03e4539` measurement repair · `2a68706` one leg spec · `62056c9` stateful round trips · `5c35984` core/PnL/episodes · `77a06d7` score arithmetic · `16e9fea` risk alarm · `56356a2` cohorts + exploration · `67e6692` admission surface · `5547f31` preregistration · `7604024` trigger≠fill · `b7dae95` confirmatory v2 · `e8c687a` migration split · `75cd524` capitalAtRisk · `7ce50ea` >2^53 · `9840618` direct clock |
 
 ## 2. Local differences from committed head
 
@@ -57,7 +57,7 @@ against 0 in the entire prior corpus of 136 jobs.
 Protocol bumped 4 → 5: the request now binds the capability fingerprint, so one
 hash cannot span two different pool paths.
 
-## 7. Above 2^53 — PARTIAL
+## 7. Above 2^53 — INSTRUMENT PROVEN, MARKET CANNOT REACH IT
 
 The daemon precheck ran `exactNumber` over **every** balance mutation, refusing
 token amounts above `MAX_SAFE_INTEGER` before reaching the exact-byte path that
@@ -67,8 +67,22 @@ token atoms are u64-range checked and written as bytes.
 Proven against the live daemon: 10^18 atoms reach raw account bytes;
 2^64 is refused as not a balance the chain can hold.
 
-**Not yet done:** no live BUILD_CUSTOM proof case exceeded 2^53. The largest
-observed was 8.63 × 10^11. At a 0.02 SOL notional no route produced one.
+`artifacts/big-atoms-proof.json`, `docs/BIG_ATOMS_P3.md`.
+
+**No live BUILD_CUSTOM route in this corpus can credit more than 2^53 atoms at
+any notional**, and this is measured rather than assumed. Output is sublinear
+in input — the credit is bounded by the pool's token reserve, not by what is
+spent:
+
+| hypothetical buy | measured credit |
+|---|---|
+| 20 SOL | 511,331,707,065,605 |
+| 600 SOL | 951,494,455,050,882 |
+
+Thirty times the input for 1.86× the output. The best live route asymptotes
+near 9.5 × 10¹⁴, which is 10.6% of 2^53. The gap is the tokens currently
+reachable, not the encoder, the request hash, the daemon precheck or the
+settlement. The check remains in place and runs against whatever is live.
 
 ## 8. Effect and conservation
 
@@ -272,10 +286,51 @@ migration 25 **after 25 had already run**, so they never executed — the schema
 believed it was current while the columns did not exist. Split into migration
 26 and verified against the live database (`schema-v26`).
 
-## 19–23. Direct Pump clock, parity, Mayhem, entities
+## 19. Direct Pump/PumpSwap event clock (P12) — DONE
 
-**P12 (direct Pump/PumpSwap event clock), P13 (official SDK parity), P14
-(Mayhem, Token-2022 facts, entities into runCycle) are NOT done.**
+`logsSubscribe` on both programs at `processed`, one subscription each rather
+than a global firehose. Events land in `direct_chain_events` with slot,
+commitment, monotonic receipt time and the transaction error — commitment
+because `processed` can be reverted, and a row that does not say which
+commitment it arrived at cannot be reconciled.
+
+**The reason nothing websocket-based had ever run**: `rpcHttp` fell back to the
+Helius key and `rpcWs` did not. An operator with a key configured got HTTP and
+no websocket, so the reserve alarm and the direct clock were both constructed,
+both logged an absence at `warn`, and neither connected. Two transports of one
+endpoint, one derived and one not.
+
+Measured in roughly thirty seconds of one live socket after the fix:
+
+```
+72,273 events    max slot 439,133,929
+ 8,943 TRADE     13,666 OTHER     49,616 UNKNOWN
+```
+
+## 20. Token-2022, capitalAtRisk and entities (P14) — PARTIAL
+
+`capitalAtRisk` has one definition and reaches the gates. `screenCheap` never
+passed it, so every cheap gate ran with `false` even in canary and live: the
+strictness that exists for the modes that spend money was unreachable from the
+path those modes use. `evaluateCheapGates` has read an optional `token2022`
+input since it was written and no caller ever supplied it, so
+`token2022_money_critical` could not fire — a transfer hook, a permanent
+delegate, a pausable mint and a default-frozen mint all presented as silence.
+
+In capital modes the pipeline now decodes the mint and passes the facts, and an
+**unread** Token-2022 mint is refused rather than passed as unknown.
+
+**Not done:** Mayhem lifecycle fields and entity linking (common funder, shared
+fee payer, bundle co-occurrence) do not reach `runCycle`.
+
+## 21–23. Official SDK parity and the offline worker
+
+**P13 and P20 are NOT done.** `docs/P13_P20_BLOCKERS.md` records exactly what
+blocks each: the two SDK versions are verified as published (1.36.0 / 1.19.0,
+matching the directive) but not installed, and there is no Rust toolchain on
+Windows or in WSL. Neither is written from memory, because P13's own bar is
+that a 123–257 bps residual is not parity, and a plausible-but-wrong local
+quoter is wrong with authority.
 
 P13 and P14 in particular require pinning and verifying external SDKs against
 current official documentation and then proving parity to the lamport — that is
@@ -310,7 +365,7 @@ is measured to reduce valid stateful labels per day.
    (0.024 SOL) barely clears the mechanics floor (0.021 SOL), so the effective
    score threshold is 0.88. This is now measured rather than suspected.
 2. No live stateful buy→sell→close label from the running engine.
-3. No live case above 2^53 atoms.
+3. No live case above 2^53 atoms — and none is reachable; see §7.
 4. Token-2022 transfer/withheld fees unmeasured — 20 of 25 lifecycles
    disqualified as unknown-cost.
 5. `expectedRecipients` is empty everywhere, so the unexpected-recipient check
