@@ -39,6 +39,7 @@
     "paper": "tsx apps/engine/src/paper.ts --mode=paper",
     "pump:effect-proof": "tsx scripts/pump-effect-proof.ts",
     "pump:parity": "tsx scripts/pump-parity.ts",
+    "pumpswap:landed-parity": "tsx scripts/landed-parity.ts",
     "pumpswap:parity": "tsx scripts/pumpswap-parity.ts",
     "pumpswap:parity-v2": "tsx scripts/pumpswap-parity-v2.ts",
     "rate:budget": "tsx scripts/rate-budget.ts",
