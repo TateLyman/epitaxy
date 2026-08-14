@@ -89,7 +89,16 @@ export function allocate<T>(
   if (budget <= 0 || candidates.length === 0) return [];
 
   const entitlement = budget * EXPLORATION_FRACTION + carriedDebt;
-  const exploreBudget = Math.min(Math.floor(entitlement), Math.max(candidates.length - 1, 0));
+  /**
+   * The debt accelerates exploration; it must never overrun the cycle's budget.
+   *
+   * Without the `budget` term a carried remainder of 10 produced an explore
+   * budget of 10 against a budget of 2, a NEGATIVE exploit budget, and twelve
+   * selections from a two-quote cycle. In normal operation the debt tops out
+   * near 1 so it never showed, which is exactly the kind of bound that is worth
+   * writing down rather than relying on.
+   */
+  const exploreBudget = Math.min(Math.floor(entitlement), budget, Math.max(candidates.length - 1, 0));
   const exploitBudget = budget - exploreBudget;
 
   const byRank = [...candidates].sort((a, b) => b.rank - a.rank);

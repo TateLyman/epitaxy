@@ -2036,6 +2036,29 @@ CREATE INDEX IF NOT EXISTS idx_shadow_positions_arm
   ON shadow_positions(tournament_entry_arm, tournament_exit_arm, state);
 `,
   },
+  {
+    id: 35,
+    name: 'exploration_debt',
+    sql: `
+-- Finding G -- exploration entitlement that survives a cycle.
+--
+-- allocate() has taken a carriedDebt and returned nextDebt since it was
+-- written. runCycle() passed neither, so the remainder was recomputed from zero
+-- every cycle: with a budget of 2, floor(2 * 0.25) is 0, and the exploration arm
+-- that the design claims is 25% ran exactly never.
+--
+-- Keyed by strategy version and stratum, because an entitlement earned under one
+-- scorer is not owed under another, and a debt pooled across cohorts would spend
+-- itself wherever candidates happen to be densest.
+CREATE TABLE IF NOT EXISTS exploration_debt (
+  strategy_version TEXT NOT NULL,
+  stratum          TEXT NOT NULL,
+  debt             REAL NOT NULL,
+  updated_utc_ms   INTEGER NOT NULL,
+  PRIMARY KEY (strategy_version, stratum)
+);
+`,
+  },
 ];
 
 export interface OpenOptions {
