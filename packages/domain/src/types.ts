@@ -15,6 +15,23 @@ export const MODES: readonly Mode[] = ['observe', 'paper', 'replay', 'backtest',
 /** Modes that are allowed to construct a signer. */
 export const SIGNING_MODES: readonly Mode[] = ['canary', 'live'] as const;
 
+/**
+ * P14 — whether real capital can be lost in this mode. ONE definition.
+ *
+ * `screenCheap` did not pass this at all, so every cheap gate ran with
+ * `capitalAtRisk = false` even in canary and live: an unknown source age
+ * carried 0.25 soft risk instead of vetoing, and money-critical Token-2022
+ * behaviour carried 0.6 soft risk instead of refusing. The strictness that
+ * exists specifically for the modes that spend money was unreachable from the
+ * path those modes use.
+ *
+ * Derived from the mode rather than passed as a flag, because a flag can be
+ * forgotten and this was.
+ */
+export function capitalAtRisk(mode: Mode): boolean {
+  return SIGNING_MODES.includes(mode);
+}
+
 export type Base58 = string;
 
 export const WSOL_MINT: Base58 = 'So11111111111111111111111111111111111111112';

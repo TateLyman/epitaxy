@@ -3,6 +3,10 @@ import type { Candidate, LaunchpadName, RoundTrip } from '../../domain/src/types
 import { WSOL_MINT } from '../../domain/src/types.js';
 import { COHORT_BOUNDS } from '../../domain/src/cohort.js';
 import { allocate } from '../../strategy/src/exploration.js';
+import { capitalAtRisk } from '../../domain/src/types.js';
+import { TOKEN_2022_PROGRAM } from '../../solana/src/pda.js';
+import { decodeToken2022Mint } from '../../solana/src/token2022.js';
+import type { Token2022Facts } from '../../strategy/src/screen.js';
 
 /** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
 function hashSeed(s: string): number {
@@ -204,7 +208,20 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
     // derived from the absence of information.
     const updatedAt = parseUtc(info.updatedAt);
     const sourceAgeMs = updatedAt === null ? null : nowUtcMs - updatedAt;
-    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs);
+    /**
+     * P14 — read the MINT, in modes where being wrong costs money.
+     *
+     * `evaluateCheapGates` has always read `token2022` and no caller ever
+     * supplied it, so `token2022_money_critical` could not fire: a transfer
+     * hook, a permanent delegate, a pausable mint and a default-frozen mint
+     * all presented as silence.
+     *
+     * Only in capital modes, because it costs an RPC call per candidate and
+     * observe/paper risk nothing. In those modes an unread Token-2022 mint is
+     * refused by `screenCheap` rather than passed as unknown.
+     */
+    const t22 = await token2022FactsFor(deps, info);
+    const { gates, deservesQuote } = screenCheap(info, config, nowUtcMs, sourceAgeMs, null, t22);
     if (deservesQuote) {
       stats.cheapPassed += 1;
       promoted.push({ info, gates, sourceAgeMs });
@@ -379,6 +396,35 @@ async function measureConcentration(
     recordSourceHealth(deps.db, 'solana.rpc.concentration', false, null, (e as Error).message);
     stats.concentrationUnavailable += 1;
     log.warn({ mint, err: (e as Error).message }, 'concentration unavailable');
+    return null;
+  }
+}
+
+/**
+ * The mint's Token-2022 behaviour, decoded from its own account bytes.
+ *
+ * Null when we did not read it — never a fabricated "no extensions". The
+ * caller decides what null means, and in a capital mode it means refused.
+ */
+async function token2022FactsFor(
+  deps: CycleDeps,
+  info: MintInformation,
+): Promise<Token2022Facts | null> {
+  if (!capitalAtRisk(deps.config.mode)) return null;
+  if (info.tokenProgram !== TOKEN_2022_PROGRAM) return null;
+  if (deps.rpc === undefined || deps.rpc === null) return null;
+  try {
+    const raw = await deps.rpc.getAccountRaw(info.id);
+    const facts = decodeToken2022Mint(Buffer.from(raw.dataBase64, 'base64'), raw.owner);
+    return {
+      hasMoneyCriticalBehaviour: facts.hasMoneyCriticalBehaviour,
+      hasUnknownExtension: facts.hasUnknownExtension,
+      transferFeeBps: facts.transferFeeBps,
+      detail: facts.detail,
+    };
+  } catch {
+    // Unreadable is UNKNOWN, and in a capital mode `screenCheap` refuses on
+    // null. Returning EMPTY here would assert the mint is plain.
     return null;
   }
 }
