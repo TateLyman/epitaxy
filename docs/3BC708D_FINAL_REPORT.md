@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | starting (audited master) | `3bc708d8ef6083989087efeb3158b34ea51ac799` |
-| ending | `7d1fefc` |
-| commits | `b989b88` baseline · `450a812` invalidation + bounded pipeline · `c9d2e0b` sequential runtime · `07c7bb9` cohorts/exploration/version · `7d1fefc` settlement field contract |
+| ending | `3d62acd` |
+| commits | `b989b88` baseline · `450a812` invalidation + bounded pipeline · `c9d2e0b` sequential runtime · `07c7bb9` cohorts/exploration/version · `7d1fefc` settlement field contract · `95cb61c` real buys commit · `9c573fb` alarm + confirmatory v3 · `3d62acd` drawdown + provenance |
 
 Local was **identical** to audited head at session start: clean tree, no
 unpushed work, 0/0 against `origin/master`.
@@ -87,14 +87,36 @@ sequence was refused however different its content).
 LiteSVM stays at 0.6.1, verified rather than assumed: 0.15.2 and 0.14.0 both
 fail to compile against their own resolved crate sets.
 
-## 6. The ten Pump lifecycles — NOT DONE
+## 6. Real Pump buys COMMIT in the runtime — sell not yet built
 
-The runtime exists and its defining property is proven. Running an actual
-Pump/PumpSwap buy→sell→close through it additionally needs the snapshot
-capture: every account a swap touches, plus the 10.5 MB program ELF from
-ProgramData. That is the next piece of work and it is not started.
+`artifacts/true-stateful-roundtrip-proof.json`.
 
-**No number in this report is a strategy estimate.**
+```
+attempted        28
+buys committed   19
+programs loaded  7 per case, from actual ELF
+apparatus fails  0
+```
+
+Snapshot capture reads every account the swap touches — 107 after resolving
+the lookup tables, against 14 before — and the executable code of every program
+it invokes, taken from **ProgramData** rather than the program account.
+
+Three defects on the way, each found by the error MOVING rather than by reading:
+
+| symptom | cause |
+|---|---|
+| `IncorrectProgramId` at instruction 1 | only Jupiter's ELF loaded. A Jupiter route names **only Jupiter** as its instruction's program; PumpSwap and Whirlpool arrive by CPI and appear nowhere in the instruction list |
+| 14 accounts for a swap touching dozens | v0 transactions keep most accounts in lookup tables; only static keys were read |
+| `Instruction(MissingAccount)` on venue programs | an ELF-loaded account must not ALSO be restored as data — `set_account` replaces the program cache with loader bytes |
+
+**The sell is not built.** It must come from THIS runtime's post-buy pool state
+through the official builder. Substituting a Jupiter sell would rebuild the
+linked-leg defect inside the runtime that exists to prevent it, so the cases
+stop at `BUY_COMMITTED_SELL_NOT_BUILT` and say so.
+
+**No lifecycle is complete and no number in this report is a strategy
+estimate.**
 
 ## 7. The firehose — BOUNDED, 70×
 
@@ -156,18 +178,54 @@ the 20,000,000 principal. A 2× cost stress then doubles the principal.
 `transferFeeLamports` used `?? 0n`, turning "not measured" into "none". Zero is
 now returned only when the asset **cannot** carry a fee.
 
+## 11b. WSS alarm and the urgent queue (P7) — DONE
+
+The reserve account was "the first writable account that is not the taker's and
+not an ATA" — a position in a list, not an identity. On a routed swap that lands
+on whatever the compiler ordered first, and an alarm on the wrong account is
+worse than no alarm because it reports coverage. It now watches the canonical
+PumpSwap pool derived through the SDK's own PDA.
+
+`unwatch` passed an empty string, so every closed position leaked its
+subscription.
+
+And `urgentMarks` was written by the alarm callback and read by **nothing** —
+scoped inside `main()` where the mark loop could not see it. The whole
+websocket path ended in a `Set.add`. Urgent mints are now marked ahead of the
+scheduled order.
+
+## 11c. Confirmatory v3 (P16) — DONE
+
+One position could produce **nine** rows: v1 and v2 JOIN `simulation_jobs` on
+the observation id, and the live corpus has observations with three jobs. Every
+count, mean and bootstrap over that view was inflated by an invisible factor.
+
+v3 uses `EXISTS` — a qualifying job is a condition on the position, not a row
+multiplied into it. Measured in test: v2 emits 9, v3 emits 1.
+
+## 11d. Readiness and provenance (P17, P18) — DONE
+
+Drawdown started at **zero cumulative PnL**. The first losing trade has
+`peak = 0` so the branch is skipped entirely, and a 0.01 SOL give-back against
+0.02 SOL of accumulated profit reads as a 50% drawdown. Both errors point the
+same way early in a sample. Equity now starts at the frozen starting NAV.
+
+Every artifact carries its commit, dirty flag, strategy version, schema version
+and sample query, and freshness **refuses** rather than warns — a different
+commit, a dirty tree, a different version, no provenance, a missing file, or
+too old.
+
 ## 12. Not done
 
 - **P2's ten Pump lifecycles** (§6) and **P13's true size surface**, which
   depends on them
+- **the sell leg** of the sequential lifecycle (§6), and **P13**'s size
+  surface, which depends on it
 - **P5** production core refactor; **P6** shadow trajectories
-- **P7** WSS decoded pool/vault accounts and urgent-queue consumption
 - **P11** Mayhem and entity facts into screening
 - **P14** parity expansion (sell, sizes, Token-2022, USDC, fee tiers)
-- **P16** `confirmatory_positions_v3`; **P17** readiness math
-- **P18** artifact regeneration from a clean commit
 - **P19–P23** tournament, reject panel, infrastructure, confirmatory window
-- **P24**'s 48 tests: 9 of them landed with this work
+- **P24**'s 48 tests: 24 of them landed with this work
 
 ## 13. Commands
 
