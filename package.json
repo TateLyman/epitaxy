@@ -79,6 +79,7 @@
     "size:true-stateful-surface": "tsx scripts/true-stateful-size-surface.ts",
     "trajectory:one-pass": "tsx scripts/live-one-pass-trajectory.ts",
     "trajectory:collect": "tsx apps/collector/src/trajectory-collect.ts --mode=observe",
+    "size:surface": "tsx scripts/size-cost-surface.ts",
     "status": "tsx scripts/status.ts",
     "test": "vitest run",
     "test:watch": "vitest",
