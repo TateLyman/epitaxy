@@ -194,7 +194,16 @@ export function observationStats(db: Db, sinceUtcMs: number | null): Observation
  * while still nominally holding tokens. The state that most needs attention was
  * the one state nothing looked at.
  */
-export const MANAGED_STATES = ['POSITION_OPEN', 'EXIT_INTENT', 'EXIT_BLOCKED', 'RECONCILING'] as const;
+export const MANAGED_STATES = [
+  'POSITION_OPEN',
+  'EXIT_INTENT',
+  // P10 — a triggered position still HOLDS the tokens. Omitting it would
+  // repeat the EXIT_BLOCKED mistake: the state that most needs attention
+  // being the one state nothing looks at.
+  'AWAITING_FILL_OBSERVATION',
+  'EXIT_BLOCKED',
+  'RECONCILING',
+] as const;
 export type ManagedState = (typeof MANAGED_STATES)[number];
 
 export interface ManagedPositionRow {
@@ -206,6 +215,10 @@ export interface ManagedPositionRow {
   opened_utc_ms: number;
   peak_value_lamports: string | null;
   exit_blocked_since_utc_ms: number | null;
+  /** P10 — when the exit policy fired. The fill must be strictly later. */
+  exit_triggered_utc_ms: number | null;
+  exit_trigger_observation_id: string | null;
+  exit_trigger_reason: string | null;
   exit_attempts: number;
   last_exit_attempt_utc_ms: number | null;
   last_exit_failure: string | null;

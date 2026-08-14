@@ -66,6 +66,7 @@ import { realizedWeek, restoreLedger, rollDayIfNeeded } from './ledger.js';
 import type { Ledger } from './ledger.js';
 import { observeRoute } from './observe-route.js';
 import { ReserveAlarm } from './risk-alarm.js';
+import { resolveFill, FROZEN_FILL_LATENCY_MS } from '../../../packages/domain/src/fill-latency.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
 
 /**
@@ -1862,6 +1863,40 @@ async function manageOpenPositions(
       continue;
     }
 
+    /**
+     * P10 — the TRIGGER, which is not the fill.
+     *
+     * The engine used to observe a route, decide to exit, and close against
+     * that same observation. That is a fill at the instant of noticing, with
+     * no reaction, build, simulation, signature or landing in between — so
+     * every exit in the corpus was priced at a moment no real exit could have
+     * reached, and the bias is systematically favourable because the policy
+     * fires exactly when the price is most extreme.
+     *
+     * The trigger is recorded and the position moves to
+     * AWAITING_FILL_OBSERVATION. The fill comes from a LATER same-family
+     * effect-verified observation, at least FROZEN_FILL_LATENCY_MS after it.
+     */
+    if (row.exit_triggered_utc_ms === null) {
+      updatePosition(db, row.position_id, {
+        state: 'AWAITING_FILL_OBSERVATION',
+        exitTriggeredUtcMs: nowMs,
+        exitTriggerReason: decision.reason ?? 'unknown',
+      });
+      recordHealth(
+        db,
+        'exit_triggered',
+        'info',
+        `${row.mint.slice(0, 12)}: ${decision.reason ?? 'unknown'} fired; awaiting a fill at least ` +
+          `${FROZEN_FILL_LATENCY_MS}ms later`,
+      );
+      continue;
+    }
+
+    // Already triggered. The fill observation must be strictly later than the
+    // trigger plus the frozen latency.
+    if (nowMs < row.exit_triggered_utc_ms + FROZEN_FILL_LATENCY_MS) continue;
+
     // §2.2 / §4.2 — the exit leg is ONE exact-size observation of the same
     // family the entry used, for the exact token amount held.
     const exitObs = await observeRoute(db, jupiter, {
@@ -2002,6 +2037,32 @@ async function manageOpenPositions(
       ataCloseFeeLamports: config.assumedSignatureFeeLamports,
     };
     const ataVerdict = settleAtaRent(ata);
+
+    /**
+     * P10 — is THIS observation a valid fill for that trigger?
+     *
+     * `resolveFill` refuses the trigger itself whatever its id says, refuses a
+     * cross-family observation, refuses one whose own effect did not verify,
+     * and refuses an unpriced one. A fill at an unknown price is a number
+     * invented at the moment it matters most.
+     */
+    const fill = resolveFill(
+      row.exit_triggered_utc_ms,
+      (row.route_family ?? config.primaryRouteFamily) as string,
+      [
+        {
+          observationId: exitObs.observationId,
+          observedUtcMs: nowMs,
+          family: exitObs.family,
+          effectValid: simulationEffectOf(db, exitObs.observationId) === 'SIMULATED_EFFECT_OK',
+          executableLamports: grossFromObservation,
+        },
+      ],
+    );
+    if (fill.kind !== 'filled') {
+      recordHealth(db, 'exit_awaiting_fill', 'warn', `${row.mint.slice(0, 12)}: ${fill.reason}`.slice(0, 200));
+      continue;
+    }
 
     // P6 — the exit's MEASURED settlement, derived before the cost model that
     // reads its transfer fee. Null when the leg was not effect-verified, and a
@@ -2144,6 +2205,9 @@ async function manageOpenPositions(
       tokenAmount: 0n,
       executionCostLamports: bookedCost,
       grossProceedsLamports: settledGross,
+      // P10 — how long the exit actually took, so the assumption can be
+      // checked against what happened rather than trusted.
+      exitFillLatencyMs: fill.latencyMs,
       /**
        * P9 — the invariant, not a second opinion.
        *

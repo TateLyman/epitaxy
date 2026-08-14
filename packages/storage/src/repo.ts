@@ -636,6 +636,11 @@ export function updatePosition(
     exitCashInLamports?: bigint;
     lockedRentLamports?: bigint;
     residualTokenAtoms?: bigint;
+    /** P10 — the trigger, and the latency the fill actually took. */
+    exitTriggeredUtcMs?: number;
+    exitTriggerObservationId?: string;
+    exitTriggerReason?: string;
+    exitFillLatencyMs?: number;
   },
 ): void {
   const sets: string[] = [];
@@ -653,6 +658,18 @@ export function updatePosition(
     if (v !== undefined) {
       sets.push(`${column} = ?`);
       vals.push(v.toString());
+    }
+  }
+  for (const [field, column] of [
+    ['exitTriggeredUtcMs', 'exit_triggered_utc_ms'],
+    ['exitTriggerObservationId', 'exit_trigger_observation_id'],
+    ['exitTriggerReason', 'exit_trigger_reason'],
+    ['exitFillLatencyMs', 'exit_fill_latency_ms'],
+  ] as const) {
+    const v = fields[field];
+    if (v !== undefined) {
+      sets.push(`${column} = ?`);
+      vals.push(typeof v === 'number' ? v : String(v));
     }
   }
   if (fields.state !== undefined) {

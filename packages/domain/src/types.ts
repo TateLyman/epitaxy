@@ -211,6 +211,15 @@ export type PositionState =
   | 'RECONCILED'
   | 'POSITION_OPEN'
   | 'EXIT_INTENT'
+  /**
+   * P10 — a policy has fired and the fill has not landed yet.
+   *
+   * Distinct from EXIT_INTENT, which meant "we would like to leave", and from
+   * EXIT_BLOCKED, which means "we tried and could not". This is the interval a
+   * real exit spends between noticing and landing, and collapsing it is how
+   * every exit in the corpus was priced at a moment no exit could reach.
+   */
+  | 'AWAITING_FILL_OBSERVATION'
   | 'POSITION_CLOSED'
   | 'EXIT_BLOCKED';
 

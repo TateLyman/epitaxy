@@ -1521,6 +1521,22 @@ ALTER TABLE screenings ADD COLUMN selection_arm TEXT;
 ALTER TABLE screenings ADD COLUMN inclusion_probability REAL;
 ALTER TABLE screenings ADD COLUMN selection_stratum TEXT;
 CREATE INDEX IF NOT EXISTS idx_screening_arm ON screenings(selection_arm, evaluated_utc_ms);
+
+-- P10 -- an exit TRIGGER is not an exit FILL.
+--
+-- The engine observed a route, decided to exit, and closed against that same
+-- observation. That is a fill at the instant of noticing, with no reaction,
+-- build, simulation, signature or landing in between. Every exit in the corpus
+-- was priced at a moment no real exit could have reached.
+--
+-- The trigger is now persisted and the fill must come from a LATER
+-- same-family observation, at least FROZEN_FILL_LATENCY_MS after it. These
+-- columns are what survives a restart between the two.
+ALTER TABLE positions ADD COLUMN exit_triggered_utc_ms INTEGER;
+ALTER TABLE positions ADD COLUMN exit_trigger_observation_id TEXT;
+ALTER TABLE positions ADD COLUMN exit_trigger_reason TEXT;
+ALTER TABLE positions ADD COLUMN exit_fill_latency_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_positions_triggered ON positions(state, exit_triggered_utc_ms);
 `,
   },
 
