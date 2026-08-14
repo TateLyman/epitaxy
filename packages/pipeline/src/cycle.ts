@@ -10,6 +10,7 @@ import {
   type DirectMintFacts,
 } from '../../intelligence/src/mintfacts-source.js';
 import { disagreements } from '../../intelligence/src/mintfacts.js';
+import { buildEntityLinks, entityConcentrationFrom } from '../../intelligence/src/entity-links.js';
 
 /** A stable 32-bit seed from a context hash, so a cycle's draw is replayable. */
 function hashSeed(s: string): number {
@@ -441,12 +442,104 @@ async function measureConcentration(
     const facts = await fetchConcentration(deps.rpc, mint);
     recordSourceHealth(deps.db, 'solana.rpc.concentration', true, null, null);
     stats.concentrationMeasured += 1;
+    await measureEntities(deps, mint, facts);
     return facts;
   } catch (e) {
     recordSourceHealth(deps.db, 'solana.rpc.concentration', false, null, (e as Error).message);
     stats.concentrationUnavailable += 1;
     log.warn({ mint, err: (e as Error).message }, 'concentration unavailable');
     return null;
+  }
+}
+
+/**
+ * P11 — entity-adjusted concentration, from links actually built.
+ *
+ * `intelligence/entity.ts` has had union-find clustering and an
+ * entity-vs-address comparison since it was written, and NOTHING built a link.
+ * `cluster()` was therefore always called with an empty list, every holder was
+ * its own entity, and the entity figure was the address figure under another
+ * name. The gap between the two is the whole point — a token whose top ten
+ * addresses hold 18% and whose top ten entities hold 71% is not a decentralised
+ * token that happens to be clustered.
+ *
+ * Runs only where concentration already ran, which is the quote stage, so it
+ * costs the budget on candidates that survived screening rather than on every
+ * discovered mint. A holder whose history could not be read is recorded as
+ * UNKNOWN history, and `concentration()` uses that to decide whether the entity
+ * figure may be trusted at all.
+ */
+async function measureEntities(deps: CycleDeps, mint: string, facts: ConcentrationFacts): Promise<void> {
+  const rpc = deps.rpc;
+  if (rpc === undefined || rpc === null) return;
+  const holders = facts.holders
+    .filter((h) => h.owner !== null && !h.programControlled)
+    .map((h) => ({ address: h.owner as string, amount: h.amount }));
+  if (holders.length < 2) return;
+
+  try {
+    const built = await buildEntityLinks(
+      {
+        oldestSignatures: async (address, limit) => {
+          const sigs = await rpc.getSignaturesForAddress(address, 50);
+          // The RPC returns newest first. The FIRST transaction is the funding
+          // one, so the oldest page entry is the one that matters.
+          return sigs.slice(-limit);
+        },
+        feePayerOf: (signature) => rpc.getTransactionFeePayer(signature),
+      },
+      holders,
+      { maxHolders: 20 },
+    );
+    const reading = entityConcentrationFrom(built);
+    deps.db
+      .prepare(
+        `INSERT INTO entity_concentration
+           (mint, measured_utc_ms, address_count, entity_count, unknown_history_count, trustworthy,
+            top_entity_1_bps, top_entity_5_bps, top_entity_10_bps, top_entity_20_bps,
+            top_address_1_bps, top_address_5_bps, top_address_10_bps, top_address_20_bps,
+            links_built, detail)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(mint) DO UPDATE SET
+           measured_utc_ms = excluded.measured_utc_ms,
+           address_count = excluded.address_count,
+           entity_count = excluded.entity_count,
+           unknown_history_count = excluded.unknown_history_count,
+           trustworthy = excluded.trustworthy,
+           top_entity_1_bps = excluded.top_entity_1_bps,
+           top_entity_5_bps = excluded.top_entity_5_bps,
+           top_entity_10_bps = excluded.top_entity_10_bps,
+           top_entity_20_bps = excluded.top_entity_20_bps,
+           top_address_1_bps = excluded.top_address_1_bps,
+           top_address_5_bps = excluded.top_address_5_bps,
+           top_address_10_bps = excluded.top_address_10_bps,
+           top_address_20_bps = excluded.top_address_20_bps,
+           links_built = excluded.links_built,
+           detail = excluded.detail`,
+      )
+      .run(
+        mint,
+        Date.now(),
+        reading.addressCount,
+        reading.entityCount,
+        reading.unknownHistoryCount,
+        reading.trustworthy ? 1 : 0,
+        reading.topEntityBps[1],
+        reading.topEntityBps[5],
+        reading.topEntityBps[10],
+        reading.topEntityBps[20],
+        reading.topAddressBps[1],
+        reading.topAddressBps[5],
+        reading.topAddressBps[10],
+        reading.topAddressBps[20],
+        built.links.length,
+        [reading.detail, ...built.notes].join(' | ').slice(0, 500),
+      );
+  } catch (e) {
+    // Entity measurement is enrichment. Losing it must never lose the
+    // screening row, because a filter whose rejects are not stored can never
+    // be evaluated.
+    log.warn({ mint, err: (e as Error).message }, 'entity concentration unavailable');
   }
 }
 

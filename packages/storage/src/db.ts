@@ -1973,6 +1973,48 @@ CREATE INDEX IF NOT EXISTS idx_shadow_positions_state
   ON shadow_positions(state, triggered_utc_ms);
 `,
   },
+  {
+    id: 33,
+    name: 'entity_concentration',
+    sql: `
+-- P11 -- concentration over ENTITIES, not just addresses.
+--
+-- intelligence/entity.ts has had union-find clustering and an entity-vs-address
+-- comparison since it was written, and nothing in production ever built a
+-- LINK. cluster() was therefore always called with an empty list, every holder
+-- came out as its own entity, and the entity figure was the address figure
+-- wearing a different name.
+--
+-- Both are stored side by side because the GAP is the finding. A token whose
+-- top ten addresses hold 18% and whose top ten entities hold 71% is not a
+-- decentralised token that happens to be clustered; it is a token that was
+-- built to look decentralised.
+CREATE TABLE IF NOT EXISTS entity_concentration (
+  mint                   TEXT PRIMARY KEY,
+  measured_utc_ms        INTEGER NOT NULL,
+  address_count          INTEGER NOT NULL,
+  entity_count           INTEGER NOT NULL,
+  -- Holders whose funding history could not be read. NOT independent wallets.
+  unknown_history_count  INTEGER NOT NULL,
+  -- False when too many holders are unexamined for the entity figure to mean
+  -- anything. It is then not a better number than the address figure, merely a
+  -- different one.
+  trustworthy            INTEGER NOT NULL,
+  top_entity_1_bps       INTEGER,
+  top_entity_5_bps       INTEGER,
+  top_entity_10_bps      INTEGER,
+  top_entity_20_bps      INTEGER,
+  top_address_1_bps      INTEGER,
+  top_address_5_bps      INTEGER,
+  top_address_10_bps     INTEGER,
+  top_address_20_bps     INTEGER,
+  links_built            INTEGER NOT NULL,
+  detail                 TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_entity_concentration_gap
+  ON entity_concentration(trustworthy, measured_utc_ms DESC);
+`,
+  },
 ];
 
 export interface OpenOptions {

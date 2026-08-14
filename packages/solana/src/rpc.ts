@@ -55,6 +55,19 @@ const GetAccountInfoSchema = rpcEnvelope(
 
 const GetSlotSchema = rpcEnvelope(z.number());
 const GetEpochInfoSchema = rpcEnvelope(z.object({ epoch: z.number() }).passthrough());
+const GetSignaturesSchema = rpcEnvelope(
+  z.array(z.object({ signature: z.string(), blockTime: z.number().nullable().optional() }).passthrough()),
+);
+const GetTransactionSchema = rpcEnvelope(
+  z
+    .object({
+      transaction: z
+        .object({ message: z.object({ accountKeys: z.array(z.unknown()) }).passthrough() })
+        .passthrough(),
+    })
+    .passthrough()
+    .nullable(),
+);
 
 const GetHealthSchema = rpcEnvelope(z.string());
 
@@ -199,6 +212,52 @@ export class SolanaRpc {
       throw new RpcError('rpc_error', `getEpochInfo returned unsafe integer ${value}`);
     }
     return BigInt(value);
+  }
+
+  /**
+   * Signatures for an address, oldest LAST as the RPC returns them.
+   *
+   * Bounded by the caller because an address with a long history is not one
+   * this system needs the history of: the entity link it is looking for is the
+   * account's FIRST transaction, and a token account that has thousands of them
+   * is not a fresh holder of a fresh memecoin.
+   */
+  async getSignaturesForAddress(address: string, limit = 50): Promise<{ signature: string; blockTime: number | null }[]> {
+    assertPubkey(address, 'signatures address');
+    const env = await this.call(
+      'getSignaturesForAddress',
+      [address, { limit, commitment: 'confirmed' }],
+      GetSignaturesSchema,
+    );
+    return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
+      signature: r.signature,
+      blockTime: r.blockTime ?? null,
+    }));
+  }
+
+  /**
+   * The fee payer of a transaction: account key zero, by definition.
+   *
+   * Null rather than a throw when the transaction cannot be read, because the
+   * caller's correct response to "unknown funder" is to mark the holder's
+   * history unknown — not to drop the holder, and certainly not to treat it as
+   * independently funded.
+   */
+  async getTransactionFeePayer(signature: string): Promise<string | null> {
+    const env = await this.call(
+      'getTransaction',
+      [signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+      GetTransactionSchema,
+    );
+    const tx = this.unwrap(env, 'getTransaction');
+    if (tx === null) return null;
+    const first = tx.transaction.message.accountKeys[0];
+    if (typeof first === 'string') return first;
+    if (typeof first === 'object' && first !== null && 'pubkey' in first) {
+      const k = (first as { pubkey?: unknown }).pubkey;
+      return typeof k === 'string' ? k : null;
+    }
+    return null;
   }
 
   async getHealth(): Promise<string> {
