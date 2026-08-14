@@ -9,6 +9,7 @@
   },
   "scripts": {
     "audit-baseline": "tsx scripts/audit-baseline.ts",
+    "audit:baseline-1c499cd": "tsx scripts/baseline-1c499cd.ts",
     "audit:state": "tsx scripts/audit-baseline.ts",
     "backtest": "tsx packages/research/src/backtest-cli.ts",
     "baseline": "tsx scripts/baseline-5b89953.ts",
