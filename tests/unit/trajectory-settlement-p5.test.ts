@@ -61,6 +61,16 @@ function leg(over: Partial<MeasuredLegSettlement> = {}): MeasuredLegSettlement {
     closedAccounts: [],
     residualTokenAtoms: 0n,
     payerNativeDeltaLamports: -22_079_080n,
+    // Both legs must be runtime-successful, effect-valid and completely
+    // covered before net PnL exists. These tests are about cost arithmetic, so
+    // the leg quality is good and stated rather than left undefined by a cast.
+    fullAccountCoverage: true,
+    effectValid: true,
+    effectRefusals: [],
+    snapshotManifestHash: 'snap',
+    replayable: true,
+    complete: true,
+    incompleteness: [],
     ...over,
   } as MeasuredLegSettlement;
 }
