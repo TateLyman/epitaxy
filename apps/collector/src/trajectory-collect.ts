@@ -18,9 +18,13 @@ import {
   FEE_CONFIG_ADDR,
 } from '../../../packages/solana/src/pumpswap-offline.js';
 import { captureCoherentSnapshotV2, SnapshotIncoherent } from '../../../packages/solana/src/coherent-snapshot.js';
+import { captureSnapshot } from '../../../packages/solana/src/snapshot-capture.js';
+import { SequentialWorker } from '../../../packages/simulator/src/sequential-worker.js';
+import { openTrajectory } from '../../../packages/pipeline/src/open-trajectory.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
 import {
   insertConfirmedMigration,
+  insertTrajectory,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -52,10 +56,14 @@ import {
 
 const MIGRATION_PROGRAMS = [PUMP_PROGRAM, PUMPSWAP_PROGRAM, AMM_PROGRAM_ID];
 
+/** Frozen for the development window. Not a size search. */
+const NOTIONAL_LAMPORTS = BigInt(process.env['COLLECT_LAMPORTS'] ?? '20000000');
+
 interface Args {
   readonly discoverOnly: boolean;
   readonly maxCandidates: number;
   readonly once: boolean;
+  readonly maxOpen: number;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -68,6 +76,7 @@ function parseArgs(argv: readonly string[]): Args {
     discoverOnly: argv.includes('--discover-only'),
     maxCandidates: num('--max-candidates', 25),
     once: argv.includes('--once'),
+    maxOpen: num('--max-open', 5),
   };
 }
 
@@ -281,20 +290,113 @@ async function main(): Promise<void> {
   console.log('trajectories by state:', JSON.stringify(trajectoryCounts(db)));
 
   /**
-   * Deliberately stops here for now.
+   * P4 — OPEN THEM.
    *
-   * Opening a trajectory requires the one-pass sequential worker (P3) to execute
-   * the buy and then build the sell from the buy-mutated state inside the same
-   * runtime. Until that exists, opening one would mean pricing the exit from a
-   * state that does not contain the entry — which is the exact approximation
-   * this directive forbids being made silently.
-   *
-   * So the collector discovers, snapshots and reports viability, and refuses to
-   * manufacture an entry it cannot measure. That refusal is the finding.
+   * This printed `NOT OPENING TRAJECTORIES: the one-pass sequential worker (P3)
+   * is not built` for two commits after the worker was built. The collector was
+   * never updated, so the database carried zero trajectories while a proof
+   * script's round trips were being read as the running system's output.
    */
+  if (secrets.paperTakerPubkey === null) {
+    console.log('');
+    console.log('NOT OPENING: PAPER_TAKER_PUBKEY is not configured, so no taker exists to build for.');
+    db.close();
+    return;
+  }
+  const taker = secrets.paperTakerPubkey;
+
   console.log('');
-  console.log('NOT OPENING TRAJECTORIES: the one-pass sequential worker (P3) is not built.');
-  console.log('Opening one would price the exit from a state that never contained the entry.');
+  console.log(`opening trajectories at ${NOTIONAL_LAMPORTS} lamports (direct PumpSwap, both legs)`);
+
+  const worker = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
+  const refusals: Record<string, number> = {};
+  let opened = 0;
+
+  try {
+    for (const c of candidates) {
+      if (opened >= args.maxOpen) break;
+
+      // A fresh runtime per candidate: the client's output bound is cumulative
+      // over a worker's lifetime, and one long-lived worker turns a bound meant
+      // to catch runaways into a cap on the study.
+      await worker.close();
+      const w = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
+
+      const res = await openTrajectory(
+        rpc as never,
+        w,
+        {
+          mint: c.mint,
+          taker,
+          notionalLamports: NOTIONAL_LAMPORTS,
+          slippagePct: 3,
+          isCashbackCoin: c.is_cashback_coin === 1,
+          captureSnapshot: async (accounts, programs) =>
+            captureSnapshot(rpc, [], { extraAccounts: [...accounts], extraPrograms: [...programs] }) as never,
+        },
+      );
+      await w.close();
+
+      if (!res.ok) {
+        refusals[res.refusal] = (refusals[res.refusal] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  ${res.refusal}  ${res.detail.slice(0, 70)}`);
+        continue;
+      }
+
+      const t = res.trajectory;
+      insertTrajectory(db, {
+        identity: {
+          trajectoryId: t.trajectoryId,
+          entryObservationId: t.entryObservationId,
+          entrySimulationJobId: t.entrySimulationJobId,
+          entrySettlementId: t.entrySettlementId,
+          venue: 'PUMPSWAP_DIRECT',
+          pool: t.pool,
+          capabilityFingerprint: t.snapshotHash,
+          snapshotHash: t.snapshotHash,
+          mint: t.mint,
+          cohort: 'FIRST_HOUR',
+          migrationAgeMs: null,
+          notionalLamports: t.notionalLamports,
+          entryPolicyInputs: {
+            soleVenueAttributed: t.soleVenueAttributed,
+            quoteStateSurvived: t.quoteStateSurvived,
+            baseVaultDeltaAtoms: t.baseVaultDeltaAtoms.toString(),
+            quoteVaultDeltaLamports: t.quoteVaultDeltaLamports.toString(),
+          },
+          stratum: t.stratum,
+        },
+        entryPolicy: 'HARD_GATES_RANDOM',
+        exitPolicy: 'FIXED_15M_CONTROL',
+        state: 'AWAITING_FILL_OBSERVATION',
+        impact: {
+          quoteImpactRatio: 0,
+          baseImpactRatio: 0,
+          maxImpactRatio: 0,
+          haircutBps: 0,
+          withinSmallImpactBound: true,
+          boundUsed: 0.005,
+        },
+        maxAttainableGrade: 'SIMULATED_EXECUTION',
+        refusals: t.incompleteness,
+        openedUtcMs: t.openedUtcMs,
+      });
+      opened++;
+      console.log(
+        `  ${c.mint.slice(0, 10)}  OPENED  acquired=${t.acquiredAtoms} soleVenue=${t.soleVenueAttributed} ` +
+          `quoteState=${t.quoteStateSurvived}`,
+      );
+    }
+  } finally {
+    await worker.close();
+  }
+
+  console.log('');
+  console.log('opened trajectories :', opened);
+  for (const [r, n] of Object.entries(refusals).sort((a, b) => b[1] - a[1])) {
+    console.log(`  refused ${String(n).padStart(3)}  ${r}`);
+  }
+  console.log('trajectories by state:', JSON.stringify(trajectoryCounts(db)));
 
   db.close();
 }

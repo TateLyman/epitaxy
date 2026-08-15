@@ -1,13 +1,39 @@
 # STATUS
 
-> **2026-08-15 (latest) — independent adversarial audit at head `74f839e`.
+> **2026-08-15 (latest) — running-collector directive from `29c7cc7`.
+> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+>
+> **The `VALID_TRAJECTORY_KERNEL_RUNNING` claim below is WITHDRAWN.** It rested
+> on twenty round trips produced by a PROOF SCRIPT, not by the collector.
+> Measured on the live database at this head:
+>
+> ```
+> development_trajectories rows      0
+> development_trajectories SETTLED   0
+> pnpm trajectory:collect        still prints NOT OPENING TRAJECTORIES
+> ```
+>
+> The twenty runs are reclassified `TRUE_IMMEDIATE_SEQUENTIAL_INSTRUMENT` — real,
+> useful, and **not** development trajectories or strategy outcomes. They must
+> not be counted in trajectory status, policy sample size, readiness, rate
+> throughput, profitability or confirmatory evidence. **A proof file is not the
+> database.**
+>
+> They are also IMMEDIATE round trips: no later market path was collected, so no
+> 15-minute or deterioration exit could be evaluated, and no policy was.
+>
+> `docs/29C7CC7_TRUTH_RESET.md` · `artifacts/baseline-29c7cc7.json`.
+
+> **2026-08-15 — independent adversarial audit at head `74f839e`.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 > Ten findings, six confirmed by executable probes
 > (`tests/unit/adversarial-audit-74f839e.test.ts`, 19 tests).
-> **The `VALID_TRAJECTORY_KERNEL_RUNNING` claim below is NOT withdrawn and NOT
-> confirmed** — the audit ran in a container with no `data/runtime.db` at all,
-> so the twenty trajectories were unreachable and eight of fourteen attack
-> sections are `NOT TESTABLE`.
+> The audit ran in a container with no `data/runtime.db` at all, so the twenty
+> trajectories were unreachable and eight of fourteen attack sections are
+> `NOT TESTABLE`. It therefore neither withdrew nor confirmed the
+> `VALID_TRAJECTORY_KERNEL_RUNNING` claim. **The entry above withdraws it**, on
+> the different and sufficient ground that the collector writes no database
+> trajectory at all.
 > Confirmed defects: the P3 quote-state proof **passes vacuously when `observe`
 > returns nothing, and the sell is then priced from PRE-BUY state while
 > reporting `quoteStateSurvived: true`** (F1); the coherent-snapshot economic
@@ -20,8 +46,9 @@
 > Nothing was repaired: the probes record a failing baseline for separate
 > commits. `docs/ADVERSARIAL_AUDIT_74F839E.md`.
 
-> **2026-08-14 — trajectory-kernel directive from `1c499cd`, COMPLETE.
-> State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+> **2026-08-14 — trajectory-kernel directive from `1c499cd`. ITS STATE CLAIM IS SUPERSEDED — see the entry above.
+> Claimed at the time: `VALID_TRAJECTORY_KERNEL_RUNNING`; **withdrawn**, because
+> the collector writes no database trajectory.**
 > All 22 sections done. **Twenty trajectories completed** — buy → sell → close
 > inside ONE runtime, the sell priced from the state the buy committed and
 > executed against that same state; 20/20 `quoteStateSurvived` per account by

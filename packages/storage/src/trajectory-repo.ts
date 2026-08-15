@@ -23,9 +23,29 @@ export interface OpenTrajectoryRow {
   readonly openedUtcMs: number;
 }
 
+export class EvidenceReplaceRefused extends Error {
+  constructor(trajectoryId: string) {
+    super(
+      `refusing to replace trajectory ${trajectoryId.slice(0, 12)}: evidence is APPEND-ONLY. ` +
+        'An outcome that can be overwritten is an outcome that can be improved after the fact.',
+    );
+    this.name = 'EvidenceReplaceRefused';
+  }
+}
+
+/**
+ * F17 — append only.
+ *
+ * This used to be `INSERT OR REPLACE`, so a second write silently replaced a
+ * recorded outcome. Evidence that can be rewritten is not evidence.
+ */
 export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
+  const existing = db
+    .prepare('SELECT 1 FROM development_trajectories WHERE trajectory_id = ?')
+    .get(r.identity.trajectoryId);
+  if (existing !== undefined) throw new EvidenceReplaceRefused(r.identity.trajectoryId);
   db.prepare(
-    `INSERT OR REPLACE INTO development_trajectories (
+    `INSERT INTO development_trajectories (
        trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
        venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
        migration_age_ms, notional_lamports, entry_policy_inputs,
