@@ -61,6 +61,22 @@ export class OfflineStateIncomplete extends Error {
 }
 
 /** Build a source from any list of {pubkey, ...} records. Last write wins. */
+/**
+ * The fee config account exists and this build cannot read it.
+ *
+ * Never downgraded to "there is no fee config". The two produce different
+ * prices, and only one of them is a fact about the pool.
+ */
+export class FeeConfigUndecodable extends Error {
+  constructor(readonly detail: string) {
+    super(
+      `the PumpSwap fee config is present and did not decode (${detail.slice(0, 120)}). ` +
+        'Refusing rather than pricing against the static tier, which is a different fee.',
+    );
+    this.name = 'FeeConfigUndecodable';
+  }
+}
+
 export function accountSourceOf(
   records: readonly {
     pubkey: string;
@@ -338,8 +354,15 @@ function swapStateFrom(src: AccountBytesSource, poolKey: string, user: string): 
   if (feeRaw !== null) {
     try {
       feeConfig = sdk.decodeFeeConfig(toAccountInfo(feeRaw));
-    } catch {
-      feeConfig = null;
+    } catch (e) {
+      // F11 — present-but-undecodable REFUSES.
+      //
+      // "no dynamic fee config exists" and "the config exists and this build
+      // cannot read it" are opposite facts, and substituting null merges them
+      // into the first. The pricing that follows is then computed against the
+      // static tier while the chain charges the dynamic one, and the difference
+      // is a few basis points that show up as a strategy result.
+      throw new FeeConfigUndecodable((e as Error).message);
     }
   }
 
@@ -418,8 +441,15 @@ export function quoteSellFrom(
   if (feeRaw !== null) {
     try {
       feeConfig = sdk.decodeFeeConfig(toAccountInfo(feeRaw));
-    } catch {
-      feeConfig = null;
+    } catch (e) {
+      // F11 — present-but-undecodable REFUSES.
+      //
+      // "no dynamic fee config exists" and "the config exists and this build
+      // cannot read it" are opposite facts, and substituting null merges them
+      // into the first. The pricing that follows is then computed against the
+      // static tier while the chain charges the dynamic one, and the difference
+      // is a few basis points that show up as a strategy result.
+      throw new FeeConfigUndecodable((e as Error).message);
     }
   }
 
@@ -466,8 +496,15 @@ export function quoteBuyFrom(
   if (feeRaw !== null) {
     try {
       feeConfig = sdk.decodeFeeConfig(toAccountInfo(feeRaw));
-    } catch {
-      feeConfig = null;
+    } catch (e) {
+      // F11 — present-but-undecodable REFUSES.
+      //
+      // "no dynamic fee config exists" and "the config exists and this build
+      // cannot read it" are opposite facts, and substituting null merges them
+      // into the first. The pricing that follows is then computed against the
+      // static tier while the chain charges the dynamic one, and the difference
+      // is a few basis points that show up as a strategy result.
+      throw new FeeConfigUndecodable((e as Error).message);
     }
   }
 
