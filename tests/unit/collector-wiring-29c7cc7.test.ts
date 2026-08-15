@@ -89,12 +89,15 @@ describe('29c7cc7 — the collector opens trajectories', () => {
       ? (JSON.parse(readFileSync('artifacts/trajectory-status.json', 'utf8')) as Record<string, unknown>)
       : null;
     if (status === null) return;
-    const fromDb = status['developmentTrajectoryRowsSettled'];
-    const fromArtifact = status['completedRoundTripsFromLiveRun'];
-    // They are reported as DIFFERENT fields, and the settled count is the
-    // database's answer alone.
-    expect(fromDb).not.toBe(undefined);
-    expect(fromArtifact).not.toBe(fromDb);
+
+    // P12 — the settled count is the DATABASE's answer, and the proof
+    // artifacts are counted separately and explicitly as zero. Reporting them
+    // in one number is the substitution; reporting them in two fields, one of
+    // which is always zero, is the correction.
+    const db = status['trajectories'] as Record<string, unknown> | undefined;
+    expect(db?.['settled']).not.toBe(undefined);
+    expect(status['proofArtifactsCounted']).toBe(0);
+    expect(status['proofArtifactsCounted']).not.toBe(db?.['settled']);
   });
 });
 
