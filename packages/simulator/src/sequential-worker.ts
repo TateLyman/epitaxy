@@ -1,7 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface, type Interface } from 'node:readline';
 import type { FrozenRuntimeSnapshot, SequentialStep, SequentialStepResult, ObservedAccount } from './sequential-runtime.js';
-import { WORKER_WSL_PATH, SequentialRuntimeUnavailable } from './sequential-runtime.js';
+import {
+  WORKER_WSL_PATH,
+  DEFAULT_NATIVE_WORKER_PATH,
+  SequentialRuntimeUnavailable,
+} from './sequential-runtime.js';
 
 /**
  * P3 — one persistent sequential runtime, driven asynchronously.
@@ -78,10 +82,47 @@ export interface WorkerOptions {
   readonly maxOutputBytes?: number;
   readonly wslDistro?: string;
   readonly workerPath?: string;
+  /** Testing seam so both platform branches are reachable from one host. */
+  readonly forcePlatform?: NodeJS.Platform;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT = 128 * 1024 * 1024;
+
+
+/**
+ * F9 — the `wsl` wrapper is a WINDOWS detail, not part of the worker.
+ *
+ * Both entry points spawned the literal command
+ * `wsl -d Ubuntu-24.04 -- /mnt/c/Users/.../epitaxy-offline-worker`, and
+ * `workerPath` could change the path but not the wrapper. The Rust worker is
+ * portable and runs natively on Linux; the CLIENT was not, so no independent
+ * party could re-derive a trajectory. An audit that cannot run the apparatus
+ * cannot check anything it produces, which is how most of one became
+ * NOT TESTABLE.
+ *
+ * On Windows the worker still runs inside WSL, because that is where it builds.
+ * Everywhere else it is executed directly. `EPITAXY_WORKER_PATH` overrides the
+ * binary on any platform.
+ */
+export function workerCommand(
+  opts: { wslDistro?: string; workerPath?: string; forcePlatform?: NodeJS.Platform },
+  extraArgs: readonly string[] = [],
+): { command: string; args: string[] } {
+  const platform = opts.forcePlatform ?? process.platform;
+  const fromEnv = process.env['EPITAXY_WORKER_PATH'];
+
+  if (platform === 'win32') {
+    const distro = opts.wslDistro ?? 'Ubuntu-24.04';
+    const worker = opts.workerPath ?? fromEnv ?? WORKER_WSL_PATH;
+    return { command: 'wsl', args: ['-d', distro, '--', worker, ...extraArgs] };
+  }
+
+  // Native. The default is the repository-relative release build, so a clone
+  // that ran `cargo build --release` needs no configuration at all.
+  const worker = opts.workerPath ?? fromEnv ?? DEFAULT_NATIVE_WORKER_PATH;
+  return { command: worker, args: [...extraArgs] };
+}
 
 export class SequentialWorker {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -104,11 +145,8 @@ export class SequentialWorker {
 
   private start(): void {
     if (this.proc !== null) return;
-    const distro = this.opts.wslDistro ?? 'Ubuntu-24.04';
-    const worker = this.opts.workerPath ?? WORKER_WSL_PATH;
-    const proc = spawn('wsl', ['-d', distro, '--', worker, '--serve'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const { command, args } = workerCommand(this.opts, ['--serve']);
+    const proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = proc;
 
     // A crash must reject everything waiting, not hang the caller forever.

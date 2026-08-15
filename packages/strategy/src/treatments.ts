@@ -235,32 +235,80 @@ export function decideExit(policy: ExitPolicy, openedAtMs: number, marks: readon
    * truncates exactly the right tail the strategy depends on. This exits on a
    * liquidity fact, not on a price target.
    */
-  for (let i = 1; i < ordered.length; i++) {
-    const prev = ordered[i - 1];
-    const cur = ordered[i];
-    if (prev === undefined || cur === undefined) continue;
-    if (prev.exitCapacityLamports === null || cur.exitCapacityLamports === null) continue;
-    if (prev.exitCapacityLamports === 0n) continue;
+  /**
+   * F8 — compare against the LAST KNOWN capacity, not the adjacent mark.
+   *
+   * The loop used to `continue` when either side of an adjacent pair was null,
+   * so a sequence 1,000,000 → null → 500,000 never compared anything and the
+   * 50% collapse spanning the gap was invisible. The position was held through
+   * a halving of exit capacity because one mark in the middle was unmeasured.
+   *
+   * Treating a gap as "no deterioration" is the null-is-safe reading this
+   * repository forbids everywhere else.
+   */
+  let lastKnown: { atMs: number; capacity: bigint } | null = null;
+  let improvedSinceOpen = false;
 
-    const dropBps = Number(((prev.exitCapacityLamports - cur.exitCapacityLamports) * 10_000n) / prev.exitCapacityLamports);
-    if (dropBps >= EXIT_CAPACITY_DROP_BPS) {
+  for (const m of ordered) {
+    if (m.exitCapacityLamports === null) continue;
+    const cap = m.exitCapacityLamports;
+    if (lastKnown !== null && lastKnown.capacity > 0n) {
+      const dropBps = Number(((lastKnown.capacity - cap) * 10_000n) / lastKnown.capacity);
+      if (dropBps >= EXIT_CAPACITY_DROP_BPS) {
+        const spanned = m.atMs - lastKnown.atMs;
+        return {
+          policy,
+          triggeredAtMs: m.atMs,
+          reason:
+            `exit capacity fell ${dropBps} bps over ${spanned}ms since the last MEASURED mark, ` +
+            'which is the liquidity deteriorating rather than the price moving',
+        };
+      }
+      if (cap > lastKnown.capacity) improvedSinceOpen = true;
+    }
+    lastKnown = { atMs: m.atMs, capacity: cap };
+  }
+
+  /**
+   * F7 — the challenger can also hold LONGER, within a frozen bound.
+   *
+   * It used to fall back to the identical `FIXED_HORIZON_MS`, so on every path
+   * where deterioration did not fire it returned exactly the control's answer.
+   * The two policies were identical except when the challenger exited sooner,
+   * which made the tournament structurally incapable of discovering that
+   * exiting early is the error — and with heavy-tailed returns, that is the
+   * error most worth discovering.
+   *
+   * So when liquidity has IMPROVED and none has deteriorated, the challenger
+   * holds to a frozen extension. The extension is bounded and it is a
+   * preregistered constant, not a search: an unbounded hold would win by
+   * survivorship, which is what the original fallback correctly guarded against.
+   */
+  const horizon = openedAtMs + FIXED_HORIZON_MS;
+  if (improvedSinceOpen) {
+    const extended = ordered.find((m) => m.atMs >= horizon + EXIT_EXTENSION_MS);
+    if (extended !== undefined) {
       return {
         policy,
-        triggeredAtMs: cur.atMs,
-        reason: `exit capacity fell ${dropBps} bps between marks, which is the liquidity deteriorating rather than the price moving`,
+        triggeredAtMs: extended.atMs,
+        reason: `exit capacity improved and never deteriorated, so the hold extended by ${EXIT_EXTENSION_MS}ms`,
       };
     }
   }
 
-  // Falls back to the frozen horizon so the challenger cannot hold forever and
-  // win by survivorship.
-  const at = ordered.find((m) => m.atMs >= openedAtMs + FIXED_HORIZON_MS);
+  const at = ordered.find((m) => m.atMs >= horizon);
   return {
     policy,
     triggeredAtMs: at?.atMs ?? null,
     reason: at ? 'no deterioration; fell back to the frozen horizon' : 'no deterioration and no 15 minute mark',
   };
 }
+
+/**
+ * Frozen. The challenger may hold this much longer than the control when
+ * liquidity improved, and no longer.
+ */
+export const EXIT_EXTENSION_MS = 15 * 60 * 1_000;
 
 /** Frozen. */
 export const EXIT_CAPACITY_DROP_BPS = 2_000;

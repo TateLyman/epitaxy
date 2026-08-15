@@ -1,0 +1,315 @@
+{
+  "auditId": "adversarial-audit-74f839e",
+  "directive": "epitaxy_1c499cd_adversarial_validation_prompt_2",
+  "directiveNamedHead": "1c499cdf0d2b5381f31e1ffe842eb32d16101846",
+  "actualLocalHead": "74f839e071a9d2e911333ddc607d959695a96772",
+  "headRelationship": "1c499cd is an ANCESTOR of the local head; eight commits (#38-#45) land on top of it. The audit was performed against the actual local head, not the directive's named head.",
+  "branch": "claude/new-session-91g6rp",
+  "workingTreeClean": true,
+  "generatedBy": "tests/unit/adversarial-audit-74f839e.test.ts + direct source inspection",
+
+  "environment": {
+    "platform": "Linux 6.18.5-fc-v20 x86_64, ephemeral cloud container",
+    "isWsl": false,
+    "wslBinaryPresent": false,
+    "mntCPresent": false,
+    "node": "v22.22.2",
+    "databasePath": "./data/runtime.db",
+    "databaseExists": false,
+    "databaseFilesFoundOnHost": 0,
+    "dataDirContents": ["hook-decisions.log (created at container start, 00:21)"],
+    "runningCollectorProcesses": 0,
+    "envFilePresent": false,
+    "mainnetRpcConfigured": false,
+    "cargoAvailable": true,
+    "offlineWorkerBuiltFromSource": true,
+    "offlineWorkerBinarySha256": "8b68c8fa6e17595c0273a93ffde24a35fde05d84b836a2b563950a8e886397e5",
+    "offlineWorkerRunsNativelyOnLinux": true
+  },
+
+  "decisiveFinding": {
+    "id": "E1",
+    "verdict": "NOT TESTABLE",
+    "summary": "There is no research corpus in this environment. The configured database ./data/runtime.db does not exist, no collector is running, and no .db/.db-wal file exists anywhere on the host.",
+    "consequence": "Every claim that rests on production rows is unverifiable here. That includes the headline claim in docs/STATUS.md of 'Twenty trajectories completed' and the state VALID_TRAJECTORY_KERNEL_RUNNING. The audit's central question -- whether the RUNNING collector produces one economically coherent trajectory -- has no running collector to ask it of. Per the directive's own rule ('Promotion requires current clean production rows'), no promotion is admissible from this environment."
+  },
+
+  "baseline": {
+    "testFilesBefore": 104,
+    "testsBefore": 1481,
+    "testFilesAfter": 105,
+    "testsAfter": 1500,
+    "suiteDurationSeconds": 29.7,
+    "suiteExit": 0,
+    "typecheckExit": 0,
+    "probesAdded": 19,
+    "probesPassing": 19,
+    "regressionsIntroduced": 0
+  },
+
+  "findings": [
+    {
+      "id": "F1",
+      "section": 2,
+      "verdict": "FAIL",
+      "severity": "high",
+      "title": "The quote-state proof passes vacuously when observe() returns nothing, and the sell is then priced from PRE-BUY state",
+      "sourceLocation": [
+        "packages/pipeline/src/sequential-round-trip.ts:201-216",
+        "packages/pipeline/src/sequential-round-trip.ts:238-256",
+        "packages/simulator/src/sequential-worker.ts:300-315"
+      ],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'prices the sell from PRE-BUY state and still reports quoteStateSurvived = true'",
+      "mutation": "A scripted worker whose observe() returns { accounts: [], unobserved: [POOL] } -- the shape a real worker produces when the price-bearing accounts were never loaded into the runtime.",
+      "observedResult": "postSrc = overlaySource(preSrc, accountSourceOf([])) degrades silently to the pre-buy snapshot, so buildSell receives PRE_BUY_POOL_BYTES. assertQuoteStateSurvived iterates the empty quoted map and throws nothing. The trip returns ok=true, failure=null, quoteStateSurvived=true.",
+      "economicConsequence": "This is the exact defect P3 was written to eliminate: an exit priced from a state that never contained the entry, reported as a proven sequential mechanic. Self-impact is understated, so the round-trip drag is understated and the measured economics are systematically flattered. A silent apparatus failure is recorded as a market fact.",
+      "notes": "The vacuity is documented at the assertion (tests/unit/sequential-worker-p3.test.ts:102, 'an empty quote vacuously passes, which is why a caller must quote something') but the only production caller does not perform the guard that comment relies on."
+    },
+    {
+      "id": "F2",
+      "section": 2,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "Per-step 'unobserved' is never consulted, so 'every required writable is observed' is not enforced",
+      "sourceLocation": [
+        "packages/pipeline/src/sequential-round-trip.ts:176",
+        "packages/pipeline/src/sequential-round-trip.ts:278-291"
+      ],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'does not surface the unobserved price-bearing account anywhere in the result' and 'ignores a sell step that reports unobserved writables'",
+      "mutation": "Sell step returns unobserved: ['SomeWritable']; observe returns unobserved: [POOL].",
+      "observedResult": "RoundTripResult.incompleteness === [] in both cases and ok === true. incompleteness is populated from w.initIncompleteness only -- init-time, never per-step.",
+      "economicConsequence": "A trajectory whose writables were not all observed is indistinguishable in the result from one that was fully observed. The directive's requirement that the complete post-state be available cannot be checked by any consumer of this type."
+    },
+    {
+      "id": "F3",
+      "section": 3,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "The economic drift check is unreachable on real RPC output",
+      "sourceLocation": [
+        "packages/solana/src/coherent-snapshot.ts:252-256",
+        "packages/solana/src/coherent-snapshot.ts:299-308",
+        "packages/solana/src/rpc.ts:591-625"
+      ],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'economic drift is structurally zero because one batch carries one slot'",
+      "mutation": "Economic slot 500 with static slot 500, 900 and 100000.",
+      "observedResult": "economicDriftSlots === 0 in every case. captureCoherentSnapshotV2 refuses more than 100 economic accounts, and getMultipleAccountsAtSlot assigns every account in a chunk the single result.context.slot of that chunk. All economic rows therefore share one slot and high-low is 0 by construction.",
+      "economicConsequence": "The frozen drift bound of 0 is enforced against a quantity that is always 0. The refusal branch is dead code in production. Coherence rests entirely on the node's single-batch guarantee, which is defensible, but the enforcement that is presented as a second, independent check provides no additional assurance.",
+      "counterEvidence": "The check IS correct when fed genuinely mixed input -- probe 'DOES refuse when handed a genuinely mixed economic batch' confirms it rejects with a drift message. The logic is sound; the input can never exercise it."
+    },
+    {
+      "id": "F4",
+      "section": 3,
+      "verdict": "FAIL",
+      "severity": "high",
+      "title": "Clock, Rent and EpochSchedule are fetched in the STATIC batch and are exempt from drift enforcement",
+      "sourceLocation": [
+        "packages/solana/src/coherent-snapshot.ts:278-295",
+        "packages/solana/src/coherent-snapshot.ts:298-302"
+      ],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'accepts a snapshot whose sysvars come from a DIFFERENT slot than its pool'",
+      "mutation": "Economic batch served at slot 1000, static batch (carrying the sysvars) served at slot 1100.",
+      "observedResult": "The capture succeeds. economicDriftSlots=0, captureSlotHigh=1000, batchSlots=[1000,1100], and clock.slot='1100'. The snapshot the runtime is rebuilt from pairs pool bytes true at slot 1000 with a Clock true at slot 1100.",
+      "economicConsequence": "The directive states the capture 'may not stamp one slot over a mixed state'. It does exactly that for time. The Clock's unixTimestamp initialises the replayed LiteSVM runtime, and PumpSwap's UserVolumeAccumulator is time-windowed -- so a Clock from a different slot can change which fee/cashback window a simulated trade falls in. Classifying the Clock as 'cannot change the arithmetic' (the module's stated rationale for the static tier) is not obviously true for a protocol with time-dependent fee state.",
+      "notes": "The drift IS recorded in batchSlots, so this is auditable after the fact rather than concealed. It is simply not enforced."
+    },
+    {
+      "id": "F5",
+      "section": 3,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "Removal of a required account yields an incompleteness note and a usable snapshot, not a named refusal; the fee config falls back to the program default by name",
+      "sourceLocation": [
+        "packages/solana/src/coherent-snapshot.ts:327-329",
+        "packages/solana/src/coherent-snapshot.ts:357-360",
+        "packages/solana/src/coherent-snapshot.ts:373-375"
+      ],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'a MISSING Clock sysvar yields a successful snapshot with clock = null', 'a MISSING Rent sysvar likewise succeeds', 'a MISSING fee config explicitly falls back to the program default', 'a MISSING economic pool is only an omission unless it is named requireDecodable'",
+      "mutation": "Each of Clock, Rent, fee config and the economic pool removed in turn (reader returns null for that key).",
+      "observedResult": "Every removal returns a snapshot with a valid snapshotHash. Clock removal -> clock=null + 'the Clock sysvar was not captured'. Rent removal -> rent=null + note. Fee config removal -> feeConfigHash=null + 'the fee config account is absent, so the tier is the program default'. Pool removal -> omissions=[pool], snapshot still produced.",
+      "economicConsequence": "The directive requires each of these to 'produce a named refusal, never a default'. The fee-config path is a default in the code's own words, and the fee tier determines the cost of every simulated trade built on that snapshot. Refusal is delegated to whatever consumer remembers to inspect clock===null, feeConfigHash===null and omissions -- fail-open at this layer, against a repository invariant that states 'Fail closed'.",
+      "mitigating": "Naming an account in requireDecodable DOES produce a named refusal for absence -- confirmed by probe. The gap is that this is opt-in per call site rather than structural."
+    },
+    {
+      "id": "F6",
+      "section": 3,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "requireDecodable does not decode",
+      "sourceLocation": ["packages/solana/src/coherent-snapshot.ts:310-319"],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'accepts a CORRUPT pool as long as it has a nonzero byte length'",
+      "mutation": "The economic pool account returns 11 bytes of ASCII garbage ('not-a-pool!') and is named in requireDecodable.",
+      "observedResult": "The capture succeeds and stores the garbage verbatim. The gate tests rawByKey presence and dataBase64.length !== 0; it never attempts a decode.",
+      "economicConsequence": "The module's own header states 'an account that is present but undecodable refuses the snapshot' and 'a partially interpreted pool is the shape that produces a confident wrong price'. A corrupt-but-nonempty pool passes the check named after that guarantee. Detection is deferred to a downstream decoder that may or may not be reached.",
+      "notes": "Corrupt SYSVARS do refuse correctly -- decodeClock/decodeRent/decodeEpochSchedule and decodeLookupTableAddresses all throw SnapshotIncoherent on a bad length. The gap is specific to requireDecodable's own accounts."
+    },
+    {
+      "id": "F7",
+      "section": 7,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "The exit tournament is one-sided: the challenger can never hold longer than the control",
+      "sourceLocation": ["packages/strategy/src/treatments.ts:255-262"],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'CANNOT construct the converse: deterioration never holds past the horizon'",
+      "mutation": "A flat exit-capacity mark stream with no deterioration.",
+      "observedResult": "FLOW_LIQUIDITY_DETERIORATION_V1 falls back to the identical FIXED_HORIZON_MS and returns the same triggeredAtMs as FIXED_15M_CONTROL. The directive's required counterexample -- 'deterioration holds while fixed-time exits at horizon' -- is not constructible.",
+      "economicConsequence": "The two exit policies are identical on every path where the challenger does not exit early, so the tournament measures only 'exit sooner', never 'hold longer'. Since memecoin returns are heavy-tailed and the module's own comment says the right tail carries the result, a tournament structurally incapable of testing a longer hold cannot discover that exiting early is the error. The paired comparison is valid but its support is one-sided.",
+      "notes": "This is a design consequence of the deliberate anti-survivorship fallback, not a coding error. It is recorded because it bounds what the tournament can conclude."
+    },
+    {
+      "id": "F8",
+      "section": 7,
+      "verdict": "FAIL",
+      "severity": "low",
+      "title": "Deterioration is evaluated only on ADJACENT mark pairs, so a null mark hides a real collapse",
+      "sourceLocation": ["packages/strategy/src/treatments.ts:238-253"],
+      "testUsed": "tests/unit/adversarial-audit-74f839e.test.ts :: 'a null exit capacity is skipped rather than treated as deterioration'",
+      "mutation": "Marks with exit capacity 1,000,000 -> null -> 500,000.",
+      "observedResult": "triggeredAtMs is null. The loop `continue`s on either side being null, so the 50% collapse spanning the null mark is never compared.",
+      "economicConsequence": "One unmeasured mark suppresses the exit signal across it. The position is held through a halving of exit capacity because the measurement gap sits in the middle. Treating the gap as 'no deterioration' is the null-is-safe reading the repository invariant explicitly forbids ('absence of a provider field ... is never treated as safe')."
+    },
+    {
+      "id": "F9",
+      "section": 0,
+      "verdict": "FAIL",
+      "severity": "medium",
+      "title": "The sequential runtime is unrunnable off Windows although the worker itself is portable",
+      "sourceLocation": [
+        "packages/simulator/src/sequential-runtime.ts:112",
+        "packages/simulator/src/sequential-runtime.ts:163",
+        "packages/simulator/src/sequential-worker.ts:107-111"
+      ],
+      "testUsed": "Direct execution. cargo build --release succeeded on Linux; the resulting binary answered {\"cmd\":\"close\"} with {\"ok\":true} natively.",
+      "observedResult": "Both entry points spawn the literal command `wsl -d Ubuntu-24.04 -- <WORKER_WSL_PATH>` where WORKER_WSL_PATH is hardcoded to /mnt/c/Users/lyman/tradseee/offline-worker/target/release/epitaxy-offline-worker. WorkerOptions.workerPath can change the path but not the wsl wrapper. No wsl binary and no /mnt/c exist here.",
+      "economicConsequence": "Every artifact produced by the trajectory kernel is reproducible only on one developer's Windows machine. An independent auditor cannot re-derive one trajectory, which is the first thing this directive asks for. The repository invariant 'Every decision is re-derivable from its snapshot' is unenforceable off that host. The binary hash the worker self-reports therefore cannot be checked against an independent build.",
+      "notes": "This is a portability defect, not an economic one -- but it is what converts most of this audit from FAIL/PASS into NOT TESTABLE."
+    },
+    {
+      "id": "F10",
+      "section": 14,
+      "verdict": "FAIL",
+      "severity": "low",
+      "title": "Lamport bigints cross Number at the readiness report boundary",
+      "sourceLocation": [
+        "packages/research/src/readiness.ts:515-516",
+        "packages/research/src/readiness.ts:476-481"
+      ],
+      "testUsed": "Source inspection. Not exercised -- no corpus exists to seed.",
+      "observedResult": "strategyNetLamports: Number(net) and canaryShadowNetLamports: Number(canaryShadowNet) convert lamport totals to IEEE-754 doubles. The single-trade and single-day profit-share gates compute Number(a)/Number(b) on lamport bigints.",
+      "economicConsequence": "CLAUDE.md states 'bigint for every token amount. Never a float for lamports'. Lamport totals above 2^53 (~9.007e15, about 9.0 million SOL) lose integer precision. At the notionals this system trades that headroom is not currently threatened, so this is an invariant violation with no present numerical impact -- but it is on the readiness path, which is where the directive specifically demands a sample that is 'positive only under unsafe bigint conversion' be rejected.",
+      "notLoadBearing": "The drawdown computation at readiness.ts:303 does the bigint arithmetic FIRST and converts only the resulting bps -- the correct pattern, and evidence the codebase knows it."
+    }
+  ],
+
+  "sectionVerdicts": [
+    {
+      "section": 1,
+      "title": "Independently reconstruct one trajectory",
+      "verdict": "NOT TESTABLE",
+      "reason": "No database, no collector, no mainnet RPC. Not one link of the required chain (candidate selection -> ... -> report row) has a row to cite. A machine-generated trace with real IDs cannot be produced without fabricating it, which the repository forbids."
+    },
+    {
+      "section": 2,
+      "title": "Attack the sequential-state claim",
+      "verdict": "FAIL",
+      "confirmedSubClaims": [
+        "Mutating a pool/vault account between quote and execution DOES fail the trip (QUOTE_STATE_MOVED) -- verified by the pre-existing suite and re-confirmed.",
+        "An account quoted and then absent at execution is correctly treated as moved.",
+        "The worker keeps ONE runtime; observe() is ordered strictly between the buy and the sell -- verified by call-order probe."
+      ],
+      "failedSubClaims": [
+        "F1 -- the proof is vacuous when the quoted set is empty, and the sell is then priced from pre-buy state.",
+        "F2 -- 'every required writable is observed' is not enforced; unobserved is dropped."
+      ],
+      "notTestable": [
+        "All u64 values remain decimal strings, program/sysvar hash binding, and 'no second buy replayed in another runtime' against a REAL run -- these need the WSL worker and a live snapshot (see F9)."
+      ]
+    },
+    {
+      "section": 3,
+      "title": "Attack snapshot coherence",
+      "verdict": "FAIL",
+      "detail": "F3 (drift check unreachable), F4 (sysvars exempt from drift, mixed-slot state accepted), F5 (removal yields a default, not a refusal), F6 (requireDecodable does not decode). Corrupt sysvars and corrupt ALTs DO refuse correctly."
+    },
+    {
+      "section": 4,
+      "title": "Attack cashback accounting",
+      "verdict": "NOT TESTABLE",
+      "reason": "The four required fixtures (cashback coin with correct remaining accounts, with omitted accounts, noncashback, accrued-but-unclaimed) cannot be exercised end-to-end without the runtime (F9) or a corpus. tests/unit/cashback-p6.test.ts and packages/solana/src/cashback.ts exist and were not falsified, but 'not falsified' is not 'verified'."
+    },
+    {
+      "section": 5,
+      "title": "Attack settlement identity",
+      "verdict": "NOT TESTABLE",
+      "reason": "Requires one closed trajectory and its raw pre/post state to recompute thirteen quantities independently. No closed trajectory exists in this environment."
+    },
+    {
+      "section": 6,
+      "title": "Attack later-fill identity",
+      "verdict": "NOT TESTABLE",
+      "reason": "Requires runtime row IDs for candidates A-D. tests/unit/trigger-fill-p10.test.ts covers the deadlock repair at unit level and passes; the identity chain (observed = simulated = settled = selected = booked by the SAME IDs) cannot be checked without rows."
+    },
+    {
+      "section": 7,
+      "title": "Attack policy-treatment claims",
+      "verdict": "PASS WITH FINDINGS",
+      "detail": "The tournament is genuine, not relabelling. Three of the five required counterexamples were constructed and confirmed: HARD_GATES_RANDOM enters where quality rejects; quality enters where survivor-flow rejects; survivor-flow enters where quality rejects. Hard gates bind every policy identically, and an unknown feature is never read as a pass. The fourth (deterioration exits while fixed-time holds) was confirmed. The fifth is NOT CONSTRUCTIBLE -- see F7. F8 records a null-handling gap."
+    },
+    {
+      "section": 8,
+      "title": "Attack the event/migration source",
+      "verdict": "PASS (source level) / NOT TESTABLE (against a live captured transaction)",
+      "detail": "packages/solana/src/migration.ts derives identity from canonical structure, not log strings: failed transactions are refused outright (migration.ts:152); an 8-byte discriminator check rejects swaps against the same pool; the mint's PDA-derived pool must appear in the transaction's account keys; the instruction's OWN accounts are searched before transaction-wide token balances, with a comment recording that the reverse order previously misattributed the second migration in a two-migration transaction; dedup is keyed on (signature, instructionIndex, programId) so two events in one transaction remain two. mint == pool is structurally impossible to hit accidentally because pool is a PDA derivation that must independently appear in accountKeys. Not exercised against a real multi-invocation captured transaction here -- no network."
+    },
+    {
+      "section": 9,
+      "title": "Attack counterfactual future marks",
+      "verdict": "PASS (type level) / NOT TESTABLE (runtime)",
+      "detail": "The required classification exists as BOUNDED_COUNTERFACTUAL and FULL_EVENT_REPLAY in packages/domain/src/trajectory-evidence.ts:39-53, applied in packages/pipeline/src/trajectory-kernel.ts:202-208 and gated at :291. The directive's exact spellings (with a _TRAJECTORY suffix) do not appear; the concepts do. Whether every stored later outcome actually carries one of these grades, and whether the bounded haircut is arithmetically right, needs rows."
+    },
+    {
+      "section": 10,
+      "title": "Attack sampling and inference",
+      "verdict": "NOT TESTABLE",
+      "detail": "seededInclusion is deterministic in (seed, mint) via sha256 and is reproducible across machines -- confirmed by probe, and Math.random() is correctly absent. Exploration-remainder persistence across restart, realised long-run exploration share, cohort independence and prospective reject-panel state all require the database."
+    },
+    {
+      "section": 11,
+      "title": "Attack WSS protection",
+      "verdict": "NOT TESTABLE",
+      "reason": "No network and no running collector. tests/unit/vault-watch-p13.test.ts passes at unit level."
+    },
+    {
+      "section": 12,
+      "title": "Attack parity authorization",
+      "verdict": "NOT TESTABLE",
+      "detail": "No global 'PumpSwap parity=true' flag was found by search, which is the right sign. readiness.ts:489 requires exactly 1 distinct simulator fingerprint across the corpus. Per-fingerprint verification of the nine required fields needs the corpus."
+    },
+    {
+      "section": 13,
+      "title": "Attack rate and artifact reports",
+      "verdict": "NOT TESTABLE",
+      "reason": "Requires stopping a running collector, generating isolated legs, and dirtying artifacts against a live database."
+    },
+    {
+      "section": 14,
+      "title": "Attack readiness",
+      "verdict": "NOT TESTABLE",
+      "detail": "The six required seedings (200 losing trajectories, a sample carried by the top three, a sample positive only under unsafe bigint conversion, invalid historical shadows, unrelated qualifying simulation jobs, an unresolved blocked exit) all require a writable corpus. F10 records lamport-to-Number conversions found on this path by inspection."
+    }
+  ],
+
+  "invariantsUpheld": [
+    "Observe and paper do not import packages/execution -- re-verified by search.",
+    "No live acknowledgement file was created; nothing was funded, signed, submitted, or run under canary or live.",
+    "The working tree was clean at audit start and no production source file was modified by this audit.",
+    "The full suite is green before and after: 1481 -> 1500 tests, 0 regressions, 29.7s.",
+    "Typecheck passes with the probe file included."
+  ],
+
+  "finalState": "MEASUREMENT_REPAIR_REQUIRED",
+  "finalStateJustification": "Two independent grounds, either sufficient. (1) Confirmed measurement defects: F1 lets an exit priced from pre-buy state be certified as a proven sequential mechanic, and F4/F5/F6 let a snapshot that is mixed-slot, missing its fee config, or holding a corrupt pool be accepted as coherent. (2) No promotion is admissible regardless: the directive requires current clean production rows and this environment has no database at all. VALID_TRAJECTORY_KERNEL_RUNNING, as claimed in docs/STATUS.md, is not supported by any evidence reachable from here.",
+  "promotionBlocked": true,
+  "repairsMade": 0,
+  "repairNote": "Per the directive, no failing invariant was repaired during the audit. The probe file records the failing baseline. Fixes belong in separate commits, after which the audit must be rerun from scratch."
+}

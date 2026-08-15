@@ -111,6 +111,14 @@ export class SequentialRuntimeUnavailable extends Error {
 /** Where the worker binary lives. WSL path, because that is where it builds. */
 export const WORKER_WSL_PATH = '/mnt/c/Users/lyman/tradseee/offline-worker/target/release/epitaxy-offline-worker';
 
+/**
+ * Where the worker lives on a machine that is not Windows.
+ *
+ * Repository-relative, so a clone that ran `cargo build --release` needs no
+ * configuration. `EPITAXY_WORKER_PATH` overrides it.
+ */
+export const DEFAULT_NATIVE_WORKER_PATH = 'offline-worker/target/release/epitaxy-offline-worker';
+
 export interface RunOptions {
   readonly jobId: string;
   readonly snapshot: FrozenRuntimeSnapshot;
@@ -160,7 +168,13 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
     const wslJob = jobPath.replace(/^([A-Za-z]):\\/, (_m, d: string) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
     const wslOut = outPath.replace(/^([A-Za-z]):\\/, (_m, d: string) => `/mnt/${d.toLowerCase()}/`).replace(/\\/g, '/');
 
-    execFileSync('wsl', ['-d', 'Ubuntu-24.04', '--', WORKER_WSL_PATH, wslJob, wslOut], {
+    // Windows runs the worker through WSL because that is where it builds;
+    // every other platform executes it directly. See workerCommand (F9).
+    const native = process.platform !== 'win32';
+    const bin = process.env['EPITAXY_WORKER_PATH'] ?? (native ? DEFAULT_NATIVE_WORKER_PATH : WORKER_WSL_PATH);
+    const cmd = native ? bin : 'wsl';
+    const argv = native ? [jobPath, outPath] : ['-d', 'Ubuntu-24.04', '--', bin, wslJob, wslOut];
+    execFileSync(cmd, argv, {
       timeout: opts.timeoutMs ?? 120_000,
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],

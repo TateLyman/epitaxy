@@ -69,6 +69,7 @@ export interface RoundTripRequest {
 export type RoundTripFailure =
   | 'BUY_FAILED'
   | 'NO_MEASURED_CREDIT'
+  | 'QUOTE_STATE_UNOBSERVED'
   | 'BUY_DID_NOT_MOVE_THE_SELL_POOL'
   | 'SELL_BUILD_FAILED'
   | 'SELL_FAILED'
@@ -200,6 +201,43 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     // runtime the sell is about to execute in, at this instant.
     const quoted = await w.observe(req.priceBearingAccounts);
 
+    /**
+     * F1 — THE GUARD THE ASSERTION ALWAYS RELIED ON, AND NOBODY PERFORMED.
+     *
+     * `assertQuoteStateSurvived` iterates the quoted accounts. When that list is
+     * EMPTY it iterates nothing and throws nothing, so an empty observation
+     * reported `quoteStateSurvived: true`. Worse, `overlaySource` over an empty
+     * source degrades silently to the PRE-BUY snapshot, so the sell was then
+     * priced from a state that never contained the entry — the exact defect P3
+     * exists to remove, certified as proof it was removed.
+     *
+     * The vacuity was documented at the assertion. Documenting it there was not
+     * enough: the only production caller never performed the guard the comment
+     * assumed. An invariant that depends on every caller remembering is not an
+     * invariant.
+     *
+     * A price-bearing account that could not be observed is an APPARATUS
+     * failure, and recording one as a market fact is the substitution this
+     * whole module exists to prevent.
+     */
+    const quotedKeys = new Set(quoted.accounts.map((a) => a.pubkey));
+    const unquoted = req.priceBearingAccounts.filter((a) => !quotedKeys.has(a));
+    if (quoted.accounts.length === 0 || unquoted.length > 0) {
+      return fail(
+        'QUOTE_STATE_UNOBSERVED',
+        quoted.accounts.length === 0
+          ? 'the observation returned no accounts, so the sell would have been priced from the pre-buy snapshot'
+          : `${unquoted.length} price-bearing account(s) were not observed: ${unquoted.slice(0, 3).join(', ')}`,
+        {
+          buy: buy.step,
+          acquiredAtoms: acquired,
+          quoted,
+          runtimeIdentity: identity,
+          incompleteness: [...incompleteness, ...quoted.unobserved.map((u) => `unobserved at quote time: ${u}`)],
+        },
+      );
+    }
+
     // A route that landed on some other venue leaves the canonical pool
     // untouched, and a "stateful" claim over an untouched pool is vacuous.
     const preSrc: AccountBytesSource = accountSourceOf(req.snapshot.accounts as never);
@@ -275,6 +313,24 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       observe: [...req.observe],
     });
 
+    /**
+     * F2 — per-step `unobserved` reaches the result.
+     *
+     * `incompleteness` used to carry only `initIncompleteness`, so a trip whose
+     * sell step reported an unobserved writable was INDISTINGUISHABLE from one
+     * that observed everything. "Every required writable is observed" was a
+     * claim nothing checked.
+     *
+     * An unobserved writable does not fail the trip on its own — it may be an
+     * account the leg legitimately never touched — but it is never silently
+     * dropped, because a replay cannot restore state nobody recorded.
+     */
+    const stepUnobserved = [
+      ...buy.step.unobserved.map((u) => `unobserved on buy: ${u}`),
+      ...sell.step.unobserved.map((u) => `unobserved on sell: ${u}`),
+      ...close.step.unobserved.map((u) => `unobserved on close: ${u}`),
+    ];
+
     return {
       ok: close.step.status === 'SIMULATED_OK',
       failure: close.step.status === 'SIMULATED_OK' ? null : 'CLOSE_FAILED',
@@ -287,7 +343,7 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       quoteStateSurvived: true,
       selfImpactLamports,
       runtimeIdentity: identity,
-      incompleteness,
+      incompleteness: [...incompleteness, ...stepUnobserved],
     };
   } catch (e) {
     // An apparatus failure and a market refusal are different facts, and only
