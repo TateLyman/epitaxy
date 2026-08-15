@@ -180,13 +180,15 @@ describe('P2 — coherence is enforced, not assumed', () => {
     ).rejects.toThrow(/exceed one 100-account batch/);
   });
 
-  it('pins later batches to the slot the economic batch was served at', async () => {
+  it('puts the CLOCK in the economic batch, and pins later batches to its slot', async () => {
     const r = readerOf({ [POOL]: 100, [VAULT_A]: 100 });
     await captureCoherentSnapshotV2(r, { economicAccounts: [POOL, VAULT_A] }, base58Encode);
-    // The price-bearing accounts go first; they define the slot everything else
-    // is pinned to.
-    expect(r.batches[0]).toEqual([POOL, VAULT_A]);
-    expect(r.batches[1]).toContain(CLOCK_SYSVAR);
+    // The price-bearing accounts AND the Clock go first, in ONE call, so they
+    // share one context slot by construction rather than by a later check.
+    expect(r.batches[0]).toContain(POOL);
+    expect(r.batches[0]).toContain(CLOCK_SYSVAR);
+    // Rent and EpochSchedule are not time-windowed and may legitimately follow.
+    expect(r.batches[1]).toContain(RENT_SYSVAR);
   });
 });
 

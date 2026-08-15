@@ -287,41 +287,53 @@ const baseReq = {
 };
 
 describe('AUDIT §3 — economic drift enforcement cannot fire on real RPC output', () => {
-  it('REFUSES a snapshot whose Clock comes from a different slot than its pool', async () => {
-    // WAS: accepted silently. Drift was computed over economic accounts only,
-    // and the Clock sat in the STATIC batch, exempt — so a capture could pair
-    // pool bytes true at slot 1000 with a Clock true at slot 1100 and report
-    // economicDriftSlots: 0.
+  it('makes a mixed-slot Clock UNREPRESENTABLE by putting it in the pool batch', async () => {
+    // WAS: the Clock sat in the static batch, exempt from drift, so a capture
+    // could pair pool bytes true at slot 1000 with a Clock true at slot 1100.
     //
-    // The Clock is now ECONOMIC (F4), because PumpSwap's UserVolumeAccumulator
-    // is time-windowed and a Clock from another slot can move a simulated trade
-    // into a different fee or cashback window.
-    await expect(
-      captureCoherentSnapshotV2(splitSlotReader({ economicSlot: 1_000, staticSlot: 1_100 }), baseReq, b58),
-    ).rejects.toThrow(/never simultaneously true/);
-  });
-
-  it('drift is enforced across BATCHES, which is where it can actually differ', async () => {
-    // WAS: every economic account came from one getMultipleAccounts call and
-    // inherited its context slot, so `high - low` was 0 by construction and the
-    // refusal branch was unreachable in production. The check existed and could
-    // never fire.
+    // The first repair moved the Clock into the economic TIER but still fetched
+    // it in a second call — which guaranteed the drift it was meant to catch
+    // and refused half the live candidate queue at `drift 1 > bound 0`.
     //
-    // Moving the Clock into the economic tier gives the comparison a second
-    // batch, so the bound now has something real to enforce against. Equal
-    // slots still pass; unequal ones refuse.
-    const same = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 500, staticSlot: 500 }),
+    // It now rides in the SAME getMultipleAccounts call as the pool, so it
+    // cannot come from another slot at all. Enforcement by construction beats
+    // enforcement by check.
+    const snap = await captureCoherentSnapshotV2(
+      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_100 }),
       baseReq,
       b58,
     );
-    expect(same.economicDriftSlots).toBe(0);
+    expect(snap.clock?.slot).toBe('1000');
+    expect(snap.captureSlotHigh).toBe(1_000);
+    expect(snap.economicDriftSlots).toBe(0);
+  });
 
-    for (const stat of [900, 100_000]) {
-      await expect(
-        captureCoherentSnapshotV2(splitSlotReader({ economicSlot: 500, staticSlot: stat }), baseReq, b58),
-      ).rejects.toThrow(/never simultaneously true/);
-    }
+  it('the drift bound still refuses genuinely mixed economic slots', async () => {
+    // The bound is not dead: it refuses when the accounts really do disagree.
+    // A reader that hands back per-account slots exercises what a single-batch
+    // node cannot produce.
+    const mixed: CoherentReader = {
+      async getSlot() {
+        return 500;
+      },
+      async getBlockTime() {
+        return 1_700_000_000;
+      },
+      async getMultipleAccountsAtSlot(pubkeys: readonly string[]) {
+        const accounts = new Map<string, CoherentRawAccount | null>();
+        let high = 0;
+        for (const k of pubkeys) {
+          const slot = k === ECON_VAULT ? 900 : 500;
+          high = Math.max(high, slot);
+          if (k === CLOCK_SYSVAR) accounts.set(k, raw(k, slot, clockBytes(BigInt(slot), 1_700_000_000n)));
+          else if (k === RENT_SYSVAR) accounts.set(k, raw(k, slot, rentBytes()));
+          else if (k === EPOCH_SCHEDULE_SYSVAR) accounts.set(k, raw(k, slot, scheduleBytes()));
+          else accounts.set(k, raw(k, slot, tokenAccountBytes(5n)));
+        }
+        return { contextSlot: high, accounts };
+      },
+    };
+    await expect(captureCoherentSnapshotV2(mixed, baseReq, b58)).rejects.toThrow(/never simultaneously true/);
   });
 
   it('DOES refuse when handed a genuinely mixed economic batch (the check itself works)', async () => {
