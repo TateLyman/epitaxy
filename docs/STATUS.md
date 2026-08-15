@@ -1,6 +1,26 @@
 # STATUS
 
-> **2026-08-14 (latest) — trajectory-kernel directive from `1c499cd`, COMPLETE.
+> **2026-08-15 (latest) — independent adversarial audit at head `74f839e`.
+> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> Ten findings, six confirmed by executable probes
+> (`tests/unit/adversarial-audit-74f839e.test.ts`, 19 tests).
+> **The `VALID_TRAJECTORY_KERNEL_RUNNING` claim below is NOT withdrawn and NOT
+> confirmed** — the audit ran in a container with no `data/runtime.db` at all,
+> so the twenty trajectories were unreachable and eight of fourteen attack
+> sections are `NOT TESTABLE`.
+> Confirmed defects: the P3 quote-state proof **passes vacuously when `observe`
+> returns nothing, and the sell is then priced from PRE-BUY state while
+> reporting `quoteStateSurvived: true`** (F1); the coherent-snapshot economic
+> drift check is unreachable on real RPC output (F3); sysvars are exempt from
+> drift so a mixed-slot Clock is accepted (F4); a missing fee config falls back
+> to the program default rather than refusing (F5); `requireDecodable` never
+> decodes (F6). The sequential runtime is hardcoded to `wsl`, though the worker
+> builds and runs natively on Linux — so no independent party can currently
+> re-derive a trajectory (F9).
+> Nothing was repaired: the probes record a failing baseline for separate
+> commits. `docs/ADVERSARIAL_AUDIT_74F839E.md`.
+
+> **2026-08-14 — trajectory-kernel directive from `1c499cd`, COMPLETE.
 > State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
 > All 22 sections done. **Twenty trajectories completed** — buy → sell → close
 > inside ONE runtime, the sell priced from the state the buy committed and
