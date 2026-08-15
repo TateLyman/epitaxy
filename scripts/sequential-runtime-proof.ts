@@ -89,8 +89,8 @@ const result = runSequential({
   steps: [step('transfer-1', LAMPORT), step('transfer-2', 2n * LAMPORT)],
 });
 
-const balanceOf = (accs: readonly { pubkey: string; lamports: number }[], k: string): number | null =>
-  accs.find((a) => a.pubkey === k)?.lamports ?? null;
+const balanceOf = (accs: readonly { pubkey: string; lamports: bigint }[], k: string): string | null =>
+  accs.find((a) => a.pubkey === k)?.lamports.toString() ?? null;
 
 const s1 = result.steps[0];
 const s2 = result.steps[1];
@@ -116,9 +116,9 @@ const observed = {
  * on it is false.
  */
 const sequential =
-  observed.step1.postB === Number(LAMPORT) &&
-  observed.step2.preB === Number(LAMPORT) &&
-  observed.step2.postB === 3 * Number(LAMPORT);
+  observed.step1.postB === String(LAMPORT) &&
+  observed.step2.preB === String(LAMPORT) &&
+  observed.step2.postB === String(3n * BigInt(LAMPORT));
 
 const out = {
   generatedUtcMs: Date.now(),

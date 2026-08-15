@@ -18,13 +18,25 @@ import type { SequentialStepResult, ObservedAccount } from '../../packages/simul
 const POOL = 'So11111111111111111111111111111111111111112';
 const VAULT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-function acct(pubkey: string, dataSha256: string): ObservedAccount {
+/**
+ * F10 — the survival check compares the COMPLETE account, so a fixture has to
+ * carry one. `accountHash` follows `dataSha256` by default because most of
+ * these cases are about the bytes moving; the cases that are about the OTHER
+ * fields override it, which is exactly the distinction the old fixture could
+ * not express.
+ */
+function acct(pubkey: string, dataSha256: string, over: Partial<ObservedAccount> = {}): ObservedAccount {
   const a: ObservedAccount = {
     pubkey,
-    lamports: 1_000,
+    lamports: 1_000n,
     owner: '11111111111111111111111111111111',
+    executable: false,
+    rentEpoch: 18_446_744_073_709_551_615n,
+    dataLen: 3,
     dataBase64: 'AAAA',
     dataSha256,
+    accountHash: `h:${dataSha256}`,
+    ...over,
   };
   return a;
 }
@@ -43,7 +55,7 @@ function sellStep(pre: ObservedAccount[]): SequentialStepResult {
   return s;
 }
 
-const quoted = (accounts: ObservedAccount[]) => ({ accounts, unobserved: [], stateHash: 'quoted-hash' });
+const quoted = (accounts: ObservedAccount[]) => ({ accounts, unobserved: [], stateHash: 'quoted-hash', instanceId: null });
 
 describe('P3 — the quote state must survive to execution', () => {
   it('passes when every quoted account is byte-identical at execution', () => {

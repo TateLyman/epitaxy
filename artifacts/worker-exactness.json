@@ -1,0 +1,88 @@
+{
+  "generatedUtcMs": 1786774871872,
+  "what": "P3 worker exactness and output scaling, against the real binary",
+  "findings": {
+    "u64ExactAcrossTheWire": {
+      "sentLamports": "9007199254740993",
+      "readLamports": "9007199254740993",
+      "lamportsExact": true,
+      "sentRentEpoch": "18446744073709551615",
+      "readRentEpoch": "18446744073709551615",
+      "rentEpochExact": true,
+      "throughADoubleWouldHaveRead": "18446744073709552000",
+      "lostToADouble": "1"
+    },
+    "outputIsScoped": {
+      "economicAccount": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "economicCarriesBytes": true,
+      "nonEconomicAccount": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      "nonEconomicWithheldBytes": true,
+      "nonEconomicStillReportsLength": 1024,
+      "nonEconomicStillReportsLamports": "7000000",
+      "nonEconomicStillReportsHash": true,
+      "bytesSavedOnThisCall": 1024
+    },
+    "accountHashCoversMoreThanData": {
+      "dataUnchanged": true,
+      "accountHashChanged": true,
+      "wouldHavePassedTheOldSurvivalCheck": true,
+      "failsTheNewSurvivalCheck": true
+    },
+    "initResetsTheJob": {
+      "firstInstance": "exactness-1:99513:1",
+      "secondInstance": "exactness-2:99513:2",
+      "instanceIdChanged": true,
+      "accountsInSecondRuntime": 1,
+      "previousJobAccountAbsent": true
+    },
+    "exactSysvarsRestored": {
+      "captured": {
+        "slot": "439000000",
+        "epochStartTimestamp": "1759000000",
+        "epoch": "1021",
+        "leaderScheduleEpoch": "1022",
+        "unixTimestamp": "1760000000"
+      },
+      "restored": {
+        "slot": "439000000",
+        "epochStartTimestamp": "1759000000",
+        "epoch": "1021",
+        "leaderScheduleEpoch": "1022",
+        "unixTimestamp": "1760000000"
+      },
+      "epochIsTheCapturedOne": true,
+      "epochWouldHaveBeenDerivedAs": "1016",
+      "unixTimestampExact": true
+    },
+    "requiredAccountRefuses": {
+      "askedFor": "So11111111111111111111111111111111111111112",
+      "refused": true,
+      "detail": "sequential runtime unavailable: init refused: required account So11111111111111111111111111111111111111112 is not in the runtime"
+    },
+    "refusedInitLeavesNoRuntime": {
+      "nextCommandAlsoRefused": true,
+      "detail": "sequential runtime unavailable: no runtime: init first"
+    },
+    "requireExactSysvarsRefusesADerivedClock": {
+      "refused": true,
+      "detail": "sequential runtime unavailable: init refused: exact sysvars required but no Clock was captured; exact sysvars required but no Rent was captured; exact sysvars required but no EpochSchedule was capture"
+    },
+    "outputBudgetIsPerJob": {
+      "refusedWithinTheJob": true,
+      "detail": "sequential runtime unavailable: job output budget exhausted: 2678 bytes emitted, bound is 2000. Name fewer economic accounts, or raise max_job_output_bytes on init.",
+      "succeedsAfterInit": true
+    },
+    "runtimeIdentity": {
+      "runtime": "litesvm",
+      "runtimeVersion": "0.1.0",
+      "litesvmVersion": "0.6.1",
+      "binarySha256": "c792eacaaff4f35808395ba17f913cc957af1326c0d8bd9d66fa5c7c86270d59",
+      "programsLoaded": []
+    },
+    "instanceMismatchIsDetectable": {
+      "errorType": "RuntimeInstanceChanged",
+      "checkedOnEveryCommand": true
+    }
+  },
+  "allPassed": true
+}

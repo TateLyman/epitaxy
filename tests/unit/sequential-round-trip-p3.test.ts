@@ -22,7 +22,20 @@ function tokenAccountBytes(amount: bigint): string {
 }
 
 function observed(pubkey: string, dataBase64: string, sha: string) {
-  return { pubkey, lamports: 1_000, owner: 'Sys', dataBase64, dataSha256: sha };
+  return {
+    pubkey,
+    lamports: 1_000n,
+    owner: 'Sys',
+    executable: false,
+    rentEpoch: 18_446_744_073_709_551_615n,
+    dataLen: Buffer.from(dataBase64, 'base64').length,
+    dataBase64,
+    dataSha256: sha,
+    // F10 — the survival check compares the COMPLETE account, so the fixture's
+    // notion of "this account moved" has to live here too. Deriving it from
+    // `sha` keeps every existing case saying exactly what it said before.
+    accountHash: `h:${sha}`,
+  };
 }
 
 function stepResult(label: string, status: string, pre: unknown[], post: unknown[]) {
@@ -57,7 +70,7 @@ function scriptedWorker(script: {
     },
     async observe() {
       calls.push('observe');
-      return { accounts: [observed(POOL, tokenAccountBytes(0n), quotedSha)], unobserved: [], stateHash: 'qh' };
+      return { accounts: [observed(POOL, tokenAccountBytes(0n), quotedSha)], unobserved: [], stateHash: 'qh', instanceId: 'inst-1' };
     },
     async step(s: { label: string }) {
       calls.push('step:' + s.label);
