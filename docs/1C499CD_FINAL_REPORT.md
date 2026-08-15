@@ -45,10 +45,22 @@ loosened.
 | P21 fastest research lane | the migration lane, built and running |
 | P22 final report | this |
 
-**Not done and stated plainly:** `scripts/true-stateful-proof.ts` still contains
-the pass-1/pass-2 structure P3 replaces. The replacement exists, is tested and is
-used by the live path, but that script was not converted, so it still produces
-the older checked-in artifacts.
+**`true-stateful-proof.ts` is now converted.** It ran pass one in runtime
+instance A to learn what the buy produced, built the sell from that, then ran
+buy-then-sell-then-close in a **fresh instance B**. It now calls
+`sequentialRoundTrip` against one persistent worker, so the sell is built from
+the state the buy committed and executed against that same state — and it
+reports `quoteStateSurvivedToExecution`, which the two-pass shape could not
+report at all, because comparing an account across two runtimes proves they
+agreed on a replay rather than that one quote and one execution saw one state.
+
+Live re-run: 3 of 3 complete, `quoteStateSurvived` true on all three, the buy
+mutated the sell pool on all three.
+
+It also **independently corroborates P14**: median AMM drag **246 bps** against
+a decoded bottom tier of 250, versus a median total round-trip loss of 2,166 bps.
+The gap between the two is the fixed setup cost, arrived at by a different code
+path from the size sweep.
 
 ### How P19 and P20 were verified
 

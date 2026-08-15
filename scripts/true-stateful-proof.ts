@@ -29,19 +29,19 @@ import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { researchRpc } from '../packages/solana/src/endpoint.js';
 import { compileMessage, encodeUnsignedTransaction } from '../packages/solana/src/encode.js';
 import { captureSnapshot } from '../packages/solana/src/snapshot-capture.js';
-import { runSequential, tokenAmountOf, createdAccountRent } from '../packages/simulator/src/sequential-runtime.js';
-import type { ObservedAccount, SequentialStepResult } from '../packages/simulator/src/sequential-runtime.js';
+import { tokenAmountOf, createdAccountRent } from '../packages/simulator/src/sequential-runtime.js';
+import { SequentialWorker } from '../packages/simulator/src/sequential-worker.js';
+import { sequentialRoundTrip } from '../packages/pipeline/src/sequential-round-trip.js';
+import type { ObservedAccount } from '../packages/simulator/src/sequential-runtime.js';
 import { associatedTokenAddress, TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from '../packages/solana/src/pda.js';
 import {
   accountSourceOf,
-  overlaySource,
   buildSellFrom,
   quoteSellFrom,
   poolAddressesFrom,
   canonicalPool,
   swapAccountAddresses,
   associatedTokenAddressOf,
-  OfflineStateIncomplete,
   WSOL_MINT,
   GLOBAL_CONFIG_ADDR,
   FEE_CONFIG_ADDR,
@@ -90,6 +90,14 @@ interface Case {
   mint: string;
   status: string;
   detail: string | null;
+  /**
+   * P3 — the state the sell was priced from WAS the state it executed against,
+   * compared per account by content hash. The two-pass shape could not report
+   * this at all: it had two runtimes, and comparing an account across them
+   * proves they agreed on a replay rather than that one quote and one
+   * execution saw a single state.
+   */
+  quoteStateSurvivedToExecution: boolean | null;
   pool: string | null;
   programsLoaded: number;
   snapshotAccounts: number;
@@ -157,6 +165,15 @@ console.log(`${candidates.length} candidates, target ${TARGET} lifecycles, ${BUY
 
 const cases: Case[] = [];
 let fixtureWritten = false;
+
+/**
+ * ONE persistent runtime process for the whole run.
+ *
+ * `runSequential` used `execFileSync`, which stops the Node event loop for the
+ * duration of every job. Here the worker is spawned once and driven
+ * asynchronously, and each trajectory gets a fresh runtime via `init`.
+ */
+const worker = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
 const sha = (a: readonly ObservedAccount[], p: string): string | null =>
   a.find((x) => x.pubkey === p)?.dataSha256 ?? null;
 const amt = (a: readonly ObservedAccount[], p: string): bigint | null => {
@@ -171,6 +188,7 @@ for (const c of candidates) {
     mint: c.mint,
     status: 'PENDING',
     detail: null,
+    quoteStateSurvivedToExecution: null,
     pool: null,
     programsLoaded: 0,
     snapshotAccounts: 0,
@@ -256,8 +274,11 @@ for (const c of candidates) {
     continue;
   }
 
+  // Bound once: the narrowing above does not survive into the closures below.
+  const blockhash: string = buy.blockhash;
+
   const buyBytes = Buffer.from(
-    encodeUnsignedTransaction(compileMessage(buy.instructions, taker, buy.blockhash, buy.lookupTables)),
+    encodeUnsignedTransaction(compileMessage(buy.instructions, taker, blockhash, buy.lookupTables)),
   ).toString('base64');
 
   const routeAccounts = [
@@ -341,40 +362,114 @@ for (const c of candidates) {
     ]),
   ];
 
-  // ---- 4. pass one: run the buy and READ what it left --------------------
-  const runOnce = (
-    steps: { label: string; transactionBase64: string; observe: readonly string[] }[],
-  ): { steps: readonly SequentialStepResult[]; programs: number; notes: readonly string[] } | null => {
-    try {
-      const run = runSequential({
-        jobId: `true-stateful-${c.mint.slice(0, 8)}-${steps.length}`,
-        snapshot: {
-          programs: snapshot.programs.map((p) => ({ programId: p.programId, elfBase64: p.elfBase64 })),
-          accounts: withWallet,
-          slot: snapshot.slot,
-          unixTimestamp: snapshot.unixTimestamp,
-        },
-        steps,
-        timeoutMs: 240_000,
-      });
-      return { steps: run.steps, programs: run.programsLoaded.length, notes: run.incompleteness };
-    } catch (e) {
-      r.detail = (e as Error).message.slice(0, 160);
-      return null;
-    }
-  };
+  /**
+   * ---- 4/5/6. ONE PASS: buy, observe, build the sell from what the buy left,
+   * sell, close -- all in a single live runtime.
+   *
+   * This replaces a two-pass structure that ran the buy in runtime instance A
+   * to learn what it produced, built the sell from that, then ran
+   * buy-then-sell-then-close in a FRESH instance B. Two instances replaying the
+   * same buy ought to agree, but nothing checked that they did, and a sell
+   * priced against a state it did not execute in is not an exact sequential
+   * mechanic -- it is an approximation that looks exactly like one.
+   *
+   * Worse, the old shape could not even express the check: comparing an account
+   * across two runtimes proves they agreed on a replay, not that one quote and
+   * one execution saw a single state. `sequentialRoundTrip` asserts exactly
+   * that, per account by content hash, and refuses the trip if it fails.
+   */
+  const preSrc = accountSourceOf(snapshot.accounts);
+  let quotedPre: bigint | null = null;
+  let quotedPost: bigint | null = null;
 
-  const pass1 = runOnce([{ label: 'buy', transactionBase64: buyBytes, observe }]);
-  if (pass1 === null) {
-    fail('INSTRUMENT_RUNTIME_FAILED', r.detail ?? undefined);
+  const trip = await sequentialRoundTrip(
+    {
+      snapshot: {
+        programs: snapshot.programs.map((p) => ({ programId: p.programId, elfBase64: p.elfBase64 })),
+        accounts: withWallet,
+        slot: snapshot.slot,
+        unixTimestamp: snapshot.unixTimestamp,
+      },
+      pool,
+      taker,
+      takerAta,
+      slippagePct: SLIPPAGE_PCT,
+      buyTransactionBase64: buyBytes,
+      blockhash,
+      priceBearingAccounts: [pool, baseVault, quoteVault, c.mint],
+      observe,
+      // Built HERE, from the state the buy actually committed, and the two
+      // quotes are recorded on the way through: their difference is the
+      // self-impact a fresh-state sell silently ignores.
+      buildSell: async (postState, acquiredAtoms) => {
+        quotedPre = quoteSellFrom(preSrc, pool, acquiredAtoms, SLIPPAGE_PCT).quoteOutLamports;
+        quotedPost = quoteSellFrom(postState, pool, acquiredAtoms, SLIPPAGE_PCT).quoteOutLamports;
+        const b = await buildSellFrom(postState, {
+          poolKey: pool,
+          user: taker,
+          baseAtoms: acquiredAtoms,
+          slippagePct: SLIPPAGE_PCT,
+        });
+        return {
+          transactionBase64: Buffer.from(
+            encodeUnsignedTransaction(compileMessage(b.instructions.map(toRaw), taker, blockhash, {})),
+          ).toString('base64'),
+          selfImpactLamports: quotedPre - quotedPost,
+        };
+      },
+      /**
+       * The CLOSE, which is not optional accounting.
+       *
+       * Only the BASE account. The official sell already appends its own
+       * `CloseAccount` on the wrapped-SOL side whenever the quote mint is
+       * native, so the proceeds arrive unwrapped and a second close hits an
+       * account that no longer exists -- measured, as
+       * `InstructionError(0, InvalidAccountData)`, not assumed. What the sell
+       * does NOT do is recover the rent the entry locked in the base ATA, and
+       * that rent is real capital until the account is closed.
+       */
+      buildCloseBase64: () =>
+        Buffer.from(
+          encodeUnsignedTransaction(
+            compileMessage(
+              [
+                buildCloseAccount({
+                  tokenAccount: takerAta,
+                  destination: taker,
+                  owner: taker,
+                  tokenProgram,
+                  residualAtoms: 0n,
+                  withheldAtoms: 0n,
+                }),
+              ],
+              taker,
+              blockhash,
+              {},
+            ),
+          ),
+        ).toString('base64'),
+      jobId: `true-stateful-${c.mint.slice(0, 8)}`,
+    },
+    worker,
+  );
+
+  r.programsLoaded = trip.runtimeIdentity === null ? 0 : (trip.runtimeIdentity as { programsLoaded: string[] }).programsLoaded.length;
+  r.notes.push(...trip.incompleteness.slice(0, 3));
+
+  const buyStep = trip.buy;
+  r.buyStatus = buyStep?.status ?? 'MISSING';
+  if (trip.failure === 'RUNTIME_UNAVAILABLE') {
+    fail('INSTRUMENT_RUNTIME_FAILED', trip.detail ?? undefined);
     continue;
   }
-  r.programsLoaded = pass1.programs;
-  r.notes.push(...pass1.notes.slice(0, 3));
-  const buyStep = pass1.steps[0];
-  r.buyStatus = buyStep?.status ?? 'MISSING';
-  if (buyStep === undefined || buyStep.status !== 'SIMULATED_OK') {
+  if (buyStep === null || buyStep.status !== 'SIMULATED_OK') {
     fail('BUY_FAILED_IN_RUNTIME', buyStep?.transactionError ?? 'no result');
+    continue;
+  }
+  // The property the two-pass shape could not check.
+  r.quoteStateSurvivedToExecution = trip.quoteStateSurvived;
+  if (trip.failure === 'QUOTE_STATE_MOVED') {
+    fail('QUOTE_STATE_MOVED', trip.detail ?? undefined);
     continue;
   }
 
@@ -399,83 +494,42 @@ for (const c of candidates) {
   r.poolQuoteBefore = String(amt(buyStep.preAccounts, quoteVault) ?? '');
   r.poolQuoteAfterBuy = String(amt(buyStep.postAccounts, quoteVault) ?? '');
 
-  // ---- 5. price and build the sell FROM the committed post-buy state -----
-  const preSrc = accountSourceOf(snapshot.accounts);
-  const postSrc = overlaySource(preSrc, accountSourceOf(buyStep.postAccounts));
+  // The two sell quotes were recorded inside the round trip's own builder, so
+  // they describe the state it actually built from rather than a re-derivation.
+  r.sellQuotePreBuyState = quotedPre === null ? null : String(quotedPre);
+  r.sellQuotePostBuyState = quotedPost === null ? null : String(quotedPost);
+  r.selfImpactLamports = trip.selfImpactLamports === null ? null : trip.selfImpactLamports.toString();
+  r.selfImpactBps =
+    quotedPre === null || quotedPost === null ? null : selfImpactBps(quotedPre, quotedPost);
 
-  let built;
-  try {
-    const qPre = quoteSellFrom(preSrc, pool, acquired, SLIPPAGE_PCT);
-    const qPost = quoteSellFrom(postSrc, pool, acquired, SLIPPAGE_PCT);
-    r.sellQuotePreBuyState = qPre.quoteOutLamports.toString();
-    r.sellQuotePostBuyState = qPost.quoteOutLamports.toString();
-    r.selfImpactLamports = (qPre.quoteOutLamports - qPost.quoteOutLamports).toString();
-    r.selfImpactBps = selfImpactBps(qPre.quoteOutLamports, qPost.quoteOutLamports);
-
-    built = await buildSellFrom(postSrc, { poolKey: pool, user: taker, baseAtoms: acquired, slippagePct: SLIPPAGE_PCT });
-  } catch (e) {
+  if (trip.failure === 'SELL_BUILD_FAILED') {
     fail(
-      e instanceof OfflineStateIncomplete ? 'INSTRUMENT_SELL_STATE_INCOMPLETE' : 'INSTRUMENT_SELL_BUILD_FAILED',
-      (e as Error).message,
+      (trip.detail ?? '').includes('OfflineStateIncomplete') ||
+        (trip.detail ?? '').includes('incomplete')
+        ? 'INSTRUMENT_SELL_STATE_INCOMPLETE'
+        : 'INSTRUMENT_SELL_BUILD_FAILED',
+      trip.detail ?? undefined,
     );
     continue;
   }
 
-  const sellBytes = Buffer.from(
-    encodeUnsignedTransaction(compileMessage(built.instructions.map(toRaw), taker, buy.blockhash, {})),
-  ).toString('base64');
-
-  /**
-   * The CLOSE, which is not optional accounting.
-   *
-   * Only the BASE account. The official sell already appends its own
-   * `CloseAccount` on the wrapped-SOL side whenever the quote mint is native,
-   * so the proceeds arrive unwrapped and a second close hits an account that no
-   * longer exists — measured, as `InstructionError(0, InvalidAccountData)`, not
-   * assumed. What the sell does NOT do is recover the rent the entry locked in
-   * the base ATA, and that rent is real capital until the account is closed.
-   */
-  const closeIxs = [
-    buildCloseAccount({
-      tokenAccount: takerAta,
-      destination: taker,
-      owner: taker,
-      tokenProgram,
-      residualAtoms: 0n,
-      withheldAtoms: 0n,
-    }),
-  ];
-  const closeBytes = Buffer.from(
-    encodeUnsignedTransaction(compileMessage(closeIxs, taker, buy.blockhash, {})),
-  ).toString('base64');
-
-  // ---- 6. pass two: buy THEN sell THEN close, in one committed state ------
-  const sellObserve = [...new Set([...observe, ...built.accounts])];
-  const pass2 = runOnce([
-    { label: 'buy', transactionBase64: buyBytes, observe },
-    { label: 'sell', transactionBase64: sellBytes, observe: sellObserve },
-    { label: 'close', transactionBase64: closeBytes, observe: sellObserve },
-  ]);
-  if (pass2 === null) {
-    fail('INSTRUMENT_RUNTIME_FAILED', r.detail ?? undefined);
-    continue;
-  }
-  const sellStep = pass2.steps[1];
+  const sellStep = trip.sell;
   r.sellStatus = sellStep?.status ?? 'MISSING';
-  if (sellStep === undefined || sellStep.status !== 'SIMULATED_OK') {
+  if (sellStep === null || sellStep.status !== 'SIMULATED_OK') {
     fail('SELL_FAILED_IN_RUNTIME', sellStep?.transactionError ?? 'no result');
     continue;
   }
-  const before = BigInt(pass2.steps[0]?.preAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0);
+
+  const before = BigInt(buyStep.preAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0);
   const afterSell = BigInt(sellStep.postAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0);
   r.walletAfterSell = afterSell.toString();
 
   const residual = amt(sellStep.postAccounts, takerAta);
   r.residualAtomsAfterSell = residual === null ? null : residual.toString();
 
-  const closeStep = pass2.steps[2];
+  const closeStep = trip.close;
   r.closeStatus = closeStep?.status ?? 'MISSING';
-  if (closeStep === undefined || closeStep.status !== 'SIMULATED_OK') {
+  if (closeStep === null || closeStep.status !== 'SIMULATED_OK') {
     fail('CLOSE_FAILED_IN_RUNTIME', closeStep?.transactionError ?? 'no result');
     continue;
   }
@@ -488,13 +542,13 @@ for (const c of candidates) {
    * What the round trip paid ONCE rather than every time.
    *
    * At this notional the dominant cost is not the spread and not the fee: it
-   * is rent on accounts that did not exist yet — the wrapped-SOL account, the
+   * is rent on accounts that did not exist yet -- the wrapped-SOL account, the
    * coin-creator fee vault, the user volume accumulator. A first trade on a
    * mint pays for all of them and a second trade on the same mint pays for
    * none, so quoting one number for "the cost of a round trip" describes
    * neither. An account is counted as created when it held nothing before the
-   * sequence and holds lamports after it, which is a measurement of these
-   * runs rather than a list of names this script expects.
+   * sequence and holds lamports after it, which is a measurement of these runs
+   * rather than a list of names this script expects.
    */
   const created = createdAccountRent(sellStep, [taker]);
   r.createdAccounts = created.accounts;
@@ -545,7 +599,7 @@ for (const c of candidates) {
     const pre = snapshot.accounts
       .filter((a) => wanted.includes(a.pubkey))
       .map((a) => ({ pubkey: a.pubkey, owner: a.owner, dataBase64: a.dataBase64, lamports: a.lamports.toString() }));
-    const post = (pass2.steps[0]?.postAccounts ?? [])
+    const post = (buyStep.postAccounts ?? [])
       .filter((a) => wanted.includes(a.pubkey))
       .map((a) => ({ pubkey: a.pubkey, owner: a.owner, dataBase64: a.dataBase64, lamports: String(a.lamports) }));
     if (pre.length >= 4 && post.length >= 4) {
@@ -634,4 +688,5 @@ console.log(`buys ${summary.buysCommitted}  sells ${summary.sellsCommitted}  poo
 console.log(`median self-impact ${summary.medianSelfImpactBps} bps  median round-trip loss ${summary.medianRoundTripLossBps} bps`);
 console.log(`median AMM drag ${summary.medianAmmDragBps} bps  sells priced to the base fee ${summary.sellsPricedToTheBaseFee}/${summary.complete}`);
 console.log('artifacts/true-stateful-roundtrip-proof.json');
+await worker.close();
 db.close();
