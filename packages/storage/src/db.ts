@@ -2174,6 +2174,53 @@ CREATE INDEX IF NOT EXISTS idx_confmig_slot ON confirmed_migrations(slot DESC);
 CREATE INDEX IF NOT EXISTS idx_confmig_pool ON confirmed_migrations(canonical_pool);
 `,
   },
+  {
+    id: 37,
+    name: 'trajectory_marks_and_outcomes',
+    sql: `
+-- P9 -- the later shared market path, and the paired policy outcomes on it.
+--
+-- One row per (trajectory, offset). The offset is part of the key so a mark is
+-- taken once per horizon and a re-run cannot silently add a second 15-minute
+-- observation to the same path.
+CREATE TABLE IF NOT EXISTS trajectory_marks (
+  trajectory_id     TEXT NOT NULL,
+  offset_ms         INTEGER NOT NULL,
+  observed_utc_ms   INTEGER NOT NULL,
+  -- TEXT because SQLite INTEGER is 64-bit SIGNED and these are u64.
+  executable_lamports      TEXT,
+  exit_capacity_lamports   TEXT,
+  effective_quote_reserve  TEXT,
+  -- Why this mark carries no price. Never collapsed to "no route": that one
+  -- word hid six different facts and is how 93% of a corpus became useless.
+  refusal           TEXT,
+  -- How late the mark was relative to its due time. A mark taken long after
+  -- its horizon represents that horizon in NAME ONLY.
+  lateness_ms       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (trajectory_id, offset_ms),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tmarks_traj ON trajectory_marks(trajectory_id, offset_ms);
+
+-- Every policy sees the SAME path, so outcomes are paired by construction.
+-- The key includes the policy, so one path yields one row per policy and a
+-- second evaluation cannot overwrite the first.
+CREATE TABLE IF NOT EXISTS trajectory_policy_outcomes (
+  trajectory_id     TEXT NOT NULL,
+  exit_policy       TEXT NOT NULL,
+  triggered_utc_ms  INTEGER,
+  triggered_offset_ms INTEGER,
+  reason            TEXT NOT NULL,
+  exit_mark_lamports   TEXT,
+  entry_cash_out_lamports TEXT,
+  gross_delta_lamports TEXT,
+  settled_utc_ms    INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, exit_policy),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tpolicy_traj ON trajectory_policy_outcomes(trajectory_id);
+`,
+  },
 ];
 
 export interface OpenOptions {

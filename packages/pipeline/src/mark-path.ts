@@ -22,6 +22,20 @@ export const MARK_OFFSETS_MS = [60_000, 300_000, 900_000, 1_800_000, 3_600_000] 
 export interface CollectedMark {
   readonly atMs: number;
   readonly offsetMs: number;
+  /**
+   * How late the mark was taken relative to its due time.
+   *
+   * A mark is only a "15-minute mark" if it was OBSERVED at fifteen minutes.
+   * When a collector catches up on a trajectory opened long ago, every horizon
+   * comes due at once and all five are taken back to back — so the path carries
+   * five labels and one instant, and every policy then triggers on the same
+   * mark. Measured on the first live run: two exit policies returned identical
+   * outcomes on 8 of 8 paths for exactly this reason.
+   *
+   * Recorded rather than hidden, because a backfilled path is real evidence
+   * about mechanics and NOT evidence about horizons.
+   */
+  readonly latenessMs: number;
   readonly executableLamports: bigint | null;
   readonly exitCapacityLamports: bigint | null;
   readonly effectiveQuoteReserveLamports: bigint | null;
@@ -42,9 +56,19 @@ export interface MarkReader {
  */
 export async function takeMark(
   rpc: MarkReader,
-  p: { mint: string; tokenAmount: bigint; slippagePct: number; globalConfig: string; feeConfig: string; offsetMs: number },
+  p: {
+    mint: string;
+    tokenAmount: bigint;
+    slippagePct: number;
+    globalConfig: string;
+    feeConfig: string;
+    offsetMs: number;
+    /** When the trajectory opened, so lateness is measurable. */
+    openedAtMs?: number;
+  },
 ): Promise<CollectedMark> {
   const atMs = Date.now();
+  const lateness = p.openedAtMs === undefined ? 0 : Math.max(0, atMs - (p.openedAtMs + p.offsetMs));
   try {
     const m = await directSellMark(
       rpc,
@@ -54,6 +78,7 @@ export async function takeMark(
     return {
       atMs,
       offsetMs: p.offsetMs,
+      latenessMs: lateness,
       executableLamports: m.executableLamports,
       // What the position could actually realise right now IS the mark: the
       // pool's own arithmetic on the position's own size.
@@ -65,6 +90,7 @@ export async function takeMark(
     return {
       atMs,
       offsetMs: p.offsetMs,
+      latenessMs: lateness,
       executableLamports: null,
       exitCapacityLamports: null,
       effectiveQuoteReserveLamports: null,
@@ -95,8 +121,15 @@ export function evaluateExitPolicies(
   path: readonly CollectedMark[],
   p: { openedAtMs: number; policies: readonly ExitPolicy[]; entryCashOutLamports: bigint },
 ): readonly PolicyOutcome[] {
+  /**
+   * Policies are evaluated on the horizon the mark REPRESENTS, not the instant
+   * it was fetched. On a backfilled path every mark shares one wall-clock
+   * moment, so using `atMs` collapses 1m/5m/15m/30m/60m onto the same point and
+   * every policy trivially agrees — which is what happened on the first live
+   * run, 8 of 8 paths.
+   */
   const marks: MarkPoint[] = path.map((m) => ({
-    atMs: m.atMs,
+    atMs: p.openedAtMs + m.offsetMs,
     executableLamports: m.executableLamports ?? 0n,
     exitCapacityLamports: m.exitCapacityLamports,
     effectiveQuoteReserveLamports: m.effectiveQuoteReserveLamports,
@@ -105,7 +138,7 @@ export function evaluateExitPolicies(
   return p.policies.map((policy) => {
     const d = decideExit(policy, p.openedAtMs, marks);
     const at = d.triggeredAtMs;
-    const mark = at === null ? null : path.find((m) => m.atMs === at) ?? null;
+    const mark = at === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === at) ?? null);
     return {
       exitPolicy: policy,
       triggeredAtMs: at,
@@ -127,15 +160,27 @@ export function evaluateExitPolicies(
  * held that long, and treating a truncated path as finished silently biases
  * every horizon toward whatever the collector happened to reach.
  */
-export function pathIsComplete(path: readonly CollectedMark[]): { complete: boolean; reason: string } {
+/** A mark later than this represents its horizon in name only. */
+export const MAX_MARK_LATENESS_MS = 120_000;
+
+export function pathIsComplete(
+  path: readonly CollectedMark[],
+): { complete: boolean; reason: string; backfilled?: boolean } {
   const have = new Set(path.map((m) => m.offsetMs));
   const missing = MARK_OFFSETS_MS.filter((o) => !have.has(o));
   if (missing.length > 0) {
-    return { complete: false, reason: `missing marks at ${missing.map((m) => m / 60_000 + 'm').join(', ')}` };
+    return { complete: false, reason: `missing marks at ${missing.map((m) => m / 60_000 + 'm').join(', ')}`, backfilled: false };
   }
   const unpriced = path.filter((m) => m.executableLamports === null).length;
   if (unpriced === path.length) {
     return { complete: false, reason: 'every mark on the path was unpriced' };
   }
-  return { complete: true, reason: `${path.length} marks, ${unpriced} unpriced` };
+  const late = path.filter((m) => m.latenessMs > MAX_MARK_LATENESS_MS).length;
+  return {
+    complete: true,
+    reason:
+      `${path.length} marks, ${unpriced} unpriced` +
+      (late > 0 ? `, ${late} BACKFILLED beyond ${MAX_MARK_LATENESS_MS}ms — horizons are labels, not observations` : ''),
+    backfilled: late > 0,
+  };
 }
