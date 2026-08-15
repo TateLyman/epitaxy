@@ -10,6 +10,7 @@ import {
   CLOCK_SYSVAR,
   RENT_SYSVAR,
   EPOCH_SCHEDULE_SYSVAR,
+  MAX_ECONOMIC_BATCH,
   type CoherentReader,
 } from '../../packages/solana/src/coherent-snapshot.js';
 import { base58Encode } from '../../packages/solana/src/base58.js';
@@ -165,19 +166,23 @@ describe('P2 — coherence is enforced, not assumed', () => {
     );
   });
 
-  it('refuses more economic accounts than one batch can serve at one slot', async () => {
-    // Genuinely distinct keys. Building them by string-slicing a real pubkey
-    // produced ten unique values, `dedupe` collapsed them, and the limit was
-    // never reached — the test passed the wrong way for the wrong reason.
-    const many = Array.from({ length: 101 }, (_, i) => {
+  it('refuses more economic accounts than ONE PROVIDER CALL can serve', async () => {
+    // The ceiling is the provider's, not a round number. QuickNode's discover
+    // plan caps getMultipleAccounts at 5 and answers a sixth with HTTP 413 /
+    // -32615 — which a caller then reports as a coherence refusal, an apparatus
+    // fault wearing a market fault's name.
+    //
+    // Splitting the set is not an option: the one-slot guarantee is the whole
+    // module, so the cap is a ceiling rather than a tuning parameter.
+    const many = Array.from({ length: MAX_ECONOMIC_BATCH + 1 }, (_, i) => {
       const b = Buffer.alloc(32);
       b.writeUInt32LE(i + 1, 0);
       return base58Encode(b);
     });
-    expect(new Set(many).size).toBe(101);
+    expect(new Set(many).size).toBe(MAX_ECONOMIC_BATCH + 1);
     await expect(
       captureCoherentSnapshotV2(readerOf({}), { economicAccounts: many }, base58Encode),
-    ).rejects.toThrow(/exceed one 100-account batch/);
+    ).rejects.toThrow(/single-batch ceiling/);
   });
 
   it('puts the CLOCK in the economic batch, and pins later batches to its slot', async () => {
