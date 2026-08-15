@@ -95,6 +95,7 @@
     "trajectory:status": "tsx scripts/development-status.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "window:status": "tsx scripts/valid-window-status.ts",
+    "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
     "wss:status": "tsx scripts/direct-signal-status.ts"
   },

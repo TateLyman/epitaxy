@@ -1,5 +1,6 @@
 import { SequentialWorker, assertQuoteStateSurvived, type ObserveResult } from '../../simulator/src/sequential-worker.js';
 import type { FrozenRuntimeSnapshot, SequentialStepResult } from '../../simulator/src/sequential-runtime.js';
+import { observedBytes } from '../../simulator/src/sequential-runtime.js';
 import { accountSourceOf, overlaySource, buildSellFrom, quoteSellFrom } from '../../solana/src/pumpswap-offline.js';
 import type { AccountBytesSource } from '../../solana/src/pumpswap-offline.js';
 
@@ -47,6 +48,17 @@ export interface RoundTripRequest {
   readonly priceBearingAccounts: readonly string[];
   /** Everything to observe on each step. A superset of the above. */
   readonly observe: readonly string[];
+  /**
+   * F8 — which observed accounts the run needs the BYTES of.
+   *
+   * The price-bearing set, essentially: the sell is BUILT from those bytes, so
+   * they must come back in full. Everything else is observed for its balance,
+   * its owner and whether it was created, none of which needs a payload.
+   *
+   * Omitting this returns every payload, which is what emitted ~280 MB on a
+   * size surface and killed the worker.
+   */
+  readonly economicAccounts?: readonly string[];
   /** Builds the close once the acquired amount is known. */
   readonly buildCloseBase64: (acquiredAtoms: bigint) => string;
   /**
@@ -115,9 +127,9 @@ function fail(f: RoundTripFailure, detail: string, partial: Partial<RoundTripRes
   };
 }
 
-const tokenAmount = (a: { dataBase64: string } | undefined): bigint | null => {
+const tokenAmount = (a: { pubkey: string; dataBase64: string | null } | undefined): bigint | null => {
   if (a === undefined) return null;
-  const b = Buffer.from(a.dataBase64, 'base64');
+  const b = observedBytes(a);
   // SPL token account: amount is a u64 at offset 64.
   if (b.length < 72) return null;
   return b.readBigUInt64LE(64);
@@ -177,7 +189,14 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     const incompleteness = [...w.initIncompleteness];
 
     // ---- the buy, committed -------------------------------------------
-    const buy = await w.step({ label: 'buy', transactionBase64: req.buyTransactionBase64, observe: [...req.observe] });
+    // The bytes the sell will be built from must come back; the rest need
+    // only their balances. `priceBearingAccounts` is the floor, because
+    // `buildSell` decodes exactly those.
+    const economic = req.economicAccounts ?? req.priceBearingAccounts;
+    const buy = await w.step(
+      { label: 'buy', transactionBase64: req.buyTransactionBase64, observe: [...req.observe] },
+      economic,
+    );
     if (buy.step.status !== 'SIMULATED_OK') {
       return fail('BUY_FAILED', buy.step.transactionError ?? 'the buy did not commit', {
         buy: buy.step,
@@ -199,7 +218,7 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     //
     // This is what the two-pass design could not do. These are the bytes in the
     // runtime the sell is about to execute in, at this instant.
-    const quoted = await w.observe(req.priceBearingAccounts);
+    const quoted = await w.observe(req.priceBearingAccounts, economic);
 
     /**
      * F1 — THE GUARD THE ASSERTION ALWAYS RELIED ON, AND NOBODY PERFORMED.
@@ -270,7 +289,10 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     }
 
     // ---- the sell, in the SAME runtime ---------------------------------
-    const sell = await w.step({ label: 'sell', transactionBase64: sellBytes, observe: [...req.observe] });
+    const sell = await w.step(
+      { label: 'sell', transactionBase64: sellBytes, observe: [...req.observe] },
+      economic,
+    );
 
     // THE ASSERTION, before anything is believed about the price.
     let quoteStateSurvived = true;

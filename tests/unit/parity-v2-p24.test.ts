@@ -108,8 +108,12 @@ describe('rent is derived from the chain’s constants, not from a remembered nu
           // 165 bytes of data, and 500,000 lamports more than its rent.
           dataBase64: Buffer.alloc(165).toString('base64'),
           owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
-          lamports: 2_539_280,
+          lamports: 2_539_280n,
+          executable: false,
+          rentEpoch: 0n,
+          dataLen: 165,
           dataSha256: '',
+          accountHash: 'vault-post',
         },
       ],
       unobserved: [],
@@ -132,8 +136,12 @@ describe('rent is derived from the chain’s constants, not from a remembered nu
           pubkey: 'thin',
           dataBase64: Buffer.alloc(165).toString('base64'),
           owner: 'x',
-          lamports: 1_000,
+          lamports: 1_000n,
+          executable: false,
+          rentEpoch: 0n,
+          dataLen: 165,
           dataSha256: '',
+          accountHash: 'thin-post',
         },
       ],
       unobserved: [],
@@ -142,7 +150,17 @@ describe('rent is derived from the chain’s constants, not from a remembered nu
   });
 
   it('an account that already existed is not a creation', () => {
-    const acct = { pubkey: 'a', dataBase64: '', owner: 'o', lamports: 10, dataSha256: '' };
+    const acct = {
+      pubkey: 'a',
+      dataBase64: '',
+      owner: 'o',
+      lamports: 10n,
+      executable: false,
+      rentEpoch: 0n,
+      dataLen: 0,
+      dataSha256: '',
+      accountHash: 'a-pre',
+    };
     const step: SequentialStepResult = {
       label: 'sell',
       status: 'SIMULATED_OK',
@@ -150,7 +168,7 @@ describe('rent is derived from the chain’s constants, not from a remembered nu
       computeUnitsConsumed: null,
       logs: [],
       preAccounts: [acct],
-      postAccounts: [{ ...acct, lamports: 5_000_000 }],
+      postAccounts: [{ ...acct, lamports: 5_000_000n }],
       unobserved: [],
     };
     expect(createdAccountRent(step).lamports).toBe(0n);

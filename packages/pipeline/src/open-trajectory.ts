@@ -18,6 +18,7 @@ import { buildCloseAccount } from '../../solana/src/closeaccount.js';
 import { compileMessage, encodeUnsignedTransaction } from '../../solana/src/encode.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from './sequential-round-trip.js';
 import type { SequentialWorker } from '../../simulator/src/sequential-worker.js';
+import { observedTokenAtoms, RENT_EXEMPT_EPOCH } from '../../simulator/src/sequential-runtime.js';
 import { mechanicsStratum } from '../../solana/src/cashback.js';
 import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
@@ -101,11 +102,7 @@ const encode = (ixs: unknown[], taker: string, bh: string): string =>
     ),
   ).toString('base64');
 
-const tokenAmountAt = (a: { dataBase64: string } | undefined): bigint => {
-  if (a === undefined) return 0n;
-  const b = Buffer.from(a.dataBase64, 'base64');
-  return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
-};
+const tokenAmountAt = observedTokenAtoms;
 
 export interface OpenReader {
   getAccountRaw(pubkey: string): Promise<{ owner: string; dataBase64: string; lamports: bigint }>;
@@ -182,8 +179,9 @@ export async function openTrajectory(
    * price-bearing accounts were simultaneously true; the legacy capture read
    * them one at a time and stamped a slot over the result.
    */
+  let coherent;
   try {
-    await captureCoherentSnapshotV2(
+    coherent = await captureCoherentSnapshotV2(
       rpc as never,
       {
         economicAccounts: priceBearing,
@@ -218,7 +216,9 @@ export async function openTrajectory(
       owner: '11111111111111111111111111111111',
       lamports: p.fundedWalletLamports ?? 500_000_000_000n,
       executable: false,
-      rentEpoch: 0n,
+      // Exempt, like every funded system account on mainnet. Rent epoch 0
+      // restores it as rent-PAYING, which is a different account.
+      rentEpoch: RENT_EXEMPT_EPOCH,
     },
   ];
   const preSrc = accountSourceOf(withWallet as never);
@@ -253,6 +253,27 @@ export async function openTrajectory(
         accounts: withWallet as never,
         slot: snapshot.slot,
         unixTimestamp: snapshot.unixTimestamp,
+        /**
+         * F9 — the sysvars the COHERENT snapshot actually decoded.
+         *
+         * These were computed and discarded: the coherent capture ran purely as
+         * a drift check and its clock, rent and epoch schedule went nowhere,
+         * while the runtime derived `epoch = slot / 432_000` and left Rent at a
+         * default. That is wrong by five epochs at today's slot, and a program
+         * sizing an account it creates got a rent answer mainnet never gave.
+         *
+         * Required rather than optional: this caller DID capture exact state,
+         * so accepting a derived clock would be an approximation wearing the
+         * label of a capture.
+         */
+        clock: coherent.clock,
+        rent: coherent.rent,
+        epochSchedule: coherent.epochSchedule,
+        requireExactSysvars: true,
+        // Without the pool and its vaults this runtime is not the one we asked
+        // for, and the failure would read as a fact about the token.
+        requiredAccounts: priceBearing,
+        requiredPrograms: [...SWAP_PROGRAM_IDS],
       },
       pool,
       taker: p.taker,
@@ -261,6 +282,21 @@ export async function openTrajectory(
       buyTransactionBase64: buyBytes,
       blockhash,
       priceBearingAccounts: priceBearing,
+      /**
+       * F8 — every account whose BYTES something downstream decodes.
+       *
+       * The pool and its vaults because the sell is built from them; the two
+       * token accounts because the acquired amount and the residual WSOL are
+       * read out of them. The rest of `observe` — global config, fee
+       * recipients, creator vaults, the wallet — is watched for its balance,
+       * its owner and whether the transaction created it, and none of that
+       * needs a payload.
+       *
+       * Getting this set wrong REFUSES by name rather than silently reading an
+       * empty account as an empty balance. That is the only reason scoping the
+       * output is safe to do at all.
+       */
+      economicAccounts: [...priceBearing, takerAta, takerWsol],
       observe,
       buildSell: standardPumpSwapSell({
         preState: preSrc,

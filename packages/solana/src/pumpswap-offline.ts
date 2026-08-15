@@ -62,10 +62,25 @@ export class OfflineStateIncomplete extends Error {
 
 /** Build a source from any list of {pubkey, ...} records. Last write wins. */
 export function accountSourceOf(
-  records: readonly { pubkey: string; owner: string; dataBase64: string; lamports: bigint | number }[],
+  records: readonly {
+    pubkey: string;
+    owner: string;
+    /** Null means the observation did not request this account's bytes. */
+    dataBase64: string | null;
+    lamports: bigint | number;
+  }[],
 ): AccountBytesSource {
   const map = new Map<string, AccountBytes>();
   for (const r of records) {
+    // An account whose bytes were never fetched must not enter a source that
+    // the next leg is BUILT from. Treating it as empty would quote a pool with
+    // no reserves and call the answer a market fact.
+    if (r.dataBase64 === null) {
+      throw new Error(
+        `accountSourceOf: ${r.pubkey} carries no bytes (they were not requested), ` +
+          'so it cannot back a build. Name it in the economic set.',
+      );
+    }
     map.set(r.pubkey, {
       owner: r.owner,
       dataBase64: r.dataBase64,

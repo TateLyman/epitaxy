@@ -17,7 +17,7 @@ import {
 import { buildCloseAccount } from '../packages/solana/src/closeaccount.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from '../packages/pipeline/src/sequential-round-trip.js';
 import { SequentialWorker } from '../packages/simulator/src/sequential-worker.js';
-import { createdAccountRentAcross } from '../packages/simulator/src/sequential-runtime.js';
+import { createdAccountRentAcross, observedTokenAtoms } from '../packages/simulator/src/sequential-runtime.js';
 import type { RawInstruction } from '../packages/solana/src/instructionpolicy.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 
@@ -342,23 +342,11 @@ async function main(): Promise<void> {
        * wrap that time.
        */
       const wsolAtClose = trip.close?.postAccounts.find((a) => a.pubkey === takerWsol);
-      const wsolLamports =
-        wsolAtClose === undefined
-          ? 0n
-          : (() => {
-              const b = Buffer.from(wsolAtClose.dataBase64, 'base64');
-              return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
-            })();
+      const wsolLamports = observedTokenAtoms(wsolAtClose);
       r['wsolHeldAtCloseLamports'] = wsolLamports.toString();
 
       const residualAcct = trip.close?.postAccounts.find((a) => a.pubkey === takerAta);
-      const residualAtoms =
-        residualAcct === undefined
-          ? 0n
-          : (() => {
-              const b = Buffer.from(residualAcct.dataBase64, 'base64');
-              return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
-            })();
+      const residualAtoms = observedTokenAtoms(residualAcct);
       r['residualTokenAtoms'] = residualAtoms.toString();
 
       // The complete cash view: native delta, plus value still held in wrapped

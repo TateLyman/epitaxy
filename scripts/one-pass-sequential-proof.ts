@@ -55,10 +55,10 @@ async function main(): Promise<void> {
     // 2. The state the runtime restored is the state we gave it.
     const a = first.accounts.find((x) => x.pubkey === ACCOUNT_A);
     findings['restoredExactly'] = {
-      lamports: a?.lamports,
+      lamports: a?.lamports.toString() ?? null,
       owner: a?.owner,
-      expectedLamports: 5_000_000,
-      matches: a?.lamports === 5_000_000 && a?.owner === SYSTEM_PROGRAM,
+      expectedLamports: '5000000',
+      matches: a?.lamports === 5_000_000n && a?.owner === SYSTEM_PROGRAM,
     };
 
     // 3. A refused step does not move the state, and says why.

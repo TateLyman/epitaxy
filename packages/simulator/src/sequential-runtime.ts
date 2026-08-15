@@ -43,20 +43,93 @@ export interface SequentialStep {
   readonly observe: readonly string[];
 }
 
+/**
+ * F9 — the sysvars EXACTLY as the chain had them.
+ *
+ * Without these the worker derives `epoch = slot / 432_000` and leaves Rent and
+ * EpochSchedule at the runtime default. Epoch-by-division is wrong across the
+ * warmup epochs, and a program that reads Rent to size an account it creates
+ * gets a different answer than mainnet gave it. Neither shows up as an error —
+ * they show up as an economic number that is quietly not the chain's.
+ *
+ * These are the shapes `decodeClock`/`decodeRent`/`decodeEpochSchedule` in
+ * packages/solana/src/coherent-snapshot.ts already return.
+ */
+export interface ExactClock {
+  readonly slot: string;
+  readonly epochStartTimestamp: string;
+  readonly epoch: string;
+  readonly leaderScheduleEpoch: string;
+  readonly unixTimestamp: string;
+}
+
+export interface ExactRent {
+  readonly lamportsPerByteYear: string;
+  readonly exemptionThreshold: number;
+  readonly burnPercent: number;
+}
+
+export interface ExactEpochSchedule {
+  readonly slotsPerEpoch: string;
+  readonly leaderScheduleSlotOffset: string;
+  readonly warmup: boolean;
+  readonly firstNormalEpoch: string;
+  readonly firstNormalSlot: string;
+}
+
 export interface FrozenRuntimeSnapshot {
   readonly programs: readonly LoadedProgram[];
   readonly accounts: readonly FrozenAccount[];
   /** The slot and wall time the snapshot was taken at. */
   readonly slot: number | null;
   readonly unixTimestamp: number | null;
+
+  /** F9 — restored verbatim when present. Nothing is derived from them. */
+  readonly clock?: ExactClock | null;
+  readonly rent?: ExactRent | null;
+  readonly epochSchedule?: ExactEpochSchedule | null;
+  /** Refuse rather than derive, for a caller that DID capture exact state. */
+  readonly requireExactSysvars?: boolean;
+
+  /**
+   * Without these this runtime is not the one the caller asked for.
+   *
+   * A missing account is not a note in an incompleteness list somebody might
+   * read later. The transaction fails with an error that reads as a fact about
+   * the token, so init refuses instead.
+   */
+  readonly requiredAccounts?: readonly string[];
+  readonly requiredPrograms?: readonly string[];
 }
 
 export interface ObservedAccount {
   readonly pubkey: string;
-  readonly lamports: number;
+  /** F7 — a u64. Never a `number`, in either direction across the wire. */
+  readonly lamports: bigint;
   readonly owner: string;
-  readonly dataBase64: string;
+  readonly executable: boolean;
+  /** u64::MAX for a rent-exempt account, which is every mainnet account here. */
+  readonly rentEpoch: bigint;
+  readonly dataLen: number;
+  /**
+   * F8 — the bytes, and only for accounts the caller declared economic.
+   *
+   * Null means "not requested", NOT "empty". Everything else about the account
+   * is still reported, which is enough to detect any change and enough to price
+   * a wallet.
+   */
+  readonly dataBase64: string | null;
   readonly dataSha256: string;
+  /**
+   * F10 — the COMPLETE identity: owner, lamports, executability, rent epoch,
+   * length and data.
+   *
+   * The survival check compared `dataSha256` alone, so a sell could execute
+   * against a state whose owner and balance had both changed and the assertion
+   * still passed. Those are the fields a runtime consults before it will
+   * execute against the account at all.
+   */
+  readonly accountHash: string;
 }
 
 export interface SequentialStepResult {
@@ -94,11 +167,97 @@ function mapAccounts(raw: unknown): ObservedAccount[] {
   if (!Array.isArray(raw)) return [];
   return (raw as Record<string, unknown>[]).map((a) => ({
     pubkey: String(a['pubkey'] ?? ''),
-    lamports: Number(a['lamports'] ?? 0),
+    lamports: BigInt(String(a['lamports'] ?? '0')),
     owner: String(a['owner'] ?? ''),
-    dataBase64: String(a['data_base64'] ?? ''),
+    executable: a['executable'] === true,
+    rentEpoch: BigInt(String(a['rent_epoch'] ?? '0')),
+    dataLen: Number(a['data_len'] ?? 0),
+    dataBase64: a['data_base64'] === undefined ? null : String(a['data_base64']),
     dataSha256: String(a['data_sha256'] ?? ''),
+    accountHash: String(a['account_hash'] ?? ''),
   }));
+}
+
+/**
+ * The rent epoch the chain uses for an account it considers exempt.
+ *
+ * Defaulting to 0 — which is what the protocol did — restores every mainnet
+ * account as rent-PAYING. That is a different account.
+ */
+export const RENT_EXEMPT_EPOCH = 18_446_744_073_709_551_615n;
+
+export function exactClock(s: FrozenRuntimeSnapshot): Record<string, string> | null {
+  const c = s.clock;
+  if (c === null || c === undefined) return null;
+  return {
+    slot: c.slot,
+    epoch_start_timestamp: c.epochStartTimestamp,
+    epoch: c.epoch,
+    leader_schedule_epoch: c.leaderScheduleEpoch,
+    unix_timestamp: c.unixTimestamp,
+  };
+}
+
+export function exactRent(s: FrozenRuntimeSnapshot): Record<string, unknown> | null {
+  const r = s.rent;
+  if (r === null || r === undefined) return null;
+  return {
+    lamports_per_byte_year: r.lamportsPerByteYear,
+    exemption_threshold: r.exemptionThreshold,
+    burn_percent: r.burnPercent,
+  };
+}
+
+export function exactEpochSchedule(s: FrozenRuntimeSnapshot): Record<string, unknown> | null {
+  const e = s.epochSchedule;
+  if (e === null || e === undefined) return null;
+  return {
+    slots_per_epoch: e.slotsPerEpoch,
+    leader_schedule_slot_offset: e.leaderScheduleSlotOffset,
+    warmup: e.warmup,
+    first_normal_epoch: e.firstNormalEpoch,
+    first_normal_slot: e.firstNormalSlot,
+  };
+}
+
+/**
+ * F8 — somebody read a balance out of an account whose bytes were never asked for.
+ *
+ * `dataBase64: null` means NOT REQUESTED. It is not an empty account and it is
+ * not a zero balance, and the difference is the whole reason output scoping is
+ * safe to do at all: an account nobody fetched must refuse rather than report
+ * identically to one that holds nothing.
+ *
+ * This is an apparatus defect — the caller declared the wrong economic set —
+ * and never a fact about the token.
+ */
+export class ObservedBytesNotRequested extends Error {
+  constructor(readonly pubkey: string) {
+    super(
+      `the bytes of ${pubkey} were never requested, so nothing can be decoded from it. ` +
+        'Name it in the economic set of the observe/step that produced this account.',
+    );
+    this.name = 'ObservedBytesNotRequested';
+  }
+}
+
+export function observedBytes(a: { pubkey: string; dataBase64: string | null }): Buffer {
+  if (a.dataBase64 === null) throw new ObservedBytesNotRequested(a.pubkey);
+  return Buffer.from(a.dataBase64, 'base64');
+}
+
+/**
+ * The SPL token amount an observed account holds.
+ *
+ * `undefined` is an account the run never saw, which is genuinely zero. Bytes
+ * that were not requested REFUSE, via `observedBytes`.
+ */
+export function observedTokenAtoms(
+  a: { pubkey: string; dataBase64: string | null } | undefined,
+): bigint {
+  if (a === undefined) return 0n;
+  const b = observedBytes(a);
+  return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
 }
 
 export class SequentialRuntimeUnavailable extends Error {
@@ -147,19 +306,24 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
       pubkey: a.pubkey,
       data_base64: a.dataBase64,
       owner: a.owner,
-      // The worker takes u64; a lamport count is never fractional.
-      lamports: Number(a.lamports),
+      // F7 — decimal strings. `rent_epoch` for a rent-exempt account is
+      // u64::MAX, which no double can hold: it comes back one higher and prints
+      // as 18446744073709552000.
+      lamports: a.lamports.toString(),
       executable: a.executable ?? false,
-      rent_epoch: Number(a.rentEpoch ?? 0n),
+      rent_epoch: (a.rentEpoch ?? RENT_EXEMPT_EPOCH).toString(),
     })),
-    slot: opts.snapshot.slot,
-    unix_timestamp: opts.snapshot.unixTimestamp,
+    slot: opts.snapshot.slot === null ? null : String(opts.snapshot.slot),
+    unix_timestamp: opts.snapshot.unixTimestamp === null ? null : String(opts.snapshot.unixTimestamp),
+    clock: exactClock(opts.snapshot),
+    rent: exactRent(opts.snapshot),
+    epoch_schedule: exactEpochSchedule(opts.snapshot),
     steps: opts.steps.map((s) => ({
       label: s.label,
       transaction_base64: s.transactionBase64,
       observe: [...s.observe],
     })),
-    max_compute_units: opts.maxComputeUnits ?? 1_400_000,
+    max_compute_units: String(opts.maxComputeUnits ?? 1_400_000),
   };
 
   try {
@@ -193,7 +357,10 @@ export function runSequential(opts: RunOptions): SequentialRunResult {
         label: String(s['label']),
         status: String(s['status']),
         transactionError: (s['transaction_error'] as string | null) ?? null,
-        computeUnitsConsumed: (s['compute_units_consumed'] as number | null) ?? null,
+        computeUnitsConsumed:
+          s['compute_units_consumed'] === null || s['compute_units_consumed'] === undefined
+            ? null
+            : Number(s['compute_units_consumed']),
         logs: (s['logs'] as string[]) ?? [],
         preAccounts: mapAccounts(s['pre_accounts']),
         postAccounts: mapAccounts(s['post_accounts']),
@@ -241,15 +408,17 @@ export function createdAccountRent(
   for (const a of step.postAccounts) {
     if (skip.has(a.pubkey)) continue;
     const prior = pre.get(a.pubkey);
-    const existed = prior !== undefined && (prior.lamports > 0 || prior.dataBase64.length > 0);
-    if (existed || a.lamports <= 0) continue;
+    const existed = prior !== undefined && (prior.lamports > 0n || prior.dataLen > 0);
+    if (existed || a.lamports <= 0n) continue;
     // Only the EXEMPTION is rent. The coin-creator fee vault is opened and paid
     // in the same transaction, so its closing balance is rent PLUS a fee the
     // pool sent it; crediting the whole balance back to the payer flattered
     // every sell by a few basis points and by 94 on one of them.
-    const bytes = BigInt(Buffer.from(a.dataBase64, 'base64').length);
+    // `dataLen` rather than the payload, so rent is measurable for an account
+    // whose bytes the caller never asked for. Length is always reported.
+    const bytes = BigInt(a.dataLen);
     const rent = rentExemptLamports(bytes);
-    const actual = BigInt(a.lamports);
+    const actual = a.lamports;
     const charged = actual < rent ? actual : rent;
     accounts.push({
       pubkey: a.pubkey,

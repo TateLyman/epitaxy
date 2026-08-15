@@ -18,7 +18,7 @@ import {
 import { buildCloseAccount } from '../packages/solana/src/closeaccount.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from '../packages/pipeline/src/sequential-round-trip.js';
 import { SequentialWorker } from '../packages/simulator/src/sequential-worker.js';
-import { createdAccountRentAcross } from '../packages/simulator/src/sequential-runtime.js';
+import { createdAccountRentAcross, observedTokenAtoms } from '../packages/simulator/src/sequential-runtime.js';
 import { feeTiersOf, tierFor } from '../packages/solana/src/fee-tiers.js';
 import { mechanicsStratum } from '../packages/solana/src/cashback.js';
 import type { RawInstruction } from '../packages/solana/src/instructionpolicy.js';
@@ -69,11 +69,7 @@ const encode = (ixs: unknown[], taker: string, bh: string): string =>
     ),
   ).toString('base64');
 
-const tokenAmountAt = (a: { dataBase64: string } | undefined): bigint => {
-  if (a === undefined) return 0n;
-  const b = Buffer.from(a.dataBase64, 'base64');
-  return b.length >= 72 ? b.readBigUInt64LE(64) : 0n;
-};
+const tokenAmountAt = observedTokenAtoms;
 
 function percentile(xs: readonly number[], p: number): number | null {
   if (xs.length === 0) return null;
@@ -325,9 +321,9 @@ async function main(): Promise<void> {
 
         if (trip.ok) {
           anySize = true;
-          const before = trip.buy?.preAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0;
-          const after = trip.close?.postAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0;
-          const net = BigInt(after) - BigInt(before);
+          const before = trip.buy?.preAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0n;
+          const after = trip.close?.postAccounts.find((a) => a.pubkey === taker)?.lamports ?? 0n;
+          const net = after - before;
           const wsol = tokenAmountAt(trip.close?.postAccounts.find((a) => a.pubkey === takerWsol));
           const residual = tokenAmountAt(trip.close?.postAccounts.find((a) => a.pubkey === takerAta));
           const rent = createdAccountRentAcross(
