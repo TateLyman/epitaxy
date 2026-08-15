@@ -292,8 +292,8 @@ async function main(): Promise<void> {
   /**
    * P4 — OPEN THEM.
    *
-   * This printed `NOT OPENING TRAJECTORIES: the one-pass sequential worker (P3)
-   * is not built` for two commits after the worker was built. The collector was
+   * This printed a refusal naming the sequential worker as unbuilt for two
+   * commits after that worker was built. The collector was
    * never updated, so the database carried zero trajectories while a proof
    * script's round trips were being read as the running system's output.
    */

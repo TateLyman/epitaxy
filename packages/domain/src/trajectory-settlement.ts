@@ -20,6 +20,32 @@ import { entryCashOut, exitCashIn, executionCost, transferFeeOrUnknown, acquired
  * state the caller must handle rather than a number this module invents.
  */
 
+
+/**
+ * P5 — cost applicability, stated rather than inferred from a null.
+ *
+ * `NOT_APPLICABLE` and `UNKNOWN` are opposite facts that both arrive as an
+ * absent number. A legacy mint cannot carry a transfer fee, so zero is the
+ * MEASURED answer; a Token-2022 mint whose extensions did not decode is
+ * genuinely unknown and must block PnL. Collapsing them makes the safe case
+ * and the dangerous case indistinguishable.
+ */
+export type Applicability = 'MEASURED' | 'NOT_APPLICABLE' | 'UNKNOWN';
+
+export interface CostComponent {
+  readonly applicability: Applicability;
+  readonly lamports: bigint;
+}
+
+export const notApplicable: CostComponent = { applicability: 'NOT_APPLICABLE', lamports: 0n };
+export const measured = (lamports: bigint): CostComponent => ({ applicability: 'MEASURED', lamports });
+export const unknownCost: CostComponent = { applicability: 'UNKNOWN', lamports: 0n };
+
+/** Only UNKNOWN blocks. NOT_APPLICABLE contributes a real, measured zero. */
+export function blocksPnl(c: CostComponent): boolean {
+  return c.applicability === 'UNKNOWN';
+}
+
 export interface TrajectorySettlement {
   readonly trajectoryId: string;
 
@@ -105,6 +131,22 @@ export function buildTrajectorySettlement(p: {
   if (p.exit !== null && exitFee === null) reasons.push('the exit transfer fee was not measured');
   if (p.exit === null) reasons.push('the trajectory has not exited');
 
+  /**
+   * Both legs must be runtime-successful, effect-valid and completely covered
+   * before net PnL exists. A leg whose writables were not all observed cannot
+   * be replayed, and a number derived from it is not re-derivable — which is
+   * this repository's definition of not being evidence.
+   */
+  for (const [name, leg] of [
+    ['entry', p.entry],
+    ['exit', p.exit],
+  ] as const) {
+    if (leg === null) continue;
+    if (!leg.complete) reasons.push(`the ${name} leg is incomplete: ${leg.incompleteness.join('; ').slice(0, 120)}`);
+    if (!leg.effectValid) reasons.push(`the ${name} leg is not effect valid: ${leg.effectRefusals.join('; ').slice(0, 120)}`);
+    if (!leg.fullAccountCoverage) reasons.push(`the ${name} leg did not observe every writable it touched`);
+  }
+
   const residual = p.exit === null ? acquiredTokens(p.entry) : p.exit.residualTokenAtoms ?? 0n;
   if (residual !== 0n && p.exit !== null) {
     // Tokens still held are value that did not become cash. At these sizes one
@@ -134,12 +176,56 @@ export function buildTrajectorySettlement(p: {
     // It is simply not added to PnL.
   }
 
+  /**
+   * F16 — every component appears EXACTLY ONCE.
+   *
+   * `executionCost(leg)` already contains base fee, priority fee, tip, NET rent
+   * (created minus recovered) and failed-attempt cost. This function then added
+   * `failed` and `rentLocked` on top, counting both twice, while omitting
+   * transfer fees entirely — so the total was simultaneously too high on rent
+   * and too low on Token-2022.
+   *
+   * What legs do NOT carry is the transfer fee and the cashback claim cost, so
+   * those two are the only additions.
+   */
   const executionCostLamports =
     executionCost(p.entry) +
     (p.exit === null ? 0n : executionCost(p.exit)) +
-    failed +
-    rentLocked +
+    transferFees +
     cashback.claimCostLamports;
+
+  /**
+   * payer delta = named trade flows + named fees + named rent + named cashback
+   *             + unexplained
+   */
+  /**
+   * The named components, listed individually.
+   *
+   * A first attempt compared the payer delta against `exitCashIn - entryCashOut`
+   * — but `exitCashIn` IS the payer delta, so the difference was algebraically
+   * forced to zero. A "derived" value that cannot come out nonzero is exactly
+   * as informative as the hardcoded zero it replaced, and looks better while
+   * being no better.
+   *
+   * The reconciliation has to name each flow separately, so that anything the
+   * cost model does not know about shows up as a remainder.
+   */
+  const tradeOut = p.entry.input.kind === 'native_sol' ? p.entry.input.actualTradeDebitLamports : 0n;
+  const tradeIn = p.exit?.output.kind === 'native_sol' ? p.exit.output.actualCreditLamports : 0n;
+  const namedFees =
+    p.entry.costs.baseFeeLamports +
+    p.entry.costs.priorityFeeLamports +
+    p.entry.costs.tipLamports +
+    (p.exit?.costs.baseFeeLamports ?? 0n) +
+    (p.exit?.costs.priorityFeeLamports ?? 0n) +
+    (p.exit?.costs.tipLamports ?? 0n);
+  const namedRent = rentCreated - rentRecovered;
+  const namedCashback = cashback.claimedLamports - cashback.claimCostLamports;
+
+  const namedPayerDelta = tradeIn - tradeOut - namedFees - namedRent + namedCashback;
+  const actualPayerDelta =
+    p.entry.payerNativeDeltaLamports + (p.exit?.payerNativeDeltaLamports ?? 0n);
+  const unexplained = p.exit === null ? 0n : actualPayerDelta - namedPayerDelta;
 
   const netPnlLamports =
     reasons.length === 0 && exitCash !== null
@@ -172,7 +258,16 @@ export function buildTrajectorySettlement(p: {
     venueFeesEmbeddedInOutput: true,
     venueFeeDecompositionKnown: p.venueFeeDecompositionKnown ?? false,
     residualTokenAtoms: residual,
-    unexplainedLamports: 0n,
+    /**
+     * Derived, never hardcoded.
+     *
+     * The payer's actual native delta must equal the flows we can name. What is
+     * left over is the part of the trade nobody accounted for, and writing zero
+     * there asserted that no such part exists — which is a claim, not a
+     * measurement. A nonzero value is the signal that a cost model is
+     * incomplete, and it can only appear if it is computed.
+     */
+    unexplainedLamports: unexplained,
     executionCostLamports,
     netPnlLamports,
     pnlBlockedReasons: reasons,
