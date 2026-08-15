@@ -1,4 +1,31 @@
-# ADVERSARIAL AUDIT — head `74f839e`
+# Adversarial audit — head `74f839e`
+
+> **REPAIRED at `74f839e`+1. All ten findings are closed.**
+>
+> This ledger is preserved as written. Each finding below records what the code
+> DID; the repair is recorded here and every probe in
+> `tests/unit/adversarial-audit-74f839e.test.ts` has been **inverted** — the same
+> file that proved each defect now asserts its absence. The inversion is visible
+> in the diff rather than asserted in a report.
+>
+> | | repair |
+> |---|---|
+> | **F1** | `sequentialRoundTrip` refuses `QUOTE_STATE_UNOBSERVED` when the observation is empty or any price-bearing account is unobserved. The guard the assertion always relied on, finally performed by the only caller. |
+> | **F2** | Per-step `unobserved` from buy, sell and close reaches `RoundTripResult.incompleteness`. |
+> | **F3** | The Clock moving into the economic tier gives drift a second batch, so the bound now has something real to enforce against. |
+> | **F4** | The Clock is **economic**, not static — PumpSwap's `UserVolumeAccumulator` is time-windowed, so a Clock from another slot can move a trade into a different fee window. Rent and EpochSchedule stay static, which is defensible: neither is time-windowed. |
+> | **F5** | A missing Clock, Rent, EpochSchedule, fee config or requested account **refuses**. `allowIncomplete` exists so a partial snapshot is a decision rather than an oversight. |
+> | **F6** | `requireDecodable` takes a caller-supplied decoder. Without one it enforces a length floor and says so in `incompleteness` — weaker than a decode, and never again a pure presence test. |
+> | **F7** | The challenger may hold **longer** than the control by a frozen `EXIT_EXTENSION_MS` when capacity improved and never deteriorated. The tournament can now test "hold longer", not only "exit sooner". |
+> | **F8** | Deterioration compares against the **last measured** capacity, not the adjacent mark, so a null cannot hide a collapse spanning it. |
+> | **F9** | `workerCommand()` spawns the binary directly off Windows; `EPITAXY_WORKER_PATH` overrides it anywhere. The apparatus is now runnable by an independent party — which is what turned most of this audit into `NOT TESTABLE`. |
+> | **F10** | Share gates compare in bigint (`part * SCALE <= whole * numer`); lamport totals are decimal strings in the artifact. |
+>
+> **What is NOT repaired:** the audit's central point stands. It ran with **no
+> corpus** — no `runtime.db`, no collector — so eight of fourteen sections were
+> `NOT TESTABLE` and the twenty trajectories behind
+> `VALID_TRAJECTORY_KERNEL_RUNNING` remain unverified by any independent party.
+> F9 removes the obstacle; it does not supply the evidence.
 
 **Final state: `MEASUREMENT_REPAIR_REQUIRED`**
 

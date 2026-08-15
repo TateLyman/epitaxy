@@ -11,15 +11,17 @@ import {
 import type { CoherentRawAccount } from '../../packages/solana/src/rpc.js';
 
 /**
- * ADVERSARIAL AUDIT PROBES — head 74f839e.
+ * ADVERSARIAL AUDIT — head 74f839e, findings F1-F10, now REPAIRED.
  *
- * These tests are NOT assertions that the system is correct. They are
- * characterisation probes that pin down what the code ACTUALLY does at the
- * points the audit directive names, so a later repair has a failing baseline to
- * move. Where the observed behaviour contradicts the directive, the expectation
- * below encodes the OBSERVED behaviour and the comment names the contradiction.
+ * These began as characterisation probes: they pinned down what the code
+ * actually did at the points the audit named, encoding the OBSERVED (wrong)
+ * behaviour so a repair would have a failing baseline to move.
  *
- * Per the directive: record first, do not repair inside the audit.
+ * The repair landed, so every probe below is inverted. Each now asserts the
+ * FIXED behaviour and its comment records what it used to do. That is the whole
+ * value of writing them as a failing baseline first — the same file that proved
+ * the defect now guards against its return, and the inversion is visible in the
+ * diff rather than asserted in a report.
  */
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,39 @@ function blindObserveWorker(sellUnobserved: string[] = []): SequentialWorker {
   } as unknown as SequentialWorker;
 }
 
+
+/**
+ * A worker that observes correctly, so a trip reaches the sell. Used to assert
+ * per-step `unobserved` reporting (F2) without tripping the F1 guard first.
+ */
+function observingWorker(sellUnobserved: string[] = []): SequentialWorker {
+  return {
+    initIncompleteness: [],
+    async init() {
+      return { runtime: 'litesvm', runtimeVersion: '0', litesvmVersion: '0', binarySha256: 'x', programsLoaded: [] };
+    },
+    async observe() {
+      return { accounts: [observed(POOL, POST_BUY_POOL_BYTES, 'post')], unobserved: [], stateHash: 'q' };
+    },
+    async step(s: { label: string }) {
+      if (s.label === 'buy') {
+        return {
+          stateHash: 'h',
+          step: stepResult('buy', 'SIMULATED_OK', [], [observed(ATA, tokenAccountBytes(1_000_000n), 'ata')]),
+        };
+      }
+      if (s.label === 'sell') {
+        return {
+          stateHash: 'h',
+          step: stepResult('sell', 'SIMULATED_OK', [observed(POOL, POST_BUY_POOL_BYTES, 'post')], [], sellUnobserved),
+        };
+      }
+      return { stateHash: 'h', step: stepResult('close', 'SIMULATED_OK', [], []) };
+    },
+    async close() {},
+  } as unknown as SequentialWorker;
+}
+
 function requestSeeingState(seen: { poolBytes: string | null }) {
   return {
     // The snapshot holds the PRE-buy pool.
@@ -120,48 +155,38 @@ function requestSeeingState(seen: { poolBytes: string | null }) {
 }
 
 describe('AUDIT §2 — the quote-state proof is vacuous when observe returns nothing', () => {
-  it('prices the sell from PRE-BUY state and still reports quoteStateSurvived = true', async () => {
-    // DIRECTIVE REQUIRES: "the sell quote reads the exact state immediately
-    // before sell execution" and "the complete post-state is available".
-    //
-    // OBSERVED: when `observe` returns zero accounts, the overlay is empty, so
-    // `postSrc` degrades silently to the PRE-BUY snapshot. The sell is priced
-    // from a state that never contained the entry — the precise defect P3
-    // exists to remove — and `assertQuoteStateSurvived` passes vacuously
-    // because it iterates the (empty) quoted set.
+  it('REFUSES the trip when observe returns nothing, instead of pricing from PRE-BUY state', async () => {
+    // WAS: postSrc degraded silently to the pre-buy snapshot, assertQuoteStateSurvived
+    // iterated an empty map and threw nothing, and the trip returned
+    // ok:true / quoteStateSurvived:true — a silent apparatus failure certified
+    // as a proven sequential mechanic.
     const seen: { poolBytes: string | null } = { poolBytes: null };
     const r = await sequentialRoundTrip(requestSeeingState(seen), blindObserveWorker());
-
-    // The sell was priced from the pre-buy pool.
-    expect(seen.poolBytes).toBe(PRE_BUY_POOL_BYTES);
-    expect(seen.poolBytes).not.toBe(POST_BUY_POOL_BYTES);
-
-    // And the round trip nevertheless certifies the state survived.
-    expect(r.quoteStateSurvived).toBe(true);
-    expect(r.failure).toBeNull();
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.failure).toBe('QUOTE_STATE_UNOBSERVED');
+    expect(r.quoteStateSurvived).toBe(false);
+    // And the sell was never built, so nothing was priced from stale bytes.
+    expect(seen.poolBytes).toBeNull();
   });
 
-  it('does not surface the unobserved price-bearing account anywhere in the result', async () => {
-    // DIRECTIVE REQUIRES: "every required writable is observed".
-    // OBSERVED: `ObserveResult.unobserved` is returned by the worker and then
-    // dropped. `RoundTripResult` carries only INIT-time incompleteness.
+  it('surfaces the unobserved price-bearing account in the result', async () => {
+    // WAS: `ObserveResult.unobserved` was returned by the worker and dropped;
+    // RoundTripResult carried only INIT-time incompleteness, so a trip whose
+    // writables were not all observed was indistinguishable from one that
+    // observed everything.
     const seen: { poolBytes: string | null } = { poolBytes: null };
     const r = await sequentialRoundTrip(requestSeeingState(seen), blindObserveWorker());
-    expect(r.incompleteness).toEqual([]);
-    // The quoted ObserveResult is carried, but its `unobserved` list — naming
-    // the price-bearing account the runtime never read — is not acted on.
+    expect(r.ok).toBe(false);
+    expect(r.incompleteness.join(' ')).toMatch(/unobserved at quote time: PoolAAA/);
     expect(r.quoted?.unobserved).toEqual([POOL]);
-    expect(r.quoted?.accounts).toEqual([]);
-    expect(r.ok).toBe(true);
   });
 
-  it('ignores a sell step that reports unobserved writables', async () => {
-    // OBSERVED: per-step `unobserved` is never consulted; the trip is ok.
+  it('carries per-step unobserved writables into the result', async () => {
+    // WAS: per-step `unobserved` was never consulted and the trip reported ok.
+    // A trip that reaches the sell now records what each step could not see.
     const seen: { poolBytes: string | null } = { poolBytes: null };
-    const r = await sequentialRoundTrip(requestSeeingState(seen), blindObserveWorker(['SomeWritable']));
-    expect(r.ok).toBe(true);
-    expect(r.incompleteness).toEqual([]);
+    const r = await sequentialRoundTrip(requestSeeingState(seen), observingWorker(['SomeWritable']));
+    expect(r.incompleteness.join(' ')).toMatch(/unobserved on sell: SomeWritable/);
   });
 });
 
@@ -262,45 +287,40 @@ const baseReq = {
 };
 
 describe('AUDIT §3 — economic drift enforcement cannot fire on real RPC output', () => {
-  it('accepts a snapshot whose sysvars come from a DIFFERENT slot than its pool', async () => {
-    // DIRECTIVE REQUIRES: forcing batches to different context slots must
-    // either retry to one coherent slot or refuse. "It may not stamp one slot
-    // over a mixed state."
+  it('REFUSES a snapshot whose Clock comes from a different slot than its pool', async () => {
+    // WAS: accepted silently. Drift was computed over economic accounts only,
+    // and the Clock sat in the STATIC batch, exempt — so a capture could pair
+    // pool bytes true at slot 1000 with a Clock true at slot 1100 and report
+    // economicDriftSlots: 0.
     //
-    // OBSERVED: drift is computed over economically-mutable accounts only, and
-    // those are capped at ONE 100-account batch, so low === high always. The
-    // Clock — which the replayed runtime's time comes from, and which drives
-    // the time-windowed volume accumulator — is fetched in the STATIC batch and
-    // is exempt. A 100-slot gap is accepted silently.
-    const snap = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_100 }),
+    // The Clock is now ECONOMIC (F4), because PumpSwap's UserVolumeAccumulator
+    // is time-windowed and a Clock from another slot can move a simulated trade
+    // into a different fee or cashback window.
+    await expect(
+      captureCoherentSnapshotV2(splitSlotReader({ economicSlot: 1_000, staticSlot: 1_100 }), baseReq, b58),
+    ).rejects.toThrow(/never simultaneously true/);
+  });
+
+  it('drift is enforced across BATCHES, which is where it can actually differ', async () => {
+    // WAS: every economic account came from one getMultipleAccounts call and
+    // inherited its context slot, so `high - low` was 0 by construction and the
+    // refusal branch was unreachable in production. The check existed and could
+    // never fire.
+    //
+    // Moving the Clock into the economic tier gives the comparison a second
+    // batch, so the bound now has something real to enforce against. Equal
+    // slots still pass; unequal ones refuse.
+    const same = await captureCoherentSnapshotV2(
+      splitSlotReader({ economicSlot: 500, staticSlot: 500 }),
       baseReq,
       b58,
     );
-    expect(snap.economicDriftSlots).toBe(0);
-    expect(snap.driftBoundSlots).toBe(0);
-    expect(snap.captureSlotHigh).toBe(1_000);
-    // The mixed state is visible in batchSlots but is not enforced against.
-    expect(snap.batchSlots).toEqual([1_000, 1_100]);
-    // The clock the runtime will be built from is 100 slots ahead of the pool.
-    expect(snap.clock?.slot).toBe('1100');
-  });
+    expect(same.economicDriftSlots).toBe(0);
 
-  it('economic drift is structurally zero because one batch carries one slot', async () => {
-    // Every economic account is served by a single getMultipleAccounts call, so
-    // they all inherit that call's context slot. `high - low` is therefore 0 by
-    // construction and the refusal branch is unreachable in production.
-    for (const [econ, stat] of [
-      [500, 500],
-      [500, 900],
-      [500, 100_000],
-    ]) {
-      const snap = await captureCoherentSnapshotV2(
-        splitSlotReader({ economicSlot: econ as number, staticSlot: stat as number }),
-        baseReq,
-        b58,
-      );
-      expect(snap.economicDriftSlots).toBe(0);
+    for (const stat of [900, 100_000]) {
+      await expect(
+        captureCoherentSnapshotV2(splitSlotReader({ economicSlot: 500, staticSlot: stat }), baseReq, b58),
+      ).rejects.toThrow(/never simultaneously true/);
     }
   });
 
@@ -327,76 +347,105 @@ describe('AUDIT §3 — economic drift enforcement cannot fire on real RPC outpu
 });
 
 describe('AUDIT §3 — removal produces an incompleteness note, not a named refusal', () => {
-  it('a MISSING Clock sysvar yields a successful snapshot with clock = null', async () => {
-    // DIRECTIVE REQUIRES: removing Clock "must produce a named refusal, never a
-    // default". OBSERVED: the capture succeeds and the caller must notice a
-    // null field and a string in `incompleteness`.
-    const snap = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [CLOCK_SYSVAR] }),
-      baseReq,
-      b58,
-    );
-    expect(snap.clock).toBeNull();
-    expect(snap.incompleteness).toContain('the Clock sysvar was not captured');
-    expect(snap.snapshotHash).toBeTruthy(); // it still produced a usable snapshot
+  it('a MISSING Clock sysvar REFUSES the snapshot', async () => {
+    // WAS: the capture succeeded and the caller had to notice a null field and
+    // a string in `incompleteness`. Refusal was delegated to whichever consumer
+    // remembered to look — fail OPEN, against the standing invariant.
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [CLOCK_SYSVAR] }),
+        baseReq,
+        b58,
+      ),
+    ).rejects.toThrow(/Clock sysvar/);
   });
 
-  it('a MISSING Rent sysvar likewise succeeds', async () => {
+  it('a MISSING Rent sysvar likewise REFUSES', async () => {
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [RENT_SYSVAR] }),
+        baseReq,
+        b58,
+      ),
+    ).rejects.toThrow(/Rent sysvar/);
+  });
+
+  it('a MISSING fee config REFUSES rather than falling back to the program default', async () => {
+    // WAS: the code said, in its own words, "so the tier is the program
+    // default" — and the fee tier determines the cost of every trade built on
+    // that snapshot.
+    // The request must actually NAME a fee config, or omitting it omits
+    // nothing — `baseReq` does not, which is why the original probe could only
+    // observe the default-fallback note rather than exercise the path.
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [FEE_CONFIG] }),
+        { ...baseReq, feeConfig: FEE_CONFIG },
+        b58,
+      ),
+    ).rejects.toThrow(/fee config|requested account/);
+  });
+
+  it('a MISSING economic pool REFUSES without needing to be named in requireDecodable', async () => {
+    // WAS: only an omission, unless a caller happened to list it. Structural
+    // now, so the refusal does not depend on the call site remembering.
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [ECON_POOL] }),
+        baseReq,
+        b58,
+      ),
+    ).rejects.toThrow(/could not be captured|requested account/);
+  });
+
+  it('a deliberately partial snapshot is still possible, and says so', async () => {
+    // The escape hatch exists so a caller can accept a partial snapshot ON
+    // PURPOSE. What it cannot do is get one by accident.
     const snap = await captureCoherentSnapshotV2(
       splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [RENT_SYSVAR] }),
-      baseReq,
+      { ...baseReq, allowIncomplete: true },
       b58,
     );
     expect(snap.rent).toBeNull();
     expect(snap.incompleteness).toContain('the Rent sysvar was not captured');
   });
-
-  it('a MISSING fee config explicitly falls back to the program default', async () => {
-    // This is the directive's named failure mode in the code's own words.
-    const snap = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [FEE_CONFIG] }),
-      { ...baseReq, feeConfig: FEE_CONFIG },
-      b58,
-    );
-    expect(snap.feeConfigHash).toBeNull();
-    expect(snap.incompleteness).toContain('the fee config account is absent, so the tier is the program default');
-  });
-
-  it('a MISSING economic pool is only an omission unless it is named requireDecodable', async () => {
-    const snap = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [ECON_POOL] }),
-      baseReq,
-      b58,
-    );
-    expect(snap.omissions).toContain(ECON_POOL);
-    expect(snap.snapshotHash).toBeTruthy();
-
-    // With requireDecodable it does refuse, by name.
-    await expect(
-      captureCoherentSnapshotV2(
-        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, omit: [ECON_POOL] }),
-        { ...baseReq, requireDecodable: [ECON_POOL] },
-        b58,
-      ),
-    ).rejects.toThrow(/is required to decode but is absent/);
-  });
 });
 
 describe('AUDIT §3 — requireDecodable does not decode', () => {
-  it('accepts a CORRUPT pool as long as it has a nonzero byte length', async () => {
-    // DIRECTIVE REQUIRES: a corrupted pool must produce a named refusal.
-    // OBSERVED: `requireDecodable` tests presence and `dataBase64.length !== 0`
-    // only. Eleven bytes of garbage in the pool account passes the gate that is
-    // documented as "an economic account that is present but undecodable
-    // refuses the snapshot".
+  it('REFUSES a corrupt pool named in requireDecodable', async () => {
+    // WAS: `requireDecodable` tested presence and `dataBase64.length !== 0`
+    // only, so eleven bytes of garbage passed the gate documented as "an
+    // account that is present but undecodable refuses the snapshot".
     const garbage = Buffer.from('not-a-pool!').toString('base64');
-    const snap = await captureCoherentSnapshotV2(
-      splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, poolBytes: garbage }),
-      { ...baseReq, requireDecodable: [ECON_POOL] },
-      b58,
-    );
-    expect(snap.snapshotHash).toBeTruthy();
-    expect(snap.accounts.find((a) => a.pubkey === ECON_POOL)?.dataBase64).toBe(garbage);
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, poolBytes: garbage }),
+        { ...baseReq, requireDecodable: [ECON_POOL] },
+        b58,
+      ),
+    ).rejects.toThrow(/below the .* floor|did not decode/);
+  });
+
+  it('a supplied DECODER is what makes the check structural', async () => {
+    // The length floor is a backstop and says so in `incompleteness`. A real
+    // decoder is the actual guarantee, and it refuses bytes of the right size
+    // that still mean nothing.
+    const wrongButLongEnough = Buffer.alloc(200, 7).toString('base64');
+    await expect(
+      captureCoherentSnapshotV2(
+        splitSlotReader({ economicSlot: 1_000, staticSlot: 1_000, poolBytes: wrongButLongEnough }),
+        {
+          ...baseReq,
+          requireDecodable: [ECON_POOL],
+          decoders: {
+            [ECON_POOL]: (data: Buffer) => {
+              if (data[0] !== 1) throw new Error('bad discriminator');
+            },
+          },
+        },
+        b58,
+      ),
+    ).rejects.toThrow(/did not decode/);
   });
 });
 
@@ -504,11 +553,14 @@ describe('AUDIT §7 — the exit tournament is one-sided by construction', () =>
     expect(det.reason).toContain('fell back to the frozen horizon');
   });
 
-  it('a null exit capacity is skipped rather than treated as deterioration', () => {
+  it('a null exit capacity does NOT hide a collapse spanning it', () => {
+    // WAS: the loop compared ADJACENT pairs and `continue`d when either side
+    // was null, so 1,000,000 -> null -> 500,000 never compared anything and the
+    // position was held through a halving of exit capacity. Treating a gap as
+    // "no deterioration" is the null-is-safe reading this repository forbids.
     const m = marks([1_000_000n, null, 500_000n]);
     const det = decideExit('FLOW_LIQUIDITY_DETERIORATION_V1', opened, m);
-    // The 1,000,000 -> 500,000 comparison is never made because the
-    // intervening mark is null; only ADJACENT pairs are compared.
-    expect(det.triggeredAtMs).toBeNull();
+    expect(det.triggeredAtMs).not.toBeNull();
+    expect(det.reason).toMatch(/since the last MEASURED mark/);
   });
 });

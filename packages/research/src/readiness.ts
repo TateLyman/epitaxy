@@ -38,7 +38,15 @@ export interface ReadinessReport {
   readonly allPass: boolean;
   readonly verdict: 'CANARY_READY' | 'NOT_READY';
   readonly blockers: readonly string[];
-  readonly benchmarks: Readonly<Record<string, number | null>>;
+  /**
+   * Lamport totals are DECIMAL STRINGS; counts and rates stay numbers.
+   *
+   * F10: `Number(net)` damages any total above 2^53, and this is the artifact a
+   * promotion decision reads. The union is deliberate rather than a blanket
+   * string — a benchmark that is genuinely a count should not have to lie about
+   * its type to live here.
+   */
+  readonly benchmarks: Readonly<Record<string, number | string | null>>;
 }
 
 const g = (id: string, pass: boolean, observed: string, required: string, rationale: string): Gate => ({
@@ -324,6 +332,34 @@ function byMint(trades: readonly Pnl[]): Map<string, bigint> {
   return m;
 }
 
+
+/**
+ * F10 — a share comparison that never converts a lamport to a double.
+ *
+ * `Number(a) / Number(b)` on lamport bigints violates the repository's standing
+ * invariant, and this sits on the path where the directive specifically demands
+ * that a sample "positive only under unsafe bigint conversion" be rejected. At
+ * current notionals the 2^53 headroom is not threatened, which is exactly why
+ * it would have gone on being fine right up until it was not.
+ *
+ * `part / whole <= limit` is compared as `part * denom <= whole * numer`, in
+ * bigint throughout.
+ */
+function shareAtMost(part: bigint, whole: bigint, limit: number): boolean {
+  if (whole <= 0n) return false;
+  // The limit is a small decimal; 1e6 carries every value this repository uses.
+  const SCALE = 1_000_000n;
+  const numer = BigInt(Math.round(limit * 1e6));
+  return part * SCALE <= whole * numer;
+}
+
+/** The same share as a display string, computed in bigint basis points. */
+function sharePercent(part: bigint, whole: bigint): string {
+  if (whole <= 0n) return 'n/a';
+  const bps = (part * 10_000n) / whole;
+  return (Number(bps) / 100).toFixed(1);
+}
+
 export function buildReadiness(
   db: Db,
   sourceCommit: string,
@@ -473,12 +509,12 @@ export function buildReadiness(
       `${mintMap.size > 5 ? net - sum(bestMints.map(([, v]) => v)) : 'n/a'}`, 'positive without the best 5 mints',
       'Five tokens carrying the result is a bet on five tokens.'),
     g('concentration.noTradeOverTenPercent',
-      positiveTotal > 0n && Number(largestTrade) / Number(positiveTotal) <= CANARY_GATES.maxSingleTradeShareOfProfit,
-      `${positiveTotal > 0n ? ((Number(largestTrade) / Number(positiveTotal)) * 100).toFixed(1) : 'n/a'}%`,
+      positiveTotal > 0n && shareAtMost(largestTrade, positiveTotal, CANARY_GATES.maxSingleTradeShareOfProfit),
+      `${sharePercent(largestTrade, positiveTotal)}%`,
       'at most 10% of positive PnL from one trade', 'Concentration in the result is concentration in the conclusion.'),
     g('concentration.noDayOverTwentyFivePercent',
-      positiveTotal > 0n && Number(bestDay) / Number(positiveTotal) <= CANARY_GATES.maxSingleDayShareOfProfit,
-      `${positiveTotal > 0n ? ((Number(bestDay) / Number(positiveTotal)) * 100).toFixed(1) : 'n/a'}%`,
+      positiveTotal > 0n && shareAtMost(bestDay, positiveTotal, CANARY_GATES.maxSingleDayShareOfProfit),
+      `${sharePercent(bestDay, positiveTotal)}%`,
       'at most 25% of positive PnL from one day', 'As above, by time.'),
     g('stress.doubleCosts', n > 0 && costStress > 0n, `${costStress} lamports at 2x costs`, 'still positive',
       'Live costs are worse than modelled costs. Every time.'),
@@ -512,8 +548,10 @@ export function buildReadiness(
       // construction; it is listed so the comparison is explicit rather than
       // assumed away.
       holdSolLamports: 0,
-      strategyNetLamports: Number(net),
-      canaryShadowNetLamports: Number(canaryShadowNet),
+      // Decimal strings: a lamport total above 2^53 would be silently damaged
+      // by the JSON number that used to carry it.
+      strategyNetLamports: net.toString(),
+      canaryShadowNetLamports: canaryShadowNet.toString(),
     },
   };
 }

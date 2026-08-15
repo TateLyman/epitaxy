@@ -133,16 +133,29 @@ describe('P2 — coherence is enforced, not assumed', () => {
     ).rejects.toThrow(/never simultaneously true/);
   });
 
-  it('a program served at a later slot does NOT break coherence', async () => {
+  it('a genuinely static account served at a later slot does NOT break coherence', async () => {
     // A program's bytes cannot change what a swap costs. Refusing on its drift
     // would reject good snapshots and teach the operator to widen the bound.
-    const r = readerOf({ [POOL]: 100, [VAULT_A]: 100, [CLOCK_SYSVAR]: 140 });
+    //
+    // The CLOCK is no longer such an account: F4 moved it into the economic
+    // tier, because PumpSwap's UserVolumeAccumulator is time-windowed and a
+    // Clock from another slot can move a simulated trade into a different fee
+    // or cashback window.
+    const r = readerOf({ [POOL]: 100, [VAULT_A]: 100, [RENT_SYSVAR]: 140 });
     const s = await captureCoherentSnapshotV2(
       r,
       { economicAccounts: [POOL, VAULT_A], staticAccounts: [] },
       base58Encode,
     );
     expect(s.economicDriftSlots).toBe(0);
+  });
+
+  it('a CLOCK from a later slot DOES break coherence', async () => {
+    // The F4 repair, asserted directly.
+    const r = readerOf({ [POOL]: 100, [VAULT_A]: 100, [CLOCK_SYSVAR]: 140 });
+    await expect(
+      captureCoherentSnapshotV2(r, { economicAccounts: [POOL, VAULT_A] }, base58Encode),
+    ).rejects.toThrow(/never simultaneously true/);
   });
 
   it('the default drift bound is zero, because any other value admits a fiction', async () => {
@@ -189,9 +202,22 @@ describe('P2 — fail closed, and name what is missing', () => {
     ).rejects.toThrow(/required to decode but is absent/);
   });
 
-  it('a missing account that is NOT required is recorded as an omission, never dropped', async () => {
+  it('a missing account REFUSES the snapshot unless incompleteness is accepted', async () => {
+    // F5: this used to return a usable snapshot with a note, delegating refusal
+    // to whichever consumer remembered to inspect `omissions` — fail OPEN.
     const r = readerOf({ [POOL]: 100 }, { missing: [VAULT_A] });
-    const s = await captureCoherentSnapshotV2(r, { economicAccounts: [POOL, VAULT_A] }, base58Encode);
+    await expect(
+      captureCoherentSnapshotV2(r, { economicAccounts: [POOL, VAULT_A] }, base58Encode),
+    ).rejects.toThrow(/pass allowIncomplete/);
+  });
+
+  it('a deliberately partial snapshot still records the omission, never drops it', async () => {
+    const r = readerOf({ [POOL]: 100 }, { missing: [VAULT_A] });
+    const s = await captureCoherentSnapshotV2(
+      r,
+      { economicAccounts: [POOL, VAULT_A], allowIncomplete: true },
+      base58Encode,
+    );
     expect(s.omissions).toContain(VAULT_A);
     expect(s.incompleteness.join(' ')).toMatch(/do not exist on chain/);
   });
