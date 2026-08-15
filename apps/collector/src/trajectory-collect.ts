@@ -35,6 +35,8 @@ import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
 import {
   insertConfirmedMigration,
   insertTrajectory,
+  insertAccountPlan,
+  accountPlanCount,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -359,6 +361,12 @@ async function runCycle(): Promise<void> {
       }
 
       const t = res.trajectory;
+      // P2/F12 — the plan goes in FIRST, keyed by the trajectory it belongs to.
+      //
+      // The capability fingerprint below is the snapshot hash, which says what
+      // the market looked like. It does not say which fee recipient the SDK
+      // picked or what the instruction's account order was, and those are the
+      // things a replay has to reproduce exactly.
       insertTrajectory(db, {
         identity: {
           trajectoryId: t.trajectoryId,
@@ -396,6 +404,8 @@ async function runCycle(): Promise<void> {
         refusals: t.incompleteness,
         openedUtcMs: t.openedUtcMs,
       });
+
+      insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
       opened++;
       console.log(
         `  ${c.mint.slice(0, 10)}  OPENED  acquired=${t.acquiredAtoms} soleVenue=${t.soleVenueAttributed} ` +
@@ -473,7 +483,16 @@ async function runCycle(): Promise<void> {
   console.log('open trajectories seen:', open.length);
   console.log('marks taken this run  :', marksTaken);
   console.log('settled this run      :', settled);
-  console.log('totals                : marks', counts.marks, 'outcomes', counts.outcomes, 'settled', counts.settled);
+  console.log(
+    'totals                : marks',
+    counts.marks,
+    'outcomes',
+    counts.outcomes,
+    'settled',
+    counts.settled,
+    'plans',
+    accountPlanCount(db),
+  );
   console.log('trajectories by state :', JSON.stringify(trajectoryCounts(db)));
 
   db.close();

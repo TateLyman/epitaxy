@@ -22,6 +22,7 @@ import { observedTokenAtoms, RENT_EXEMPT_EPOCH } from '../../simulator/src/seque
 import { mechanicsStratum } from '../../solana/src/cashback.js';
 import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
+import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 
 /**
@@ -54,6 +55,14 @@ export type OpenRefusal =
   | 'BUY_BUILD_FAILED'
   | 'MECHANICS_FAILED'
   | 'ENTRY_NOT_SOLE_VENUE'
+  /**
+   * P2 — the built instruction touches an account the snapshot never fetched.
+   *
+   * A refusal rather than a warning, because the runtime would execute against
+   * an uninitialised account and answer with something that reads as a fact
+   * about the token.
+   */
+  | 'PLAN_ACCOUNT_UNCAPTURED'
   | 'RUNTIME_UNAVAILABLE';
 
 export interface OpenedTrajectory {
@@ -74,6 +83,14 @@ export interface OpenedTrajectory {
   readonly baseVaultDeltaAtoms: bigint;
   readonly quoteVaultDeltaLamports: bigint;
   readonly takerCreditAtoms: bigint;
+  /**
+   * P2/F12 — the exact plan of the bytes that ran.
+   *
+   * Ordered account metas, instruction data and the fee recipient the SDK
+   * actually selected. Persisted so a replay compares against what happened
+   * rather than against what a rebuild would probably produce.
+   */
+  readonly entryPlan: AccountPlan;
   readonly incompleteness: readonly string[];
   readonly openedUtcMs: number;
 }
@@ -232,6 +249,7 @@ export async function openTrajectory(
    * must all describe the bytes that actually ran.
    */
   let buyBytes: string;
+  let buyPlan: AccountPlan;
   try {
     const built = await buildBuyFrom(preSrc, {
       poolKey: pool,
@@ -239,9 +257,69 @@ export async function openTrajectory(
       quoteLamports: p.notionalLamports,
       slippagePct: p.slippagePct,
     });
+    const raw = (built.instructions as (TransactionInstruction | RawInstruction)[]).map(toRaw);
+    // Frozen from the SAME array that is encoded on the next line. Not a
+    // rebuild, not a re-derivation: the plan describes these bytes.
+    buyPlan = freezeAccountPlan('buy', raw);
     buyBytes = encode(built.instructions as unknown[], p.taker, blockhash);
   } catch (e) {
     return { ok: false, refusal: 'BUY_BUILD_FAILED', detail: (e as Error).message.slice(0, 160) };
+  }
+
+  /**
+   * P2 — every account the BUILT instruction touches is in the captured state.
+   *
+   * The snapshot was assembled from `swapAccountAddresses`, which RE-DERIVES
+   * what it believes the leg will use. The plan says what it actually uses, and
+   * on live pools the two differ by fifteen accounts: the SDK selects a fee
+   * recipient from a list, derives ATAs under whichever token program the mint
+   * uses, appends remaining accounts when cashback applies, and names the
+   * builtin programs the instruction invokes. None of that is predictable from
+   * a pool address, which is the whole of F12.
+   *
+   * An account missing from the runtime does not fail loudly. It executes as
+   * uninitialised and answers with an error that reads as a fact about the
+   * token, which is the substitution this module exists to prevent.
+   *
+   * So they are FETCHED, not guessed at a second time. This is a second read
+   * rather than a second capture: the price-bearing accounts from the coherent
+   * snapshot are untouched, and only accounts the plan named are added. Those
+   * are fee recipients, ATAs and programs — none of them bear price, which is
+   * the same boundary the coherent snapshot's drift bound already draws.
+   */
+  const capturedKeys = withWallet.map((a) => a.pubkey);
+  let planAccounts = withWallet;
+  let extraPrograms: typeof snapshot.programs = [];
+  const missing = planAccountsNotCaptured(buyPlan, [...capturedKeys, p.taker]);
+  const stillAbsent: string[] = [];
+
+  if (missing.length > 0) {
+    try {
+      const probe = await p.captureSnapshot(missing, []);
+      // An executable account restored through `set_account` populates no
+      // program cache, and every route through it then fails with an invalid
+      // program error. Programs go back through the program path.
+      const execs = probe.accounts.filter((a) => a.executable === true).map((a) => a.pubkey);
+      const extra = execs.length > 0 ? await p.captureSnapshot(missing, execs) : probe;
+
+      const have = new Set(capturedKeys);
+      planAccounts = [
+        ...withWallet,
+        ...extra.accounts.filter((a) => !have.has(a.pubkey)).map((a) => ({ ...a, rentEpoch: a.rentEpoch ?? RENT_EXEMPT_EPOCH })),
+      ];
+      extraPrograms = extra.programs.filter((x) => !snapshot.programs.some((y) => y.programId === x.programId));
+
+      // Whatever is STILL missing does not exist on chain. That is a fact, not
+      // a failure: the transaction is about to create it, and an account the
+      // chain does not have cannot be captured from it.
+      stillAbsent.push(...planAccountsNotCaptured(buyPlan, [...planAccounts.map((a) => a.pubkey), p.taker]));
+    } catch (e) {
+      return {
+        ok: false,
+        refusal: 'PLAN_ACCOUNT_UNCAPTURED',
+        detail: `the built buy touches ${missing.length} uncaptured account(s) and the fetch failed: ${(e as Error).message.slice(0, 90)}`,
+      };
+    }
   }
 
   const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts])];
@@ -249,8 +327,11 @@ export async function openTrajectory(
   const trip = await sequentialRoundTrip(
     {
       snapshot: {
-        programs: snapshot.programs.map((x) => ({ programId: x.programId, elfBase64: x.elfBase64 })),
-        accounts: withWallet as never,
+        programs: [...snapshot.programs, ...extraPrograms].map((x) => ({
+          programId: x.programId,
+          elfBase64: x.elfBase64,
+        })),
+        accounts: planAccounts as never,
         slot: snapshot.slot,
         unixTimestamp: snapshot.unixTimestamp,
         /**
@@ -395,7 +476,16 @@ export async function openTrajectory(
       baseVaultDeltaAtoms: baseOut,
       quoteVaultDeltaLamports: quoteIn,
       takerCreditAtoms: takerCredit,
-      incompleteness: trip.incompleteness,
+      // P2 — the exact plan of the bytes that ran, not a description of what a
+      // rebuild would probably produce.
+      entryPlan: buyPlan,
+      incompleteness: [
+        ...trip.incompleteness,
+        // Named rather than dropped. An account the chain does not have is
+        // correctly absent from the runtime, and the transaction creating it is
+        // exactly the cold-setup cost P6 is trying to measure.
+        ...stillAbsent.map((a) => `plan account absent on chain, created by the leg: ${a}`),
+      ],
       openedUtcMs: Date.now(),
     },
   };

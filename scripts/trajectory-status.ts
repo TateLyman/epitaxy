@@ -65,7 +65,12 @@ const trajectoryStatus = {
       ? 'no development_trajectories row has SETTLED; the collector refuses to open a trajectory it cannot price, which is a refusal rather than a failure'
       : null,
 };
-writeFileSync('artifacts/trajectory-status.json', JSON.stringify(trajectoryStatus, null, 2) + '\n');
+// P12 — one command, one output. `artifacts/trajectory-status.json` belongs
+// to `pnpm trajectory:status`, which reads the database and nothing else.
+// This generator produces a WIDER evidence view, so it writes under its own
+// name: two scripts writing one file means the last one to run decides what
+// the file meant, and neither of them says so.
+writeFileSync('artifacts/evidence-status.json', JSON.stringify(trajectoryStatus, null, 2) + '\n');
 
 // ---- exploration-status ---------------------------------------------------
 let debtRows: unknown[] = [];

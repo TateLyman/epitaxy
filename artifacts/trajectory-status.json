@@ -1,14 +1,53 @@
 {
-  "generatedFrom": "the runtime database and the checked-in live-run artifact",
-  "developmentTrajectoriesByState": {},
-  "confirmedMigrationsByReconciliation": {
-    "CONFIRMED": 20,
-    "MISIDENTIFIED_BY_PDA_ONLY_DECODER": 16
+  "generatedUtcMs": 1786776507062,
+  "sourceCommit": "ed6d54a0f0d8c28474db9d1782eaf0077dc9f853+dirty",
+  "database": "./data/runtime.db",
+  "what": "development trajectories as the DATABASE has them. No artifact is read.",
+  "trajectories": {
+    "total": 43,
+    "settled": 15,
+    "byState": {
+      "AWAITING_FILL_OBSERVATION": 28,
+      "SETTLED": 15
+    }
   },
-  "completedRoundTripsFromLiveRun": 20,
-  "quoteStateSurvivedOnAllComplete": true,
-  "developmentTrajectoryRowsSettled": 0,
-  "screeningsSeen": 581063,
-  "distinctMintsScreened": 99724,
-  "note": "no development_trajectories row has SETTLED; the collector refuses to open a trajectory it cannot price, which is a refusal rather than a failure"
+  "byStratum": {
+    "CANONICAL_CASHBACK": 11,
+    "CANONICAL_NONCASHBACK": 32
+  },
+  "marksByOffsetMs": [
+    {
+      "offsetMs": 60000,
+      "marks": 40,
+      "backfilled": 27
+    },
+    {
+      "offsetMs": 300000,
+      "marks": 38,
+      "backfilled": 11
+    },
+    {
+      "offsetMs": 900000,
+      "marks": 32,
+      "backfilled": 8
+    },
+    {
+      "offsetMs": 1800000,
+      "marks": 27,
+      "backfilled": 4
+    },
+    {
+      "offsetMs": 3600000,
+      "marks": 15,
+      "backfilled": 4
+    }
+  ],
+  "policyOutcomes": {
+    "FIXED_15M_CONTROL": 15,
+    "FLOW_LIQUIDITY_DETERIORATION_V1": 15
+  },
+  "frozenAccountPlans": 5,
+  "timelyCompletePaths": 8,
+  "proofArtifactsCounted": 0,
+  "proofArtifactNote": "live-one-pass-trajectory.json is instrument evidence, never a trajectory. This command cannot read it."
 }
