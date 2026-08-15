@@ -1,0 +1,31 @@
+{
+  "activeSeconds": 0,
+  "wallSeconds": 0,
+  "dutyCycle": null,
+  "perResourcePerActiveSecond": {},
+  "rateLimitErrors": {},
+  "validTrajectoriesPerDay": null,
+  "validTrajectoriesPerCandidate": 0.00020055352773655288,
+  "canonicalPoolYield": 0.0003609963499257952,
+  "cashbackPoolYield": 0,
+  "apparatusFailureRate": 0,
+  "duplicateObservationRate": 0,
+  "workerUtilization": null,
+  "queueLagMs": {
+    "p50": null,
+    "p95": null
+  },
+  "markLagMs": {
+    "p50": null,
+    "p95": null
+  },
+  "triggerToFillMs": {
+    "p50": null,
+    "p95": null
+  },
+  "bindingConstraint": "unknown: no per-resource limits were supplied",
+  "notes": [
+    "no active time recorded; every rate below would be a division by zero and is null instead"
+  ],
+  "note": "ACTIVE process time is not yet instrumented in the running engine, so every per-second rate is null rather than a number divided by wall time. That is the whole correction this version makes: the previous report divided by elapsed wall time including downtime and concluded quota was not the constraint."
+}

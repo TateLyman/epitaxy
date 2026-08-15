@@ -1,0 +1,64 @@
+{
+  "version": "v3",
+  "whatMakesThisV3": "parity is reported PER CAPABILITY FINGERPRINT, not per program id. A global \"PumpSwap parity\" generalises one agreement across every instrument sharing the program id, including Token-2022 mints with hooks and different fee-config hashes that were never measured.",
+  "exercisedFingerprint": {
+    "fingerprint": "6aadc3a115994f9eaa5b7c3b76a126d6c0bf088dcd79f2290901e4deccbb8918",
+    "dimensions": {
+      "venueProgramId": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+      "programDataHash": null,
+      "poolLayoutVersion": "canonical",
+      "instructionDiscriminator": null,
+      "feeConfigHash": null,
+      "cashbackFlag": false,
+      "cashbackAccountsPresent": false,
+      "mayhemFlag": false,
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "tokenExtensions": [],
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "builderVersion": "pump-swap-sdk",
+      "runtimeVersion": "litesvm-0.6.1"
+    }
+  },
+  "evidence": [
+    {
+      "check": "OFFICIAL_SDK_QUOTE",
+      "agreed": true,
+      "note": "carried forward from pumpswap-parity-v2"
+    },
+    {
+      "check": "EPITAXY_LOCAL_QUOTE",
+      "agreed": true,
+      "note": "carried forward from pumpswap-parity-v2"
+    },
+    {
+      "check": "DIRECT_INSTRUCTION_SIMULATION",
+      "agreed": true,
+      "note": "the buy and sell both committed in the sequential runtime on 20 of 20 live trajectories"
+    },
+    {
+      "check": "SEQUENTIAL_RUNTIME_EFFECT",
+      "agreed": true,
+      "note": "quote state survived to execution on every completed trip, compared per account by content hash"
+    }
+  ],
+  "approval": {
+    "fingerprint": "6aadc3a115994f9eaa5b7c3b76a126d6c0bf088dcd79f2290901e4deccbb8918",
+    "approved": true,
+    "missing": [],
+    "disagreed": [],
+    "reason": "all 4 required parity checks agree"
+  },
+  "landedAttributionIsolatable": false,
+  "landedAttributionNote": "the buys were built by Jupiter and route through an aggregator, so a landed fill cannot be attributed to one venue",
+  "unboundDimensions": [
+    "programDataHash",
+    "instructionDiscriminator",
+    "feeConfigHash"
+  ],
+  "unboundNote": "an unbound dimension is NOT a wildcard. It means this fingerprint does not yet pin that dimension, so an approval on it covers less than it appears to and must not be widened by assumption.",
+  "carriedForwardFrom": {
+    "pumpswapParityV2": true,
+    "landedParityV1": true
+  }
+}

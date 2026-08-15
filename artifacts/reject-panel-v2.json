@@ -1,0 +1,12 @@
+{
+  "panelVersion": "v2",
+  "legacyRejectTrackingByClassification": [],
+  "prospectiveSamples": 0,
+  "falseNegativeRate": {
+    "rate": null,
+    "answerable": 0,
+    "excluded": 0,
+    "reason": "no sampled rejection produced an answerable outcome"
+  },
+  "note": "the v2 panel samples AT REJECTION TIME and follows forward. No prospective sample has been collected yet, so the rate is null rather than zero. The legacy counts above are the retrospective panel this replaces and are NOT comparable: they were evaluated against current state rather than against the path."
+}

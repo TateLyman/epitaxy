@@ -1,0 +1,23 @@
+{
+  "version": "v2",
+  "whatMakesThisV2": "coverage is enumerated against the dimensions the directive requires, so an uncovered dimension is NAMED rather than absent from the report.",
+  "covered": [
+    "buy",
+    "sell",
+    "native_sol_quote"
+  ],
+  "missing": [
+    "wrapped_quote",
+    "cashback",
+    "noncashback",
+    "legacy_token",
+    "token_2022",
+    "multiple_sizes",
+    "multiple_pools",
+    "current_programdata_hash",
+    "current_fee_config_hash"
+  ],
+  "complete": false,
+  "attributionIsolatable": false,
+  "note": "landed parity cannot be completed while every buy routes through an aggregator. The missing dimensions are the work, not a formatting gap."
+}
