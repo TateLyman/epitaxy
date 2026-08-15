@@ -21,6 +21,16 @@ import { captureCoherentSnapshotV2, SnapshotIncoherent } from '../../../packages
 import { captureSnapshot } from '../../../packages/solana/src/snapshot-capture.js';
 import { SequentialWorker } from '../../../packages/simulator/src/sequential-worker.js';
 import { openTrajectory } from '../../../packages/pipeline/src/open-trajectory.js';
+import { takeMark, evaluateExitPolicies, pathIsComplete, MARK_OFFSETS_MS } from '../../../packages/pipeline/src/mark-path.js';
+import {
+  openTrajectories,
+  recordedOffsets,
+  insertMark,
+  marksFor,
+  insertPolicyOutcome,
+  closeTrajectory,
+  markAndOutcomeCounts,
+} from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
 import {
   insertConfirmedMigration,
@@ -396,7 +406,70 @@ async function main(): Promise<void> {
   for (const [r, n] of Object.entries(refusals).sort((a, b) => b[1] - a[1])) {
     console.log(`  refused ${String(n).padStart(3)}  ${r}`);
   }
-  console.log('trajectories by state:', JSON.stringify(trajectoryCounts(db)));
+
+  /**
+   * P9 — THE MARK AND SETTLE PASS.
+   *
+   * This is what makes the process a collector rather than an opener. It runs
+   * on EVERY invocation over every still-open trajectory, so a path opened in
+   * one run is marked by later runs and closes when its 60-minute horizon
+   * arrives. Nothing has to stay resident for an hour, and a restart resumes
+   * from the database rather than from memory.
+   *
+   * Marks are taken only for horizons that are actually DUE and not already
+   * recorded. A mark taken early would be a 15-minute number observed at four
+   * minutes, which is a different measurement wearing the right label.
+   */
+  const nowMs = Date.now();
+  const open = openTrajectories(db, 100);
+  let marksTaken = 0;
+  let settled = 0;
+
+  for (const t of open) {
+    const already = recordedOffsets(db, t.trajectoryId);
+    const due = MARK_OFFSETS_MS.filter((o) => !already.has(o) && nowMs >= t.openedUtcMs + o);
+
+    for (const offsetMs of due) {
+      const m = await takeMark(rpc as never, {
+        mint: t.mint,
+        tokenAmount: t.acquiredAtoms,
+        slippagePct: 3,
+        globalConfig: GLOBAL_CONFIG_ADDR,
+        feeConfig: FEE_CONFIG_ADDR,
+        offsetMs,
+        openedAtMs: t.openedUtcMs,
+      });
+      insertMark(db, t.trajectoryId, m);
+      marksTaken++;
+    }
+
+    // A path closes only when every horizon exists. Settling a truncated path
+    // would bias every policy toward whatever the collector happened to reach.
+    const path = marksFor(db, t.trajectoryId);
+    const complete = pathIsComplete(path);
+    if (!complete.complete) continue;
+
+    const outcomes = evaluateExitPolicies(path, {
+      openedAtMs: t.openedUtcMs,
+      policies: ['FIXED_15M_CONTROL', 'FLOW_LIQUIDITY_DETERIORATION_V1'],
+      entryCashOutLamports: t.entryCashOutLamports,
+    });
+    for (const o of outcomes) insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs);
+    closeTrajectory(db, t.trajectoryId, nowMs);
+    settled++;
+    console.log(
+      `  SETTLED ${t.trajectoryId.slice(0, 8)} ${t.mint.slice(0, 10)} ` +
+        outcomes.map((o) => `${o.exitPolicy}=${o.grossDeltaLamports ?? 'unpriced'}`).join(' '),
+    );
+  }
+
+  const counts = markAndOutcomeCounts(db);
+  console.log('');
+  console.log('open trajectories seen:', open.length);
+  console.log('marks taken this run  :', marksTaken);
+  console.log('settled this run      :', settled);
+  console.log('totals                : marks', counts.marks, 'outcomes', counts.outcomes, 'settled', counts.settled);
+  console.log('trajectories by state :', JSON.stringify(trajectoryCounts(db)));
 
   db.close();
 }

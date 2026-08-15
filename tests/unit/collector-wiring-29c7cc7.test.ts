@@ -169,6 +169,7 @@ describe('29c7cc7 — one shared mark path, every policy on it', () => {
   const path: CollectedMark[] = MARK_OFFSETS_MS.map((o, i) => ({
     atMs: opened + o,
     offsetMs: o,
+    latenessMs: 0,
     // Capacity collapses after the 15m mark.
     executableLamports: BigInt(20_000_000 - i * 1_000_000),
     exitCapacityLamports: i >= 3 ? 1_000_000n : 20_000_000n,
@@ -197,6 +198,20 @@ describe('29c7cc7 — one shared mark path, every policy on it', () => {
     const challenger = out.find((o) => o.exitPolicy === 'FLOW_LIQUIDITY_DETERIORATION_V1');
     // The challenger leaves when capacity collapses; the control holds to 15m.
     expect(challenger?.triggeredAtMs).not.toBe(control?.triggeredAtMs);
+  });
+
+  it('a BACKFILLED path is flagged, because its horizons are labels', () => {
+    // Every horizon coming due at once means five labels and one instant, and
+    // every policy then triggers on the same mark. Measured on the first live
+    // run: two exit policies returned identical outcomes on 8 of 8 paths.
+    const late = path.map((m) => ({ ...m, latenessMs: 3_600_000 }));
+    const r = pathIsComplete(late);
+    expect(r.backfilled).toBe(true);
+    expect(r.reason).toMatch(/BACKFILLED/);
+  });
+
+  it('a timely path is not flagged', () => {
+    expect(pathIsComplete(path).backfilled).toBe(false);
   });
 
   it('a truncated path is not treated as finished', () => {
