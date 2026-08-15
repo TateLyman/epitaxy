@@ -74,6 +74,8 @@ interface Args {
   readonly maxCandidates: number;
   readonly once: boolean;
   readonly maxOpen: number;
+  readonly loop: boolean;
+  readonly intervalSeconds: number;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -87,6 +89,9 @@ function parseArgs(argv: readonly string[]): Args {
     maxCandidates: num('--max-candidates', 25),
     once: argv.includes('--once'),
     maxOpen: num('--max-open', 5),
+    // A daemon by default; --once is the escape hatch for a single pass.
+    loop: !argv.includes('--once'),
+    intervalSeconds: num('--interval', 300),
   };
 }
 
@@ -245,7 +250,7 @@ async function snapshotCandidate(
   }
 }
 
-async function main(): Promise<void> {
+async function runCycle(): Promise<void> {
   const mode = modeFromArgv() ?? 'observe';
   if (mode === 'canary' || mode === 'live') {
     throw new Error('trajectory:collect never runs in a mode that can trade');
@@ -472,6 +477,68 @@ async function main(): Promise<void> {
   console.log('trajectories by state :', JSON.stringify(trajectoryCounts(db)));
 
   db.close();
+}
+
+/**
+ * P14 — the collector as a DAEMON.
+ *
+ * The mark-and-settle pass is already resumable: every invocation marks
+ * whatever is due and settles whatever is complete, and all of its state lives
+ * in the database. So a daemon is just that pass on a timer — no resident
+ * scheduler, no in-memory queue, and a restart loses nothing but the current
+ * sleep.
+ *
+ * That matters for horizons. A path only produces a real 60-minute mark if
+ * something is alive to take it at sixty minutes; the first live run settled
+ * eight paths whose marks were all fetched in one burst, giving five labels and
+ * one instant. Running continuously is what makes the label true.
+ *
+ * This process still cannot trade. It owns no NAV, opens no capital-bearing
+ * positions, imports no signer, and refuses to start in canary or live.
+ */
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  if (!args.loop) {
+    await runCycle();
+    return;
+  }
+
+  let stopping = false;
+  const stop = (sig: string): void => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`\n${sig}: finishing the current cycle, then stopping.`);
+  };
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('SIGTERM', () => stop('SIGTERM'));
+
+  console.log(`collector daemon: every ${args.intervalSeconds}s until stopped`);
+  let cycle = 0;
+
+  while (!stopping) {
+    cycle++;
+    const started = Date.now();
+    console.log(`\n===== cycle ${cycle} @ ${new Date(started).toISOString()} =====`);
+    try {
+      await runCycle();
+    } catch (e) {
+      /**
+       * A cycle that throws must not kill the daemon.
+       *
+       * An apparatus failure is a fact about this cycle, and stopping on it
+       * would silently end collection at the first RPC hiccup — which then
+       * reads later as "the market produced nothing" rather than "we stopped
+       * looking".
+       */
+      console.error(`cycle ${cycle} failed: ${(e as Error).message.slice(0, 200)}`);
+    }
+    if (stopping) break;
+    const elapsed = Date.now() - started;
+    const wait = Math.max(0, args.intervalSeconds * 1_000 - elapsed);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  }
+  console.log('collector daemon stopped.');
 }
 
 await main();

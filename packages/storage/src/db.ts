@@ -2194,9 +2194,6 @@ CREATE TABLE IF NOT EXISTS trajectory_marks (
   -- Why this mark carries no price. Never collapsed to "no route": that one
   -- word hid six different facts and is how 93% of a corpus became useless.
   refusal           TEXT,
-  -- How late the mark was relative to its due time. A mark taken long after
-  -- its horizon represents that horizon in NAME ONLY.
-  lateness_ms       INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (trajectory_id, offset_ms),
   FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
 );
@@ -2219,6 +2216,25 @@ CREATE TABLE IF NOT EXISTS trajectory_policy_outcomes (
   FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
 );
 CREATE INDEX IF NOT EXISTS idx_tpolicy_traj ON trajectory_policy_outcomes(trajectory_id);
+`,
+  },
+  {
+    id: 38,
+    name: 'mark_lateness',
+    sql: `
+-- How late a mark was against its due time.
+--
+-- This belongs in its own migration because 37 HAD ALREADY RUN on the live
+-- database. Migrations are idempotent by id, so editing an applied one changes
+-- the file and not the schema -- the column silently never appears, and every
+-- insert then fails with "no column named lateness_ms" against a migration
+-- that reads as if it created it.
+--
+-- A mark taken long after its horizon represents that horizon in NAME ONLY.
+-- The first live run fetched five horizons in one burst and every exit policy
+-- then agreed trivially, which is why this is recorded per row rather than
+-- inferred later.
+ALTER TABLE trajectory_marks ADD COLUMN lateness_ms INTEGER NOT NULL DEFAULT 0;
 `,
   },
 ];
