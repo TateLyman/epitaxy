@@ -31,3 +31,6 @@ coverage/
 /vr.json
 data/backups/
 data/blobs/
+
+# Session scratch. Never part of the corpus.
+scratchC/
