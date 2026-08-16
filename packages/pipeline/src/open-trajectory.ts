@@ -649,6 +649,10 @@ export async function openTrajectory(
          * Verified BEFORE the sell executes. A sell with the accounts missing
          * lands and trades normally, so there is nothing to catch afterwards.
          */
+        accountsOf: (ixs) =>
+          (ixs as (TransactionInstruction | RawInstruction)[])
+            .map(toRaw)
+            .flatMap((i) => (i.accounts ?? []).map((a) => a.pubkey)),
         verify: (ixs) => {
           const raw = (ixs as (TransactionInstruction | RawInstruction)[]).map(toRaw);
           const swap = raw.find((i) => i.programId === AMM_PROGRAM_ID);
@@ -755,7 +759,46 @@ export async function openTrajectory(
       ),
     );
   }
-  const setup = summariseSetup(createdAccounts);
+  /**
+   * What the SELL created, which nothing measured.
+   *
+   * `createdAccounts` covered the buy only, so a fee recipient the sell had to
+   * open contributed its rent to the payer's outflow and to nothing in the
+   * accounting. The sell selects its own recipients — F12 — so this is not a
+   * rare case.
+   */
+  const sellPreByKey = new Map((trip.sell?.preAccounts ?? []).map((a) => [a.pubkey, a]));
+  const sellCreatedAccounts: CreatedAccount[] = [];
+  for (const post of trip.sell?.postAccounts ?? []) {
+    const prior = sellPreByKey.get(post.pubkey);
+    const existed = prior !== undefined && (prior.lamports > 0n || prior.dataLen > 0);
+    if (existed || post.lamports <= 0n) continue;
+    sellCreatedAccounts.push(
+      classifyCreatedAccount(
+        { pubkey: post.pubkey, owner: post.owner, space: post.dataLen, lamports: post.lamports },
+        {
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          takerQuoteAta: takerWsol,
+          pool,
+          poolBaseVault: addrs.poolBaseTokenAccount,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          baseMint: p.mint,
+          quoteMint: WSOL_MINT,
+          coinCreator: addrs.coinCreator,
+          coinCreatorVaultAta: roles.coinCreatorVaultAta,
+          coinCreatorVaultAuthority: roles.coinCreatorVaultAuthority,
+          userVolumeAccumulator: roles.userVolumeAccumulator,
+          globalVolumeAccumulator: roles.globalVolumeAccumulator,
+          accumulatorWsolAta: roles.accumulatorWsolAta,
+          poolV2: roles.poolV2,
+          protocolFeeAccounts: selectedTail,
+        },
+      ),
+    );
+  }
+
+  const setup = summariseSetup([...createdAccounts, ...sellCreatedAccounts]);
 
   /**
    * P7/F14 — what each leg MOVED through the cashback accounts.
@@ -829,16 +872,10 @@ export async function openTrajectory(
    */
   const closedInSell = trip.baseAtaClosedInSell === true ? [takerAta] : [];
   /**
-   * The accounts that SKIM the swap: protocol, buyback and creator vaults.
-   *
-   * All named by the frozen plan and all observed, so their gain is a measured
-   * cost rather than an unexplained remainder.
+   * Accounts whose gain is NOT a cost to us: our own wrapped-SOL account, and
+   * the pool's base vault, which receives tokens rather than value we paid.
    */
-  const feeSkimAccounts = [
-    ...selectedTail,
-    ...(roles.coinCreatorVaultAta === null ? [] : [roles.coinCreatorVaultAta]),
-    ...(roles.accumulatorWsolAta === null ? [] : [roles.accumulatorWsolAta]),
-  ];
+  const notSkimAccounts = [takerWsol, addrs.poolBaseTokenAccount];
 
   /**
    * An account that DID NOT EXIST is not a coverage failure.
@@ -889,7 +926,7 @@ export async function openTrajectory(
     post: trip.buy.postAccounts as unknown as ObservedAccount[],
     createdAccounts,
     closedAccounts: [],
-    feeRecipients: feeSkimAccounts,
+    notSkimAccounts,
     runtimeOk: trip.buy.status === 'SIMULATED_OK',
     incompleteness: buyGap.map((u) => `unobserved on buy: ${u}`),
     fullAccountCoverage: buyGap.length === 0,
@@ -913,12 +950,12 @@ export async function openTrajectory(
           minimumOut: 0n,
           pre: trip.sell.preAccounts as unknown as ObservedAccount[],
           post: trip.sell.postAccounts as unknown as ObservedAccount[],
-          createdAccounts: [],
+          createdAccounts: sellCreatedAccounts,
           closedAccounts: closedInSell,
           // The base ATA was opened by the BUY. Without this the sell finds no
           // source for the rent it recovered and reports zero.
           rentSourceAccounts: createdAccounts,
-          feeRecipients: feeSkimAccounts,
+          notSkimAccounts,
           runtimeOk: trip.sell.status === 'SIMULATED_OK',
           incompleteness: sellGap.map((u) => `unobserved on sell: ${u}`),
           fullAccountCoverage: sellGap.length === 0,

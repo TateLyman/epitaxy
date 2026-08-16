@@ -218,7 +218,21 @@ export function buildTrajectorySettlement(p: {
     p.entry.costs.tipLamports +
     (p.exit?.costs.baseFeeLamports ?? 0n) +
     (p.exit?.costs.priorityFeeLamports ?? 0n) +
-    (p.exit?.costs.tipLamports ?? 0n);
+    (p.exit?.costs.tipLamports ?? 0n) +
+    /**
+     * The VENUE SKIM, which left the payer and was not named here.
+     *
+     * The protocol, buyback and creator cuts land in accounts the frozen plan
+     * names, so they are measured rather than inferred. Omitting them made the
+     * payer reconciliation short by exactly their total and reported a known
+     * cost as an unexplained remainder — the failure this whole derivation
+     * exists to prevent, in the derivation itself.
+     *
+     * `null` still means unmeasured and still contributes nothing, so an
+     * unobserved skim keeps showing up in the remainder.
+     */
+    (p.entry.costs.protocolFeeLamports ?? 0n) +
+    (p.exit?.costs.protocolFeeLamports ?? 0n);
   const namedRent = rentCreated - rentRecovered;
   const namedCashback = cashback.claimedLamports - cashback.claimCostLamports;
 

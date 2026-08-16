@@ -24,7 +24,14 @@ const QUOTE_VAULT = '9kivsjTqAEPWuJWbsGsuo4NxFKRec5Z7tw7W3cTJBEjx';
 const MINT = '24fTiNwEG3dEusEjT1GfskFwKpYZhx6MDigceXt2pump';
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
-/** An SPL token account holding `amount` at offset 64. */
+/**
+ * An SPL token account holding `amount` at offset 64.
+ *
+ * For a WSOL vault the lamports and the token amount move together — wrapped
+ * SOL IS lamports — so a fixture that changes one without the other describes
+ * an account that cannot exist, and the conservation identity correctly
+ * reports the difference as unattributed.
+ */
 const tok = (pubkey: string, lamports: bigint, amount: bigint) => ({
   pubkey,
   owner: TOKEN_PROGRAM,
@@ -58,8 +65,8 @@ const leg = (over: Record<string, unknown> = {}) =>
     poolQuoteVault: QUOTE_VAULT,
     requested: 20_000_000n,
     minimumOut: 0n,
-    pre: [sys(TAKER, 500_000_000_000n), tok(QUOTE_VAULT, 2_039_280n, 100_000_000n), tok(ATA, 0n, 0n)],
-    post: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 2_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
+    pre: [sys(TAKER, 500_000_000_000n), tok(QUOTE_VAULT, 102_039_280n, 100_000_000n), tok(ATA, 0n, 0n)],
+    post: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 122_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
     createdAccounts: [],
     closedAccounts: [],
     runtimeOk: true,
@@ -94,7 +101,7 @@ describe('P5 — a runtime leg becomes a measured settlement', () => {
     // The payer lost an extra 777 lamports that no named cost explains. A
     // residue is not rounding: it is a cost the model does not know about.
     const s = leg({
-      post: [sys(TAKER, 499_979_994_223n), tok(QUOTE_VAULT, 2_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
+      post: [sys(TAKER, 499_979_994_223n), tok(QUOTE_VAULT, 122_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
     });
     expect(s.costs.unexplainedLamports).toBe(-777n);
   });
@@ -118,7 +125,7 @@ describe('P5 — a runtime leg becomes a measured settlement', () => {
   });
 
   it('marks the leg incomplete when the payer was not observed', () => {
-    const s = leg({ pre: [tok(QUOTE_VAULT, 2_039_280n, 100_000_000n)] });
+    const s = leg({ pre: [tok(QUOTE_VAULT, 102_039_280n, 100_000_000n)] });
     expect(s.complete).toBe(false);
     expect(s.incompleteness.join(' ')).toContain('payer was not observed');
   });
@@ -130,8 +137,8 @@ describe('P5 — the trajectory settlement, and what blocks net PnL', () => {
     const exit = leg({
       side: 'sell',
       requested: 5_000n,
-      pre: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 2_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
-      post: [sys(TAKER, 499_999_490_000n), tok(QUOTE_VAULT, 2_039_280n, 100_500_000n), tok(ATA, 0n, 0n)],
+      pre: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 122_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
+      post: [sys(TAKER, 499_999_490_000n), tok(QUOTE_VAULT, 102_539_280n, 100_500_000n), tok(ATA, 0n, 0n)],
     });
     const s = buildTrajectorySettlement({ trajectoryId: 't1', entry, exit });
     expect(s.pnlBlockedReasons).toEqual([]);
@@ -249,5 +256,66 @@ describe('P5 — a writable is a coverage gap only if it EXISTED', () => {
 
   it('matches an entry that carries a reason alongside the address', () => {
     expect(coverageGap(['unobserved on buy: existed'], pre)).toHaveLength(1);
+  });
+});
+
+/**
+ * The venue skim, defined by EXCLUSION rather than enumerated.
+ *
+ * Three attempts named it by role and each missed a different account: the
+ * buyback recipient, then the accumulator, then the PROTOCOL fee recipient —
+ * a named account the SDK selects, worth 183,704 lamports on a measured leg.
+ * A cost model that depends on somebody remembering every role is wrong on
+ * exactly the role nobody remembered.
+ */
+describe('P5 — the skim is complete by construction', () => {
+  const PROTOCOL = 'ProtocolFeeRecipient1111111111111111111';
+  const NEW_ROLE = 'SomeRoleNobodyHasNamedYet11111111111111';
+
+  const withSkim = (extraPost: { pubkey: string; lamports: bigint }[]) =>
+    legSettlementFromRuntime({
+      observationId: 'obs',
+      simulationJobId: 'job',
+      side: 'buy',
+      capabilityFingerprint: 'fp',
+      taker: TAKER,
+      takerBaseAta: ATA,
+      mint: MINT,
+      baseTokenProgram: TOKEN_PROGRAM,
+      poolQuoteVault: QUOTE_VAULT,
+      requested: 20_000_000n,
+      minimumOut: 0n,
+      pre: [sys(TAKER, 500_000_000_000n), tok(QUOTE_VAULT, 102_039_280n, 100_000_000n), tok(ATA, 0n, 0n)],
+      post: [
+        sys(TAKER, 499_979_995_000n),
+        tok(QUOTE_VAULT, 122_039_280n, 120_000_000n),
+        tok(ATA, 0n, 5_000n),
+        ...extraPost.map((x) => ({ ...x, owner: TOKEN_PROGRAM, dataLen: 165, dataBase64: null })),
+      ],
+      createdAccounts: [],
+      closedAccounts: [],
+      runtimeOk: true,
+      incompleteness: [],
+      fullAccountCoverage: true,
+      snapshotManifestHash: null,
+    } as never);
+
+  it('captures a fee recipient nobody enumerated', () => {
+    // The whole point: a new recipient in a future IDL is captured the day it
+    // appears, without anyone naming it.
+    expect(withSkim([{ pubkey: NEW_ROLE, lamports: 183_704n }]).costs.protocolFeeLamports).toBe(183_704n);
+  });
+
+  it('sums every account that gained, not just the one we thought of', () => {
+    const s = withSkim([
+      { pubkey: PROTOCOL, lamports: 183_704n },
+      { pubkey: NEW_ROLE, lamports: 59_260n },
+    ]);
+    expect(s.costs.protocolFeeLamports).toBe(242_964n);
+  });
+
+  it('never counts the payer, our ATA or the pool vault as a skim', () => {
+    // All three legitimately move, and none of them is a fee.
+    expect(withSkim([]).costs.protocolFeeLamports).toBe(0n);
   });
 });

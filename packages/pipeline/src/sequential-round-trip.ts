@@ -98,6 +98,18 @@ export interface RoundTripRequest {
      * only place those bytes exist is here.
      */
     instructions?: readonly unknown[];
+    /**
+     * Accounts to ADD to the observe set for the sell step.
+     *
+     * The sell is built inside the runtime from post-buy state, so its account
+     * plan cannot be known when the trip's observe list is assembled — and the
+     * SDK SELECTS its fee recipients, so the sell may touch accounts the buy
+     * never did. Measured: the entry leg reconciled to zero while the exit leg
+     * was short by one created fee account, 2,222,999 lamports.
+     *
+     * A step's observe set should be that step's own plan.
+     */
+    observeExtra?: readonly string[];
   }>;
   readonly jobId: string;
 }
@@ -212,6 +224,11 @@ export function standardPumpSwapSell(p: {
    * to the creator. There is no error to catch afterwards.
    */
   verify?: (instructions: readonly unknown[]) => string | null;
+  /**
+   * Every account the built sell touches, so the sell step observes its OWN
+   * plan rather than the buy's.
+   */
+  accountsOf?: (instructions: readonly unknown[]) => readonly string[];
 }) {
   return async (
     postState: AccountBytesSource,
@@ -220,6 +237,7 @@ export function standardPumpSwapSell(p: {
     transactionBase64: string;
     selfImpactLamports: bigint | null;
     instructions: readonly unknown[];
+    observeExtra: readonly string[];
   }> => {
     let selfImpactLamports: bigint | null = null;
     try {
@@ -248,6 +266,7 @@ export function standardPumpSwapSell(p: {
       transactionBase64: p.encode(instructions, p.blockhash),
       selfImpactLamports,
       instructions,
+      observeExtra: p.accountsOf === undefined ? [] : p.accountsOf(instructions),
     };
   };
 }
@@ -347,11 +366,13 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     let selfImpactLamports: bigint | null = null;
     let sellBytes: string;
     let sellInstructions: readonly unknown[] | null = null;
+    let sellObserveExtra: readonly string[] = [];
     try {
       const built = await req.buildSell(postSrc, acquired);
       sellBytes = built.transactionBase64;
       selfImpactLamports = built.selfImpactLamports;
       sellInstructions = built.instructions ?? null;
+      sellObserveExtra = built.observeExtra ?? [];
     } catch (e) {
       return fail('SELL_BUILD_FAILED', (e as Error).message.slice(0, 200), {
         buy: buy.step,
@@ -364,7 +385,12 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
 
     // ---- the sell, in the SAME runtime ---------------------------------
     const sell = await w.step(
-      { label: 'sell', transactionBase64: sellBytes, observe: [...req.observe] },
+      {
+        label: 'sell',
+        // The sell's OWN plan, not the buy's. See `observeExtra`.
+        transactionBase64: sellBytes,
+        observe: [...new Set([...req.observe, ...sellObserveExtra])],
+      },
       economic,
     );
 

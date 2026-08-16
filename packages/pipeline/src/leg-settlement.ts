@@ -92,14 +92,13 @@ export interface LegSettlementInput {
    */
   readonly rentSourceAccounts?: readonly CreatedAccount[];
   /**
-   * Accounts that SKIM the swap output: protocol, buyback and creator vaults.
+   * Accounts whose gain is NOT a venue fee.
    *
-   * The pool releases X on a sell and the payer receives X minus these, so a
-   * model that credits the payer with the vault delta reports the difference as
-   * unexplained. Measured live: a systematic -451,128 residue on almost every
-   * settlement, which is a named cost wearing the label of a mystery.
+   * The payer, our own token accounts and the pool vaults are excluded
+   * automatically; this is for anything else that legitimately receives value
+   * without it being a cost — the taker WSOL ATA, for instance.
    */
-  readonly feeRecipients?: readonly string[];
+  readonly notSkimAccounts?: readonly string[];
   readonly runtimeOk: boolean;
   readonly incompleteness: readonly string[];
   /**
@@ -149,42 +148,6 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
     return n + (created?.rentExemptMinimumLamports ?? 0n);
   }, 0n);
 
-  /**
-   * What the venue skimmed, NAMED.
-   *
-   * The pool releases X on a sell and the payer receives X minus the protocol,
-   * buyback and creator cuts, which land in accounts the plan names. Reading
-   * the vault delta as the payer's credit and calling the difference
-   * unexplained turns a known cost into a mystery.
-   */
-  let venueFee = 0n;
-  for (const key of p.feeRecipients ?? []) {
-    /**
-     * RENT IS NOT A FEE, even when both land in the same account.
-     *
-     * A fee recipient the leg had to CREATE ends the transaction holding its
-     * rent exemption plus whatever it was paid, and the rent is already counted
-     * in `rentCreated`. Adding the whole balance here double-counts it:
-     * measured live, unexplained went from -451,128 to -4,564,488 — almost
-     * exactly two rent exemptions — the moment the venue fee was introduced
-     * without this distinction.
-     *
-     * The same correction as `excessLamports` in created-accounts, for the same
-     * reason: an account opened AND paid in one transaction carries two
-     * different quantities.
-     */
-    const created = rentSource.find((a) => a.pubkey === key);
-    if (created !== undefined) {
-      venueFee += created.excessLamports;
-      continue;
-    }
-    const before = lamportsOf(p.pre, key);
-    const after = lamportsOf(p.post, key);
-    if (before === null || after === null) continue;
-    const d = after - before;
-    if (d > 0n) venueFee += d;
-  }
-
   const baseFee = BASE_FEE_PER_SIGNATURE_LAMPORTS;
   // No SetComputeUnitPrice instruction is built, so the unit price is zero and
   // the priority fee is zero. A FACT about the transaction, not an assumption.
@@ -196,13 +159,75 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
   const credit = isBuy ? 0n : -quoteVaultDelta;
 
   /**
-   * The identity. Anything it cannot explain is reported, not absorbed.
+   * What the venue skimmed, NAMED.
    *
-   * Sign convention: `payerDelta` is negative when the payer spent, and the
-   * bracket is what the model says that delta should have been.
+   * The pool releases X on a sell and the payer receives X minus the protocol,
+   * buyback and creator cuts, which land in accounts the plan names. Reading
+   * the vault delta as the payer's credit and calling the difference
+   * unexplained turns a known cost into a mystery.
    */
-  const modelled = credit - tradeDebit - baseFee - priorityFee - tip - rentCreated + rentRecovered - venueFee;
-  const unexplained = payerDelta - modelled;
+  /**
+   * The venue skim, defined COMPLETELY rather than enumerated.
+   *
+   * Three attempts named it by role and each missed a different account: first
+   * the buyback recipient, then the accumulator, then the PROTOCOL fee
+   * recipient — a named account the SDK selects from the global config, worth
+   * 183,704 lamports on a measured leg. A cost model that depends on somebody
+   * remembering every role is wrong on exactly the role nobody remembered.
+   *
+   * So it is defined by exclusion instead: every observed account that GAINED
+   * lamports and is not the payer, not one of our token accounts, and not a
+   * pool vault, has been paid by this leg. What remains after removing the rent
+   * of accounts we opened is what the venue took.
+   *
+   * This cannot be incomplete in the same way. A new fee recipient in a future
+   * IDL is captured the day it appears, without anyone naming it.
+   */
+  const notASkim = new Set([p.taker, p.takerBaseAta, p.poolQuoteVault, ...(p.notSkimAccounts ?? [])]);
+  let venueFee = 0n;
+  for (const a of p.post) {
+    if (notASkim.has(a.pubkey)) continue;
+    const before = lamportsOf(p.pre, a.pubkey) ?? 0n;
+    const gained = a.lamports - before;
+    if (gained <= 0n) continue;
+    // Rent is not a fee, even when both land in the same account. An account
+    // opened AND paid in one transaction carries two different quantities.
+    const created = rentSource.find((x) => x.pubkey === a.pubkey);
+    venueFee += created === undefined ? gained : created.excessLamports;
+  }
+
+  /**
+   * THE CONSERVATION IDENTITY, which needs no model at all.
+   *
+   * Lamports are conserved. Rent is a transfer from the payer to a new account;
+   * a venue fee is a transfer from the payer to a recipient; both net to zero
+   * across the observed set. The ONLY lamports that leave are the transaction
+   * fee. So if every account the leg touched was observed:
+   *
+   *   sum of every observed lamport delta  ==  -(transaction fee)
+   *
+   * Two earlier attempts itemised the outflows instead — trade, rent, then the
+   * venue skim — and each got the residue WRONG in a new way, because an
+   * itemisation is only as complete as the list of roles someone remembered.
+   * This asks the question the itemisation was standing in for, and it cannot
+   * be incomplete in the same way: an unattributed lamport shows up whether or
+   * not anybody knew what to call it.
+   *
+   * A non-zero value means one of exactly two things, and both are worth
+   * knowing: an account moved that nobody observed, or lamports left the system
+   * by a route this does not model.
+   *
+   * The itemised figures below are kept for REPORTING. They say where the money
+   * went; this says whether the account of it is complete.
+   */
+  const observedKeys = new Set([...p.pre.map((a) => a.pubkey), ...p.post.map((a) => a.pubkey)]);
+  let totalDelta = 0n;
+  for (const key of observedKeys) {
+    const before = lamportsOf(p.pre, key) ?? 0n;
+    const after = lamportsOf(p.post, key) ?? 0n;
+    totalDelta += after - before;
+  }
+  const unexplained = totalDelta + baseFee;
 
   /**
    * Value that reached accounts the request did not name.

@@ -66,6 +66,7 @@
     "rpc:capacity": "tsx scripts/rpc-capacity.ts",
     "secretscan": "tsx scripts/secretscan.ts",
     "settlement:check": "tsx scripts/settlement-check.ts",
+    "settlement:probe": "tsx scripts/settlement-probe.ts",
     "shadow:development": "tsx scripts/evidence-status.ts shadow",
     "shadow:status": "tsx scripts/evidence-status.ts shadow",
     "simulation:audit": "tsx scripts/simulation-audit.ts",
