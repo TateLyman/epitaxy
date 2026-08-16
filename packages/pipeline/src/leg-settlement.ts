@@ -82,6 +82,24 @@ export interface LegSettlementInput {
   readonly createdAccounts: readonly CreatedAccount[];
   /** Accounts the leg closed, whose rent came back to the payer. */
   readonly closedAccounts: readonly string[];
+  /**
+   * Where the rent of a closed account was originally paid.
+   *
+   * The base ATA is opened on the BUY and closed on the SELL, so the sell's own
+   * `createdAccounts` is empty and a recovery lookup against it finds nothing.
+   * Measured live: `rentRecovered` was 0 on every settlement while
+   * `baseAtaClosedInSell` was true and the lamports had visibly returned.
+   */
+  readonly rentSourceAccounts?: readonly CreatedAccount[];
+  /**
+   * Accounts that SKIM the swap output: protocol, buyback and creator vaults.
+   *
+   * The pool releases X on a sell and the payer receives X minus these, so a
+   * model that credits the payer with the vault delta reports the difference as
+   * unexplained. Measured live: a systematic -451,128 residue on almost every
+   * settlement, which is a named cost wearing the label of a mystery.
+   */
+  readonly feeRecipients?: readonly string[];
   readonly runtimeOk: boolean;
   readonly incompleteness: readonly string[];
   /**
@@ -123,11 +141,49 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
   const basePost = tokenAmount(p.post.find((a) => a.pubkey === p.takerBaseAta)) ?? 0n;
 
   const rentCreated = p.createdAccounts.reduce((n, a) => n + a.rentExemptMinimumLamports, 0n);
+  const rentSource = [...p.createdAccounts, ...(p.rentSourceAccounts ?? [])];
   const rentRecovered = p.closedAccounts.reduce((n, key) => {
-    // Only rent we actually opened comes back, and only for accounts we closed.
-    const created = p.createdAccounts.find((a) => a.pubkey === key);
+    // Only rent we actually opened comes back, and only for accounts we closed
+    // — but the account may have been opened by the OTHER leg.
+    const created = rentSource.find((a) => a.pubkey === key);
     return n + (created?.rentExemptMinimumLamports ?? 0n);
   }, 0n);
+
+  /**
+   * What the venue skimmed, NAMED.
+   *
+   * The pool releases X on a sell and the payer receives X minus the protocol,
+   * buyback and creator cuts, which land in accounts the plan names. Reading
+   * the vault delta as the payer's credit and calling the difference
+   * unexplained turns a known cost into a mystery.
+   */
+  let venueFee = 0n;
+  for (const key of p.feeRecipients ?? []) {
+    /**
+     * RENT IS NOT A FEE, even when both land in the same account.
+     *
+     * A fee recipient the leg had to CREATE ends the transaction holding its
+     * rent exemption plus whatever it was paid, and the rent is already counted
+     * in `rentCreated`. Adding the whole balance here double-counts it:
+     * measured live, unexplained went from -451,128 to -4,564,488 — almost
+     * exactly two rent exemptions — the moment the venue fee was introduced
+     * without this distinction.
+     *
+     * The same correction as `excessLamports` in created-accounts, for the same
+     * reason: an account opened AND paid in one transaction carries two
+     * different quantities.
+     */
+    const created = rentSource.find((a) => a.pubkey === key);
+    if (created !== undefined) {
+      venueFee += created.excessLamports;
+      continue;
+    }
+    const before = lamportsOf(p.pre, key);
+    const after = lamportsOf(p.post, key);
+    if (before === null || after === null) continue;
+    const d = after - before;
+    if (d > 0n) venueFee += d;
+  }
 
   const baseFee = BASE_FEE_PER_SIGNATURE_LAMPORTS;
   // No SetComputeUnitPrice instruction is built, so the unit price is zero and
@@ -145,7 +201,7 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
    * Sign convention: `payerDelta` is negative when the payer spent, and the
    * bracket is what the model says that delta should have been.
    */
-  const modelled = credit - tradeDebit - baseFee - priorityFee - tip - rentCreated + rentRecovered;
+  const modelled = credit - tradeDebit - baseFee - priorityFee - tip - rentCreated + rentRecovered - venueFee;
   const unexplained = payerDelta - modelled;
 
   /**
@@ -217,7 +273,11 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
       // unknown: input and output were both measured, and how the venue divided
       // its cut between LP, protocol and creator does not change what the
       // wallet did.
-      protocolFeeLamports: null,
+      // MEASURED as a total from the accounts that received it. The split
+      // between protocol, buyback and creator is not decomposed, and that does
+      // not make PnL unknown: input and output were both measured, and how the
+      // venue divided its cut does not change what the wallet did.
+      protocolFeeLamports: venueFee,
       creatorFeeLamports: null,
       lpFeeLamports: null,
       // A FAMILY FACT for a directly-built leg: there is no platform fee

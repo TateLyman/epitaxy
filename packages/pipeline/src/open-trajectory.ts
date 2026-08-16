@@ -828,6 +828,17 @@ export async function openTrajectory(
    * itself, and `unexplained` is DERIVED rather than assumed zero.
    */
   const closedInSell = trip.baseAtaClosedInSell === true ? [takerAta] : [];
+  /**
+   * The accounts that SKIM the swap: protocol, buyback and creator vaults.
+   *
+   * All named by the frozen plan and all observed, so their gain is a measured
+   * cost rather than an unexplained remainder.
+   */
+  const feeSkimAccounts = [
+    ...selectedTail,
+    ...(roles.coinCreatorVaultAta === null ? [] : [roles.coinCreatorVaultAta]),
+    ...(roles.accumulatorWsolAta === null ? [] : [roles.accumulatorWsolAta]),
+  ];
 
   /**
    * An account that DID NOT EXIST is not a coverage failure.
@@ -878,6 +889,7 @@ export async function openTrajectory(
     post: trip.buy.postAccounts as unknown as ObservedAccount[],
     createdAccounts,
     closedAccounts: [],
+    feeRecipients: feeSkimAccounts,
     runtimeOk: trip.buy.status === 'SIMULATED_OK',
     incompleteness: buyGap.map((u) => `unobserved on buy: ${u}`),
     fullAccountCoverage: buyGap.length === 0,
@@ -903,6 +915,10 @@ export async function openTrajectory(
           post: trip.sell.postAccounts as unknown as ObservedAccount[],
           createdAccounts: [],
           closedAccounts: closedInSell,
+          // The base ATA was opened by the BUY. Without this the sell finds no
+          // source for the rent it recovered and reports zero.
+          rentSourceAccounts: createdAccounts,
+          feeRecipients: feeSkimAccounts,
           runtimeOk: trip.sell.status === 'SIMULATED_OK',
           incompleteness: sellGap.map((u) => `unobserved on sell: ${u}`),
           fullAccountCoverage: sellGap.length === 0,
