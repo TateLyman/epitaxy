@@ -33,7 +33,7 @@ import { boundEntryImpact, attributeSoleVenue } from '../../domain/src/trajector
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
 import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
-import { legSettlementFromRuntime, type ObservedAccount } from './leg-settlement.js';
+import { legSettlementFromRuntime, coverageGap, type ObservedAccount } from './leg-settlement.js';
 import { buildTrajectorySettlement, checkIdentities, type TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
 import {
   classifyCreatedAccount,
@@ -860,16 +860,8 @@ export async function openTrajectory(
    * actually unmeasured. An account that did not exist cannot be observed, and
    * calling that missing coverage confuses an impossibility with an omission.
    */
-  const existedDuringLeg = (step: { preAccounts: readonly { pubkey: string; lamports: bigint }[]; postAccounts: readonly { pubkey: string; lamports: bigint }[] }): Set<string> => {
-    const live = new Set<string>();
-    for (const a of [...step.preAccounts, ...step.postAccounts]) if (a.lamports > 0n) live.add(a.pubkey);
-    return live;
-  };
-  const realGap = (entries: readonly string[], live: Set<string>): string[] =>
-    entries.filter((u) => [...live].some((k) => u.includes(k)));
-
-  const buyGap = realGap(trip.buy.unobserved, existedDuringLeg(trip.buy));
-  const sellGap = trip.sell === null ? [] : realGap(trip.sell.unobserved, existedDuringLeg(trip.sell));
+  const buyGap = coverageGap(trip.buy.unobserved, trip.buy.preAccounts);
+  const sellGap = trip.sell === null ? [] : coverageGap(trip.sell.unobserved, trip.sell.preAccounts);
   const entryLeg = legSettlementFromRuntime({
     observationId: `obs-buy-${p.mint.slice(0, 8)}`,
     simulationJobId: `job-buy-${p.mint.slice(0, 8)}`,

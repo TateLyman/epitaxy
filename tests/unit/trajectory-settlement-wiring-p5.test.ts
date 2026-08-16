@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../../packages/storage/src/db.js';
 import { insertTrajectorySettlement, settlementTotals } from '../../packages/storage/src/trajectory-repo.js';
-import { legSettlementFromRuntime, BASE_FEE_PER_SIGNATURE_LAMPORTS } from '../../packages/pipeline/src/leg-settlement.js';
+import { legSettlementFromRuntime, coverageGap, BASE_FEE_PER_SIGNATURE_LAMPORTS } from '../../packages/pipeline/src/leg-settlement.js';
 import { buildTrajectorySettlement, checkIdentities } from '../../packages/domain/src/trajectory-settlement.js';
 import type { CreatedAccount } from '../../packages/solana/src/created-accounts.js';
 
@@ -207,5 +207,47 @@ describe('P5 persistence — one settlement, written once', () => {
     const s = settlementOf(false);
     expect(() => insertTrajectorySettlement(db, 'nope', 'IMMEDIATE_MECHANICS', s, [], 1)).toThrow(/FOREIGN KEY/);
     db.close();
+  });
+});
+
+/**
+ * The coverage rule, which decides whether a net PnL may exist at all.
+ *
+ * Measured live: all seven blocking addresses were in the frozen plan and
+ * ABSENT ON CHAIN — accounts the transaction was about to create. Reporting an
+ * impossibility as an omission made `fullAccountCoverage` false on every leg
+ * and refused a net PnL for runs where nothing was actually unmeasured.
+ */
+describe('P5 — a writable is a coverage gap only if it EXISTED', () => {
+  const pre = [
+    { pubkey: 'existed', lamports: 2_039_280n },
+    // Present in the observation but empty: an account the leg is about to open.
+    { pubkey: 'aboutToBeCreated', lamports: 0n },
+  ];
+
+  it('flags a writable that was there all along and nobody read', () => {
+    expect(coverageGap(['existed'], pre)).toEqual(['existed']);
+  });
+
+  it('does NOT flag an account the leg creates', () => {
+    expect(coverageGap(['aboutToBeCreated'], pre)).toEqual([]);
+  });
+
+  it('does NOT flag an account absent from the pre-state entirely', () => {
+    // The taker WSOL ATA: the SDK wraps and unwraps it inside the same
+    // transaction, so it exists in neither the pre nor the post observation.
+    expect(coverageGap(['neverSeen'], pre)).toEqual([]);
+  });
+
+  it('checks the PRE state only, so a created account is not counted as existing', () => {
+    // An earlier version tested pre OR post. Everything the leg created is in
+    // post, so that version excluded nothing at all.
+    const post = [{ pubkey: 'aboutToBeCreated', lamports: 2_039_280n }];
+    expect(coverageGap(['aboutToBeCreated'], pre)).toEqual([]);
+    expect(coverageGap(['aboutToBeCreated'], [...pre, ...post])).toEqual(['aboutToBeCreated']);
+  });
+
+  it('matches an entry that carries a reason alongside the address', () => {
+    expect(coverageGap(['unobserved on buy: existed'], pre)).toHaveLength(1);
   });
 });

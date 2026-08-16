@@ -250,3 +250,36 @@ export function legSettlementFromRuntime(p: LegSettlementInput): MeasuredLegSett
     incompleteness,
   };
 }
+
+/**
+ * Which unobserved writables are a real COVERAGE GAP.
+ *
+ * The worker reports `unobserved` for anything it was asked to read and could
+ * not find. Once the observe set became the full frozen plan, that list began
+ * including three quite different things, and only one is a defect:
+ *
+ *   - accounts the leg CREATES, absent before execution by definition;
+ *   - accounts created AND CLOSED inside the same transaction, such as the
+ *     taker WSOL ATA the SDK wraps and unwraps on every leg, which exists in
+ *     neither the pre nor the post observation;
+ *   - a writable that was there all along and nobody looked at. THIS one.
+ *
+ * Measured live: all seven blocking addresses were in the frozen plan and
+ * ABSENT ON CHAIN. Treating them as missing coverage made
+ * `fullAccountCoverage` false on every leg, so the canonical settlement refused
+ * a net PnL for runs where nothing was actually unmeasured — an impossibility
+ * reported as an omission.
+ *
+ * The test is the PRE state alone. An earlier version checked pre OR post,
+ * which counted an account the leg created as one that existed and so excluded
+ * nothing at all.
+ */
+export function coverageGap(
+  unobserved: readonly string[],
+  preAccounts: readonly { pubkey: string; lamports: bigint }[],
+): string[] {
+  const existed = new Set<string>();
+  for (const a of preAccounts) if (a.lamports > 0n) existed.add(a.pubkey);
+  // Entries may carry a reason alongside the address, so match by containment.
+  return unobserved.filter((u) => [...existed].some((k) => u.includes(k)));
+}
