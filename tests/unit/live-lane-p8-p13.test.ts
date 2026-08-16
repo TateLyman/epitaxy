@@ -18,7 +18,7 @@ import {
   wssCoverage,
 } from '../../packages/storage/src/collector-telemetry.js';
 import { LiveMigrationLane } from '../../apps/collector/src/live-lane.js';
-import { wsUrlFromHttp } from '../../packages/domain/src/config.js';
+import { wsUrlFromHttp, resolveEndpoints } from '../../packages/domain/src/config.js';
 import { buildBottleneckReport } from '../../packages/research/src/bottleneck.js';
 import { subscriptionFor, assertUnwatchesExactly, UnwatchMismatch } from '../../packages/pipeline/src/vault-watch.js';
 
@@ -351,5 +351,77 @@ describe('13 — the binding constraint is what was OBSERVED, not what was proje
     });
     expect(r.dutyCycle).toBe(0.4);
     expect(r.notes.join(' ')).toContain('a fact about downtime');
+  });
+});
+
+/**
+ * One asymmetry, found three times.
+ *
+ * `rpcHttp` derived from the Helius key and `rpcWs` did not, so an operator with
+ * a key got HTTP and no websocket. Then an explicit `SOLANA_RPC_HTTP` sent HTTP
+ * to one provider while the socket still derived from the key, so the two
+ * transports pointed at different hosts and the socket closed 1006 on every
+ * attempt. Then the FALLBACK: an operator who names a primary and holds a
+ * working key had a second endpoint available and no way to reach it, because
+ * deriving only ever happened when the primary was absent.
+ *
+ * Measured on 2026-08-16: the primary returned `daily request limit reached` for
+ * hours while the Helius endpoint answered getSlot with HTTP 200.
+ */
+describe('every transport derives from the same place, or from nothing', () => {
+  const r = (over: Partial<Parameters<typeof resolveEndpoints>[0]> = {}) =>
+    resolveEndpoints({
+      explicitHttp: null,
+      explicitWs: null,
+      explicitFallback: null,
+      heliusApiKey: null,
+      ...over,
+    });
+
+  it('derives BOTH the socket and the fallback when a primary is named and a key exists', () => {
+    const e = r({ explicitHttp: 'https://example.quiknode.pro/abc/', heliusApiKey: 'k123' });
+    // The socket follows the PRIMARY, because two transports on two providers
+    // is the defect that closed 1006 on every attempt.
+    expect(e.rpcWs).toBe('wss://example.quiknode.pro/abc/');
+    // The fallback follows the KEY, because that is the second endpoint — the
+    // one that answered 200 for hours while the primary refused every call.
+    expect(e.rpcHttpFallback).toContain('helius-rpc.com');
+    expect(e.rpcHttpDerivedFromHeliusKey).toBe(false);
+  });
+
+  it('never falls back to the endpoint it is ALREADY using', () => {
+    // With no explicit primary, rpcHttp IS the Helius URL. A fallback equal to
+    // the primary retries the exhausted host against itself.
+    const e = r({ heliusApiKey: 'k123' });
+    expect(e.rpcHttp).toContain('helius-rpc.com');
+    expect(e.rpcHttpFallback).toBeNull();
+    expect(e.rpcHttpDerivedFromHeliusKey).toBe(true);
+  });
+
+  it('explicit beats derived, for all three', () => {
+    const e = r({
+      explicitHttp: 'https://example.quiknode.pro/abc/',
+      explicitWs: 'wss://named.example/socket',
+      explicitFallback: 'https://named.example/rpc',
+      heliusApiKey: 'k123',
+    });
+    expect(e.rpcHttp).toBe('https://example.quiknode.pro/abc/');
+    expect(e.rpcWs).toBe('wss://named.example/socket');
+    expect(e.rpcHttpFallback).toBe('https://named.example/rpc');
+  });
+
+  it('derives nothing at all with no key and no primary', () => {
+    const e = r();
+    expect(e.rpcHttp).toBeNull();
+    expect(e.rpcWs).toBeNull();
+    expect(e.rpcHttpFallback).toBeNull();
+  });
+
+  it('a named primary with NO key gets a socket and no fallback', () => {
+    // There is no second endpoint to fall back to, and inventing one would be
+    // worse than having none.
+    const e = r({ explicitHttp: 'https://example.quiknode.pro/abc/' });
+    expect(e.rpcWs).toBe('wss://example.quiknode.pro/abc/');
+    expect(e.rpcHttpFallback).toBeNull();
   });
 });

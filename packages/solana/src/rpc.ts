@@ -846,6 +846,59 @@ export function isQuotaExhausted(e: unknown): boolean {
     m.includes('monthly') ||
     m.includes('credits') ||
     m.includes('upgrade your account') ||
-    m.includes('quota')
+    m.includes('quota') ||
+    // Helius, verified 2026-08-16. Added after the phrase list missed it: the
+    // collector had a stop for exactly this condition and ground through six
+    // candidates anyway, because the provider chose different words.
+    m.includes('max usage')
   );
+}
+
+/**
+ * A wording-independent circuit breaker for endpoint exhaustion.
+ *
+ * `isQuotaExhausted` matches provider prose, and prose is brittle. It was
+ * written against QuickNode's `daily request limit reached` and then missed
+ * Helius's `max usage reached` on the very next run — the stop it guarded did
+ * not fire, and the cycle produced six apparatus refusals instead of one honest
+ * line.
+ *
+ * This asks the question that actually matters and needs no vocabulary: are we
+ * being refused over and over? A transient per-second limit resolves within a
+ * few calls because the client backs off. A spent allowance does not resolve at
+ * all, so consecutive refusals accumulate and the only useful response is to
+ * stop asking.
+ *
+ * Consecutive rather than total: one 429 in the middle of a working cycle is
+ * ordinary rate limiting and must not end the pass.
+ */
+export class EndpointRefusalBreaker {
+  private consecutive = 0;
+
+  constructor(private readonly limit = 3) {}
+
+  /** Record an outcome. Returns true once the endpoint should be left alone. */
+  record(failure: unknown | null): boolean {
+    if (failure === null) {
+      this.consecutive = 0;
+      return false;
+    }
+    const m = failure instanceof Error ? failure.message : String(failure);
+    // Only rate-shaped refusals count. A pool that does not exist is a fact
+    // about the token and must never trip a breaker about the endpoint.
+    if (!m.includes('429') && !m.toLowerCase().includes('rate_limited')) {
+      this.consecutive = 0;
+      return false;
+    }
+    this.consecutive++;
+    return this.tripped;
+  }
+
+  get tripped(): boolean {
+    return this.consecutive >= this.limit;
+  }
+
+  get consecutiveRefusals(): number {
+    return this.consecutive;
+  }
 }

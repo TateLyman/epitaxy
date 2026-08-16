@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import { loadSecrets, modeFromArgv } from '../../../packages/domain/src/config.js';
 import { openDb } from '../../../packages/storage/src/db.js';
 import { researchRpc } from '../../../packages/solana/src/endpoint.js';
-import { isQuotaExhausted } from '../../../packages/solana/src/rpc.js';
+import { isQuotaExhausted, EndpointRefusalBreaker } from '../../../packages/solana/src/rpc.js';
 import { base58Encode } from '../../../packages/solana/src/base58.js';
 import {
   enrichMigration,
@@ -601,6 +601,15 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   const worker = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
   const refusals: Record<string, number> = {};
   let opened = 0;
+  /**
+   * Endpoint exhaustion, without matching provider prose.
+   *
+   * `isQuotaExhausted` reads the message, and messages differ: it was written
+   * against QuickNode's `daily request limit reached` and missed Helius's `max
+   * usage reached` on the next run, so the stop it guarded never fired and the
+   * cycle produced six apparatus refusals instead of one honest line.
+   */
+  const breaker = new EndpointRefusalBreaker(3);
 
   try {
     for (const c of candidates) {
@@ -633,10 +642,14 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
        *
        * Measured on 2026-08-16, when exactly that happened.
        */
-      if (facts.poolReadFailure !== null && isQuotaExhausted(new Error(facts.poolReadFailure))) {
+      const refusedRepeatedly = breaker.record(facts.poolReadFailure === null ? null : new Error(facts.poolReadFailure));
+      if (refusedRepeatedly || (facts.poolReadFailure !== null && isQuotaExhausted(new Error(facts.poolReadFailure)))) {
         if (sessionId !== null) countResource(db, sessionId, 'solana_rpc', { detail: 'getAccountInfo', count: 0, quotaErrors: 1 });
         console.log('');
-        console.log('STOPPING THIS PASS: the RPC daily request quota is spent.');
+        console.log(
+          `STOPPING THIS PASS: the RPC endpoint refused ${breaker.consecutiveRefusals} read(s) in a row.`,
+        );
+        console.log(`  ${(facts.poolReadFailure ?? '').slice(0, 100)}`);
         console.log('Every further candidate would be refused for an apparatus reason, and a refusal');
         console.log('histogram full of those reads as a fact about the chain. `pnpm rate:budget-v2`');
         console.log('reports it as the binding constraint.');

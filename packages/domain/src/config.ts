@@ -488,40 +488,96 @@ export function wsUrlFromHttp(httpUrl: string): string | null {
   }
 }
 
+export interface ResolvedEndpoints {
+  readonly rpcHttp: string | null;
+  readonly rpcWs: string | null;
+  readonly rpcHttpFallback: string | null;
+  /** True when the HTTP endpoint came from the key rather than from a name. */
+  readonly rpcHttpDerivedFromHeliusKey: boolean;
+}
+
+/**
+ * Resolve all three transports together.
+ *
+ * PURE, and separate from `loadSecrets`, because the bug this exists to prevent
+ * is a relationship BETWEEN the three rather than a property of any one — and a
+ * relationship cannot be tested through a function that reads the environment.
+ *
+ * The same asymmetry has now been found three times:
+ *
+ * 1. `rpcHttp` fell back to the Helius key and `rpcWs` did not, so an operator
+ *    with a key configured got HTTP and NO websocket. Every websocket feature
+ *    constructed itself, logged an absence at warn, and did nothing.
+ * 2. With an explicit `SOLANA_RPC_HTTP`, HTTP went to the named provider while
+ *    the socket still derived from the key. Measured 2026-08-16: that socket
+ *    closed with code 1006 on every attempt while the same-host socket
+ *    connected and delivered events within ten seconds.
+ * 3. The FALLBACK derived only when the primary was ABSENT, so an operator who
+ *    named a primary and held a working key had a second endpoint and no way to
+ *    reach it. Measured the same day: the primary returned `daily request limit
+ *    reached` for hours while the Helius endpoint answered `getSlot` with 200,
+ *    and a full day of collection was lost to a fallback that existed.
+ *
+ * The rules, in order of precedence:
+ *
+ * - an explicitly named endpoint always wins, for every transport;
+ * - the SOCKET follows the HTTP endpoint actually in use, because two
+ *   transports pointing at two providers is the defect;
+ * - the FALLBACK follows the key, because that is the second endpoint;
+ * - a fallback equal to the primary is dropped, since retrying an exhausted
+ *   host against itself is not a fallback.
+ */
+export function resolveEndpoints(p: {
+  explicitHttp: string | null;
+  explicitWs: string | null;
+  explicitFallback: string | null;
+  heliusApiKey: string | null;
+}): ResolvedEndpoints {
+  const derived = p.explicitHttp === null && p.heliusApiKey !== null;
+  const rpcHttp = p.explicitHttp ?? (p.heliusApiKey === null ? null : heliusRpcUrl(p.heliusApiKey));
+
+  const rpcWs =
+    p.explicitWs ??
+    (p.explicitHttp === null ? null : wsUrlFromHttp(p.explicitHttp)) ??
+    (p.heliusApiKey === null ? null : heliusWsUrl(p.heliusApiKey));
+
+  const derivedFallback = p.heliusApiKey === null ? null : heliusRpcUrl(p.heliusApiKey);
+  const fallback = p.explicitFallback ?? derivedFallback;
+
+  return {
+    rpcHttp,
+    rpcWs,
+    // Never the endpoint already in use.
+    rpcHttpFallback: fallback === null || fallback === rpcHttp ? null : fallback,
+    rpcHttpDerivedFromHeliusKey: derived,
+  };
+}
+
 export function loadSecrets(): Secrets {
   // `.env` is loaded here rather than at process start so that every entry
   // point gets it without having to remember to. Idempotent, and ambient
   // variables always win — see packages/domain/src/dotenv.ts (O031).
   loadDotEnvOnce();
   const heliusApiKey = envOrNull('HELIUS_API_KEY');
-  const explicitRpcHttp = envOrNull('SOLANA_RPC_HTTP');
-  // Explicit beats derived, always. An operator who names an endpoint gets that
-  // endpoint even when a Helius key is also present, because silently
-  // preferring the key would make the configured value a lie.
-  const derived = explicitRpcHttp === null && heliusApiKey !== null;
+  // Every transport resolved together, by one pure function. The defect this
+  // guards against is a relationship BETWEEN the three rather than a property
+  // of any one, and a relationship cannot be tested through a function that
+  // reads the environment.
+  const endpoints = resolveEndpoints({
+    explicitHttp: envOrNull('SOLANA_RPC_HTTP'),
+    explicitWs: envOrNull('SOLANA_RPC_WS'),
+    explicitFallback: envOrNull('SOLANA_RPC_HTTP_FALLBACK'),
+    heliusApiKey,
+  });
   return {
     heliusApiKey,
     jupiterApiKey: envOrNull('JUPITER_API_KEY'),
     paperTakerPubkey: envOrNull('PAPER_TAKER_PUBKEY'),
     goplusToken: envOrNull('GOPLUS_ACCESS_TOKEN'),
-    rpcHttp: explicitRpcHttp ?? (heliusApiKey === null ? null : heliusRpcUrl(heliusApiKey)),
-    /**
-     * Explicit beats derived here too — and a derived socket follows the
-     * endpoint HTTP is actually using, not a second provider's key.
-     *
-     * The order matters and each step earns its place: an operator who names a
-     * socket gets it; an operator who names an HTTP endpoint gets that
-     * provider's socket, because two transports pointing at two providers is
-     * the defect this whole comment block exists about; and only an operator
-     * with nothing but a Helius key falls back to Helius, where HTTP is going
-     * anyway.
-     */
-    rpcWs:
-      envOrNull('SOLANA_RPC_WS') ??
-      (explicitRpcHttp === null ? null : wsUrlFromHttp(explicitRpcHttp)) ??
-      (heliusApiKey === null ? null : heliusWsUrl(heliusApiKey)),
-    rpcHttpFallback: envOrNull('SOLANA_RPC_HTTP_FALLBACK'),
-    rpcHttpDerivedFromHeliusKey: derived,
+    rpcHttp: endpoints.rpcHttp,
+    rpcWs: endpoints.rpcWs,
+    rpcHttpFallback: endpoints.rpcHttpFallback,
+    rpcHttpDerivedFromHeliusKey: endpoints.rpcHttpDerivedFromHeliusKey,
     tradingKeypairPath: envOrNull('TRADING_KEYPAIR_PATH'),
     liveAckPath: envOrNull('LIVE_ACK_PATH'),
     databasePath: envOrNull('DATABASE_PATH') ?? './data/runtime.db',

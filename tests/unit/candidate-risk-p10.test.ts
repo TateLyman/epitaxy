@@ -12,7 +12,7 @@ import {
 import { entityAdjustedConcentration, FactCollectedTooLate } from '../../packages/intelligence/src/risk-facts-order.js';
 import { openDb } from '../../packages/storage/src/db.js';
 import { insertCandidateRiskFacts, admissionTotals } from '../../packages/storage/src/trajectory-repo.js';
-import { isQuotaExhausted } from '../../packages/solana/src/rpc.js';
+import { isQuotaExhausted, EndpointRefusalBreaker } from '../../packages/solana/src/rpc.js';
 import type { DecodedMint } from '../../packages/solana/src/mint.js';
 
 /**
@@ -277,5 +277,46 @@ describe('an apparatus failure is never reported as a property of the token', ()
     ).toBe(true);
     expect(isQuotaExhausted(new Error('[solana_rpc/rate_limited] HTTP 429: too many requests, slow down'))).toBe(false);
     expect(isQuotaExhausted(new Error('HTTP 500: internal error'))).toBe(false);
+  });
+});
+
+/**
+ * A wording-independent breaker, because provider prose is not an interface.
+ *
+ * `isQuotaExhausted` was written against QuickNode's `daily request limit
+ * reached` and missed Helius's `max usage reached` on the very next run. The
+ * stop it guarded did not fire, and the cycle produced six apparatus refusals
+ * instead of one honest line.
+ */
+describe('endpoint exhaustion is detected by BEHAVIOUR, not by vocabulary', () => {
+  it('trips after consecutive rate-shaped refusals, whatever they say', () => {
+    const b = new EndpointRefusalBreaker(3);
+    expect(b.record(new Error('HTTP 429: something nobody has seen before'))).toBe(false);
+    expect(b.record(new Error('HTTP 429: something nobody has seen before'))).toBe(false);
+    expect(b.record(new Error('HTTP 429: something nobody has seen before'))).toBe(true);
+    expect(b.consecutiveRefusals).toBe(3);
+  });
+
+  it('a success in between resets it, because that is ordinary rate limiting', () => {
+    const b = new EndpointRefusalBreaker(3);
+    b.record(new Error('HTTP 429'));
+    b.record(new Error('HTTP 429'));
+    b.record(null);
+    expect(b.tripped).toBe(false);
+    expect(b.consecutiveRefusals).toBe(0);
+  });
+
+  it('a token that simply has no pool NEVER trips a breaker about the endpoint', () => {
+    // Conflating the two is the defect the breaker exists alongside, not a
+    // second instance of it.
+    const b = new EndpointRefusalBreaker(2);
+    expect(b.record(new Error('no canonical PumpSwap pool on chain'))).toBe(false);
+    expect(b.record(new Error('the pool account did not decode'))).toBe(false);
+    expect(b.tripped).toBe(false);
+  });
+
+  it('still recognises both providers by name, for the clearer message', () => {
+    expect(isQuotaExhausted(new Error('HTTP 429: daily request limit reached'))).toBe(true);
+    expect(isQuotaExhausted(new Error('[solana_rpc/rate_limited] HTTP 429: max usage reached'))).toBe(true);
   });
 });
