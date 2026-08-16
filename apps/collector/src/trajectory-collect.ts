@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { loadSecrets, modeFromArgv } from '../../../packages/domain/src/config.js';
 import { openDb } from '../../../packages/storage/src/db.js';
 import { researchRpc } from '../../../packages/solana/src/endpoint.js';
@@ -32,6 +33,18 @@ import {
   markAndOutcomeCounts,
 } from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
+import { LiveMigrationLane, LiveVaultWatch } from './live-lane.js';
+import { subscriptionFor } from '../../../packages/pipeline/src/vault-watch.js';
+import {
+  openCollectorSession,
+  closeCollectorSession,
+  heartbeat,
+  countResource,
+  recordLatency,
+  pendingUrgent,
+  consumeUrgent,
+  type SessionHandle,
+} from '../../../packages/storage/src/collector-telemetry.js';
 import {
   insertConfirmedMigration,
   insertTrajectory,
@@ -71,6 +84,15 @@ import {
  */
 
 const MIGRATION_PROGRAMS = [PUMP_PROGRAM, PUMPSWAP_PROGRAM, AMM_PROGRAM_ID];
+
+/** One account read, shaped for `accountSourceOf`. */
+async function readPoolRow(
+  rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
+  pubkey: string,
+): Promise<{ pubkey: string; owner: string; dataBase64: string; lamports: bigint }> {
+  const raw = await rpc.getAccountRaw(pubkey);
+  return { pubkey, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports };
+}
 
 /** Frozen for the development window. Not a size search. */
 const NOTIONAL_LAMPORTS = BigInt(process.env['COLLECT_LAMPORTS'] ?? '20000000');
@@ -256,7 +278,20 @@ async function snapshotCandidate(
   }
 }
 
-async function runCycle(): Promise<void> {
+/**
+ * The lanes and telemetry that outlive one cycle.
+ *
+ * A websocket that reconnected every cycle would spend its whole life in
+ * backoff and would report a coverage gap for every interval between cycles —
+ * gaps that describe the collector's schedule rather than the chain's.
+ */
+interface LaneContext {
+  readonly session: SessionHandle;
+  readonly migrations: LiveMigrationLane | null;
+  readonly vaults: LiveVaultWatch | null;
+}
+
+async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   const mode = modeFromArgv() ?? 'observe';
   if (mode === 'canary' || mode === 'live') {
     throw new Error('trajectory:collect never runs in a mode that can trade');
@@ -265,13 +300,46 @@ async function runCycle(): Promise<void> {
   const secrets = loadSecrets();
   const { rpc, host } = researchRpc(secrets as never);
   const db = openDb({ path: secrets.databasePath, skipBackup: true });
+  const sessionId = lanes?.session.sessionId ?? null;
+  const count = (kind: string, detail?: string): void => {
+    if (sessionId !== null) countResource(db, sessionId, kind, detail === undefined ? {} : { detail });
+  };
 
   console.log(`trajectory:collect  mode=${mode}  endpoint=${host}`);
   console.log('this process owns no capital: no NAV, no free capital, no portfolio position limit');
   console.log('');
 
+  /**
+   * P8 — THE PRIMARY LANE: what the chain just did.
+   *
+   * Drained before the history scan, and its yield is reported separately, so
+   * "the live lane found nothing" and "the live lane is not running" are
+   * different lines rather than one silence.
+   */
+  if (lanes?.migrations != null) {
+    const live = await lanes.migrations.drain(args.maxCandidates);
+    console.log(
+      `live migration lane: ${live.recorded} recorded from ${live.fetched} fetched, ` +
+        `${lanes.migrations.pending} still queued` +
+        (live.droppedForBound > 0 ? `, ${live.droppedForBound} DROPPED for the queue bound` : ''),
+    );
+    for (const [r, n] of Object.entries(live.refusals).sort((a, b) => b[1] - a[1]).slice(0, 4)) {
+      console.log(`  refused ${String(n).padStart(4)}  ${r}`);
+    }
+    const cov = lanes.migrations.coverage;
+    console.log(
+      `  socket: ${lanes.migrations.fullyCovered ? 'fully covered' : 'DEGRADED'} — ` +
+        cov.map((c) => `${c.programId.slice(0, 6)}${c.subscribed ? '' : '(unsubscribed)'}=${c.events}`).join(' '),
+    );
+  } else {
+    console.log('live migration lane: NOT RUNNING (no websocket endpoint configured)');
+  }
+
+  // The RECOVERY lane. Structurally late — a pool only enters it once a
+  // screening happened to mention its mint — and kept because it reaches
+  // creations the socket was not alive for.
   const disc = await discover(db, rpc, args.maxCandidates);
-  console.log(`discovery: ${disc.found} confirmed migration(s) recorded`);
+  console.log(`history backfill: ${disc.found} confirmed migration(s) recorded`);
   for (const [r, n] of Object.entries(disc.refusals).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
     console.log(`  refused ${String(n).padStart(4)}  ${r}`);
   }
@@ -464,15 +532,65 @@ async function runCycle(): Promise<void> {
    * minutes, which is a different measurement wearing the right label.
    */
   const nowMs = Date.now();
-  const open = openTrajectories(db, 100);
+  const openRaw = openTrajectories(db, 100);
   let marksTaken = 0;
   let settled = 0;
 
+  /**
+   * P11 — THE URGENT QUEUE IS DRAINED FIRST.
+   *
+   * A vault that just moved 5% is the observation whose value decays fastest.
+   * Serving it after a queue of routine marks is the same as not having
+   * detected it, which would make the whole subscription theatre.
+   *
+   * `drainOrder`'s rule, applied to the actual work list: urgent trajectories
+   * move to the front, and nothing is duplicated.
+   */
+  const urgentIds =
+    sessionId === null ? [] : pendingUrgent(db, sessionId).map((u) => u.trajectory_id);
+  const urgentSet = new Set(urgentIds);
+  const open = [...openRaw.filter((t) => urgentSet.has(t.trajectoryId)), ...openRaw.filter((t) => !urgentSet.has(t.trajectoryId))];
+  if (urgentIds.length > 0) {
+    console.log(`urgent queue          : ${urgentIds.length} trajector(ies) ahead of ordinary marks`);
+  }
+
   for (const t of open) {
+    /**
+     * P11 — watch this trajectory's vaults while it is open.
+     *
+     * Idempotent: `watch` returns early for an address already subscribed, so
+     * a trajectory that survives many cycles subscribes once.
+     */
+    if (lanes?.vaults != null) {
+      try {
+        const addrs = poolAddressesFrom(
+          accountSourceOf([await readPoolRow(rpc, canonicalPool(t.mint))]),
+          canonicalPool(t.mint),
+        );
+        const set = {
+          baseVault: addrs.poolBaseTokenAccount,
+          quoteVault: addrs.poolQuoteTokenAccount,
+          poolState: canonicalPool(t.mint),
+          feeConfig: FEE_CONFIG_ADDR,
+          mint: t.mint,
+          creatorOrCashbackAccumulator: null,
+        };
+        lanes.vaults.watch(subscriptionFor(t.trajectoryId, set, nowMs), [
+          addrs.poolBaseTokenAccount,
+          addrs.poolQuoteTokenAccount,
+        ]);
+        count('solana_rpc', 'getAccountInfo');
+      } catch {
+        // A pool that will not read is a mark-time refusal, recorded there.
+        // Failing the whole cycle over a subscription would stop collection.
+      }
+    }
+
     const already = recordedOffsets(db, t.trajectoryId);
     const due = MARK_OFFSETS_MS.filter((o) => !already.has(o) && nowMs >= t.openedUtcMs + o);
 
     for (const offsetMs of due) {
+      const startedAt = Date.now();
       const m = await takeMark(rpc as never, {
         mint: t.mint,
         tokenAmount: t.acquiredAtoms,
@@ -484,6 +602,21 @@ async function runCycle(): Promise<void> {
       });
       insertMark(db, t.trajectoryId, m);
       marksTaken++;
+      count('mark_jobs');
+      count('solana_rpc', 'getAccountInfo');
+      if (sessionId !== null) {
+        // How long the mark itself took. Distinct from LATENESS, which is how
+        // late the horizon was reached — one is apparatus, the other is
+        // schedule, and merging them hides which is the constraint.
+        recordLatency(db, sessionId, 'mark_lag', Date.now() - startedAt, startedAt);
+      }
+    }
+
+    // Consumed, whether or not a horizon was due: the urgent signal has been
+    // acted on by taking whatever this trajectory owed. Leaving it queued would
+    // make the same 5% move jump the queue forever.
+    if (sessionId !== null && urgentSet.has(t.trajectoryId)) {
+      consumeUrgent(db, sessionId, t.trajectoryId, Date.now());
     }
 
     // A path closes only when every horizon exists. Settling a truncated path
@@ -500,6 +633,8 @@ async function runCycle(): Promise<void> {
     for (const o of outcomes) insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs);
     closeTrajectory(db, t.trajectoryId, nowMs);
     settled++;
+    // P11 — release the subscription, by the addresses that were STORED.
+    lanes?.vaults?.unwatch(t.trajectoryId);
     console.log(
       `  SETTLED ${t.trajectoryId.slice(0, 8)} ${t.mint.slice(0, 10)} ` +
         outcomes.map((o) => `${o.exitPolicy}=${o.grossDeltaLamports ?? 'unpriced'}`).join(' '),
@@ -574,9 +709,87 @@ async function runCycle(): Promise<void> {
  */
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const secrets = loadSecrets();
+
+  /**
+   * P13 — the session, which is what "active seconds" means.
+   *
+   * The rate budget this replaces divided counts by ELAPSED WALL TIME, downtime
+   * included: a process that ran twenty minutes out of a day reported "48
+   * requests/day against a 10,000/day quota" and concluded quota was not the
+   * constraint. That describes the downtime.
+   *
+   * Opened even for `--once`, because a single pass is still active time and
+   * excluding it would understate the load.
+   */
+  const telemetryDb = openDb({ path: secrets.databasePath, skipBackup: true });
+  const { host } = researchRpc(secrets as never);
+  let commit = 'unknown';
+  let dirty = true;
+  try {
+    commit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+    dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim().length > 0;
+  } catch {
+    /* provenance that cannot be read is recorded unknown, never omitted */
+  }
+  const session = openCollectorSession(telemetryDb, {
+    mode: modeFromArgv() ?? 'observe',
+    sourceCommit: commit,
+    dirty,
+    pid: process.pid,
+    endpoint: host,
+    nowMs: Date.now(),
+  });
+
+  /**
+   * P8/P11 — the live lanes, owned here rather than per cycle.
+   *
+   * A websocket rebuilt every cycle would spend its life in backoff and would
+   * report a coverage gap for every interval BETWEEN cycles — gaps describing
+   * the collector's schedule rather than the chain's.
+   */
+  const wsUrl = secrets.rpcWs;
+  const lanes: LaneContext = {
+    session,
+    migrations:
+      wsUrl === null
+        ? null
+        : new LiveMigrationLane({
+            wsUrl,
+            programs: MIGRATION_PROGRAMS,
+            rpc: researchRpc(secrets as never).rpc as never,
+            db: telemetryDb,
+            sessionId: session.sessionId,
+            persist: (m, reversal, nowMs) => insertConfirmedMigration(telemetryDb, m as never, reversal as never, nowMs),
+          }),
+    vaults: wsUrl === null ? null : new LiveVaultWatch({ wsUrl, db: telemetryDb, sessionId: session.sessionId }),
+  };
+  if (wsUrl === null) {
+    console.log('NO WEBSOCKET: SOLANA_RPC_WS is not configured, so the live lanes are off and');
+    console.log('discovery falls back to history paging, which is structurally late.');
+  }
+  lanes.migrations?.start();
+  if (lanes.migrations != null) {
+    // Connecting takes a moment. Draining in the same millisecond reports
+    // DEGRADED and records a gap describing our own startup, which is noise in
+    // the one surface that exists to make real gaps visible.
+    const covered = await lanes.migrations.waitUntilCovered(10_000);
+    if (!covered) console.log('the migration socket did not fully subscribe within 10s; coverage is degraded');
+  }
+
+  const finish = (): void => {
+    closeCollectorSession(telemetryDb, session.sessionId, Date.now());
+    telemetryDb.close();
+  };
 
   if (!args.loop) {
-    await runCycle();
+    try {
+      await runCycle(lanes);
+    } finally {
+      await lanes.migrations?.stop();
+      await lanes.vaults?.stop();
+      finish();
+    }
     return;
   }
 
@@ -597,7 +810,7 @@ async function main(): Promise<void> {
     const started = Date.now();
     console.log(`\n===== cycle ${cycle} @ ${new Date(started).toISOString()} =====`);
     try {
-      await runCycle();
+      await runCycle(lanes);
     } catch (e) {
       /**
        * A cycle that throws must not kill the daemon.
@@ -609,11 +822,24 @@ async function main(): Promise<void> {
        */
       console.error(`cycle ${cycle} failed: ${(e as Error).message.slice(0, 200)}`);
     }
+    /**
+     * The heartbeat advances whether the cycle succeeded or threw.
+     *
+     * A cycle that failed is still active time — the process was up, it spent
+     * RPC, and it produced a refusal. Advancing only on success would make an
+     * hour of failing cycles look like an hour of downtime, and the two call
+     * for opposite responses.
+     */
+    heartbeat(telemetryDb, session.sessionId, Date.now(), cycle);
     if (stopping) break;
     const elapsed = Date.now() - started;
     const wait = Math.max(0, args.intervalSeconds * 1_000 - elapsed);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
+
+  await lanes.migrations?.stop();
+  await lanes.vaults?.stop();
+  finish();
   console.log('collector daemon stopped.');
 }
 

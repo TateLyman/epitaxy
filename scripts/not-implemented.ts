@@ -26,15 +26,28 @@ export interface MissingCapability {
   readonly previouslyAliasedTo?: string;
 }
 
-export const NOT_IMPLEMENTED: readonly MissingCapability[] = [
+/**
+ * Commands that USED to be here and now mean their names.
+ *
+ * Kept because an artifact carrying the old aliased output is still
+ * mislabelled, and somebody reading a stale `wss-status.json` needs to know
+ * which script produced it. Graduating a command must not erase the evidence
+ * that its earlier output answered a different question.
+ */
+export const GRADUATED: readonly { command: string; nowRunsScript: string; previouslyAliasedTo: string }[] = [
   {
     command: 'rate:budget-v2',
-    capability: 'actual active-process intervals and actual resource counters',
-    prerequisite:
-      'P13 instrumentation: per-cycle active-time accounting and RPC/Jupiter/WSS/DB counters ' +
-      'recorded by the running collector. Wall-clock throughput including downtime is not a rate.',
+    nowRunsScript: 'scripts/rate-budget-v2.ts',
     previouslyAliasedTo: 'scripts/trajectory-status.ts',
   },
+  {
+    command: 'wss:status',
+    nowRunsScript: 'scripts/wss-status.ts',
+    previouslyAliasedTo: 'scripts/direct-signal-status.ts',
+  },
+];
+
+export const NOT_IMPLEMENTED: readonly MissingCapability[] = [
   {
     command: 'reject:panel-v2',
     capability: 'prospective samples collected AT REJECTION TIME',
@@ -52,15 +65,6 @@ export const NOT_IMPLEMENTED: readonly MissingCapability[] = [
       'nothing here has ever signed or submitted. This command cannot mean its name before a ' +
       'canary, and a simulated round trip is not a landed swap.',
     previouslyAliasedTo: 'scripts/pumpswap-parity-v3.ts',
-  },
-  {
-    command: 'wss:status',
-    capability: 'actual WebSocket session coverage, reconnects, gaps and urgent-queue consumption',
-    prerequisite:
-      'P11: the collector subscribing to decoded vault and pool accounts, persisting its ' +
-      'subscription addresses per trajectory, and recording gaps and resyncs. The direct-signal ' +
-      'status it aliased reports a different subsystem entirely.',
-    previouslyAliasedTo: 'scripts/direct-signal-status.ts',
   },
   {
     command: 'exploration:status',

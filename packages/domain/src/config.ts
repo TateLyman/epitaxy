@@ -456,6 +456,38 @@ export function heliusWsUrl(apiKey: string): string {
   return `wss://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
 }
 
+/**
+ * The websocket form of whatever HTTP endpoint is actually in use.
+ *
+ * The asymmetry above was fixed in one direction and left open in the other.
+ * With `SOLANA_RPC_HTTP` naming one provider and `HELIUS_API_KEY` still present
+ * from an earlier setup, HTTP went to the named provider and the websocket went
+ * to Helius — two transports, two providers, and no way to notice.
+ *
+ * Measured on this machine on 2026-08-16: the Helius-derived socket closed with
+ * code 1006 on every attempt while the same-host socket derived from the
+ * configured HTTP endpoint subscribed successfully. So the collector's live
+ * migration lane silently never covered anything, and reported a coverage gap
+ * that read as a chain fact rather than a configuration one.
+ *
+ * Every mainstream provider serves RPC and websocket on the same host under the
+ * `wss:` scheme, path and query included — the API key lives in the query
+ * string and is carried over unchanged.
+ *
+ * Returns null for a URL that will not parse. A malformed endpoint is a
+ * configuration error to surface, not a socket to guess at.
+ */
+export function wsUrlFromHttp(httpUrl: string): string | null {
+  try {
+    const u = new URL(httpUrl);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function loadSecrets(): Secrets {
   // `.env` is loaded here rather than at process start so that every entry
   // point gets it without having to remember to. Idempotent, and ambient
@@ -473,8 +505,21 @@ export function loadSecrets(): Secrets {
     paperTakerPubkey: envOrNull('PAPER_TAKER_PUBKEY'),
     goplusToken: envOrNull('GOPLUS_ACCESS_TOKEN'),
     rpcHttp: explicitRpcHttp ?? (heliusApiKey === null ? null : heliusRpcUrl(heliusApiKey)),
-    // Explicit beats derived here too, for the same reason it does for HTTP.
-    rpcWs: envOrNull('SOLANA_RPC_WS') ?? (heliusApiKey === null ? null : heliusWsUrl(heliusApiKey)),
+    /**
+     * Explicit beats derived here too — and a derived socket follows the
+     * endpoint HTTP is actually using, not a second provider's key.
+     *
+     * The order matters and each step earns its place: an operator who names a
+     * socket gets it; an operator who names an HTTP endpoint gets that
+     * provider's socket, because two transports pointing at two providers is
+     * the defect this whole comment block exists about; and only an operator
+     * with nothing but a Helius key falls back to Helius, where HTTP is going
+     * anyway.
+     */
+    rpcWs:
+      envOrNull('SOLANA_RPC_WS') ??
+      (explicitRpcHttp === null ? null : wsUrlFromHttp(explicitRpcHttp)) ??
+      (heliusApiKey === null ? null : heliusWsUrl(heliusApiKey)),
     rpcHttpFallback: envOrNull('SOLANA_RPC_HTTP_FALLBACK'),
     rpcHttpDerivedFromHeliusKey: derived,
     tradingKeypairPath: envOrNull('TRADING_KEYPAIR_PATH'),

@@ -1,31 +1,98 @@
 {
-  "activeSeconds": 0,
-  "wallSeconds": 0,
-  "dutyCycle": null,
-  "perResourcePerActiveSecond": {},
-  "rateLimitErrors": {},
-  "validTrajectoriesPerDay": null,
-  "validTrajectoriesPerCandidate": 0.00020055352773655288,
-  "canonicalPoolYield": 0.0003609963499257952,
-  "cashbackPoolYield": 0,
-  "apparatusFailureRate": 0,
-  "duplicateObservationRate": 0,
-  "workerUtilization": null,
-  "queueLagMs": {
-    "p50": null,
-    "p95": null
+  "artifact": "rate-budget-v2",
+  "directiveSection": "P13",
+  "generatedUtcMs": 1786907625892,
+  "sourceCommit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+  "dirty": true,
+  "activeTime": {
+    "activeSeconds": 0,
+    "wallSeconds": 0,
+    "sessions": 0,
+    "diedWithoutClosing": 0
   },
-  "markLagMs": {
-    "p50": null,
-    "p95": null
+  "limitsPerActiveSecond": {
+    "jupiter_order": 1,
+    "jupiter_build": 1,
+    "solana_rpc:getAccountInfo": 10,
+    "solana_rpc:getMultipleAccounts": 10,
+    "solana_rpc:getTransaction": 10,
+    "solana_rpc:getSignaturesForAddress": 10
   },
-  "triggerToFillMs": {
-    "p50": null,
-    "p95": null
+  "report": {
+    "activeSeconds": 0,
+    "wallSeconds": 0,
+    "dutyCycle": null,
+    "perResourcePerActiveSecond": {},
+    "rateLimitErrors": {},
+    "validTrajectoriesPerDay": null,
+    "validTrajectoriesPerCandidate": 1.0425531914893618,
+    "canonicalPoolYield": 1,
+    "cashbackPoolYield": 0.5957446808510638,
+    "apparatusFailureRate": 0,
+    "duplicateObservationRate": 0,
+    "workerUtilization": null,
+    "queueLagMs": {
+      "p50": null,
+      "p95": null
+    },
+    "markLagMs": {
+      "p50": null,
+      "p95": null
+    },
+    "triggerToFillMs": {
+      "p50": null,
+      "p95": null
+    },
+    "bindingConstraint": "unknown: no per-resource limits were supplied",
+    "notes": [
+      "no active time recorded; every rate below would be a division by zero and is null instead"
+    ]
   },
-  "bindingConstraint": "unknown: no per-resource limits were supplied",
-  "notes": [
-    "no active time recorded; every rate below would be a division by zero and is null instead"
+  "counters": [],
+  "infrastructure": [
+    {
+      "item": "jupiter_developer",
+      "allowed": false,
+      "reason": "jupiter_developer is not the binding constraint, so buying it changes nothing measurable",
+      "note": "corrected ACTIVE-TIME metrics show the 1 RPS limit is what caps completed trajectory throughput or breaks the fill SLA"
+    },
+    {
+      "item": "helius_developer",
+      "allowed": false,
+      "reason": "helius_developer is not the binding constraint, so buying it changes nothing measurable",
+      "note": "holder and entity reads are the blocked resource; exploit immediately with batched coherent snapshots"
+    },
+    {
+      "item": "shreds",
+      "allowed": false,
+      "reason": "shreds may not be bought before a positive untouched edge exists; faster access to a losing strategy loses faster",
+      "note": "forbidden before a positive untouched edge exists"
+    },
+    {
+      "item": "dedicated_validator",
+      "allowed": false,
+      "reason": "dedicated_validator may not be bought before a positive untouched edge exists; faster access to a losing strategy loses faster",
+      "note": "forbidden before a positive untouched edge exists"
+    },
+    {
+      "item": "colocation",
+      "allowed": false,
+      "reason": "colocation may not be bought before a positive untouched edge exists; faster access to a losing strategy loses faster",
+      "note": "forbidden before a positive untouched edge exists"
+    },
+    {
+      "item": "archival_rpc",
+      "allowed": false,
+      "reason": "archival_rpc may not be bought before a positive untouched edge exists; faster access to a losing strategy loses faster",
+      "note": "forbidden before a positive untouched edge exists"
+    },
+    {
+      "item": "business_tier_infrastructure",
+      "allowed": false,
+      "reason": "business_tier_infrastructure may not be bought before a positive untouched edge exists; faster access to a losing strategy loses faster",
+      "note": "forbidden before a positive untouched edge exists"
+    }
   ],
-  "note": "ACTIVE process time is not yet instrumented in the running engine, so every per-second rate is null rather than a number divided by wall time. That is the whole correction this version makes: the previous report divided by elapsed wall time including downtime and concluded quota was not the constraint."
+  "labelDefinition": "one COMPLETED trajectory. Never one leg, never one mark.",
+  "notClaimed": "this measures throughput and rate. It says nothing about whether the strategy is profitable."
 }

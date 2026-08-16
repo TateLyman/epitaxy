@@ -2357,6 +2357,121 @@ CREATE TABLE IF NOT EXISTS leg_cashback (
 CREATE INDEX IF NOT EXISTS idx_leg_cashback_accrued ON leg_cashback(accrued_to_us);
 `,
   },
+  {
+    id: 42,
+    name: 'collector_telemetry',
+    sql: `
+-- P11/P13 -- what the running collector actually did, in the DATABASE.
+--
+-- The status commands these tables serve must answer when no collector is
+-- attached. A \`wss:status\` that can only report on a live in-process watcher
+-- reports nothing the moment the process stops, which is exactly when an
+-- operator asks it what happened. So the process writes and the commands read,
+-- and neither has to be running for the other to work.
+--
+-- P13's arithmetic is the reason \`collector_sessions\` exists at all. The rate
+-- budget this replaces divided counts by ELAPSED WALL TIME, downtime included:
+-- a process that ran twenty minutes out of a day reported "48 requests/day
+-- against a 10,000/day quota" and concluded quota was not the constraint. That
+-- describes the downtime. Everything is per ACTIVE SECOND, and active seconds
+-- are the sum of these sessions.
+CREATE TABLE IF NOT EXISTS collector_sessions (
+  session_id       TEXT PRIMARY KEY,
+  started_utc_ms   INTEGER NOT NULL,
+  -- Advanced every cycle. A session whose heartbeat stopped is a session that
+  -- died, and the difference between it and one that exited cleanly is whether
+  -- ended_utc_ms was ever set.
+  heartbeat_utc_ms INTEGER NOT NULL,
+  ended_utc_ms     INTEGER,
+  mode             TEXT NOT NULL,
+  source_commit    TEXT NOT NULL,
+  dirty            INTEGER NOT NULL,
+  pid              INTEGER NOT NULL,
+  endpoint         TEXT NOT NULL,
+  cycles           INTEGER NOT NULL DEFAULT 0
+);
+
+-- Operational counters, not evidence. These are UPSERTED and accumulate within
+-- a session; nothing downstream treats a counter as a trade outcome, and a
+-- counter that could not be incremented would be a worse lie than one that can.
+CREATE TABLE IF NOT EXISTS collector_counters (
+  session_id    TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  -- For solana_rpc, the METHOD. Counting all RPC as one hides which call is the
+  -- one exhausting the quota, which is the only actionable part.
+  detail        TEXT NOT NULL DEFAULT '',
+  count         INTEGER NOT NULL DEFAULT 0,
+  errors_429    INTEGER NOT NULL DEFAULT 0,
+  quota_errors  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, kind, detail),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS collector_latency_samples (
+  session_id      TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  ms              INTEGER NOT NULL,
+  recorded_utc_ms INTEGER NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_latency_kind ON collector_latency_samples(kind);
+
+-- P11 -- the EXACT addresses that were subscribed.
+--
+-- Stored rather than re-derived, because unwatch must use these. Re-deriving at
+-- unwatch time means a derivation change silently leaks subscriptions instead
+-- of failing, and a leaked subscription looks identical to a quiet account.
+CREATE TABLE IF NOT EXISTS wss_subscriptions (
+  session_id           TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  address              TEXT NOT NULL,
+  trajectory_id        TEXT,
+  subscribed_utc_ms    INTEGER NOT NULL,
+  unsubscribed_utc_ms  INTEGER,
+  events               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, kind, address),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+-- Socket coverage gaps. Per-ACCOUNT silence is deliberately NOT recorded: a
+-- quiet account across slots is a quiet account, and manufacturing a gap for
+-- every account that simply did not trade buries the one real gap, which is the
+-- interval where the socket was down and nothing could have been seen.
+CREATE TABLE IF NOT EXISTS wss_gaps (
+  session_id        TEXT NOT NULL,
+  gap_start_utc_ms  INTEGER NOT NULL,
+  gap_end_utc_ms    INTEGER,
+  reason            TEXT NOT NULL,
+  addresses_resynced INTEGER NOT NULL DEFAULT 0,
+  addresses_changed  INTEGER NOT NULL DEFAULT 0,
+  still_unreadable   INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wss_gaps_session ON wss_gaps(session_id);
+
+-- P11 -- the urgent queue, and proof it was actually consumed.
+--
+-- A vault that just moved 5% is the observation whose value decays fastest;
+-- serving it after a queue of routine marks is the same as not having detected
+-- it. \`consumed_utc_ms\` is what distinguishes a queue that works from one that
+-- only fills.
+CREATE TABLE IF NOT EXISTS urgent_marks (
+  session_id       TEXT NOT NULL,
+  trajectory_id    TEXT NOT NULL,
+  address          TEXT NOT NULL,
+  before_balance   TEXT,
+  after_balance    TEXT,
+  queued_utc_ms    INTEGER NOT NULL,
+  consumed_utc_ms  INTEGER,
+  PRIMARY KEY (session_id, trajectory_id, queued_utc_ms),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_urgent_unconsumed ON urgent_marks(consumed_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

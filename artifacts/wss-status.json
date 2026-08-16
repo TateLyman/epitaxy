@@ -1,8 +1,68 @@
 {
-  "chainEventsStored": 356027,
-  "directChainEventsStored": 7023666,
-  "unreconciledChainEvents": 356027,
-  "erroredChainEvents": 310079,
-  "vaultSubscriptionsActive": "NOT_RUN",
-  "vaultSubscriptionsNote": "packages/pipeline/src/vault-watch.ts implements the subscription set, the urgent queue and gap resync; no live socket session has run since it landed, so there is no session to report"
+  "artifact": "wss-status",
+  "directiveSection": "P11",
+  "generatedUtcMs": 1786907682109,
+  "sourceCommit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+  "dirty": true,
+  "coverage": {
+    "sessions": 1,
+    "openSubscriptions": 0,
+    "closedSubscriptions": 2,
+    "byKind": [
+      {
+        "kind": "migration_logs",
+        "open": 0,
+        "events": 0
+      }
+    ],
+    "gaps": 1,
+    "openGaps": 1,
+    "addressesChangedWhileBlind": 0,
+    "urgentQueued": 0,
+    "urgentConsumed": 0,
+    "urgentPending": 0
+  },
+  "activeTime": {
+    "activeSeconds": 28.566,
+    "wallSeconds": 28.566,
+    "sessions": 1,
+    "diedWithoutClosing": 0
+  },
+  "subscriptionsByKind": [
+    {
+      "kind": "migration_logs",
+      "total": 2,
+      "open": 0,
+      "events": 0
+    }
+  ],
+  "gaps": [
+    {
+      "session_id": "0262b031-85d0-4b10-8c77-2501cfd06c9a",
+      "gap_start_utc_ms": 1786907635145,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (error); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    }
+  ],
+  "urgentConsumptionLagMs": {
+    "p50": null,
+    "p95": null,
+    "samples": 0
+  },
+  "sessions": [
+    {
+      "session_id": "0262b031-85d0-4b10-8c77-2501cfd06c9a",
+      "started_utc_ms": 1786907635022,
+      "heartbeat_utc_ms": 1786907663588,
+      "ended_utc_ms": 1786907663588,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+      "dirty": 1
+    }
+  ],
+  "notReported": "per-account silence. A quiet account across slots is a quiet account; manufacturing a gap per address buries the one real gap, which is the interval the SOCKET was down."
 }
