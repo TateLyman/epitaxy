@@ -8,9 +8,22 @@
 > `soleVenue=true quoteState=true`, no repeats, depth gate refusing drained
 > pools by name. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md`.
 >
-> **`DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed.** No edge has been measured,
-> only costs and refusals; net PnL is UNKNOWN and the sample is far below 100
-> valid paths per policy-cohort. Window V1 was INVALIDATED after ten minutes for
+> **Net PnL now EXISTS.** P5's canonical settlement was correct and unreachable
+> for several commits — its only caller was the trajectory kernel, which the
+> collector never reaches, and no table existed. Net PnL was UNKNOWN *by
+> construction*, not for want of a sample. It is now wired: 23 settlements, 8
+> with a net PnL, **−53,453,576 lamports** across eight IMMEDIATE round trips at
+> 0.02 SOL.
+>
+> That figure is dominated by **unrecoverable setup rent**, 3.9–6.0M lamports per
+> cold trajectory, and is **NOT a strategy result**: it is the cost of being the
+> first trader through a cold pool, which is P6 measured rather than argued. The
+> venue itself takes about 7,899 lamports.
+>
+> **`DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed.** No edge has been measured;
+> the sample is far below 100 valid paths per policy-cohort, and every
+> settlement still carries a non-zero `unexplained` remainder — derived and
+> reported, as P5 requires, and not yet zero. Window V1 was INVALIDATED after ten minutes for
 > a sampler defect — see `docs/DEV_WINDOW_V1_INVALIDATION.md`.
 >
 > The entry below was written while both endpoints were exhausted and is kept
