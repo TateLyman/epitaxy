@@ -224,13 +224,33 @@ export function cashbackAccrualRefusal(p: {
 export type SwapLeg = 'buy' | 'sell';
 
 export interface RemainingTail {
-  /** The accounts the swap instruction must END with, in order. */
+  /** The accounts the swap instruction must carry, in order. */
   readonly accounts: readonly string[];
   /** Why each one is there, for the refusal message. */
   readonly roles: readonly string[];
   /** Named derivations the caller could not supply. Never treated as "absent". */
   readonly underivable: readonly string[];
+  /**
+   * How many accounts sit AFTER the verifiable ones, whose addresses the SDK
+   * SELECTS rather than derives.
+   *
+   * PumpSwap appends `[buybackFeeRecipient, buybackFeeRecipientTokenAccount]`
+   * to the remaining accounts of every buy and every sell, unconditionally and
+   * last. The recipient is chosen from a list in the global config, so it is
+   * not predictable from the pool — which is the whole of F12 and the reason
+   * the account plan is frozen from the built bytes.
+   *
+   * They are therefore OBSERVED, not predicted. Ignoring them instead would
+   * mean comparing the cashback accounts against the wrong two positions, which
+   * is exactly the failure this constant exists to record: the first version of
+   * this check compared a one-account tail against the final account and
+   * refused every candidate on the chain.
+   */
+  readonly trailingSelectedCount: number;
 }
+
+/** The count of trailing SDK-selected accounts on both legs. */
+export const TRAILING_SELECTED_ACCOUNTS = 2;
 
 /**
  * The exact remaining-account tail the SDK appends, in order.
@@ -280,7 +300,7 @@ export function expectedRemainingTail(p: {
   }
   if (p.hasCoinCreator) want(p.poolV2, "the coin creator's pool-v2 PDA");
 
-  return { accounts, roles, underivable };
+  return { accounts, roles, underivable, trailingSelectedCount: TRAILING_SELECTED_ACCOUNTS };
 }
 
 /**
@@ -305,20 +325,52 @@ export function remainingTailRefusal(p: {
   const want = p.expected.accounts;
   if (want.length === 0) return null;
 
-  const got = p.swapInstructionAccounts.slice(-want.length);
-  if (got.length !== want.length) {
-    return `${p.leg}: the instruction has ${p.swapInstructionAccounts.length} accounts, fewer than the ${want.length} the tail requires`;
+  /**
+   * Skip the trailing SELECTED accounts before comparing.
+   *
+   * The verifiable accounts do not sit at the very end: the SDK appends the
+   * buyback fee recipient and its token account after them, and their addresses
+   * come from a list in the global config rather than from the pool.
+   *
+   * The first version of this check compared the expected one-account tail
+   * against the LAST account and refused every candidate on the chain — which
+   * is the check doing its job on my own model rather than on the builder, and
+   * is why it refuses instead of warning.
+   */
+  const trailing = p.expected.trailingSelectedCount;
+  const end = p.swapInstructionAccounts.length - trailing;
+  const start = end - want.length;
+  if (start < 0) {
+    return (
+      `${p.leg}: the instruction has ${p.swapInstructionAccounts.length} accounts, fewer than the ` +
+      `${want.length + trailing} the tail requires`
+    );
   }
+  const got = p.swapInstructionAccounts.slice(start, end);
   for (const [i, w] of want.entries()) {
     if (got[i] !== w) {
       return (
-        `${p.leg}: remaining tail position ${i} is ${(got[i] ?? 'absent').slice(0, 12)} but must be ` +
+        `${p.leg}: remaining position ${i} is ${(got[i] ?? 'absent').slice(0, 12)} but must be ` +
         `${w.slice(0, 12)} — ${p.expected.roles[i]}. ` +
         'The transaction would land and trade normally, and the creator fee would go to the creator.'
       );
     }
   }
   return null;
+}
+
+/**
+ * The trailing accounts the SDK selected, read off the built instruction.
+ *
+ * Recorded rather than predicted. F12's rule: the plan describes the bytes that
+ * ran, and a recipient chosen from a list is exactly the kind of thing a rebuild
+ * is not guaranteed to reproduce.
+ */
+export function selectedTrailingAccounts(
+  swapInstructionAccounts: readonly string[],
+  count: number = TRAILING_SELECTED_ACCOUNTS,
+): readonly string[] {
+  return swapInstructionAccounts.slice(-count);
 }
 
 /**

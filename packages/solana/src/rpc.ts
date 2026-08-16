@@ -818,3 +818,34 @@ export async function fetchConcentration(rpc: SolanaRpc, mint: string): Promise<
 }
 
 export { SPL_ACCOUNT_OWNER_OFFSET };
+
+/**
+ * Is this error a spent DAILY QUOTA rather than a per-second rate limit?
+ *
+ * Both arrive as HTTP 429 and they call for opposite responses. A rate limit is
+ * transient: back off and the next call succeeds. A spent daily quota is not:
+ * every retry today fails, backoff makes the cycle slower without making it
+ * more likely to work, and the resulting refusals read as facts about the
+ * tokens rather than about the account.
+ *
+ * Measured on 2026-08-16: the collector spent an entire cycle refusing every
+ * candidate with `APPARATUS: the pool could not be read (HTTP 429)`, and the
+ * body said `daily request limit reached - upgrade your account`. Nothing was
+ * wrong with the chain, the pools or the code. Everything was wrong with
+ * continuing to ask.
+ *
+ * Matched on the message body because the providers agree on the words and not
+ * on a code: QuickNode returns -32003 with "daily request limit reached",
+ * Helius and Triton phrase it as credits or a monthly cap.
+ */
+export function isQuotaExhausted(e: unknown): boolean {
+  const m = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
+  if (!m.includes('429') && !m.includes('rate_limited') && !m.includes('rate limited')) return false;
+  return (
+    m.includes('daily request limit') ||
+    m.includes('monthly') ||
+    m.includes('credits') ||
+    m.includes('upgrade your account') ||
+    m.includes('quota')
+  );
+}

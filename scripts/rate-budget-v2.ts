@@ -107,6 +107,7 @@ function main(): void {
   const positiveUntouchedEdge = false; // No edge has been measured. Stated, not assumed.
   const jupiterBinding = report.bindingConstraint.startsWith('jupiter');
   const rpcBinding = report.bindingConstraint.startsWith('solana_rpc');
+  const quotaExhausted = report.bindingConstraint.includes('DAILY QUOTA');
   const recommendations = [
     {
       item: 'jupiter_developer',
@@ -124,7 +125,10 @@ function main(): void {
         positiveUntouchedEdgeExists: positiveUntouchedEdge,
         bindingConstraintIsThisResource: rpcBinding,
       }),
-      note: INFRASTRUCTURE_POLICY.heliusDeveloperJustifiedWhen,
+      note: quotaExhausted
+        ? 'the current endpoint returned `daily request limit reached`, so the quota is exhausted in fact rather than in projection: ' +
+          INFRASTRUCTURE_POLICY.heliusDeveloperJustifiedWhen
+        : INFRASTRUCTURE_POLICY.heliusDeveloperJustifiedWhen,
     },
     ...INFRASTRUCTURE_POLICY.forbiddenBeforePositiveUntouchedEdge.map((item) => ({
       item,

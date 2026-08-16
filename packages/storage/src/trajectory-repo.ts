@@ -510,3 +510,125 @@ export function cashbackLegTotals(db: Db): {
     accumulatorGainLamports: gain.toString(),
   };
 }
+
+/**
+ * P10 — persist the risk facts, admitted or refused.
+ *
+ * The refusals are the larger half and the more useful one. A screening row is
+ * written for every token screened; the same rule applies here, because a
+ * filter whose rejects are not stored can never be evaluated.
+ *
+ * Keyed on (mint, collected_utc_ms) so re-examining the same mint later is a
+ * new observation rather than an overwrite. The facts were true at a time, and
+ * a token whose freeze authority was renounced yesterday should not retroactively
+ * rewrite yesterday's refusal.
+ */
+export function insertCandidateRiskFacts(
+  db: Db,
+  f: {
+    mint: string;
+    pool: string;
+    collectedAtMs: number;
+    mint2022: {
+      overall: string;
+      freezeAuthority: string;
+      mintAuthority: string;
+      permanentDelegate: string;
+      transferHook: string;
+      decodeFailure: string | null;
+      transferFeeBps: number | null;
+    };
+    transferFee: { kind: string };
+    mayhem: { enabled: boolean | null; source: string };
+    breadth: string;
+    isCashbackCoin: boolean | null;
+    accumulatorWsolAta: string | null;
+    concentration: { kind: string; entityAdjustedShare?: number };
+    canonicalPool: boolean;
+    requiresSharedSetup: boolean | null;
+  },
+  admission: { admit: boolean; refusals: readonly string[]; stratum: string },
+  trajectoryId: string | null,
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO candidate_risk_facts (
+       mint, pool, collected_utc_ms, trajectory_id,
+       mint_overall, freeze_authority, mint_authority, permanent_delegate, transfer_hook, mint_decode_failure,
+       transfer_fee_kind, transfer_fee_bps,
+       mayhem_enabled, mayhem_source, breadth_usability,
+       is_cashback_coin, accumulator_wsol_ata,
+       concentration_kind, entity_adjusted_share,
+       canonical_pool, requires_shared_setup, stratum, admitted, refusals
+     ) VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?, ?,?, ?,?, ?,?,?,?,?)`,
+  ).run(
+    f.mint,
+    f.pool,
+    f.collectedAtMs,
+    trajectoryId,
+    f.mint2022.overall,
+    f.mint2022.freezeAuthority,
+    f.mint2022.mintAuthority,
+    f.mint2022.permanentDelegate,
+    f.mint2022.transferHook,
+    f.mint2022.decodeFailure,
+    f.transferFee.kind,
+    f.mint2022.transferFeeBps,
+    // NULL, not 0. A token neither venue could be read for has not been shown
+    // to be non-Mayhem; it has not been looked at.
+    f.mayhem.enabled === null ? null : f.mayhem.enabled ? 1 : 0,
+    f.mayhem.source,
+    f.breadth,
+    f.isCashbackCoin === null ? null : f.isCashbackCoin ? 1 : 0,
+    f.accumulatorWsolAta,
+    f.concentration.kind,
+    f.concentration.entityAdjustedShare ?? null,
+    f.canonicalPool ? 1 : 0,
+    f.requiresSharedSetup === null ? null : f.requiresSharedSetup ? 1 : 0,
+    admission.stratum,
+    admission.admit ? 1 : 0,
+    JSON.stringify(admission.refusals),
+  );
+}
+
+export function riskFactsFor(db: Db, mint: string): Record<string, unknown>[] {
+  return db
+    .prepare('SELECT * FROM candidate_risk_facts WHERE mint = ? ORDER BY collected_utc_ms DESC')
+    .all(mint) as never;
+}
+
+/** Admission counts by stratum, and the refusal histogram. Refusals are the product. */
+export function admissionTotals(db: Db): {
+  examined: number;
+  admitted: number;
+  byStratum: { stratum: string; n: number; admitted: number }[];
+  topRefusals: { reason: string; n: number }[];
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number } | undefined)?.c ?? 0;
+  const rows = db.prepare('SELECT refusals FROM candidate_risk_facts WHERE admitted = 0').all() as {
+    refusals: string;
+  }[];
+  const hist = new Map<string, number>();
+  for (const r of rows) {
+    let parsed: string[] = [];
+    try {
+      parsed = JSON.parse(r.refusals) as string[];
+    } catch {
+      parsed = ['(unparseable refusal row)'];
+    }
+    for (const reason of parsed) hist.set(reason, (hist.get(reason) ?? 0) + 1);
+  }
+  return {
+    examined: one('SELECT COUNT(*) c FROM candidate_risk_facts'),
+    admitted: one('SELECT COUNT(*) c FROM candidate_risk_facts WHERE admitted = 1'),
+    byStratum: db
+      .prepare(
+        `SELECT stratum, COUNT(*) n, SUM(admitted) admitted FROM candidate_risk_facts
+          GROUP BY stratum ORDER BY n DESC`,
+      )
+      .all() as never,
+    topRefusals: [...hist.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([reason, n]) => ({ reason, n })),
+  };
+}

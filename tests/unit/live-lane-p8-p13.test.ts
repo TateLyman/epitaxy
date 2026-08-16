@@ -19,6 +19,7 @@ import {
 } from '../../packages/storage/src/collector-telemetry.js';
 import { LiveMigrationLane } from '../../apps/collector/src/live-lane.js';
 import { wsUrlFromHttp } from '../../packages/domain/src/config.js';
+import { buildBottleneckReport } from '../../packages/research/src/bottleneck.js';
 import { subscriptionFor, assertUnwatchesExactly, UnwatchMismatch } from '../../packages/pipeline/src/vault-watch.js';
 
 /**
@@ -296,5 +297,59 @@ describe('the socket follows the endpoint HTTP is actually using', () => {
     // guess at.
     expect(wsUrlFromHttp('not a url')).toBeNull();
     expect(wsUrlFromHttp('wss://already.a.socket/')).toBeNull();
+  });
+});
+
+/**
+ * An OBSERVED quota error outranks a modelled ratio.
+ *
+ * Measured on 2026-08-16: the endpoint sat at 0.9% of its 10/s limit and
+ * returned `daily request limit reached` on every call. The modelled ratio said
+ * rate capacity was not the constraint — true, and useless, because the account
+ * had no requests left for the day. A per-second limit and a daily allowance
+ * are different limits, and this report only models the first.
+ */
+describe('13 — the binding constraint is what was OBSERVED, not what was projected', () => {
+  const base = {
+    time: { activeSeconds: 1_000, wallSeconds: 2_000 },
+    throughput: {
+      completedTrajectories: 5,
+      candidatesConsidered: 50,
+      candidatesWithCanonicalPool: 10,
+      candidatesWithCashbackPool: 2,
+      apparatusFailures: 0,
+      duplicateObservations: 0,
+      workerBusySeconds: 0,
+    },
+    latency: { queueLagMs: [], markLagMs: [], triggerToFillMs: [] },
+    limitsPerActiveSecond: { 'solana_rpc:getAccountInfo': 10 },
+  };
+
+  it('reports low per-second utilisation as NOT the constraint when nothing failed', () => {
+    const r = buildBottleneckReport({
+      ...base,
+      resources: [{ kind: 'solana_rpc', detail: 'getAccountInfo', count: 90, errors429: 0, quotaErrors: 0 }],
+    });
+    expect(r.bindingConstraint).toContain('of its 10/s limit');
+    expect(r.notes.join(' ')).toContain('per-second rate capacity is NOT the constraint');
+  });
+
+  it('names the DAILY QUOTA instead the moment one is actually observed', () => {
+    const r = buildBottleneckReport({
+      ...base,
+      resources: [{ kind: 'solana_rpc', detail: 'getAccountInfo', count: 90, errors429: 0, quotaErrors: 1 }],
+    });
+    expect(r.bindingConstraint).toContain('DAILY QUOTA is exhausted');
+    expect(r.notes.join(' ')).toContain('Backing off does not help');
+  });
+
+  it('still reports the duty cycle, because downtime is not capacity', () => {
+    const r = buildBottleneckReport({
+      ...base,
+      time: { activeSeconds: 800, wallSeconds: 2_000 },
+      resources: [],
+    });
+    expect(r.dutyCycle).toBe(0.4);
+    expect(r.notes.join(' ')).toContain('a fact about downtime');
   });
 });

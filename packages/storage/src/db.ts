@@ -2472,6 +2472,69 @@ CREATE TABLE IF NOT EXISTS urgent_marks (
 CREATE INDEX IF NOT EXISTS idx_urgent_unconsumed ON urgent_marks(consumed_utc_ms);
 `,
   },
+  {
+    id: 43,
+    name: 'candidate_risk_facts',
+    sql: `
+-- P10 -- the risk facts, as they stood BEFORE the decision they informed.
+--
+-- Every module behind these columns existed and was tested, and none of them
+-- reached the trajectory collector. A candidate was admitted on mechanics
+-- alone: it had a canonical pool, the buy simulated, the sell simulated.
+-- Whether the mint could freeze our exit, whether the venue was in Mayhem mode,
+-- whether four of the top five holders were one wallet -- none of it was
+-- consulted, and none of it was stored against the trajectory that resulted.
+--
+-- \`collected_utc_ms\` is load-bearing rather than decorative. A gate reading a
+-- fact collected AFTER selection is a post-hoc annotation and the position was
+-- taken either way, so the row records when it was true and the admission
+-- refuses anything stamped later than the decision.
+--
+-- Every verdict column is nullable and UNKNOWN is stored as the string, never
+-- as NULL-meaning-fine. Absent-means-safe is the direction this system's errors
+-- have repeatedly travelled.
+CREATE TABLE IF NOT EXISTS candidate_risk_facts (
+  mint                  TEXT NOT NULL,
+  pool                  TEXT NOT NULL,
+  collected_utc_ms      INTEGER NOT NULL,
+  -- The trajectory this admitted, when one was opened. NULL for a refusal,
+  -- which is the majority and is the product.
+  trajectory_id         TEXT,
+  mint_overall          TEXT NOT NULL,
+  freeze_authority      TEXT NOT NULL,
+  mint_authority        TEXT NOT NULL,
+  permanent_delegate    TEXT NOT NULL,
+  transfer_hook         TEXT NOT NULL,
+  mint_decode_failure   TEXT,
+  transfer_fee_kind     TEXT NOT NULL,
+  transfer_fee_bps      INTEGER,
+  -- NULL means neither venue was read. NEVER false: a token whose pool and
+  -- bonding curve were both unavailable has not been shown to be non-Mayhem.
+  mayhem_enabled        INTEGER,
+  mayhem_source         TEXT NOT NULL,
+  -- ORGANIC | CONTAMINATED_UNQUANTIFIED | UNKNOWN. Mayhem flow is neither
+  -- organic nor zero; the agent share cannot be isolated without the program
+  -- layout, and subtracting an unmeasured quantity is a guess with a minus sign.
+  breadth_usability     TEXT NOT NULL,
+  is_cashback_coin      INTEGER,
+  accumulator_wsol_ata  TEXT,
+  concentration_kind    TEXT NOT NULL,
+  entity_adjusted_share REAL,
+  canonical_pool        INTEGER NOT NULL,
+  requires_shared_setup INTEGER,
+  stratum               TEXT NOT NULL,
+  admitted              INTEGER NOT NULL,
+  -- Every reason, as JSON. Not the first one: collapsing six facts into one
+  -- word is how 93% of a previous corpus became uninformative.
+  refusals              TEXT NOT NULL,
+  PRIMARY KEY (mint, collected_utc_ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_admitted ON candidate_risk_facts(admitted);
+CREATE INDEX IF NOT EXISTS idx_risk_stratum ON candidate_risk_facts(stratum);
+CREATE INDEX IF NOT EXISTS idx_risk_trajectory ON candidate_risk_facts(trajectory_id);
+`,
+  },
 ];
 
 export interface OpenOptions {

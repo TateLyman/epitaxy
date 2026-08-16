@@ -40,6 +40,17 @@ const FEE_RECIPIENT = 'FeeRecipient11111111111111111111111111111';
 /** The named accounts an instruction carries before the remaining ones. */
 const NAMED = ['n0', 'n1', 'n2', 'n3'];
 
+/**
+ * The two accounts PumpSwap appends after everything else, on every leg.
+ *
+ * `buybackFeeRecipient` is chosen from a list in the global config, so it is
+ * not predictable from the pool. The check reads them rather than deriving
+ * them, and the first version of that check did not know they existed - it
+ * compared the expected tail against the final accounts and refused every
+ * candidate on the chain.
+ */
+const SELECTED = ['BuybackRecipient11111111111111111111111', 'BuybackAta1111111111111111111111111111111'];
+
 const tail = (leg: 'buy' | 'sell', over: Record<string, unknown> = {}) =>
   expectedRemainingTail({
     leg,
@@ -66,7 +77,7 @@ describe('34/35 — the tail is exact, and BUY and SELL are different lengths', 
     expect(
       remainingTailRefusal({
         leg: 'sell',
-        swapInstructionAccounts: [...NAMED, ACCUM_ATA, UVA, POOL_V2],
+        swapInstructionAccounts: [...NAMED, ACCUM_ATA, UVA, POOL_V2, ...SELECTED],
         expected: tail('sell'),
       }),
     ).toBeNull();
@@ -78,7 +89,7 @@ describe('34/35 — the tail is exact, and BUY and SELL are different lengths', 
     // fee to the creator.
     const r = remainingTailRefusal({
       leg: 'sell',
-      swapInstructionAccounts: [...NAMED, ACCUM_ATA, POOL_V2],
+      swapInstructionAccounts: [...NAMED, ACCUM_ATA, POOL_V2, ...SELECTED],
       expected: tail('sell'),
     });
     expect(r).not.toBeNull();
@@ -90,7 +101,7 @@ describe('34/35 — the tail is exact, and BUY and SELL are different lengths', 
     // anything else there is a different account as far as it is concerned.
     const r = remainingTailRefusal({
       leg: 'sell',
-      swapInstructionAccounts: [...NAMED, UVA, ACCUM_ATA, POOL_V2],
+      swapInstructionAccounts: [...NAMED, UVA, ACCUM_ATA, POOL_V2, ...SELECTED],
       expected: tail('sell'),
     });
     expect(r).toContain('position 0');
@@ -112,14 +123,14 @@ describe('36 — omitted accounts receive zero attribution, and a null derivatio
     const t = tail('sell', { isCashbackCoin: false });
     expect(t.accounts).toEqual([POOL_V2]);
     expect(
-      remainingTailRefusal({ leg: 'sell', swapInstructionAccounts: [...NAMED, POOL_V2], expected: t }),
+      remainingTailRefusal({ leg: 'sell', swapInstructionAccounts: [...NAMED, POOL_V2, ...SELECTED], expected: t }),
     ).toBeNull();
   });
 
   it('expects nothing at all when there is neither cashback nor a coin creator', () => {
     const t = tail('buy', { isCashbackCoin: false, hasCoinCreator: false });
     expect(t.accounts).toEqual([]);
-    expect(remainingTailRefusal({ leg: 'buy', swapInstructionAccounts: NAMED, expected: t })).toBeNull();
+    expect(remainingTailRefusal({ leg: 'buy', swapInstructionAccounts: [...NAMED, ...SELECTED], expected: t })).toBeNull();
   });
 
   it('refuses when an expected address could not be DERIVED, rather than skipping it', () => {
@@ -130,7 +141,7 @@ describe('36 — omitted accounts receive zero attribution, and a null derivatio
     expect(
       remainingTailRefusal({
         leg: 'sell',
-        swapInstructionAccounts: [...NAMED, ACCUM_ATA, UVA, POOL_V2],
+        swapInstructionAccounts: [...NAMED, ACCUM_ATA, UVA, POOL_V2, ...SELECTED],
         expected: t,
       }),
     ).toContain('placement cannot be verified');

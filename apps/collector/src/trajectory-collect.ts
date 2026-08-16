@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { loadSecrets, modeFromArgv } from '../../../packages/domain/src/config.js';
 import { openDb } from '../../../packages/storage/src/db.js';
 import { researchRpc } from '../../../packages/solana/src/endpoint.js';
+import { isQuotaExhausted } from '../../../packages/solana/src/rpc.js';
 import { base58Encode } from '../../../packages/solana/src/base58.js';
 import {
   enrichMigration,
@@ -33,6 +34,15 @@ import {
   markAndOutcomeCounts,
 } from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
+import { swapAccountRoles } from '../../../packages/solana/src/pumpswap-offline.js';
+import { decodeMint, type DecodedMint } from '../../../packages/solana/src/mint.js';
+import { TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
+import {
+  collectCandidateRiskFacts,
+  admitCandidate,
+  assertCollectedBeforeDecision,
+  type CandidateRiskFacts,
+} from '../../../packages/intelligence/src/candidate-risk.js';
 import { LiveMigrationLane, LiveVaultWatch } from './live-lane.js';
 import { subscriptionFor } from '../../../packages/pipeline/src/vault-watch.js';
 import {
@@ -54,6 +64,8 @@ import {
   setupEconomicsTotals,
   insertLegCashback,
   cashbackLegTotals,
+  insertCandidateRiskFacts,
+  admissionTotals,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -104,6 +116,13 @@ interface Args {
   readonly maxOpen: number;
   readonly loop: boolean;
   readonly intervalSeconds: number;
+  /**
+   * How many unseen mints the history backfill may probe per cycle.
+   *
+   * Small on purpose. The unbounded version exhausted the endpoint's rate limit
+   * and left nothing for the primary path.
+   */
+  readonly backfillScan: number;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -120,6 +139,7 @@ function parseArgs(argv: readonly string[]): Args {
     // A daemon by default; --once is the escape hatch for a single pass.
     loop: !argv.includes('--once'),
     intervalSeconds: num('--interval', 300),
+    backfillScan: num('--backfill-scan', 25),
   };
 }
 
@@ -135,6 +155,8 @@ async function discover(
   db: ReturnType<typeof openDb>,
   rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
   limit: number,
+  /** How many unseen mints this cycle may probe. Recovery, not the main lane. */
+  scanBudget: number,
 ): Promise<{ found: number; refusals: Record<string, number> }> {
   const refusals: Record<string, number> = {};
   let found = 0;
@@ -155,6 +177,33 @@ async function discover(
    * that can be skipped — one live pool needed 25 pages to reach its creation,
    * and its single oldest signature was a FAILED snipe, not the creation.
    */
+  /**
+   * P13 — THE BACKFILL GETS A SMALL BUDGET, AND IT GETS IT LAST.
+   *
+   * This used to scan `max(200, limit × 40)` mints per cycle, one
+   * `getAccountRaw` each, to learn what it already knew: only about 3% of
+   * screened mints ever have a canonical PumpSwap pool. Measured on 2026-08-16
+   * the scan exhausted the endpoint's rate limit outright — 200 calls returning
+   * "no canonical pool", then HTTP 429 for every read the admission and open
+   * passes needed. The refusal histogram for that cycle read as a chain with no
+   * canonical pools, which was a fact about our quota.
+   *
+   * Now it is what P8 says it is: RECOVERY, on leftover budget. The live lane
+   * is the primary path, and mints already resolved are skipped rather than
+   * re-derived every cycle — a negative result about a mint does not expire.
+   */
+  const alreadyKnown = new Set(
+    (
+      db
+        .prepare(
+          `SELECT mint FROM confirmed_migrations
+            UNION SELECT mint FROM candidate_risk_facts
+            UNION SELECT mint FROM development_trajectories`,
+        )
+        .all() as { mint: string }[]
+    ).map((r) => r.mint),
+  );
+
   // Mints the screening stream has seen. `chain_events` identities are
   // untrustworthy (that is finding J), so the pool is DERIVED from the mint and
   // verified on chain rather than believed.
@@ -162,8 +211,18 @@ async function discover(
     .prepare('SELECT DISTINCT mint FROM screenings WHERE mint IS NOT NULL ORDER BY rowid DESC LIMIT ?')
     .all(Math.max(200, limit * 40)) as { mint: string }[];
 
+  let probed = 0;
   for (const { mint } of seen) {
     if (found >= limit) break;
+    // The bound that matters. Reached long before the SELECT's, and it is what
+    // leaves the endpoint with budget for the primary path.
+    if (probed >= scanBudget) {
+      refusals['backfill scan budget reached (the live lane is the primary path)'] =
+        (refusals['backfill scan budget reached (the live lane is the primary path)'] ?? 0) + 1;
+      break;
+    }
+    if (alreadyKnown.has(mint)) continue;
+    probed++;
     let pool: string;
     try {
       pool = canonicalPool(mint);
@@ -198,6 +257,148 @@ async function discover(
     }
   }
   return { found, refusals };
+}
+
+/**
+ * P10 — read what the risk gates need, for ONE candidate, before deciding.
+ *
+ * Deliberately shallow. Everything here comes from accounts the open path is
+ * about to read anyway — the mint and the pool — so admission costs two reads
+ * rather than a holder crawl. The expensive fact, entity-adjusted
+ * concentration, is reported as HISTORY_INCOMPLETE rather than fabricated:
+ * paginating every top holder's full signature history is a Helius-tier
+ * operation, and claiming a clustered share we did not measure is worse than
+ * refusing on it.
+ *
+ * That refusal is deliberate and it BITES: with no holder histories the
+ * concentration gate fails and nothing is admitted. Which is correct — an
+ * incomplete history can only UNDERSTATE clustering, so passing on it would
+ * pass exactly the tokens we know least about. The development limits below
+ * make that visible rather than quietly waiving it.
+ */
+async function candidateFacts(
+  rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
+  mint: string,
+  count: (kind: string, detail?: string) => void,
+): Promise<CandidateRiskFacts> {
+  const nowMs = Date.now();
+  let pool = '';
+  let canonical = false;
+  let poolMayhem: boolean | null = null;
+  let cashback: boolean | null = null;
+  let accumulator: string | null = null;
+  let poolBaseVault = '';
+  let poolReadFailure: string | null = null;
+
+  try {
+    pool = canonicalPool(mint);
+    const raw = await rpc.getAccountRaw(pool);
+    count('solana_rpc', 'getAccountInfo');
+    const addrs = poolAddressesFrom(
+      accountSourceOf([{ pubkey: pool, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports }]),
+      pool,
+    );
+    canonical = true;
+    poolBaseVault = addrs.poolBaseTokenAccount;
+    poolMayhem = addrs.isMayhemMode;
+    cashback = addrs.isCashbackCoin;
+    accumulator = swapAccountRoles({
+      user: 'So11111111111111111111111111111111111111112',
+      baseMint: mint,
+      coinCreator: addrs.coinCreator,
+    }).accumulatorWsolAta;
+  } catch (e) {
+    /**
+     * "The pool does not exist" and "we were rate limited" are DIFFERENT FACTS.
+     *
+     * Both refuse, and they must not refuse under the same name. Collapsing
+     * them reports an apparatus failure as a property of the token, and a run
+     * that hit its RPC quota then reads as a chain with no canonical pools —
+     * which is precisely the substitution this project keeps finding. The first
+     * live run of this gate did exactly that: six candidates admitted under one
+     * reading became six "not canonical" under the next, because the endpoint
+     * started returning 429.
+     */
+    poolReadFailure = (e as Error).message.slice(0, 120);
+  }
+
+  let decoded: DecodedMint | null = null;
+  let decodeFailure: string | null = null;
+  let isToken2022 = false;
+  try {
+    const raw = await rpc.getAccountRaw(mint);
+    count('solana_rpc', 'getAccountInfo');
+    isToken2022 = raw.owner === TOKEN_2022_PROGRAM;
+    decoded = decodeMint(Buffer.from(raw.dataBase64, 'base64'), raw.owner);
+  } catch (e) {
+    // `decodeMint` THROWS on an extension newer than itself rather than
+    // returning one, so an unknown extension arrives here as a decode failure
+    // and not as a field. That is stronger than grading it.
+    decodeFailure = (e as Error).message.slice(0, 140);
+  }
+
+  /**
+   * The CHEAP concentration tier: balances alone.
+   *
+   * One call, and a real measurement of a real thing — it just cannot tell one
+   * wallet holding five accounts from five independent holders. The pool's own
+   * vault is excluded: it is the largest holder of every migrated token and
+   * counting it would report every pool as maximally concentrated.
+   */
+  const raw: { share: number | null; examined: number } = { share: null, examined: 0 };
+  try {
+    const [largest, supply] = await Promise.all([
+      rpc.getTokenLargestAccounts(mint),
+      rpc.getTokenSupply(mint),
+    ]);
+    count('solana_rpc', 'getTokenLargestAccounts');
+    count('solana_rpc', 'getTokenSupply');
+    if (supply.amount > 0n) {
+      let held = 0n;
+      for (const a of largest.accounts) {
+        if (a.address === poolBaseVault) continue;
+        held += a.amount;
+        raw.examined++;
+      }
+      raw.share = Number((held * 10_000n) / supply.amount) / 10_000;
+    }
+  } catch {
+    // Null, not zero. An unread holder list is not an unconcentrated one, and
+    // `admitCandidate` refuses on null.
+  }
+
+  const fee = decoded?.transferFeeConfig ?? null;
+  return collectCandidateRiskFacts({
+    mint,
+    pool,
+    nowMs,
+    decodedMint: decoded,
+    mintDecodeFailure: decodeFailure,
+    isToken2022,
+    hasTransferFeeExtension: fee !== null,
+    transferFeeCurrentBps: decoded?.transferFee?.basisPoints ?? null,
+    // The NEWER schedule, which is the one a future exit pays.
+    transferFeeFutureBps: fee === null ? null : fee.newer.basisPoints,
+    transferFeeWithheldAtoms: fee === null ? null : fee.withheldAmount,
+    poolIsMayhemMode: poolMayhem,
+    isCashbackCoin: cashback,
+    accumulatorWsolAta: accumulator,
+    /**
+     * The strong tier is NOT walked here.
+     *
+     * An empty history list is HISTORY_INCOMPLETE — never a measured zero
+     * clustering, which is what it used to report. Paginating every top
+     * holder's full signature history to justify "initial funder" is a
+     * Helius-tier operation this system does not have, and the oldest item in a
+     * capped newest page is not the first transaction.
+     */
+    holderHistories: [],
+    clusteredShare: 0,
+    rawTopHolderShare: raw.share,
+    holdersExamined: raw.examined,
+    canonicalPool: canonical,
+    poolReadFailure,
+  });
 }
 
 /**
@@ -338,7 +539,7 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   // The RECOVERY lane. Structurally late — a pool only enters it once a
   // screening happened to mention its mint — and kept because it reaches
   // creations the socket was not alive for.
-  const disc = await discover(db, rpc, args.maxCandidates);
+  const disc = await discover(db, rpc, args.maxCandidates, args.backfillScan);
   console.log(`history backfill: ${disc.found} confirmed migration(s) recorded`);
   for (const [r, n] of Object.entries(disc.refusals).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
     console.log(`  refused ${String(n).padStart(4)}  ${r}`);
@@ -405,6 +606,52 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
     for (const c of candidates) {
       if (opened >= args.maxOpen) break;
 
+      /**
+       * P10 — THE RISK FACTS, BEFORE THE DECISION.
+       *
+       * Every module behind this call existed and was tested, and none of them
+       * reached this loop. A candidate was admitted on mechanics alone: it had
+       * a canonical pool, the buy simulated, the sell simulated. Whether the
+       * mint could freeze our exit was never consulted, and was never stored
+       * against the trajectory that resulted.
+       *
+       * Collected and stamped BEFORE `openTrajectory` runs, because a gate
+       * reading a fact collected after selection is a post-hoc annotation and
+       * the position was taken either way.
+       */
+      const facts = await candidateFacts(rpc, c.mint, count);
+
+      /**
+       * A SPENT DAILY QUOTA IS NOT A REFUSAL. Stop.
+       *
+       * A per-second rate limit and an exhausted daily allowance both arrive as
+       * HTTP 429, and they call for opposite responses. Backing off works for
+       * the first and is pure waste for the second: every remaining candidate
+       * this cycle would be refused with `APPARATUS: the pool could not be
+       * read`, and the refusal histogram would read as a chain with no
+       * canonical pools rather than as an account with no requests left.
+       *
+       * Measured on 2026-08-16, when exactly that happened.
+       */
+      if (facts.poolReadFailure !== null && isQuotaExhausted(new Error(facts.poolReadFailure))) {
+        if (sessionId !== null) countResource(db, sessionId, 'solana_rpc', { detail: 'getAccountInfo', count: 0, quotaErrors: 1 });
+        console.log('');
+        console.log('STOPPING THIS PASS: the RPC daily request quota is spent.');
+        console.log('Every further candidate would be refused for an apparatus reason, and a refusal');
+        console.log('histogram full of those reads as a fact about the chain. `pnpm rate:budget-v2`');
+        console.log('reports it as the binding constraint.');
+        break;
+      }
+
+      const admission = admitCandidate(facts);
+      insertCandidateRiskFacts(db, facts, admission, null);
+      if (!admission.admit) {
+        // Refusals are the product. Every reason, not the first.
+        for (const r of admission.refusals) refusals[r] = (refusals[r] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  RISK_REFUSED  ${admission.refusals[0]?.slice(0, 66) ?? ''}`);
+        continue;
+      }
+
       // A fresh runtime per candidate: the client's output bound is cumulative
       // over a worker's lifetime, and one long-lived worker turns a bound meant
       // to catch runaways into a cap on the study.
@@ -433,6 +680,29 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
       }
 
       const t = res.trajectory;
+
+      /**
+       * The facts were true BEFORE the decision. Asserted, not assumed.
+       *
+       * Throwing here would kill the cycle over a fact ordering that is correct
+       * by construction, so it is caught and named. If it ever fires, the
+       * collection order changed and every gate downstream became an
+       * annotation — which is worth a loud line in the log.
+       */
+      try {
+        assertCollectedBeforeDecision(facts, t.openedUtcMs);
+      } catch (e) {
+        console.log(`  ${c.mint.slice(0, 10)}  FACT ORDER: ${(e as Error).message.slice(0, 110)}`);
+      }
+      // Re-recorded against the trajectory it admitted, so the row and the
+      // outcome join. The refusal row above stays: a refusal is evidence too.
+      insertCandidateRiskFacts(
+        db,
+        { ...facts, collectedAtMs: facts.collectedAtMs + 1 },
+        admission,
+        t.trajectoryId,
+      );
+
       // P2/F12 — the plan goes in FIRST, keyed by the trajectory it belongs to.
       //
       // The capability fingerprint below is the snapshot hash, which says what
@@ -679,6 +949,23 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
    * right and this correction is wrong — which is why it is counted rather than
    * asserted.
    */
+  /**
+   * P10 — what the risk gates actually did.
+   *
+   * The refusal histogram is the larger and the more useful half. A screening
+   * row is written for every token screened; the same rule holds here, because
+   * a filter whose rejects are not stored can never be evaluated.
+   */
+  const adm = admissionTotals(db);
+  console.log('');
+  console.log(`risk admission        : ${adm.admitted} admitted of ${adm.examined} examined`);
+  for (const r of adm.topRefusals.slice(0, 5)) {
+    console.log(`  refused ${String(r.n).padStart(4)}  ${r.reason.slice(0, 90)}`);
+  }
+  for (const s of adm.byStratum.slice(0, 5)) {
+    console.log(`  stratum ${String(s.n).padStart(4)} (${s.admitted} admitted)  ${s.stratum}`);
+  }
+
   const cb = cashbackLegTotals(db);
   console.log(
     `cashback legs         : ${cb.legs} (${cb.cashbackCoinLegs} on cashback coins) — ` +

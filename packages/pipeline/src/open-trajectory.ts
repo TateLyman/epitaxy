@@ -25,6 +25,7 @@ import {
   expectedRemainingTail,
   remainingTailRefusal,
   legCashbackDeltas,
+  selectedTrailingAccounts,
   type LegCashbackDeltas,
 } from '../../solana/src/cashback.js';
 import { AMM_PROGRAM_ID } from '../../solana/src/pumpswap-offline.js';
@@ -707,7 +708,17 @@ export async function openTrajectory(
   const balanceIn = (accounts: readonly { pubkey: string; lamports: bigint }[]) => (key: string): bigint | null =>
     accounts.find((a) => a.pubkey === key)?.lamports ?? null;
 
-  const feeRecipient = buySwap.accounts.map((a) => a.pubkey).find((a) => a === roles.coinCreatorVaultAta) ?? null;
+  /**
+   * The buyback fee recipient the SDK SELECTED, read off the built instruction.
+   *
+   * PumpSwap appends `[buybackFeeRecipient, buybackFeeRecipientTokenAccount]`
+   * to every leg's remaining accounts, and the recipient comes from a list in
+   * the global config rather than from the pool — F12's exact concern. It is
+   * observed here, never derived, and its balance delta is what shows where the
+   * protocol's share of the fee actually went.
+   */
+  const buybackPair = selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey));
+  const feeRecipient = buybackPair[1] ?? null;
   const cashbackLegs: LegCashbackDeltas[] = [
     legCashbackDeltas({
       leg: 'buy',

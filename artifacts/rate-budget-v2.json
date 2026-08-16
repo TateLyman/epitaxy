@@ -1,13 +1,13 @@
 {
   "artifact": "rate-budget-v2",
   "directiveSection": "P13",
-  "generatedUtcMs": 1786907625892,
-  "sourceCommit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+  "generatedUtcMs": 1786909919551,
+  "sourceCommit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
   "dirty": true,
   "activeTime": {
-    "activeSeconds": 0,
-    "wallSeconds": 0,
-    "sessions": 0,
+    "activeSeconds": 886.614,
+    "wallSeconds": 2271.743,
+    "sessions": 8,
     "diedWithoutClosing": 0
   },
   "limitsPerActiveSecond": {
@@ -19,36 +19,83 @@
     "solana_rpc:getSignaturesForAddress": 10
   },
   "report": {
-    "activeSeconds": 0,
-    "wallSeconds": 0,
-    "dutyCycle": null,
-    "perResourcePerActiveSecond": {},
-    "rateLimitErrors": {},
-    "validTrajectoriesPerDay": null,
-    "validTrajectoriesPerCandidate": 1.0425531914893618,
+    "activeSeconds": 886.614,
+    "wallSeconds": 2271.743,
+    "dutyCycle": 0.39027918210818746,
+    "perResourcePerActiveSecond": {
+      "wss_events:logs": 105.94802247652304,
+      "solana_rpc:getAccountInfo": 0.08120783114184978,
+      "mark_jobs": 0.06316164644366094,
+      "solana_rpc:getTokenLargestAccounts": 0.00451154617454721,
+      "solana_rpc:getTokenSupply": 0.00451154617454721
+    },
+    "rateLimitErrors": {
+      "solana_rpc:getAccountInfo": 1
+    },
+    "validTrajectoriesPerDay": 5749.514444842965,
+    "validTrajectoriesPerCandidate": 1.2553191489361701,
     "canonicalPoolYield": 1,
     "cashbackPoolYield": 0.5957446808510638,
     "apparatusFailureRate": 0,
     "duplicateObservationRate": 0,
-    "workerUtilization": null,
+    "workerUtilization": 0,
     "queueLagMs": {
       "p50": null,
       "p95": null
     },
     "markLagMs": {
-      "p50": null,
-      "p95": null
+      "p50": 750,
+      "p95": 1371
     },
     "triggerToFillMs": {
       "p50": null,
       "p95": null
     },
-    "bindingConstraint": "unknown: no per-resource limits were supplied",
+    "bindingConstraint": "solana_rpc:getAccountInfo: the DAILY QUOTA is exhausted (1 observed), which no per-second headroom relieves",
     "notes": [
-      "no active time recorded; every rate below would be a division by zero and is null instead"
+      "the busiest limited resource is at 0.8% of its limit, so per-second rate capacity is NOT the constraint — buying more requests per second would not produce more completed trajectories",
+      "a daily allowance was spent, not a per-second limit. Backing off does not help: every retry today fails, and the refusals it produces read as facts about the chain rather than about the account.",
+      "rate-limit or quota errors were observed on: solana_rpc:getAccountInfo",
+      "duty cycle 39.0%: the process was not running for most of the window. Throughput per calendar day is therefore a fact about downtime, not about capacity."
     ]
   },
-  "counters": [],
+  "counters": [
+    {
+      "kind": "wss_events",
+      "detail": "logs",
+      "count": 93935,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getAccountInfo",
+      "count": 72,
+      "errors_429": 0,
+      "quota_errors": 1
+    },
+    {
+      "kind": "mark_jobs",
+      "detail": "",
+      "count": 56,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getTokenLargestAccounts",
+      "count": 4,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getTokenSupply",
+      "count": 4,
+      "errors_429": 0,
+      "quota_errors": 0
+    }
+  ],
   "infrastructure": [
     {
       "item": "jupiter_developer",
@@ -58,9 +105,9 @@
     },
     {
       "item": "helius_developer",
-      "allowed": false,
-      "reason": "helius_developer is not the binding constraint, so buying it changes nothing measurable",
-      "note": "holder and entity reads are the blocked resource; exploit immediately with batched coherent snapshots"
+      "allowed": true,
+      "reason": "helius_developer is the measured binding constraint",
+      "note": "the current endpoint returned `daily request limit reached`, so the quota is exhausted in fact rather than in projection: holder and entity reads are the blocked resource; exploit immediately with batched coherent snapshots"
     },
     {
       "item": "shreds",
