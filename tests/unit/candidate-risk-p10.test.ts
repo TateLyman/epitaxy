@@ -13,6 +13,7 @@ import { entityAdjustedConcentration, FactCollectedTooLate } from '../../package
 import { openDb } from '../../packages/storage/src/db.js';
 import { insertCandidateRiskFacts, admissionTotals } from '../../packages/storage/src/trajectory-repo.js';
 import { isQuotaExhausted, EndpointRefusalBreaker } from '../../packages/solana/src/rpc.js';
+import { SMALL_IMPACT_BOUND } from '../../packages/domain/src/trajectory-evidence.js';
 import type { DecodedMint } from '../../packages/solana/src/mint.js';
 
 /**
@@ -61,6 +62,11 @@ const facts = (over: Record<string, unknown> = {}) =>
     rawTopHolderShare: 0.2,
     holdersExamined: 19,
     canonicalPool: true,
+    // A healthy pool by default: 20 SOL of reserve, so a 0.02 SOL entry is
+    // 0.1% of it. That is the majority case measured on live candidates, and
+    // the depth gate is exercised explicitly further down.
+    effectiveQuoteReserveLamports: 20_000_000_000n,
+    notionalLamports: 20_000_000n,
     ...over,
   } as never);
 
@@ -347,5 +353,47 @@ describe('the fact-order check is about timing, not about strength', () => {
   it('still throws on a fact stamped AFTER the decision, which is its whole job', () => {
     const f = facts();
     expect(() => assertCollectedBeforeDecision(f, f.collectedAtMs - 1)).toThrow(FactCollectedTooLate);
+  });
+});
+
+/**
+ * Depth. A drained pool is not a venue, it is our own footprint.
+ *
+ * Measured on 2026-08-16 across 29 readable candidates: 19 held 18–57 SOL of
+ * quote reserve, where a 0.02 SOL entry is 0.1% of the pool; ten were drained to
+ * between 0.01 and 0.32 SOL, where the same entry is 6% to 170%. The sampler
+ * ordered by newest migration and kept selecting the drained ones.
+ *
+ * The bound is not a new number — it is `SMALL_IMPACT_BOUND`, which this
+ * repository already froze for counterfactual validity and then computed and
+ * discarded while the admission gate ignored depth entirely.
+ */
+describe('depth — the entry must be small relative to the pool', () => {
+  const withDepth = (quoteLamports: bigint | null) =>
+    facts({ effectiveQuoteReserveLamports: quoteLamports, notionalLamports: 20_000_000n });
+
+  it('admits a deep pool: 0.02 SOL into 20 SOL is 0.1%', () => {
+    const f = withDepth(20_000_000_000n);
+    expect(f.entryFractionOfPool).toBeCloseTo(0.001, 6);
+    expect(admitCandidate(f).admit).toBe(true);
+  });
+
+  it('REFUSES a drained pool where the entry is larger than the pool', () => {
+    const f = withDepth(17_900_721n); // the live 24fTiNwEG3 reserve
+    expect(f.entryFractionOfPool).toBeGreaterThan(1);
+    const a = admitCandidate(f);
+    expect(a.admit).toBe(false);
+    expect(a.refusals.join(' ')).toContain('our own footprint');
+  });
+
+  it('refuses on an UNREAD reserve rather than admitting', () => {
+    // Not shown to be deep is not the same as shown to be deep.
+    const a = admitCandidate(withDepth(null));
+    expect(a.admit).toBe(false);
+    expect(a.refusals.join(' ')).toContain('depth could not be read');
+  });
+
+  it('uses the bound the repository already froze, not a new one', () => {
+    expect(DEVELOPMENT_LIMITS.maxEntryFractionOfPool).toBe(SMALL_IMPACT_BOUND);
   });
 });

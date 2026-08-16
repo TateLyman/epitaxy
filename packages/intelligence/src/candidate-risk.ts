@@ -9,6 +9,7 @@ import {
   type ConcentrationVerdict,
   type EntityHistory,
 } from './risk-facts-order.js';
+import { SMALL_IMPACT_BOUND } from '../../domain/src/trajectory-evidence.js';
 import type { DecodedMint } from '../../solana/src/mint.js';
 
 /**
@@ -76,6 +77,20 @@ export interface CandidateRiskFacts {
    */
   readonly poolReadFailure: string | null;
   /**
+   * The pool's effective quote reserve, and what our entry is as a fraction of it.
+   *
+   * Measured 2026-08-16 across 29 readable candidates: 19 had 18-57 SOL of
+   * reserve, where a 0.02 SOL entry is 0.1% of the pool. Ten were drained to
+   * between 0.01 and 0.32 SOL, where the same entry is 6% to 170% of the pool.
+   *
+   * The sampler ordered by newest migration and kept selecting the drained
+   * ones. A round trip at 112% of a pool's quote reserve measures our own
+   * footprint, not the venue, and every counterfactual exit built on it is
+   * dominated by self-impact.
+   */
+  readonly effectiveQuoteReserveLamports: bigint | null;
+  readonly entryFractionOfPool: number | null;
+  /**
    * Whether the entry would have to open accounts another trader would have.
    *
    * P6's stratum boundary, carried here so admission and stratification read
@@ -109,6 +124,15 @@ export interface AdmissionLimits {
   readonly allowMayhem: boolean;
   /** Admit a mint whose transfer fee could not be measured. */
   readonly allowUnmeasuredTransferFee: boolean;
+  /**
+   * The largest fraction of a pool's effective quote reserve an entry may be.
+   *
+   * NOT a new number: this is `SMALL_IMPACT_BOUND`, the bound this repository
+   * already froze for counterfactual validity. It was being computed and
+   * discarded while the admission gate ignored depth entirely, so applying it
+   * here invents nothing and simply makes one threshold consistent with itself.
+   */
+  readonly maxEntryFractionOfPool: number;
 }
 
 /** Frozen for the development window. Changing one is a preregistered act. */
@@ -124,6 +148,7 @@ export const DEVELOPMENT_LIMITS: AdmissionLimits = {
   // neither. The breadth reading is what carries the contamination.
   allowMayhem: true,
   allowUnmeasuredTransferFee: false,
+  maxEntryFractionOfPool: SMALL_IMPACT_BOUND,
 };
 
 export interface Admission {
@@ -163,6 +188,8 @@ export function collectCandidateRiskFacts(p: {
   holdersExamined: number;
   canonicalPool: boolean;
   poolReadFailure?: string | null;
+  effectiveQuoteReserveLamports?: bigint | null;
+  notionalLamports?: bigint;
   requiresSharedSetup?: boolean | null;
 }): CandidateRiskFacts {
   const facts = mintFacts(p.decodedMint, p.mintDecodeFailure ?? null);
@@ -202,6 +229,14 @@ export function collectCandidateRiskFacts(p: {
     holdersExamined: p.holdersExamined,
     canonicalPool: p.canonicalPool,
     poolReadFailure: p.poolReadFailure ?? null,
+    effectiveQuoteReserveLamports: p.effectiveQuoteReserveLamports ?? null,
+    entryFractionOfPool:
+      p.effectiveQuoteReserveLamports === null ||
+      p.effectiveQuoteReserveLamports === undefined ||
+      p.effectiveQuoteReserveLamports <= 0n ||
+      p.notionalLamports === undefined
+        ? null
+        : Number((p.notionalLamports * 1_000_000n) / p.effectiveQuoteReserveLamports) / 1_000_000,
     requiresSharedSetup: p.requiresSharedSetup ?? null,
   };
 }
@@ -272,6 +307,22 @@ export function admitCandidate(f: CandidateRiskFacts, limits: AdmissionLimits = 
           `${(limits.maxRawTopHolderShare * 100).toFixed(1)}%, and it can only UNDERSTATE clustering`,
       );
     }
+  }
+
+  /**
+   * DEPTH. A drained pool is not a venue, it is our own footprint.
+   *
+   * Refuses on null rather than admitting: a pool whose reserve could not be
+   * read has not been shown to be deep, and depth is the one property that
+   * decides whether the exit price means anything.
+   */
+  if (f.entryFractionOfPool === null) {
+    refusals.push('the pool depth could not be read, so entry impact is unknown');
+  } else if (f.entryFractionOfPool > limits.maxEntryFractionOfPool) {
+    refusals.push(
+      `the entry is ${(f.entryFractionOfPool * 100).toFixed(1)}% of the pool's effective quote reserve, ` +
+        `over the ${(limits.maxEntryFractionOfPool * 100).toFixed(1)}% bound — the round trip would measure our own footprint`,
+    );
   }
 
   if (f.mayhem.enabled === true && !limits.allowMayhem) {

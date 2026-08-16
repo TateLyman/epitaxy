@@ -315,6 +315,7 @@ async function candidateFacts(
   let accumulator: string | null = null;
   let poolBaseVault = '';
   let poolReadFailure: string | null = null;
+  let effectiveQuote: bigint | null = null;
 
   try {
     pool = canonicalPool(mint);
@@ -326,6 +327,31 @@ async function candidateFacts(
     );
     canonical = true;
     poolBaseVault = addrs.poolBaseTokenAccount;
+    /**
+     * The pool's DEPTH, read before the decision.
+     *
+     * Measured across 29 candidates on 2026-08-16: 19 held 18-57 SOL, where a
+     * 0.02 SOL entry is 0.1% of the pool; ten were drained to 0.01-0.32 SOL,
+     * where the same entry is 6-170%. The sampler kept selecting the drained
+     * ones, and a round trip at 112% of a pool measures our own footprint.
+     */
+    try {
+      const vaults = await Promise.all(
+        [addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount].map(async (pk) => {
+          const a = await rpc.getAccountRaw(pk);
+          return { pubkey: pk, owner: a.owner, dataBase64: a.dataBase64, lamports: a.lamports };
+        }),
+      );
+      count('solana_rpc', 'getAccountInfo');
+      const facts = poolFactsFrom(
+        accountSourceOf([{ pubkey: pool, owner: raw.owner, dataBase64: raw.dataBase64, lamports: raw.lamports }, ...vaults]),
+        pool,
+      );
+      effectiveQuote = facts.quoteReserveRaw + facts.virtualQuoteReserves;
+    } catch {
+      // Null, never zero. An unread reserve has not been shown to be shallow OR
+      // deep, and `admitCandidate` refuses on null.
+    }
     poolMayhem = addrs.isMayhemMode;
     cashback = addrs.isCashbackCoin;
     accumulator = swapAccountRoles({
@@ -424,6 +450,8 @@ async function candidateFacts(
     holdersExamined: raw.examined,
     canonicalPool: canonical,
     poolReadFailure,
+    effectiveQuoteReserveLamports: effectiveQuote,
+    notionalLamports: NOTIONAL_LAMPORTS,
   });
 }
 
