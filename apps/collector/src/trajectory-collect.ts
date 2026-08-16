@@ -123,6 +123,27 @@ interface Args {
    * and left nothing for the primary path.
    */
   readonly backfillScan: number;
+  /**
+   * Run the live migration socket. OFF by default, and the default is measured.
+   *
+   * `logsSubscribe` has no server-side filter finer than "mentions this
+   * program", so subscribing to the pump programs delivers EVERY pump.fun buy
+   * and sell and every PumpSwap swap. Measured on 2026-08-16 over a 256-second
+   * window: **219 messages per second**, about 18.9 million per day, to catch
+   * migrations that arrive a few dozen times an hour.
+   *
+   * Priced against the providers this operator has, that firehose alone is
+   * larger than any free allowance and larger than most paid ones — it is what
+   * exhausted both endpoints. The backfill lane reaches the same migrations for
+   * ONE `getAccountRaw` per mint, because `canonicalPool(mint)` either exists or
+   * does not.
+   *
+   * So the lane stays built and stays off. It becomes correct with a
+   * server-side filtered stream (a Geyser/LaserStream `transactionSubscribe`
+   * with an account filter), which is a paid product, and buying it before a
+   * positive untouched edge exists is exactly what P13 forbids.
+   */
+  readonly liveLane: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -140,6 +161,8 @@ function parseArgs(argv: readonly string[]): Args {
     loop: !argv.includes('--once'),
     intervalSeconds: num('--interval', 300),
     backfillScan: num('--backfill-scan', 25),
+    // Opt-in. See the field comment: 219 messages/second, measured.
+    liveLane: argv.includes('--live-lane'),
   };
 }
 
@@ -217,8 +240,10 @@ async function discover(
     // The bound that matters. Reached long before the SELECT's, and it is what
     // leaves the endpoint with budget for the primary path.
     if (probed >= scanBudget) {
-      refusals['backfill scan budget reached (the live lane is the primary path)'] =
-        (refusals['backfill scan budget reached (the live lane is the primary path)'] ?? 0) + 1;
+      // Named as a BUDGET, not as a market fact. Raise it with --backfill-scan
+      // when the endpoint has headroom; it is the throttle, not a finding.
+      refusals[`backfill scan budget of ${scanBudget} mint(s) reached this cycle`] =
+        (refusals[`backfill scan budget of ${scanBudget} mint(s) reached this cycle`] ?? 0) + 1;
       break;
     }
     if (alreadyKnown.has(mint)) continue;
@@ -1048,7 +1073,7 @@ async function main(): Promise<void> {
    * report a coverage gap for every interval BETWEEN cycles — gaps describing
    * the collector's schedule rather than the chain's.
    */
-  const wsUrl = secrets.rpcWs;
+  const wsUrl = args.liveLane ? secrets.rpcWs : null;
   const lanes: LaneContext = {
     session,
     migrations:
@@ -1064,9 +1089,14 @@ async function main(): Promise<void> {
           }),
     vaults: wsUrl === null ? null : new LiveVaultWatch({ wsUrl, db: telemetryDb, sessionId: session.sessionId }),
   };
-  if (wsUrl === null) {
-    console.log('NO WEBSOCKET: SOLANA_RPC_WS is not configured, so the live lanes are off and');
-    console.log('discovery falls back to history paging, which is structurally late.');
+  if (!args.liveLane) {
+    console.log('live lanes OFF (pass --live-lane to enable).');
+    console.log('  logsSubscribe cannot filter finer than "mentions this program", so the pump');
+    console.log('  programs deliver every buy and sell: 219 messages/second measured, ~18.9M/day,');
+    console.log('  to catch a few dozen migrations an hour. That is what exhausted both endpoints.');
+    console.log('  The backfill lane reaches the same migrations for ONE account read per mint.');
+  } else if (secrets.rpcWs === null) {
+    console.log('--live-lane was requested but SOLANA_RPC_WS resolves to nothing, so it is off.');
   }
   lanes.migrations?.start();
   if (lanes.migrations != null) {
