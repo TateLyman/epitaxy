@@ -1,6 +1,80 @@
 # Running-collector directive `29c7cc7` — final report
 
-**Terminal state:** `MEASUREMENT_REPAIR_REQUIRED`
+**Terminal state:** `VALID_TRAJECTORY_KERNEL_RUNNING`
+
+> **Updated 2026-08-16T21:20Z.** The original report below was written while both
+> RPC endpoints were exhausted and closed at `MEASUREMENT_REPAIR_REQUIRED`. A
+> working endpoint was supplied, the loop was run end to end, and the state is
+> upgraded on the evidence in "The loop, demonstrated" immediately below.
+> Section 1 of the original report is superseded; everything else stands.
+
+## The loop, demonstrated
+
+`pnpm trajectory:collect` now carries a confirmed candidate through every stage
+the directive names, in one process, writing append-only database rows:
+
+```
+confirmed migration  →  risk facts stamped BEFORE the decision
+  →  admission gate (depth, mint, concentration, Mayhem; refusals stored)
+  →  coherent snapshot v2  →  exact direct PumpSwap buy, plan FROZEN
+  →  cashback tail verified fail-closed  →  ONE persistent runtime
+  →  buy  →  observe  →  sell built from the committed post-buy state
+  →  base ATA close appended to the sell
+  →  created accounts classified  →  per-leg cashback measured
+  →  append-only trajectory + both leg plans
+  →  shared mark path 1m/5m/15m/30m/60m  →  both exit policies on it
+```
+
+Observed live, window V2, cycles 1 and 2:
+
+```
+5HGRnQnMQZ  OPENED  soleVenue=true  quoteState=true
+FuepfTgcyE  OPENED  soleVenue=true  quoteState=true
+EY58deTFg5  OPENED  soleVenue=true  quoteState=true
+55n24NaTJN  OPENED  soleVenue=true  quoteState=true
+C7TNyyj4AG  OPENED  soleVenue=true  quoteState=true
+Aa1wXbgz6o  OPENED  soleVenue=true  quoteState=true
+```
+
+Six distinct mints, no repeats, no HIGH_IMPACT, and the depth gate refusing
+drained pools by name.
+
+**`DEVELOPMENT_EDGE_CANDIDATE` is still NOT claimed and is not close.** No edge
+has been measured, only costs and refusals. Net PnL remains UNKNOWN because no
+canonical settlement exists per trajectory, and the sample is far below 100
+valid paths per policy-cohort.
+
+## F13 confirmed by measurement
+
+```
+CASHBACK COIN      buy   accumulator ATA CREATED with rent + 59,260
+                   sell  accumulator ATA                  +59,260
+                   creator vault                                 0
+NON-CASHBACK COIN  buy   creator vault                    +59,260
+                   sell  creator vault                    +59,266
+```
+
+Both legs accrue, ~29.6 bps each. The repository's one-leg model counted half.
+
+## What running it cost, and what that revealed
+
+A cold round trip decomposes as:
+
+```
+taker pays                                   -12,544,627
+  pool quote vault (the VENUE, net)               +7,899
+  UserVolumeAccumulator PDA   (rent)           +1,844,400
+  accumulator WSOL ATA  (rent + cashback)      +2,157,800
+  protocol fee recipient (rent + fee)          +2,222,984
+  buyback  fee recipient (rent + fee)          +2,131,132
+```
+
+The venue is 7,899 lamports. Everything else is account rent and protocol fees,
+and the last two were invisible until the observe set stopped being a derivation
+and became the frozen plan.
+
+---
+
 
 **Starting SHA:** `4ec715f` (local `master`, equal to `origin/master`)
 **Ending SHA:** `a2ce674` — nine commits ahead, not pushed

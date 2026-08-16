@@ -1,7 +1,20 @@
 # STATUS
 
 > **2026-08-16 (latest) — running-collector directive from `29c7cc7`, executed.
-> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+>
+> A working RPC endpoint was supplied and the loop ran end to end. Window V2 is
+> collecting: six distinct deep-pool mints opened across two cycles, all
+> `soleVenue=true quoteState=true`, no repeats, depth gate refusing drained
+> pools by name. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md`.
+>
+> **`DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed.** No edge has been measured,
+> only costs and refusals; net PnL is UNKNOWN and the sample is far below 100
+> valid paths per policy-cohort. Window V1 was INVALIDATED after ten minutes for
+> a sampler defect — see `docs/DEV_WINDOW_V1_INVALIDATION.md`.
+>
+> The entry below was written while both endpoints were exhausted and is kept
+> for the record.
 >
 > The loop the directive asks for now runs end to end in the actual collector,
 > and the honest state is still `MEASUREMENT_REPAIR_REQUIRED` — because the
