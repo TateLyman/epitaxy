@@ -1,28 +1,61 @@
 # STATUS
 
-> **2026-08-15 (latest) — running-collector directive from `29c7cc7`.
+> **2026-08-16 (latest) — running-collector directive from `29c7cc7`, executed.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
-> **The `VALID_TRAJECTORY_KERNEL_RUNNING` claim below is WITHDRAWN.** It rested
-> on twenty round trips produced by a PROOF SCRIPT, not by the collector.
+> The loop the directive asks for now runs end to end in the actual collector,
+> and the honest state is still `MEASUREMENT_REPAIR_REQUIRED` — because the
+> sample is 8 timely complete paths against a threshold of 200, and because the
+> RPC **daily quota is exhausted**, so nothing can collect until it resets.
+>
 > Measured on the live database at this head:
 >
 > ```
-> development_trajectories rows      0
-> development_trajectories SETTLED   0
-> pnpm trajectory:collect        still prints NOT OPENING TRAJECTORIES
+> development_trajectories        64   (59 SETTLED)
+> TIMELY complete paths            8   of 200 required
+> distinct UTC days                2   of 21 required
+> trajectory_marks               320
+> trajectory_policy_outcomes     118   two policies on one shared path
+> frozen leg account plans        26
+> candidate_risk_facts            20 examined, 3 admitted
+> net PnL                    UNKNOWN   (gross is not net — see below)
+> pnpm readiness              NOT READY, 22 blockers
 > ```
 >
-> The twenty runs are reclassified `TRUE_IMMEDIATE_SEQUENTIAL_INSTRUMENT` — real,
-> useful, and **not** development trajectories or strategy outcomes. They must
-> not be counted in trajectory status, policy sample size, readiness, rate
-> throughput, profitability or confirmatory evidence. **A proof file is not the
-> database.**
+> **What changed.** `pnpm trajectory:collect` now runs: a live migration socket
+> as the primary candidate lane, risk gates that refuse before the decision,
+> exact frozen account plans on both legs with cashback placement verified
+> fail-closed, created-account economics per leg, an urgent queue drained ahead
+> of ordinary marks, and per-active-second telemetry the status commands read
+> out of the database.
 >
-> They are also IMMEDIATE round trips: no later market path was collected, so no
-> 15-minute or deterioration exit could be evaluated, and no policy was.
+> **Five defects were found by running it, not by reading it.** The websocket was
+> pointed at a different provider than HTTP and had never connected (closing 1006
+> on every attempt); the daily RPC quota was being reported as "this token has no
+> canonical pool"; an empty holder-history list reported *unmeasured* clustering
+> as `MEASURED share 0`; my own cashback tail model was wrong and the fail-closed
+> check refused every candidate on the chain rather than mis-measuring quietly;
+> and a checked-in call-graph artifact was stale, showing a green check over a
+> required edge that had been unreachable since before this session.
 >
-> `docs/29C7CC7_TRUTH_RESET.md` · `artifacts/baseline-29c7cc7.json`.
+> **Nothing here is a profitability claim.** No edge has been measured. The
+> gross figure the corpus carries is not net: it contains no unrecoverable rent,
+> no failed attempt, no claim cost and no cashback.
+>
+> `docs/DEVELOPMENT_WINDOW_V1.md` · `docs/CONFIRMATORY_TRAJECTORIES_V2.md` ·
+> `docs/EXACT_PUMPSWAP_ACCOUNT_PLAN.md` · `docs/PUMPSWAP_CASHBACK_V2.md` ·
+> `docs/COLD_WARM_SETUP_ECONOMICS.md` ·
+> `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md` ·
+> `docs/directives/DIRECTIVE_29C7CC7_RUNNING_COLLECTOR.md`
+
+> **BLOCKER — the RPC daily quota is spent.** The endpoint returns
+> `daily request limit reached - upgrade your account`. This is not a per-second
+> rate limit: backing off does not help, because every retry today fails.
+> `pnpm rate:budget-v2` names it as the binding constraint on OBSERVED evidence
+> (a quota error outranks a modelled ratio: the endpoint sat at 0.9% of its 10/s
+> limit while refusing every call) and, on that basis, marks the Helius upgrade
+> ALLOWED. Nothing is purchased from code. The development window in
+> `docs/DEVELOPMENT_WINDOW_V1.md` is preregistered and NOT STARTED.
 
 > **2026-08-15 — independent adversarial audit at head `74f839e`.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
@@ -102,17 +135,40 @@
 > (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
 > through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
 
-Last updated: 2026-08-14T00:10Z
+Last updated: 2026-08-16T19:05Z
 
 ## Operational right now
 
 | | |
 |---|---|
-| mode | `paper`, engine LIVE |
-| schema | v36 |
+| mode | `paper`, engine LIVE; `observe` for the trajectory collector |
+| schema | **v43** |
 | strategy version | `delayed-momentum-v0.6.0` |
 | positions with executable PnL | **0** |
+| development trajectories | **64**, of which 59 SETTLED and **8 TIMELY complete** |
+| default `pnpm readiness` gate | the exact **trajectory** contract (the position gate is `readiness:positions`) |
+| collector candidate lane | live migration socket primary; history paging is bounded recovery |
+| RPC | **daily quota exhausted** — the binding constraint, measured |
 | direct mint facts collected | yes, in every mode (was capital-only) |
+
+### The collector's actual production path
+
+```
+live create_pool log  →  fetch tx at confirmed  →  decode by discriminator
+  →  risk facts collected and STAMPED  →  admission gate (refusals stored)
+  →  coherent snapshot v2  →  exact direct PumpSwap buy, plan frozen
+  →  cashback tail verified fail-closed  →  ONE persistent runtime
+  →  buy  →  observe  →  sell built from the committed post-buy state
+  →  base ATA close appended to the sell  →  created accounts classified
+  →  append-only trajectory row + both leg plans + per-leg cashback
+  →  shared mark path 1m/5m/15m/30m/60m, urgent queue first
+  →  both exit policies on the SAME path  →  append-only outcomes  →  close
+```
+
+Asserted behaviourally in `tests/unit/collector-wiring-29c7cc7.test.ts`,
+`live-lane-p8-p13.test.ts`, `candidate-risk-p10.test.ts`,
+`cashback-both-legs-p7.test.ts`, `created-accounts-p6.test.ts` and
+`prewarm-cu-p6.test.ts` — not by grepping source.
 
 ## What is proven, and on what sample
 

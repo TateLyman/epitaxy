@@ -1,7 +1,10 @@
 # Cold, warm and repeat: who pays to open the accounts
 
 **Directive section:** P6 — "the fastest mechanics win: do not be the account-setup payer"
-**Status:** measurement wired; corpus not yet large enough to state a number.
+**Status:** measurement wired and the three surfaces are built.
+**The surface has not been RUN** — `pnpm size:cold-warm-surface` needs live RPC
+and the daily quota is exhausted. No number below was inferred rather than
+measured.
 
 ## The finding this exists to correct
 
@@ -82,27 +85,60 @@ candidates are bad; it is that another trader's organic transaction will warm
 those shared accounts shortly, and the opportunity cost of waiting is usually
 smaller than the rent.
 
-## Three surfaces — still outstanding
+## Three surfaces — built, not yet run
 
-The directive requires all three from the same original price state:
+`pnpm size:cold-warm-surface` produces all three from the SAME original price
+state:
 
 ```
-COLD                        as the chain is now
-PREWARMED_NON_PRICE_ACCOUNTS  shared accounts transplanted in, reserves untouched
-REPEAT                      the second trade through an already-warm pool
+COLD                          we open every shared account ourselves
+PREWARMED_NON_PRICE_ACCOUNTS  somebody else opened them; reserves UNTOUCHED
+REPEAT                        the second trade, after the first moved the pool
 ```
 
-**Not yet produced.** The prewarmed surface is the delicate one: it may
-transplant only non-price-bearing accounts into the original coherent snapshot,
-and must not carry the first trade's reserve changes — otherwise it measures a
-different market, not a warmer one.
+The two differences answer different questions and recommend opposite things:
 
-Also outstanding from P6:
+```
+COLD − PREWARMED   = setup cost.   One-time.   Says WAIT FOR A WARM POOL.
+PREWARMED − REPEAT = self-impact.  Recurring.  Says TRADE SMALLER.
+```
 
-- appending the base token-account close to the sell where valid, so a third
-  signature and landing interval is not spent merely to recover its rent
-- setting the CU limit to measured use plus a frozen margin, since Solana
-  charges priority fee against the **requested** limit rather than the consumed one
+That is exactly why the prewarmed surface is the delicate one. The wrong version
+of it — "run the trade, then run it again from the post state" — is REPEAT
+wearing PREWARMED's label, and it reports setup cost *plus* self-impact as one
+number, from which neither recommendation follows.
+
+`prewarmNonPriceAccounts` therefore refuses a price-bearing transplant **by
+name**, and refuses on the REQUEST rather than on whether the account happened to
+move: a check that passed because this particular run left the mint alone would
+pass right up until the run where it did not.
+
+It has NOT been run. It needs live RPC and the daily quota is exhausted.
+
+## The other two P6 items, both done
+
+**The close rides in the sell.** It used to be a third transaction with its own
+signature and its own landing interval, spent purely to recover ~2,039,280
+lamports of rent. The lamports are worth the 5,000 lamport signature; the
+interval is the expensive part, and a second transaction is one more thing that
+can fail once the position is already flat.
+
+Whether it worked is read from the sell's own post-state. "We appended a close"
+and "the account is gone" are different claims and only the second is evidence,
+so a close that did not take effect is named in `incompleteness` rather than
+assumed.
+
+**The compute limit is measured.** Solana charges the priority fee against the
+REQUESTED limit, so a five-instruction leg that consumes 90,000 units pays
+against roughly 1,000,000. At 10,000 microlamports that is 8,920 lamports per leg
+for nothing — about 35 bps of round-trip drag purchasable with one instruction.
+
+`frozenComputeLimit` returns null when nothing was measured rather than a
+default, because a guessed limit is indistinguishable in the transaction from a
+measured one and is costly in both directions: too low fails the leg, too high
+overpays on every leg after. The 20% margin is FROZEN rather than tuned — a
+failed leg costs the whole base fee and the landing interval, so the asymmetry is
+severe and the margin leans deliberately toward landing.
 
 ## Reading it
 
