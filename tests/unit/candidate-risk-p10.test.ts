@@ -320,3 +320,32 @@ describe('endpoint exhaustion is detected by BEHAVIOUR, not by vocabulary', () =
     expect(isQuotaExhausted(new Error('[solana_rpc/rate_limited] HTTP 429: max usage reached'))).toBe(true);
   });
 });
+
+/**
+ * The ordering assertion checks WHEN, not HOW STRONG.
+ *
+ * It required `concentration.kind === 'MEASURED'` and so fired on every
+ * admitted trajectory of the first live run, announcing that facts "were not
+ * available before quote selection" about facts collected before selection that
+ * had simply been decided on the cheaper tier. A correct run that looks broken
+ * teaches an operator to ignore the warning.
+ */
+describe('the fact-order check is about timing, not about strength', () => {
+  it('accepts a raw-tier concentration reading collected before the decision', () => {
+    const f = facts(); // holderHistories: [] -> HISTORY_INCOMPLETE
+    expect(f.concentration.kind).toBe('HISTORY_INCOMPLETE');
+    expect(() => assertCollectedBeforeDecision(f, f.collectedAtMs + 1)).not.toThrow();
+  });
+
+  it('accepts an UNKNOWN mint reading, because the gate needs it to refuse', () => {
+    const f = facts({ decodedMint: null, mintDecodeFailure: 'unknown_extension' });
+    expect(() => assertCollectedBeforeDecision(f, f.collectedAtMs + 1)).not.toThrow();
+    // And the ADMISSION still refuses it, which is the separation of concerns.
+    expect(admitCandidate(f).admit).toBe(false);
+  });
+
+  it('still throws on a fact stamped AFTER the decision, which is its whole job', () => {
+    const f = facts();
+    expect(() => assertCollectedBeforeDecision(f, f.collectedAtMs - 1)).toThrow(FactCollectedTooLate);
+  });
+});

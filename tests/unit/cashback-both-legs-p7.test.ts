@@ -359,3 +359,64 @@ describe('P7 persistence — per leg, append-only, and never summed on the way i
     db.close();
   });
 });
+
+/**
+ * The instrument reproducing the error it was built to correct.
+ *
+ * Measured on the first live cashback trajectory, 2026-08-16: the BUY created
+ * the accumulator WSOL ATA holding 2,039,280 lamports of rent plus 59,260 of
+ * cashback, and `legCashbackDeltas` returned `null` for it — reported as
+ * unmeasured while the exact number it exists to capture sat in the account.
+ *
+ * That is the common case, not an edge: the first cashback trade any wallet
+ * makes opens its accumulator ATA. Left alone it would have halved the observed
+ * accrual and made the SELL look like the only leg that ever pays, which is the
+ * original F13 error arrived at from the opposite direction.
+ */
+describe('37b — an account the leg CREATED has an accrual, not a null', () => {
+  const ACCUM = 'CashbackAta1111111111111111111111111111111';
+  const RENT = 2_039_280n;
+
+  const measure = (createdExcess?: (k: string) => bigint | null) =>
+    legCashbackDeltas({
+      leg: 'buy',
+      // The account did not exist before the leg ran.
+      before: () => null,
+      after: (k) => (k === ACCUM ? RENT + 59_260n : null),
+      accumulatorWsolAta: ACCUM,
+      userVolumeAccumulator: null,
+      coinCreatorVaultAta: 'CreatorVault111111111111111111111111111111',
+      feeRecipient: null,
+      createdExcess,
+    });
+
+  it('reads the accrual out of the created balance, EXCLUDING the rent', () => {
+    const d = measure((k) => (k === ACCUM ? 59_260n : null));
+    // The rent is not accrual. Counting the whole balance would report
+    // 2,098,540 and turn a 30 bps fee into a 1,049 bps windfall.
+    expect(d.accumulatorWsolDeltaLamports).toBe(59_260n);
+  });
+
+  it('still reports null when the leg did not create it and nobody observed it', () => {
+    // Absent-and-unobserved must not become zero, or an account nobody looked
+    // at reads identically to one that received nothing.
+    const d = measure(() => null);
+    expect(d.accumulatorWsolDeltaLamports).toBeNull();
+    expect(d.accruedToUs).toBeNull();
+  });
+
+  it('a created account with rent and nothing else accrued NOTHING, measured', () => {
+    const d = legCashbackDeltas({
+      leg: 'buy',
+      before: () => null,
+      after: () => RENT,
+      accumulatorWsolAta: ACCUM,
+      userVolumeAccumulator: null,
+      coinCreatorVaultAta: 'CreatorVault111111111111111111111111111111',
+      feeRecipient: null,
+      createdExcess: () => 0n,
+    });
+    // Zero here IS a measurement, and is different from the null above.
+    expect(d.accumulatorWsolDeltaLamports).toBe(0n);
+  });
+});

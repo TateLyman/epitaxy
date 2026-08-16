@@ -487,7 +487,16 @@ export async function openTrajectory(
   const cashbackAccounts = [roles.accumulatorWsolAta, roles.poolV2, roles.userVolumeAccumulator].filter(
     (a): a is string => a !== null,
   );
-  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts, ...cashbackAccounts])];
+  /**
+   * The SDK-SELECTED buyback pair, observed because it cannot be derived.
+   *
+   * `swapAccountAddresses` cannot name these — the recipient comes from a list
+   * in the global config — so without adding them here their balance movement
+   * reports as null and the protocol's share of the fee is unattributed. Read
+   * off the frozen plan, which is the only place they exist.
+   */
+  const selectedTail = [...selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey))];
+  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts, ...cashbackAccounts, ...selectedTail])];
 
   const trip = await sequentialRoundTrip(
     {
@@ -719,6 +728,16 @@ export async function openTrajectory(
    */
   const buybackPair = selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey));
   const feeRecipient = buybackPair[1] ?? null;
+
+  /**
+   * What a leg's newly created account received beyond its rent.
+   *
+   * The buy CREATES the accumulator ATA on a wallet's first cashback trade, so
+   * without this the accrual that lands in it reports as unmeasured — the
+   * original F13 error reproduced by the instrument built to correct it.
+   */
+  const createdExcess = (pubkey: string): bigint | null =>
+    createdAccounts.find((a) => a.pubkey === pubkey)?.excessLamports ?? null;
   const cashbackLegs: LegCashbackDeltas[] = [
     legCashbackDeltas({
       leg: 'buy',
@@ -728,6 +747,7 @@ export async function openTrajectory(
       userVolumeAccumulator: roles.userVolumeAccumulator,
       coinCreatorVaultAta: roles.coinCreatorVaultAta,
       feeRecipient,
+      createdExcess,
     }),
     ...(trip.sell === null
       ? []

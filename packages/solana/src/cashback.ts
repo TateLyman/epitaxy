@@ -406,13 +406,42 @@ export function legCashbackDeltas(p: {
   userVolumeAccumulator: string | null;
   coinCreatorVaultAta: string | null;
   feeRecipient: string | null;
+  /**
+   * For an account this leg CREATED: its balance above the rent exemption.
+   *
+   * Null when the leg did not create it. Without this, every account a leg
+   * opens reports its accrual as unmeasured — see `delta` below.
+   */
+  createdExcess?: (pubkey: string) => bigint | null;
 }): LegCashbackDeltas {
   const delta = (key: string | null): bigint | null => {
     if (key === null) return null;
-    const b = p.before(key);
     const a = p.after(key);
-    // An unobserved account is null, never zero. Zero is a measurement.
-    if (b === null || a === null) return null;
+    if (a === null) return null;
+    const b = p.before(key);
+
+    /**
+     * An account this leg CREATED has no "before", and that is not the same as
+     * an account nobody observed.
+     *
+     * Measured on 2026-08-16, first live cashback trajectory: the BUY created
+     * the accumulator WSOL ATA holding 2,039,280 rent plus 59,260 lamports of
+     * cashback, and this function returned `null` — reported as unmeasured
+     * while the very number it exists to capture sat in the account.
+     *
+     * That is the common case, not an edge: the first cashback trade any wallet
+     * makes opens its accumulator ATA. Reading it as unmeasured would have
+     * halved the observed accrual and left the sell leg looking like the only
+     * one that ever pays — which is the ORIGINAL F13 error, reproduced by the
+     * instrument built to correct it.
+     *
+     * The excess over the rent exemption is exactly the value received, so a
+     * created account's accrual is that excess and nothing else.
+     */
+    if (b === null) {
+      const created = p.createdExcess?.(key) ?? null;
+      return created;
+    }
     return a - b;
   };
 

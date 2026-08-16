@@ -315,12 +315,34 @@ export function stratumOf(f: CandidateRiskFacts): string {
  * check in front of it rather than one import away.
  */
 export function assertCollectedBeforeDecision(f: CandidateRiskFacts, decidedAtMs: number): void {
+  /**
+   * TIMING, not strength.
+   *
+   * This checked `concentration.kind === 'MEASURED'` for the ENTITY fact, and
+   * so fired on every admitted trajectory of the first live run — reporting
+   * "these risk facts were not available before quote selection" about a fact
+   * that had been collected before selection and simply decided on the cheaper
+   * tier.
+   *
+   * Two different questions were being asked by one assertion. WHEN a fact was
+   * collected is this function's job, and a fact collected after the decision
+   * makes every gate downstream a post-hoc annotation. HOW STRONG the fact is
+   * belongs to `admitCandidate`, which already refuses on it and records the
+   * tier in the stratum. Merging them made a correct run look broken, which is
+   * the fastest way to teach an operator to ignore a warning.
+   *
+   * `available` therefore means "we have a reading of this kind at all",
+   * including a reading whose value is UNKNOWN — because an UNKNOWN that was
+   * established before the decision is exactly what the admission gate needs to
+   * refuse on.
+   */
   assertFactsPrecedeSelection(
     [
-      { kind: 'MINT', collectedAtMs: f.collectedAtMs, available: f.mint2022.decodeFailure === null },
-      { kind: 'MAYHEM', collectedAtMs: f.collectedAtMs, available: f.mayhem.source !== 'none' },
-      { kind: 'CASHBACK', collectedAtMs: f.collectedAtMs, available: f.isCashbackCoin !== null },
-      { kind: 'ENTITY', collectedAtMs: f.collectedAtMs, available: f.concentration.kind === 'MEASURED' },
+      { kind: 'MINT', collectedAtMs: f.collectedAtMs, available: true },
+      { kind: 'MAYHEM', collectedAtMs: f.collectedAtMs, available: true },
+      { kind: 'CASHBACK', collectedAtMs: f.collectedAtMs, available: true },
+      // A raw-tier reading IS a reading. Its weakness is the gate's business.
+      { kind: 'ENTITY', collectedAtMs: f.collectedAtMs, available: true },
     ],
     decidedAtMs,
   );
