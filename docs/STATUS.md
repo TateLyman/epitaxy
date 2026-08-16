@@ -46,6 +46,7 @@
 > `docs/EXACT_PUMPSWAP_ACCOUNT_PLAN.md` · `docs/PUMPSWAP_CASHBACK_V2.md` ·
 > `docs/COLD_WARM_SETUP_ECONOMICS.md` ·
 > `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md` ·
+> `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md` (the final report) ·
 > `docs/directives/DIRECTIVE_29C7CC7_RUNNING_COLLECTOR.md`
 
 > **BLOCKER — the RPC daily quota is spent.** The endpoint returns
