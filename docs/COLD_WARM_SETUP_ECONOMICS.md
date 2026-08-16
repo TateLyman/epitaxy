@@ -84,7 +84,7 @@ candidates are bad; it is that another trader's organic transaction will warm
 those shared accounts shortly, and the opportunity cost of waiting is usually
 smaller than the rent.
 
-## Three surfaces — built, not yet run
+## Three surfaces
 
 `pnpm size:cold-warm-surface` produces all three from the SAME original price
 state:
@@ -111,8 +111,6 @@ number, from which neither recommendation follows.
 name**, and refuses on the REQUEST rather than on whether the account happened to
 move: a check that passed because this particular run left the mint alone would
 pass right up until the run where it did not.
-
-It has NOT been run. It needs live RPC and the daily quota is exhausted.
 
 ## The other two P6 items, both done
 

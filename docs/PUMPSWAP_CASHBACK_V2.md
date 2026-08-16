@@ -148,12 +148,47 @@ An unread mint supply REFUSES rather than defaulting to the canonical billion,
 and `feeConfigHash` is persisted so a stored tier survives Pump republishing the
 table.
 
+## Observed, on 2026-08-16
+
+The correction is no longer only a reading of the SDK. Measured on live mainnet
+state, at a 20,000,000 lamport notional:
+
+```
+CASHBACK COIN
+  buy   accumulator WSOL ATA  CREATED, holding rent 2,039,280 + 59,260
+  sell  accumulator WSOL ATA  +59,260
+  creator vault               0 on both legs
+
+NON-CASHBACK COIN
+  buy   creator vault         +59,260
+  sell  creator vault         +59,266
+```
+
+**Both legs accrue, ~59,260 lamports each** — 29.6 bps per leg, 59 bps round
+trip. On a non-cashback coin the identical amount goes to the creator instead.
+The old one-leg model would have counted half of it.
+
+### The instrument nearly reproduced the error it was built to correct
+
+`legCashbackDeltas` first reported the BUY as `null` — unmeasured — because an
+account the leg CREATED has no "before". The accumulator ATA held rent plus
+59,260 and the function said nothing was measurable, while the exact number it
+exists to capture sat in the account.
+
+That is the common case, not an edge: the first cashback trade any wallet makes
+opens its accumulator ATA. Left alone it would have halved observed accrual and
+left the SELL looking like the only leg that ever pays — F13 again, reached from
+the opposite direction. A created account's accrual is now its balance **above**
+the rent exemption; counting the whole balance would turn a 30 bps fee into a
+1,049 bps windfall.
+
 ## Still outstanding
 
-Cashback is verified structurally on every built leg. It has **not** been
-observed accruing: `leg_cashback` is empty, because the RPC daily quota is
-exhausted and no trajectory has opened since the wiring landed. The bps figures
-above remain hypotheses, and this document does not upgrade them.
+`claimed` cashback is still zero and still the only quantity admissible in PnL.
+What has been observed is **accrual into the accumulator**, which is a
+receivable: `claim_cashback` has never been called, and calling it is a
+transaction this system has never signed. The retained-floor figures above
+remain hypotheses about what a claimed round trip would keep.
 
 ## Version pinning
 
