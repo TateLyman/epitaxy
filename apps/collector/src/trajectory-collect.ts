@@ -66,6 +66,7 @@ import {
   cashbackLegTotals,
   insertCandidateRiskFacts,
   admissionTotals,
+  samplingSpread,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -999,6 +1000,21 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
    * row is written for every token screened; the same rule holds here, because
    * a filter whose rejects are not stored can never be evaluated.
    */
+  /**
+   * How concentrated the corpus is. A study of three pools is not a study.
+   *
+   * The sampler returned the newest confirmed migrations every cycle with no
+   * reference to what it had already sampled, so the first window's cycles 1
+   * and 2 opened the SAME three mints. This line exists so that never goes
+   * unnoticed again.
+   */
+  const spread = samplingSpread(db);
+  console.log('');
+  console.log(
+    `sampling spread       : ${spread.trajectories} trajector(ies) across ${spread.distinctMints} mint(s), ` +
+      `most-sampled mint has ${spread.maxPerMint}`,
+  );
+
   const adm = admissionTotals(db);
   console.log('');
   console.log(`risk admission        : ${adm.admitted} admitted of ${adm.examined} examined`);

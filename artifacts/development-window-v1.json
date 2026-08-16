@@ -1,0 +1,49 @@
+{
+  "artifact": "development-window-v1-stamp",
+  "directiveSection": "P14",
+  "windowId": "DEV_WINDOW_V1",
+  "startedUtcMs": 1786913876465,
+  "sourceCommit": "153341ac96c9b2b89ebd087b6ad4aafa48b1046d",
+  "dirty": false,
+  "endpointHost": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+  "fallbackHost": "mainnet.helius-rpc.com",
+  "liveLane": false,
+  "liveLaneOffBecause": "logsSubscribe cannot filter below \"mentions this program\", so the pump programs deliver 219 messages/second measured — ~18.9M/day — to catch a few dozen migrations an hour. The backfill lane reaches the same migrations for one account read per mint.",
+  "frozen": {
+    "notionalLamports": "20000000",
+    "slippagePct": 3,
+    "markOffsetsMs": [
+      60000,
+      300000,
+      900000,
+      1800000,
+      3600000
+    ],
+    "entryPolicy": "HARD_GATES_RANDOM",
+    "exitPolicies": [
+      "FIXED_15M_CONTROL",
+      "FLOW_LIQUIDITY_DETERIORATION_V1"
+    ],
+    "admissionLimits": {
+      "maxEntityAdjustedShare": 0.5,
+      "maxRawTopHolderShare": 0.8,
+      "allowRawOnlyConcentration": true,
+      "allowMayhem": true,
+      "allowUnmeasuredTransferFee": false
+    },
+    "cuMarginPct": 20
+  },
+  "databaseSnapshotAtStart": {
+    "developmentTrajectories": 69,
+    "settled": 59,
+    "trajectoryMarks": 322,
+    "policyOutcomes": 118,
+    "legAccountPlans": 36,
+    "createdAccounts": 12,
+    "legCashback": 10,
+    "candidateRiskFacts": 36,
+    "confirmedMigrations": 47
+  },
+  "rule": "nothing frozen above may change inside the window. Changing one ENDS it.",
+  "notClaimed": "observe mode. No key, no signature, no submission, no capital at risk."
+}

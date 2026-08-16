@@ -210,16 +210,72 @@ export function insertConfirmedMigration(
 export function migrationCandidates(
   db: Db,
   limit = 50,
+  /**
+   * How many trajectories one mint may ever contribute.
+   *
+   * A cap rather than a ban: the same pool at a different hour is a different
+   * market, so a repeat is informative. It is not INDEPENDENT, though, and a
+   * corpus dominated by one pool cannot support a claim about a population.
+   */
+  maxPerMint = 3,
 ): { mint: string; canonical_pool: string; slot: number; block_time: number | null; is_cashback_coin: number | null; is_mayhem_mode: number | null }[] {
+  /**
+   * Least-sampled first, and never a mint that is already open.
+   *
+   * This used to be `ORDER BY slot DESC LIMIT ?` with no reference to what had
+   * already been sampled, so every cycle returned the same newest migrations
+   * and opened a trajectory on each. Observed in the first ten minutes of the
+   * first window: cycles 1 and 2 opened the SAME three mints, and the corpus was
+   * filling with repeated measurements of three pools.
+   *
+   * That matters because the threshold is 100 valid paths per policy-cohort.
+   * A hundred paths across three pools is three outcomes with a hundred
+   * observations of them, and no amount of collection turns one into the other.
+   *
+   * Two rules:
+   *
+   * - a mint with an OPEN trajectory is excluded outright — two concurrent
+   *   trajectories on one pool share a mark path and duplicate each other
+   *   exactly;
+   * - the rest are ordered by how many trajectories they have already produced,
+   *   so coverage spreads before it deepens, with `slot DESC` breaking ties
+   *   toward the fresher migration.
+   */
   return db
     .prepare(
-      `SELECT mint, canonical_pool, slot, block_time, is_cashback_coin, is_mayhem_mode
-         FROM confirmed_migrations
-        WHERE reversal_status = 'CONFIRMED'
-        ORDER BY slot DESC
+      `SELECT m.mint, m.canonical_pool, m.slot, m.block_time, m.is_cashback_coin, m.is_mayhem_mode,
+              COALESCE(t.n, 0) AS sampled
+         FROM confirmed_migrations m
+         LEFT JOIN (
+           SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint
+         ) t ON t.mint = m.mint
+        WHERE m.reversal_status = 'CONFIRMED'
+          AND COALESCE(t.n, 0) < ?
+          AND m.mint NOT IN (
+            SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+          )
+        ORDER BY sampled ASC, m.slot DESC
         LIMIT ?`,
     )
-    .all(limit) as never;
+    .all(maxPerMint, limit) as never;
+}
+
+/** How concentrated the corpus is. A study of three pools is not a study. */
+export function samplingSpread(db: Db): {
+  trajectories: number;
+  distinctMints: number;
+  maxPerMint: number;
+  topMints: { mint: string; n: number }[];
+} {
+  const rows = db
+    .prepare('SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint ORDER BY n DESC')
+    .all() as { mint: string; n: number }[];
+  return {
+    trajectories: rows.reduce((a, r) => a + r.n, 0),
+    distinctMints: rows.length,
+    maxPerMint: rows[0]?.n ?? 0,
+    topMints: rows.slice(0, 5),
+  };
 }
 
 export function confirmedMigrationCounts(db: Db): Record<string, number> {
