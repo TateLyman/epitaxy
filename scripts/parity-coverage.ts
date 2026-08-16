@@ -30,7 +30,7 @@ import {
   canonicalPool,
   WSOL_MINT,
 } from '../packages/solana/src/pumpswap-offline.js';
-import { feeTiersOf, tierFor, boundaries } from '../packages/solana/src/fee-tiers.js';
+import { feeTiersOf, tierForPool, boundaries } from '../packages/solana/src/fee-tiers.js';
 import { TOKEN_PROGRAM } from '../packages/solana/src/mint.js';
 import { currentProvenance } from '../packages/research/src/artifact-provenance.js';
 
@@ -115,7 +115,12 @@ async function examine(mint: string, wantedFrom: string): Promise<void> {
     );
     const facts = poolFactsFrom(accountSourceOf([poolRow, ...vaults]), pool);
     const effective = facts.quoteReserveRaw + facts.virtualQuoteReserves;
-    const tier = tierFor(tiers, effective);
+    // F15 - the tier is selected by MARKET CAP, not by quote reserve.
+    const tier = tierForPool(tiers, {
+      quoteReserveLamports: effective,
+      baseReserveAtoms: facts.baseReserve,
+      baseMintSupplyAtoms: facts.baseMintSupplyAtoms,
+    }).tier;
 
     const categories: string[] = [];
     if (facts.baseTokenProgram === TOKEN_PROGRAM) categories.push('LEGACY_BASE');

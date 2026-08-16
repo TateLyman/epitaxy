@@ -90,6 +90,14 @@ export interface RoundTripRequest {
     transactionBase64: string;
     /** The buy's own effect on the price the sell got, when measurable. */
     selfImpactLamports: bigint | null;
+    /**
+     * P2/P7 — the exact instructions these bytes encode.
+     *
+     * Returned rather than rebuilt. The sell's account plan and its cashback
+     * remaining-account tail both have to describe the bytes that ran, and the
+     * only place those bytes exist is here.
+     */
+    instructions?: readonly unknown[];
   }>;
   readonly jobId: string;
 }
@@ -129,6 +137,8 @@ export interface RoundTripResult {
    * an instruction. `null` when there was no ATA named to check.
    */
   readonly baseAtaClosedInSell: boolean | null;
+  /** The exact instructions the sell executed, when the builder reported them. */
+  readonly sellInstructions: readonly unknown[] | null;
   readonly runtimeIdentity: unknown;
   readonly incompleteness: readonly string[];
 }
@@ -146,6 +156,7 @@ function fail(f: RoundTripFailure, detail: string, partial: Partial<RoundTripRes
     quoteStateSurvived: false,
     selfImpactLamports: null,
     baseAtaClosedInSell: null,
+    sellInstructions: null,
     runtimeIdentity: null,
     incompleteness: [],
     ...partial,
@@ -191,11 +202,25 @@ export function standardPumpSwapSell(p: {
    * Appended rather than prepended, because the account has to be empty first.
    */
   appendInstructions?: (acquiredAtoms: bigint) => readonly unknown[];
+  /**
+   * P7 — a last look at the built instructions BEFORE they are encoded.
+   *
+   * Returns a refusal reason, or null. Throwing here fails the trip as
+   * `SELL_BUILD_FAILED`, which is the point: the cashback remaining-account
+   * tail has to be checked before the sell executes, because a sell with the
+   * accounts missing lands and trades normally and simply pays the creator fee
+   * to the creator. There is no error to catch afterwards.
+   */
+  verify?: (instructions: readonly unknown[]) => string | null;
 }) {
   return async (
     postState: AccountBytesSource,
     acquiredAtoms: bigint,
-  ): Promise<{ transactionBase64: string; selfImpactLamports: bigint | null }> => {
+  ): Promise<{
+    transactionBase64: string;
+    selfImpactLamports: bigint | null;
+    instructions: readonly unknown[];
+  }> => {
     let selfImpactLamports: bigint | null = null;
     try {
       const qPre = quoteSellFrom(p.preState, p.pool, acquiredAtoms, p.slippagePct);
@@ -214,9 +239,15 @@ export function standardPumpSwapSell(p: {
       slippagePct: p.slippagePct,
     });
     const appended = p.appendInstructions === undefined ? [] : [...p.appendInstructions(acquiredAtoms)];
+    const instructions = [...(built.instructions as unknown[]), ...appended];
+
+    const refusal = p.verify === undefined ? null : p.verify(instructions);
+    if (refusal !== null) throw new Error(refusal);
+
     return {
-      transactionBase64: p.encode([...(built.instructions as unknown[]), ...appended], p.blockhash),
+      transactionBase64: p.encode(instructions, p.blockhash),
       selfImpactLamports,
+      instructions,
     };
   };
 }
@@ -315,10 +346,12 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
 
     let selfImpactLamports: bigint | null = null;
     let sellBytes: string;
+    let sellInstructions: readonly unknown[] | null = null;
     try {
       const built = await req.buildSell(postSrc, acquired);
       sellBytes = built.transactionBase64;
       selfImpactLamports = built.selfImpactLamports;
+      sellInstructions = built.instructions ?? null;
     } catch (e) {
       return fail('SELL_BUILD_FAILED', (e as Error).message.slice(0, 200), {
         buy: buy.step,
@@ -430,6 +463,7 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       quoteStateSurvived: true,
       selfImpactLamports,
       baseAtaClosedInSell,
+      sellInstructions,
       runtimeIdentity: identity,
       incompleteness: [
         ...incompleteness,

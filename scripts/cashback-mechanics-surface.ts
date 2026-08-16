@@ -15,8 +15,8 @@ import {
   CashbackUndecodable,
 } from '../packages/solana/src/cashback.js';
 import { canonicalPool, poolAddressesFrom, accountSourceOf, WSOL_MINT, FEE_CONFIG_ADDR } from '../packages/solana/src/pumpswap-offline.js';
-import { feeTiersOf, tierFor } from '../packages/solana/src/fee-tiers.js';
 import { TOKEN_PROGRAM } from '../packages/solana/src/pda.js';
+import { feeTiersOf } from '../packages/solana/src/fee-tiers.js';
 
 /**
  * P6 — the cashback mechanics surface, and a cross-check of every derivation
@@ -124,8 +124,17 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const quoteTotal = 0n;
-    const tier = tierFor(feeTiersOf(decodedFeeConfig), quoteTotal);
+    /**
+     * F15 - the tier is NOT reported here, because it cannot be.
+     *
+     * This passed a hardcoded `0n` to a market-cap parameter and reported the
+     * result as `bottomTierRoundTripBps`, which made every coin look like a
+     * bottom-tier coin by construction. Selecting the tier needs the pool's
+     * reserves and the mint's supply, and this surface reads neither - so it
+     * says so rather than answering a question it did not ask.
+     */
+    const tierRefusal =
+      'the tier needs pool reserves and mint supply; this surface reads only the pool account';
     const stratum = mechanicsStratum({ canonicalPool: true, cashbackCoin: addrs.isCashbackCoin === true });
     const ata = accumulatorWsolAta(userVolumeAccumulatorPda(sampleUser), WSOL_MINT, TOKEN_PROGRAM);
 
@@ -136,7 +145,8 @@ async function main(): Promise<void> {
       isMayhemMode: addrs.isMayhemMode,
       quoteMint: addrs.quoteMint,
       stratum,
-      bottomTierRoundTripBps: tier?.roundTripBps ?? null,
+      roundTripBps: null,
+      roundTripBpsRefusal: tierRefusal,
       accumulatorWsolAtaForSampleUser: ata,
       // The fail-closed check, evaluated for a builder that forgot the account.
       refusalWhenBuilderOmitsTheAccount: cashbackAccrualRefusal({

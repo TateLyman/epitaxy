@@ -39,6 +39,8 @@ import {
   accountPlanCount,
   insertCreatedAccounts,
   setupEconomicsTotals,
+  insertLegCashback,
+  cashbackLegTotals,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -408,6 +410,20 @@ async function runCycle(): Promise<void> {
       });
 
       insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
+      // P2/P7 — the exit's plan too. It is the plan the cashback tail was
+      // verified against, and until now only the entry's was stored, so a
+      // replay had nothing to compare the sell to.
+      if (t.exitPlan !== null) insertAccountPlan(db, t.trajectoryId, t.exitPlan, Date.now());
+
+      /**
+       * P7/F13 — both legs' cashback movement, stored per leg.
+       *
+       * The repository asserted that `sell` carries no volume accumulator. It
+       * carries two, as optional positional remaining accounts. These rows are
+       * what settles that empirically rather than by assertion: if `sell`
+       * accrual stays at zero while `buy` climbs, the old model was right.
+       */
+      insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
 
       // P6 — what the entry had to open, and who ends up owning it. Written
       // per leg, so a later exit leg's creations do not merge into the entry's.
@@ -518,6 +534,21 @@ async function runCycle(): Promise<void> {
       `rent ${setup.totalRentLamports}, recoverable ${setup.recoverableLamports}, ` +
       `subsidy to other traders ${setup.subsidyLamports}` +
       (setup.unknownScope > 0 ? `, UNCLASSIFIED ${setup.unknownScope}` : ''),
+  );
+
+  /**
+   * P7 — the count that settles F13 empirically.
+   *
+   * `sell accrued` is the number the repository's old claim said would always
+   * be zero. If it stays zero while `buy accrued` climbs, the one-leg model was
+   * right and this correction is wrong — which is why it is counted rather than
+   * asserted.
+   */
+  const cb = cashbackLegTotals(db);
+  console.log(
+    `cashback legs         : ${cb.legs} (${cb.cashbackCoinLegs} on cashback coins) — ` +
+      `buy accrued ${cb.buyAccrued}, sell accrued ${cb.sellAccrued}, undetermined ${cb.undetermined}, ` +
+      `accumulator gained ${cb.accumulatorGainLamports} lamports`,
   );
   console.log('trajectories by state :', JSON.stringify(trajectoryCounts(db)));
 

@@ -404,3 +404,109 @@ export function setupEconomicsTotals(db: Db): {
     ),
   };
 }
+
+/**
+ * P7 — persist what each leg moved through the cashback accounts.
+ *
+ * Append-only on (trajectory, leg), like every other evidence table here: a
+ * retry of the same observation is idempotent, and a later measurement cannot
+ * silently redefine an earlier one.
+ *
+ * Nothing is summed on the way in. One number across both legs is exactly what
+ * cannot answer the question the F13 correction raises — whether the SELL
+ * accrued — and a sum written here could never be taken apart again.
+ */
+export function insertLegCashback(
+  db: Db,
+  trajectoryId: string,
+  isCashbackCoin: boolean,
+  legs: readonly {
+    leg: string;
+    accumulatorWsolDeltaLamports: bigint | null;
+    accumulatorDeltaLamports: bigint | null;
+    creatorVaultDeltaLamports: bigint | null;
+    feeRecipientDeltaLamports: bigint | null;
+    accruedToUs: boolean | null;
+  }[],
+  recordedUtcMs: number,
+): void {
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO leg_cashback (
+       trajectory_id, leg,
+       accumulator_wsol_delta, accumulator_delta, creator_vault_delta, fee_recipient_delta,
+       accrued_to_us, is_cashback_coin, recorded_utc_ms
+     ) VALUES (?,?, ?,?,?,?, ?,?,?)`,
+  );
+  // An unobserved account is NULL, never '0'. Zero is a measurement, and the
+  // whole class of defect this schema guards against is one standing in for the
+  // other.
+  const s = (v: bigint | null): string | null => (v === null ? null : v.toString());
+  for (const l of legs) {
+    stmt.run(
+      trajectoryId,
+      l.leg,
+      s(l.accumulatorWsolDeltaLamports),
+      s(l.accumulatorDeltaLamports),
+      s(l.creatorVaultDeltaLamports),
+      s(l.feeRecipientDeltaLamports),
+      l.accruedToUs === null ? null : l.accruedToUs ? 1 : 0,
+      isCashbackCoin ? 1 : 0,
+      recordedUtcMs,
+    );
+  }
+}
+
+export function legCashbackFor(
+  db: Db,
+  trajectoryId: string,
+): {
+  leg: string;
+  accumulator_wsol_delta: string | null;
+  accumulator_delta: string | null;
+  creator_vault_delta: string | null;
+  fee_recipient_delta: string | null;
+  accrued_to_us: number | null;
+  is_cashback_coin: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT leg, accumulator_wsol_delta, accumulator_delta, creator_vault_delta,
+              fee_recipient_delta, accrued_to_us, is_cashback_coin
+         FROM leg_cashback WHERE trajectory_id = ? ORDER BY leg DESC`,
+    )
+    .all(trajectoryId) as never;
+}
+
+/**
+ * Did BOTH legs accrue, across the corpus?
+ *
+ * The count that settles F13 empirically. If `sellAccrued` stays at zero while
+ * `buyAccrued` climbs, the old one-leg model was right after all and this
+ * correction is wrong — which is the point of measuring rather than asserting.
+ */
+export function cashbackLegTotals(db: Db): {
+  legs: number;
+  cashbackCoinLegs: number;
+  buyAccrued: number;
+  sellAccrued: number;
+  undetermined: number;
+  accumulatorGainLamports: string;
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number }).c;
+  const rows = db
+    .prepare("SELECT accumulator_wsol_delta v FROM leg_cashback WHERE accumulator_wsol_delta IS NOT NULL")
+    .all() as { v: string }[];
+  let gain = 0n;
+  for (const r of rows) {
+    const d = BigInt(r.v);
+    if (d > 0n) gain += d;
+  }
+  return {
+    legs: one('SELECT COUNT(*) c FROM leg_cashback'),
+    cashbackCoinLegs: one('SELECT COUNT(*) c FROM leg_cashback WHERE is_cashback_coin = 1'),
+    buyAccrued: one("SELECT COUNT(*) c FROM leg_cashback WHERE leg = 'buy' AND accrued_to_us = 1"),
+    sellAccrued: one("SELECT COUNT(*) c FROM leg_cashback WHERE leg = 'sell' AND accrued_to_us = 1"),
+    undetermined: one('SELECT COUNT(*) c FROM leg_cashback WHERE accrued_to_us IS NULL'),
+    accumulatorGainLamports: gain.toString(),
+  };
+}

@@ -329,6 +329,15 @@ export interface OfflinePoolFacts {
   readonly creator: string;
   readonly baseTokenProgram: string;
   readonly quoteTokenProgram: string;
+  /**
+   * F15 — the base mint's total supply, which the fee TIER depends on.
+   *
+   * `marketCap = quoteReserve × baseMintSupply / baseReserve`. Null when the
+   * mint was not in the source: an unread supply must not silently become the
+   * canonical one billion, because a token that is not canonical would then be
+   * placed in the wrong tier and reported with the wrong floor.
+   */
+  readonly baseMintSupplyAtoms: bigint | null;
 }
 
 export interface OfflinePoolAddresses {
@@ -411,6 +420,22 @@ export function poolFactsFrom(src: AccountBytesSource, poolKey: string): Offline
     throw new OfflineStateIncomplete([baseVault, quoteVault], 'vault bytes are not token accounts');
   }
 
+  // The supply, for the fee tier. Read where present, null where not: the
+  // caller decides whether a missing supply is fatal, and no caller gets a
+  // fabricated one.
+  let baseMintSupply: bigint | null = null;
+  const mintRaw = src.get(pool.baseMint.toBase58());
+  if (mintRaw !== null) {
+    try {
+      const buf = Buffer.from(mintRaw.dataBase64, 'base64');
+      // Mint layout: supply is a u64 at offset 36. Same in Token-2022, whose
+      // extensions live past the 82-byte base.
+      if (buf.length >= 44) baseMintSupply = buf.readBigUInt64LE(36);
+    } catch {
+      /* bytes that do not decode leave it null, never zero */
+    }
+  }
+
   return {
     poolKey,
     baseMint: pool.baseMint.toBase58(),
@@ -424,6 +449,10 @@ export function poolFactsFrom(src: AccountBytesSource, poolKey: string): Offline
     creator: pool.creator.toBase58(),
     baseTokenProgram: b.owner,
     quoteTokenProgram: q.owner,
+    // Null rather than a default. A mint the source does not carry is a fact
+    // about the capture, and substituting the canonical supply would put a
+    // non-canonical token in the wrong fee tier without saying so.
+    baseMintSupplyAtoms: baseMintSupply,
   };
 }
 

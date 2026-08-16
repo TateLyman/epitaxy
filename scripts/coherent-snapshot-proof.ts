@@ -16,7 +16,7 @@ import {
   GLOBAL_CONFIG_ADDR,
   FEE_CONFIG_ADDR,
 } from '../packages/solana/src/pumpswap-offline.js';
-import { feeTiersOf, tierFor } from '../packages/solana/src/fee-tiers.js';
+import { feeTiersOf, tierForPool } from '../packages/solana/src/fee-tiers.js';
 
 /**
  * P2's required proof:
@@ -53,12 +53,24 @@ function poolFactsOf(snap: CoherentSnapshotV2, pool: string) {
     base: facts.baseReserve.toString(),
     quote: facts.quoteReserveRaw.toString(),
     virtualQuote: facts.virtualQuoteReserves.toString(),
+    // F15 - the tier needs the supply too. Null when the mint was not captured.
+    baseMintSupply: facts.baseMintSupplyAtoms === null ? null : facts.baseMintSupplyAtoms.toString(),
     mayhem: addrs.isMayhemMode ?? null,
     cashback: addrs.isCashbackCoin ?? null,
   };
 }
 
-async function feeTierOf(snap: CoherentSnapshotV2, quoteTotal: bigint): Promise<number | null> {
+/**
+ * F15 - the tier is a function of MARKET CAP, not of quote reserve.
+ *
+ * This took a quote total and handed it to a parameter whose unit is a market
+ * cap. They are not proportional, and the substitution put every pool in the
+ * bottom tier.
+ */
+async function feeTierOf(
+  snap: CoherentSnapshotV2,
+  pool: { quoteTotal: bigint; baseReserveAtoms: bigint; baseMintSupplyAtoms: bigint | null },
+): Promise<number | null> {
   const row = snap.accounts.find((a) => a.pubkey === FEE_CONFIG_ADDR);
   if (row === undefined) return null;
   try {
@@ -71,7 +83,11 @@ async function feeTierOf(snap: CoherentSnapshotV2, quoteTotal: bigint): Promise<
       executable: false,
       rentEpoch: 0,
     });
-    return tierFor(feeTiersOf(decoded), quoteTotal)?.roundTripBps ?? null;
+    return tierForPool(feeTiersOf(decoded), {
+      quoteReserveLamports: pool.quoteTotal,
+      baseReserveAtoms: pool.baseReserveAtoms,
+      baseMintSupplyAtoms: pool.baseMintSupplyAtoms,
+    }).tier?.roundTripBps ?? null;
   } catch {
     return null;
   }
@@ -133,8 +149,13 @@ async function main(): Promise<void> {
 
   const factsA = poolFactsOf(readerA, target.pool);
   const factsB = poolFactsOf(readerB, target.pool);
-  const tierA = await feeTierOf(readerA, BigInt(factsA.quote) + BigInt(factsA.virtualQuote));
-  const tierB = await feeTierOf(readerB, BigInt(factsB.quote) + BigInt(factsB.virtualQuote));
+  const tierArgs = (f: ReturnType<typeof poolFactsOf>) => ({
+    quoteTotal: BigInt(f.quote) + BigInt(f.virtualQuote),
+    baseReserveAtoms: BigInt(f.base),
+    baseMintSupplyAtoms: f.baseMintSupply === null ? null : BigInt(f.baseMintSupply),
+  });
+  const tierA = await feeTierOf(readerA, tierArgs(factsA));
+  const tierB = await feeTierOf(readerB, tierArgs(factsB));
 
   // The comparison has to be made over the ECONOMIC accounts alone.
   //

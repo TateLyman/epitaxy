@@ -2314,6 +2314,49 @@ CREATE INDEX IF NOT EXISTS idx_created_scope ON created_accounts(economic_scope)
 CREATE INDEX IF NOT EXISTS idx_created_shared ON created_accounts(shared_with_other);
 `,
   },
+  {
+    id: 41,
+    name: 'leg_cashback',
+    sql: `
+-- P7/F13 -- what each leg moved through the cashback accounts, PER LEG.
+--
+-- The repository asserted for two commits that \`sell\` carries no volume
+-- accumulator, because the IDL names it only on the instructions that manage it
+-- directly. It carries two of them as optional positional remaining accounts,
+-- and modelling one leg's creator-fee recovery instead of two understated the
+-- retained round trip by roughly half.
+--
+-- One row per leg, never summed before storage. A single summed figure cannot
+-- show whether the SECOND leg accrued, which is exactly the evidence the
+-- correction needs.
+--
+-- \`accrued_to_us\` is the discriminating fact: the creator fee goes either to
+-- the accumulator or to the creator's vault, never both. Both moving, or
+-- neither, means something other than the modelled path happened and the leg is
+-- not evidence for either -- so it is nullable, and null is not false.
+CREATE TABLE IF NOT EXISTS leg_cashback (
+  trajectory_id            TEXT NOT NULL,
+  leg                      TEXT NOT NULL,
+  -- TEXT because these are signed lamport deltas and SQLite INTEGER is 64-bit
+  -- SIGNED; the amounts fit, but every other amount column in this schema is
+  -- TEXT and a mixed convention is how a bigint becomes a float.
+  accumulator_wsol_delta   TEXT,
+  accumulator_delta        TEXT,
+  creator_vault_delta      TEXT,
+  fee_recipient_delta      TEXT,
+  -- NULL when it could not be determined. Never coerced to 0.
+  accrued_to_us            INTEGER,
+  -- Whether the pool was cashback-enabled AT BUILD TIME, decoded from the pool
+  -- rather than read off a possibly-hours-old migration row.
+  is_cashback_coin         INTEGER NOT NULL,
+  recorded_utc_ms          INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, leg),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leg_cashback_accrued ON leg_cashback(accrued_to_us);
+`,
+  },
 ];
 
 export interface OpenOptions {
