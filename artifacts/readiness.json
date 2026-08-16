@@ -1,200 +1,178 @@
 {
-  "generatedUtcMs": 1786659734061,
-  "sourceCommit": "0aed90e7250768aae9ab29345cea4491c1d17360+dirty",
-  "strategyVersion": "delayed-momentum-v0.4.0",
-  "confirmatoryTrades": 0,
-  "validDevelopmentTrades": 0,
+  "artifact": "readiness",
+  "directiveSection": "P12/F21",
+  "gate": "EXACT_TRAJECTORY_CONTRACT",
+  "verdict": "NOT_READY",
+  "generatedUtcMs": 1786910362556,
+  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
+  "dirty": true,
+  "settledTrajectories": 59,
+  "timelyCompletePaths": 8,
+  "distinctUtcDays": 2,
+  "grossDeltaLamportsControl": "-498037551",
+  "grossOutcomeCount": 58,
+  "netPnlLamports": null,
+  "netPnlUnknownBecause": "gross_delta_lamports is exit mark minus entry cash-out. It carries no unrecoverable rent, no failed attempt, no claim cost and no cashback. Net requires a canonical settlement per trajectory.",
+  "thresholds": {
+    "minCompletedTrajectories": 200,
+    "minDistinctUtcDays": 21,
+    "minProfitFactor": 1.25,
+    "recentWindow": 50,
+    "dropTopN": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "dropBestMintsOrEntities": 5,
+    "costStressMultiple": 2
+  },
+  "ready": false,
   "gates": [
     {
-      "id": "sample.validCompletedPositions",
+      "name": "contract held",
       "pass": false,
-      "observed": "0 confirmatory positions",
-      "required": "at least 200",
-      "rationale": "A confirmatory position is one whose entry and exit were both effect-verified, on one family, from a reproducible offline snapshot, on a clean commit. Development JIT rows are not confirmatory however many there are."
+      "detail": "the frozen contract does not hold"
     },
     {
-      "id": "sample.calendarDays",
+      "name": "completed trajectories",
       "pass": false,
-      "observed": "0 distinct UTC days (0.0 elapsed)",
-      "required": "at least 21 DISTINCT UTC days",
-      "rationale": "A memecoin regime lasts days. Elapsed span can be 21 days with every trade in the first hour and the last, which is one regime observed twice."
+      "detail": "8 of 200"
     },
     {
-      "id": "pnl.netPositive",
+      "name": "distinct UTC days",
       "pass": false,
-      "observed": "0 lamports net",
-      "required": "greater than zero",
-      "rationale": "The gate this whole section exists for: the previous version could pass after 200 losing trades."
+      "detail": "2 of 21"
     },
     {
-      "id": "pnl.expectedLogGrowth",
+      "name": "net PnL positive",
       "pass": false,
-      "observed": "unknown",
-      "required": "greater than zero",
-      "rationale": "Mean arithmetic profit can be positive while repeated betting goes to zero. Log growth is the quantity that compounds."
+      "detail": "unknown (UNKNOWN, which is a fail)"
     },
     {
-      "id": "pnl.lowerConfidenceBound",
+      "name": "expected log growth positive",
       "pass": false,
-      "observed": "unknown",
-      "required": "greater than zero",
-      "rationale": "A positive point estimate on a thin sample is not evidence of an edge. The lower bound is."
+      "detail": "unknown (UNKNOWN, which is a fail)"
     },
     {
-      "id": "pnl.profitFactor",
+      "name": "robust lower bound positive",
       "pass": false,
-      "observed": "unknown",
-      "required": "at least 1.25",
-      "rationale": "Gross wins over gross losses. Below 1.25 there is no room for the costs a live account discovers."
+      "detail": "unknown (UNKNOWN, which is a fail)"
     },
     {
-      "id": "risk.maxDrawdown",
+      "name": "profit factor",
       "pass": false,
-      "observed": "unknown bps",
-      "required": "at most 2000 bps",
-      "rationale": "The threshold is frozen. Widening it after seeing the curve is fitting the risk limit to the strategy."
+      "detail": "unknown vs 1.25 (UNKNOWN, which is a fail)"
     },
     {
-      "id": "risk.catastrophicIncidence",
+      "name": "drawdown bounded",
       "pass": false,
-      "observed": "0/0 total-loss trades",
-      "required": "at most 2%",
-      "rationale": "A rug returns nothing and costs the fees on top. Their frequency, not their average, is what sizing has to survive."
+      "detail": "frozen drawdown bound (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.recent50",
+      "name": "CVaR acceptable",
       "pass": false,
-      "observed": "0 recent trades, net 0",
-      "required": "the most recent 50 net positive",
-      "rationale": "An edge that stopped working three weeks ago still shows a positive total."
+      "detail": "frozen CVaR bound (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exTop1",
+      "name": "catastrophic incidence",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best trade",
-      "rationale": "One 40x in the sample makes every other property meaningless."
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exTop3",
+      "name": "blocked incidence",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best 3",
-      "rationale": "As above, at depth."
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exTop5",
+      "name": "recent 50 positive",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best 5",
-      "rationale": "As above, at depth."
+      "detail": "last 50 (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exTop10",
+      "name": "positive without top 1",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best 10",
-      "rationale": "As above, at depth."
+      "detail": "drop the 1 best trajectories (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exBestDay",
+      "name": "positive without top 3",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best day",
-      "rationale": "One good day is one regime, not an edge."
+      "detail": "drop the 3 best trajectories (UNKNOWN, which is a fail)"
     },
     {
-      "id": "robustness.exBestFiveMints",
+      "name": "positive without top 5",
       "pass": false,
-      "observed": "n/a",
-      "required": "positive without the best 5 mints",
-      "rationale": "Five tokens carrying the result is a bet on five tokens."
+      "detail": "drop the 5 best trajectories (UNKNOWN, which is a fail)"
     },
     {
-      "id": "concentration.noTradeOverTenPercent",
+      "name": "positive without top 10",
       "pass": false,
-      "observed": "n/a%",
-      "required": "at most 10% of positive PnL from one trade",
-      "rationale": "Concentration in the result is concentration in the conclusion."
+      "detail": "drop the 10 best trajectories (UNKNOWN, which is a fail)"
     },
     {
-      "id": "concentration.noDayOverTwentyFivePercent",
+      "name": "positive without best day",
       "pass": false,
-      "observed": "n/a%",
-      "required": "at most 25% of positive PnL from one day",
-      "rationale": "As above, by time."
+      "detail": "drop the best UTC day (UNKNOWN, which is a fail)"
     },
     {
-      "id": "stress.doubleCosts",
+      "name": "positive without best five mints or entities",
       "pass": false,
-      "observed": "0 lamports at 2x costs",
-      "required": "still positive",
-      "rationale": "Live costs are worse than modelled costs. Every time."
+      "detail": "drop the best 5 (UNKNOWN, which is a fail)"
     },
     {
-      "id": "evidence.zeroReplayDivergence",
+      "name": "positive under 2x costs",
       "pass": false,
-      "observed": "no replay results divergences",
-      "required": "exactly 0",
-      "rationale": "If a decision cannot be re-derived from its snapshot, either the snapshot is incomplete or the strategy changed. Both are defects."
+      "detail": "2x actual costs (UNKNOWN, which is a fail)"
     },
     {
-      "id": "evidence.zeroUnresolvedReconciliation",
+      "name": "positive under stress",
+      "pass": false,
+      "detail": "latency, failure, rent, cashback claim (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive exact canary-size shadow",
+      "pass": false,
+      "detail": "at the exact canary notional (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "zero replay divergence",
       "pass": true,
-      "observed": "0",
-      "required": "exactly 0",
-      "rationale": "A clock discontinuity nobody resolved is a gap in the record."
+      "detail": "0 divergence(s)"
     },
     {
-      "id": "lifecycle.noBlockedExits",
+      "name": "zero unresolved reconciliation",
       "pass": true,
-      "observed": "0",
-      "required": "exactly 0",
-      "rationale": "A position that cannot be closed is exposure regardless of what the state column says."
+      "detail": "0 unresolved"
     },
     {
-      "id": "evidence.stableSimulatorFingerprint",
-      "pass": true,
-      "observed": "1 distinct simulator binaries in the corpus",
-      "required": "exactly 1",
-      "rationale": "Two binaries are two instruments, and their results are not one sample."
-    },
-    {
-      "id": "shadow.canarySizePositive",
+      "name": "fingerprints stable",
       "pass": false,
-      "observed": "463 closed canary-shadow positions, net -8567576023",
-      "required": "positive at canary size",
-      "rationale": "The portfolio result is at portfolio size. Canary runs at a fixed small size, and small size has its own cost structure."
+      "detail": "approved set unchanged over the window (UNKNOWN, which is a fail)"
     }
   ],
-  "allPass": false,
-  "verdict": "NOT_READY",
   "blockers": [
-    "sample.validCompletedPositions: observed 0 confirmatory positions, requires at least 200",
-    "sample.calendarDays: observed 0 distinct UTC days (0.0 elapsed), requires at least 21 DISTINCT UTC days",
-    "pnl.netPositive: observed 0 lamports net, requires greater than zero",
-    "pnl.expectedLogGrowth: observed unknown, requires greater than zero",
-    "pnl.lowerConfidenceBound: observed unknown, requires greater than zero",
-    "pnl.profitFactor: observed unknown, requires at least 1.25",
-    "risk.maxDrawdown: observed unknown bps, requires at most 2000 bps",
-    "risk.catastrophicIncidence: observed 0/0 total-loss trades, requires at most 2%",
-    "robustness.recent50: observed 0 recent trades, net 0, requires the most recent 50 net positive",
-    "robustness.exTop1: observed n/a, requires positive without the best trade",
-    "robustness.exTop3: observed n/a, requires positive without the best 3",
-    "robustness.exTop5: observed n/a, requires positive without the best 5",
-    "robustness.exTop10: observed n/a, requires positive without the best 10",
-    "robustness.exBestDay: observed n/a, requires positive without the best day",
-    "robustness.exBestFiveMints: observed n/a, requires positive without the best 5 mints",
-    "concentration.noTradeOverTenPercent: observed n/a%, requires at most 10% of positive PnL from one trade",
-    "concentration.noDayOverTwentyFivePercent: observed n/a%, requires at most 25% of positive PnL from one day",
-    "stress.doubleCosts: observed 0 lamports at 2x costs, requires still positive",
-    "evidence.zeroReplayDivergence: observed no replay results divergences, requires exactly 0",
-    "shadow.canarySizePositive: observed 463 closed canary-shadow positions, net -8567576023, requires positive at canary size"
+    "contract held",
+    "completed trajectories",
+    "distinct UTC days",
+    "net PnL positive",
+    "expected log growth positive",
+    "robust lower bound positive",
+    "profit factor",
+    "drawdown bounded",
+    "CVaR acceptable",
+    "catastrophic incidence",
+    "blocked incidence",
+    "recent 50 positive",
+    "positive without top 1",
+    "positive without top 3",
+    "positive without top 5",
+    "positive without top 10",
+    "positive without best day",
+    "positive without best five mints or entities",
+    "positive under 2x costs",
+    "positive under stress",
+    "positive exact canary-size shadow",
+    "fingerprints stable"
   ],
-  "benchmarks": {
-    "noTradeLamports": 0,
-    "holdSolLamports": 0,
-    "strategyNetLamports": 0,
-    "canaryShadowNetLamports": -8567576023
-  }
+  "supersedes": "the position-oriented gate, which now runs as pnpm readiness:positions"
 }

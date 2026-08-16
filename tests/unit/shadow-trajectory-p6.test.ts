@@ -324,14 +324,31 @@ describe('P5 — the call graph is generated, and the required edges hold', () =
     expect(g.required.every((r) => r.reached)).toBe(true);
   });
 
-  it.skipIf(!existsSync(GRAPH))('the shadow loop reaches the same exit admission as the portfolio', () => {
-    // The edge that did not exist before P6, and the reason the shadow book was
-    // measuring a different strategy from the one it was shadowing.
+  it.skipIf(!existsSync(GRAPH))('the shadow loop admits its exit, and cannot close at the trigger', () => {
+    /**
+     * This asserted `manageShadowBooks -> admitPortfolioExit` and passed
+     * against a STALE artifact. Regenerating the graph at `4ec715f` — before
+     * any of the running-collector work — showed the edge already unreachable,
+     * so the green check was over a fact nobody had re-derived since `0fdc24e`.
+     *
+     * The admission moved rather than disappeared, and moved somewhere
+     * stricter: `simulateLeg` then `resolveFill`, which requires an effect-valid
+     * candidate AND a later observation than the trigger. The second half is
+     * what forbids closing at the trigger mark — the look-ahead bias that
+     * voided 1,038 shadow results, every one filled at the price that caused
+     * the decision to exit.
+     *
+     * So the assertion follows the guarantee. Pointed at a superseded design it
+     * fails without saying what broke; pointed at nothing it is worse.
+     */
     const g = JSON.parse(readFileSync(GRAPH, 'utf8')) as {
       required: { from: string; to: string; reached: boolean }[];
     };
-    const edge = g.required.find((r) => r.from === 'manageShadowBooks' && r.to === 'admitPortfolioExit');
-    expect(edge?.reached).toBe(true);
+    for (const to of ['resolveFill', 'simulateLeg']) {
+      const edge = g.required.find((r) => r.from === 'manageShadowBooks' && r.to === to);
+      expect(edge, `manageShadowBooks -> ${to} is not a required edge`).toBeDefined();
+      expect(edge?.reached, `manageShadowBooks cannot reach ${to}`).toBe(true);
+    }
   });
 
   it.skipIf(!existsSync(GRAPH))('no lifecycle function is declared in the process shell', () => {

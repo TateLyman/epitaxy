@@ -1,8 +1,8 @@
 {
   "artifact": "rate-budget-v2",
   "directiveSection": "P13",
-  "generatedUtcMs": 1786909919551,
-  "sourceCommit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+  "generatedUtcMs": 1786910096022,
+  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
   "dirty": true,
   "activeTime": {
     "activeSeconds": 886.614,

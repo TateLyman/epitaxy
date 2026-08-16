@@ -50,7 +50,30 @@ const REQUIRED: readonly { from: string; to: string; why: string }[] = [
   { from: 'manageOpenPositions', to: 'exitCashIn', why: 'exit cash in comes from the settlement module' },
   { from: 'manageOpenPositions', to: 'executionCost', why: 'cost excludes principal, from the one module that knows' },
   { from: 'main', to: 'manageShadowBooks', why: 'the shell drives the shadow lifecycle' },
-  { from: 'manageShadowBooks', to: 'admitPortfolioExit', why: 'a shadow exit uses the same admission' },
+  /**
+   * The shadow exit admission MOVED, and this edge was left describing the old one.
+   *
+   * It used to be `manageShadowBooks -> admitPortfolioExit`, and the checked-in
+   * artifact said `reached: true`. Regenerating the graph at `4ec715f` — before
+   * any of this session's changes — showed it already unreachable, so the
+   * artifact was simply stale and had been hiding the drift. That is F23 in one
+   * example: a stale artifact is not neutral, it is a green check over a fact
+   * nobody re-derived.
+   *
+   * The drift is not a regression. The shadow loop's exit is now admitted by
+   * `simulateLeg` followed by `resolveFill`, which is STRICTER than
+   * `admitPortfolioExit` was: it requires an effect-valid candidate AND a later
+   * observation than the trigger. That second requirement is what forbids
+   * closing at the trigger mark — the look-ahead bias that voided 1,038 shadow
+   * results, where every exit filled at the one price a real exit can never
+   * get, the price that caused the decision to exit.
+   *
+   * So the edge is REPOINTED at the guarantee that exists, not deleted. An
+   * assertion aimed at a superseded design fails without telling anyone what
+   * broke; one aimed at nothing is worse.
+   */
+  { from: 'manageShadowBooks', to: 'resolveFill', why: 'a shadow exit needs a LATER valid fill, never its trigger mark' },
+  { from: 'manageShadowBooks', to: 'simulateLeg', why: 'the fill candidate is simulated before it can be effect-valid' },
   { from: 'runCycle', to: 'readMintFacts', why: 'screening reads the mint from the chain' },
   { from: 'runCycle', to: 'screenCheap', why: 'screening actually runs' },
 ];

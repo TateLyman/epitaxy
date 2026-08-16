@@ -1,42 +1,127 @@
 {
   "artifact": "wss-status",
   "directiveSection": "P11",
-  "generatedUtcMs": 1786907682109,
-  "sourceCommit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+  "generatedUtcMs": 1786910094088,
+  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
   "dirty": true,
   "coverage": {
-    "sessions": 1,
+    "sessions": 8,
     "openSubscriptions": 0,
-    "closedSubscriptions": 2,
+    "closedSubscriptions": 37,
     "byKind": [
       {
         "kind": "migration_logs",
         "open": 0,
         "events": 0
+      },
+      {
+        "kind": "pool_context",
+        "open": 0,
+        "events": 0
+      },
+      {
+        "kind": "vault",
+        "open": 0,
+        "events": 0
       }
     ],
-    "gaps": 1,
-    "openGaps": 1,
+    "gaps": 8,
+    "openGaps": 8,
     "addressesChangedWhileBlind": 0,
     "urgentQueued": 0,
     "urgentConsumed": 0,
     "urgentPending": 0
   },
   "activeTime": {
-    "activeSeconds": 28.566,
-    "wallSeconds": 28.566,
-    "sessions": 1,
+    "activeSeconds": 886.614,
+    "wallSeconds": 2271.743,
+    "sessions": 8,
     "diedWithoutClosing": 0
   },
   "subscriptionsByKind": [
     {
       "kind": "migration_logs",
-      "total": 2,
+      "total": 16,
+      "open": 0,
+      "events": 0
+    },
+    {
+      "kind": "pool_context",
+      "total": 11,
+      "open": 0,
+      "events": 0
+    },
+    {
+      "kind": "vault",
+      "total": 10,
       "open": 0,
       "events": 0
     }
   ],
   "gaps": [
+    {
+      "session_id": "3812a2c9-2031-4b3e-ace4-90777c6ac636",
+      "gap_start_utc_ms": 1786909863415,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "8e459bf2-d87e-485c-9b8d-48e96edfe873",
+      "gap_start_utc_ms": 1786909668950,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "c4b0822a-2998-45b7-a456-6ba8a649c465",
+      "gap_start_utc_ms": 1786909399268,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "8e21abb8-0ee6-4670-b574-5b19f900466a",
+      "gap_start_utc_ms": 1786909084322,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "e1859c2e-fdef-4c13-b0bd-8b757501bc2e",
+      "gap_start_utc_ms": 1786908919508,
+      "gap_end_utc_ms": null,
+      "reason": "vault watch: subscription lost (closed); 5 account(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "e1859c2e-fdef-4c13-b0bd-8b757501bc2e",
+      "gap_start_utc_ms": 1786908723644,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "c2b493de-6284-466a-b255-b1088d067b7c",
+      "gap_start_utc_ms": 1786907704419,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (error); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
     {
       "session_id": "0262b031-85d0-4b10-8c77-2501cfd06c9a",
       "gap_start_utc_ms": 1786907635145,
@@ -53,6 +138,76 @@
     "samples": 0
   },
   "sessions": [
+    {
+      "session_id": "3812a2c9-2031-4b3e-ace4-90777c6ac636",
+      "started_utc_ms": 1786909863247,
+      "heartbeat_utc_ms": 1786909906765,
+      "ended_utc_ms": 1786909906765,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "dirty": 1
+    },
+    {
+      "session_id": "8e459bf2-d87e-485c-9b8d-48e96edfe873",
+      "started_utc_ms": 1786909668533,
+      "heartbeat_utc_ms": 1786909719325,
+      "ended_utc_ms": 1786909719325,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "dirty": 1
+    },
+    {
+      "session_id": "c4b0822a-2998-45b7-a456-6ba8a649c465",
+      "started_utc_ms": 1786909398830,
+      "heartbeat_utc_ms": 1786909609991,
+      "ended_utc_ms": 1786909609991,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "dirty": 1
+    },
+    {
+      "session_id": "8e21abb8-0ee6-4670-b574-5b19f900466a",
+      "started_utc_ms": 1786909083949,
+      "heartbeat_utc_ms": 1786909333419,
+      "ended_utc_ms": 1786909333419,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "dirty": 1
+    },
+    {
+      "session_id": "e1859c2e-fdef-4c13-b0bd-8b757501bc2e",
+      "started_utc_ms": 1786908717022,
+      "heartbeat_utc_ms": 1786908973064,
+      "ended_utc_ms": 1786908973064,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "dirty": 1
+    },
+    {
+      "session_id": "30e13ce1-9ec6-41d6-906f-336cc52fd850",
+      "started_utc_ms": 1786908016484,
+      "heartbeat_utc_ms": 1786908035134,
+      "ended_utc_ms": 1786908035134,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+      "dirty": 1
+    },
+    {
+      "session_id": "c2b493de-6284-466a-b255-b1088d067b7c",
+      "started_utc_ms": 1786907704335,
+      "heartbeat_utc_ms": 1786907732750,
+      "ended_utc_ms": 1786907732750,
+      "cycles": 0,
+      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
+      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+      "dirty": 1
+    },
     {
       "session_id": "0262b031-85d0-4b10-8c77-2501cfd06c9a",
       "started_utc_ms": 1786907635022,

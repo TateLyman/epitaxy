@@ -1,14 +1,14 @@
 {
-  "generatedUtcMs": 1786905692750,
-  "sourceCommit": "db71187a7764ead84695fe2ef58a996516993be8+dirty",
+  "generatedUtcMs": 1786910102823,
+  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1+dirty",
   "database": "./data/runtime.db",
   "what": "development trajectories as the DATABASE has them. No artifact is read.",
   "trajectories": {
     "total": 64,
-    "settled": 49,
+    "settled": 59,
     "byState": {
-      "AWAITING_FILL_OBSERVATION": 15,
-      "SETTLED": 49
+      "AWAITING_FILL_OBSERVATION": 5,
+      "SETTLED": 59
     }
   },
   "byStratum": {
@@ -18,33 +18,33 @@
   "marksByOffsetMs": [
     {
       "offsetMs": 60000,
-      "marks": 59,
-      "backfilled": 46
+      "marks": 64,
+      "backfilled": 51
     },
     {
       "offsetMs": 300000,
-      "marks": 58,
-      "backfilled": 18
-    },
-    {
-      "offsetMs": 900000,
-      "marks": 49,
-      "backfilled": 25
-    },
-    {
-      "offsetMs": 1800000,
-      "marks": 49,
+      "marks": 64,
       "backfilled": 24
     },
     {
+      "offsetMs": 900000,
+      "marks": 64,
+      "backfilled": 40
+    },
+    {
+      "offsetMs": 1800000,
+      "marks": 64,
+      "backfilled": 39
+    },
+    {
       "offsetMs": 3600000,
-      "marks": 49,
-      "backfilled": 32
+      "marks": 64,
+      "backfilled": 47
     }
   ],
   "policyOutcomes": {
-    "FIXED_15M_CONTROL": 49,
-    "FLOW_LIQUIDITY_DETERIORATION_V1": 49
+    "FIXED_15M_CONTROL": 59,
+    "FLOW_LIQUIDITY_DETERIORATION_V1": 59
   },
   "frozenAccountPlans": 26,
   "timelyCompletePaths": 8,
