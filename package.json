@@ -98,7 +98,8 @@
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
-    "wss:status": "tsx scripts/not-implemented.ts wss:status"
+    "wss:status": "tsx scripts/not-implemented.ts wss:status",
+    "size:cold-warm-surface": "tsx scripts/cold-warm-surface.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

@@ -1,0 +1,14 @@
+Migration 38: the lateness column, in its own migration
+
+I added lateness_ms to migration 37 AFTER 37 had already run on the live
+database. Migrations are idempotent by id, so editing an applied one changes the
+file and not the schema: the column silently never appeared, and every mark
+insert then failed with "no column named lateness_ms" against a migration that
+reads as if it created it.
+
+37 is restored to the form that actually ran. 38 adds the column.
+
+Found by the daemon, which logged "cycle 1 failed" and kept going rather than
+dying - the error handling doing exactly what it was written for.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>

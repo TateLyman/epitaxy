@@ -1,0 +1,26 @@
+P14: the collector runs as a daemon
+
+The mark-and-settle pass was already resumable - every invocation marks whatever
+is due and settles whatever is complete, and all of its state lives in the
+database. So a daemon is that pass on a timer: no resident scheduler, no
+in-memory queue, and a restart loses nothing but the current sleep.
+
+That is what makes a horizon real. A path only produces a genuine 60-minute mark
+if something is alive to take it at sixty minutes. The first live run settled
+eight paths whose marks were all fetched in one burst - five labels and one
+instant - and running continuously is the difference between a label and an
+observation.
+
+A cycle that throws does not kill the daemon. An apparatus failure is a fact
+about that cycle, and stopping on it would silently end collection at the first
+RPC hiccup, which reads later as "the market produced nothing" rather than "we
+stopped looking".
+
+--once remains the single-pass escape hatch; looping is now the default,
+because a collector that only runs when someone types the command is the shape
+this whole directive exists to correct.
+
+The process still cannot trade: no NAV, no capital-bearing positions, no signer
+import, and it refuses to start in canary or live.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>

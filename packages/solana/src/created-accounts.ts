@@ -76,6 +76,10 @@ export interface ScopeContext {
   readonly coinCreatorVaultAuthority?: string | null;
   readonly userVolumeAccumulator?: string | null;
   readonly globalVolumeAccumulator?: string | null;
+  /** The accumulator's WSOL ATA — where PumpSwap cashback actually lands. */
+  readonly accumulatorWsolAta?: string | null;
+  /** The `pool-v2` PDA the SDK appends whenever the pool names a coin creator. */
+  readonly poolV2?: string | null;
 }
 
 export interface CreatedAccount {
@@ -178,6 +182,24 @@ function roleOf(
     ctx.globalVolumeAccumulator !== undefined &&
     pubkey === ctx.globalVolumeAccumulator
   ) {
+    return { scope: 'MINT_SPECIFIC', recoverability: 'NOT_RECOVERABLE', shared: true };
+  }
+
+  /**
+   * The accumulator's WSOL ATA — where PumpSwap cashback actually lands.
+   *
+   * Per wallet per quote mint, like our own WSOL ATA, but owned by a program
+   * PDA rather than by us. We cannot sign for the PDA, so we cannot close it;
+   * only `claim_cashback` moves anything out. It is not shared, because no
+   * other trader's transaction opens OUR accumulator's ATA — so this is rent we
+   * pay once, ever, and never get back.
+   */
+  if (ctx.accumulatorWsolAta !== null && ctx.accumulatorWsolAta !== undefined && pubkey === ctx.accumulatorWsolAta) {
+    return { scope: 'WALLET_QUOTE_MINT', recoverability: 'NOT_RECOVERABLE', shared: false };
+  }
+
+  // Per base mint, opened by whichever trader reaches the pool first.
+  if (ctx.poolV2 !== null && ctx.poolV2 !== undefined && pubkey === ctx.poolV2) {
     return { scope: 'MINT_SPECIFIC', recoverability: 'NOT_RECOVERABLE', shared: true };
   }
 

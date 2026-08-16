@@ -8,6 +8,7 @@ import {
   swapAccountAddresses,
   associatedTokenAddressOf,
   canonicalPool,
+  swapAccountRoles,
   WSOL_MINT,
   FEE_CONFIG_ADDR,
   GLOBAL_CONFIG_ADDR,
@@ -23,6 +24,7 @@ import { mechanicsStratum } from '../../solana/src/cashback.js';
 import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
+import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
 import {
   classifyCreatedAccount,
   summariseSetup,
@@ -85,6 +87,28 @@ export interface OpenedTrajectory {
   readonly entrySettlementId: string;
   readonly selfImpactLamports: bigint | null;
   readonly quoteStateSurvived: boolean;
+  /**
+   * P6 — the base token account was gone after the sell, so its rent came back
+   * inside the exit rather than costing a third signature and landing interval.
+   *
+   * Measured from the sell's post-state, never inferred from having appended
+   * the instruction.
+   */
+  readonly baseAtaClosedInSell: boolean | null;
+  /**
+   * P6 — what each leg actually consumed, and the limit a live leg should
+   * therefore request.
+   *
+   * Solana charges the priority fee against the REQUESTED limit, so a leg that
+   * omits `SetComputeUnitLimit` pays against the derived 200,000-per-instruction
+   * allocation rather than against what it used. Development legs run in an
+   * isolated runtime and pay no priority fee, which is exactly why the figure
+   * has to be measured here — there is nowhere else it can come from before a
+   * live path exists.
+   */
+  readonly buyComputeUnits: number | null;
+  readonly sellComputeUnits: number | null;
+  readonly computeBudget: ComputeBudgetPlan | null;
   /** The buy moved the canonical pool AND nothing else took the flow. */
   readonly soleVenueAttributed: boolean;
   readonly baseVaultDeltaAtoms: bigint;
@@ -215,6 +239,22 @@ export async function openTrajectory(
     baseMint: p.mint,
     user: p.taker,
     coinCreator: addrs.coinCreator,
+  });
+  /**
+   * P6/P7 — the same addresses, NAMED.
+   *
+   * `swapAccountAddresses` returns a bag, and a bag is what a classifier cannot
+   * use: every account the buy created came back `UNKNOWN`, which the warm gate
+   * treats as shared. Correct but uninformative — an entry that opened only its
+   * own recoverable ATAs was indistinguishable from one that paid a creator
+   * vault's rent, which is the exact distinction P6 exists to draw.
+   */
+  const roles = swapAccountRoles({
+    user: p.taker,
+    baseMint: p.mint,
+    coinCreator: addrs.coinCreator,
+    quoteMint: WSOL_MINT,
+    quoteTokenProgram: TOKEN_PROGRAM,
   });
 
   /**
@@ -348,7 +388,19 @@ export async function openTrajectory(
     }
   }
 
-  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts])];
+  /**
+   * P6/P7 — the accounts whose EXISTENCE and BALANCE the economics depend on.
+   *
+   * `swapAccounts` covers what the SDK names, but not the two the cashback path
+   * actually moves money through: the accumulator's WSOL ATA (where cashback
+   * lands) and the `pool-v2` PDA. An account absent from `observe` reports as
+   * neither created nor credited, which is how the size surface came to report
+   * zero created-account rent on every row.
+   */
+  const cashbackAccounts = [roles.accumulatorWsolAta, roles.poolV2, roles.userVolumeAccumulator].filter(
+    (a): a is string => a !== null,
+  );
+  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts, ...cashbackAccounts])];
 
   const trip = await sequentialRoundTrip(
     {
@@ -412,24 +464,33 @@ export async function openTrajectory(
         slippagePct: p.slippagePct,
         blockhash,
         encode: (ixs, bh) => encode(ixs, p.taker, bh),
+        /**
+         * P6 — the close rides IN the sell, not after it.
+         *
+         * It used to be a third step with its own signature and its own landing
+         * interval, spent purely to recover the base ATA's ~2,039,280 lamports
+         * of rent. The lamports are worth the 5,000 lamport signature; the
+         * interval is the expensive part, and a separate transaction is one
+         * more thing that can fail once the position is already flat.
+         *
+         * The sell has just emptied the account, so `residualAtoms` is zero by
+         * construction — and if it is not, `buildCloseAccount` refuses here
+         * rather than producing an instruction the runtime rejects.
+         */
+        appendInstructions: () => [
+          buildCloseAccount({
+            tokenAccount: takerAta,
+            destination: p.taker,
+            owner: p.taker,
+            tokenProgram: mintOwner,
+            residualAtoms: 0n,
+            withheldAtoms: 0n,
+          }),
+        ],
       }),
-      // P6 — the close is appended rather than given its own signature and
-      // landing interval merely to recover the base ATA's rent.
-      buildCloseBase64: () =>
-        encode(
-          [
-            buildCloseAccount({
-              tokenAccount: takerAta,
-              destination: p.taker,
-              owner: p.taker,
-              tokenProgram: mintOwner,
-              residualAtoms: 0n,
-              withheldAtoms: 0n,
-            }),
-          ],
-          p.taker,
-          blockhash,
-        ),
+      // Checked against the sell's own post-state, so "appended a close" is
+      // never mistaken for "the account is gone".
+      takerBaseAtaToClose: takerAta,
       jobId: `collect-${p.mint.slice(0, 8)}`,
     },
     worker,
@@ -501,6 +562,12 @@ export async function openTrajectory(
           baseMint: p.mint,
           quoteMint: WSOL_MINT,
           coinCreator: addrs.coinCreator,
+          coinCreatorVaultAta: roles.coinCreatorVaultAta,
+          coinCreatorVaultAuthority: roles.coinCreatorVaultAuthority,
+          userVolumeAccumulator: roles.userVolumeAccumulator,
+          globalVolumeAccumulator: roles.globalVolumeAccumulator,
+          accumulatorWsolAta: roles.accumulatorWsolAta,
+          poolV2: roles.poolV2,
         },
       ),
     );
@@ -531,6 +598,15 @@ export async function openTrajectory(
       entrySettlementId: `set-${randomUUID()}`,
       selfImpactLamports: trip.selfImpactLamports,
       quoteStateSurvived: trip.quoteStateSurvived,
+      baseAtaClosedInSell: trip.baseAtaClosedInSell,
+      buyComputeUnits: trip.buy.computeUnitsConsumed,
+      sellComputeUnits: trip.sell?.computeUnitsConsumed ?? null,
+      // The limit is set from the LARGER leg. One limit is requested per
+      // transaction, and sizing it to the buy would fail every sell that costs
+      // more — which the appended close makes likely, not hypothetical.
+      computeBudget: frozenComputeLimit(
+        Math.max(trip.buy.computeUnitsConsumed ?? 0, trip.sell?.computeUnitsConsumed ?? 0) || null,
+      ),
       soleVenueAttributed: soleVenue,
       baseVaultDeltaAtoms: baseOut,
       quoteVaultDeltaLamports: quoteIn,

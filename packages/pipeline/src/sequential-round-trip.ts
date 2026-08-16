@@ -59,8 +59,24 @@ export interface RoundTripRequest {
    * size surface and killed the worker.
    */
   readonly economicAccounts?: readonly string[];
-  /** Builds the close once the acquired amount is known. */
-  readonly buildCloseBase64: (acquiredAtoms: bigint) => string;
+  /**
+   * Builds a SEPARATE close transaction once the acquired amount is known.
+   *
+   * P6 — optional, and normally omitted. A separate close costs another
+   * signature and another landing interval to recover rent the sell could have
+   * recovered for free, and it is one more thing that can fail after the
+   * position is already flat. `standardPumpSwapSell({ appendInstructions })`
+   * puts the close inside the sell instead; this field remains for the venues
+   * and token programs where appending is not valid.
+   */
+  readonly buildCloseBase64?: (acquiredAtoms: bigint) => string;
+  /**
+   * The base token account the close is supposed to remove.
+   *
+   * Named so the trip can CHECK that it is gone after the sell rather than
+   * trusting that an appended instruction did what it was appended to do.
+   */
+  readonly takerBaseAtaToClose?: string;
   /**
    * Builds the sell FROM the observed post-buy state.
    *
@@ -105,6 +121,14 @@ export interface RoundTripResult {
   readonly quoteStateSurvived: boolean;
   /** The buy's own effect on the price the sell got. */
   readonly selfImpactLamports: bigint | null;
+  /**
+   * P6 — the base ATA was gone after the sell, so its rent came back inside the
+   * exit rather than costing a third signature.
+   *
+   * Measured from the sell's own post-state, not inferred from having appended
+   * an instruction. `null` when there was no ATA named to check.
+   */
+  readonly baseAtaClosedInSell: boolean | null;
   readonly runtimeIdentity: unknown;
   readonly incompleteness: readonly string[];
 }
@@ -121,6 +145,7 @@ function fail(f: RoundTripFailure, detail: string, partial: Partial<RoundTripRes
     quoted: null,
     quoteStateSurvived: false,
     selfImpactLamports: null,
+    baseAtaClosedInSell: null,
     runtimeIdentity: null,
     incompleteness: [],
     ...partial,
@@ -154,6 +179,18 @@ export function standardPumpSwapSell(p: {
   slippagePct: number;
   blockhash: string;
   encode: (instructions: unknown[], blockhash: string) => string;
+  /**
+   * P6 — instructions appended AFTER the sell, in the same transaction.
+   *
+   * The base token account close goes here. Recovering ~2,039,280 lamports of
+   * rent is worth a 5,000 lamport signature, so a separate close is not wrong
+   * economically — it is wrong operationally: a second transaction has its own
+   * landing interval and its own way to fail once the position is already flat,
+   * and on a busy pool the interval is the expensive part.
+   *
+   * Appended rather than prepended, because the account has to be empty first.
+   */
+  appendInstructions?: (acquiredAtoms: bigint) => readonly unknown[];
 }) {
   return async (
     postState: AccountBytesSource,
@@ -176,7 +213,11 @@ export function standardPumpSwapSell(p: {
       baseAtoms: acquiredAtoms,
       slippagePct: p.slippagePct,
     });
-    return { transactionBase64: p.encode(built.instructions as unknown[], p.blockhash), selfImpactLamports };
+    const appended = p.appendInstructions === undefined ? [] : [...p.appendInstructions(acquiredAtoms)];
+    return {
+      transactionBase64: p.encode([...(built.instructions as unknown[]), ...appended], p.blockhash),
+      selfImpactLamports,
+    };
   };
 }
 
@@ -328,12 +369,30 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       });
     }
 
-    // ---- the close, which is not optional accounting --------------------
-    const close = await w.step({
-      label: 'close',
-      transactionBase64: req.buildCloseBase64(acquired),
-      observe: [...req.observe],
-    });
+    /**
+     * P6 — was the base token account actually closed?
+     *
+     * Read from the SELL's own post-state, because "we appended a close
+     * instruction" and "the account is gone" are different claims and only the
+     * second is evidence. An account at zero lamports with no data has been
+     * closed; one still holding its rent exemption has not, whatever the
+     * transaction contained.
+     */
+    let baseAtaClosedInSell: boolean | null = null;
+    if (req.takerBaseAtaToClose !== undefined) {
+      const after = sell.step.postAccounts.find((a) => a.pubkey === req.takerBaseAtaToClose);
+      baseAtaClosedInSell = after === undefined || after.lamports === 0n;
+    }
+
+    // ---- the close, when it was NOT appended to the sell ------------------
+    const close =
+      req.buildCloseBase64 === undefined
+        ? null
+        : await w.step({
+            label: 'close',
+            transactionBase64: req.buildCloseBase64(acquired),
+            observe: [...req.observe],
+          });
 
     /**
      * F2 — per-step `unobserved` reaches the result.
@@ -350,22 +409,38 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     const stepUnobserved = [
       ...buy.step.unobserved.map((u) => `unobserved on buy: ${u}`),
       ...sell.step.unobserved.map((u) => `unobserved on sell: ${u}`),
-      ...close.step.unobserved.map((u) => `unobserved on close: ${u}`),
+      ...(close?.step.unobserved ?? []).map((u) => `unobserved on close: ${u}`),
     ];
 
+    // With the close appended, the sell IS the last step and its success is the
+    // trip's. A separate close still has to land: rent nobody recovered is rent
+    // spent, and calling it recovered because an instruction existed is the
+    // substitution this file exists to prevent.
+    const closeOk = close === null ? true : close.step.status === 'SIMULATED_OK';
+
     return {
-      ok: close.step.status === 'SIMULATED_OK',
-      failure: close.step.status === 'SIMULATED_OK' ? null : 'CLOSE_FAILED',
-      detail: close.step.transactionError,
+      ok: closeOk,
+      failure: closeOk ? null : 'CLOSE_FAILED',
+      detail: close?.step.transactionError ?? null,
       buy: buy.step,
       sell: sell.step,
-      close: close.step,
+      close: close?.step ?? null,
       acquiredAtoms: acquired,
       quoted,
       quoteStateSurvived: true,
       selfImpactLamports,
+      baseAtaClosedInSell,
       runtimeIdentity: identity,
-      incompleteness: [...incompleteness, ...stepUnobserved],
+      incompleteness: [
+        ...incompleteness,
+        ...stepUnobserved,
+        // A close that was appended and did not take effect is not a detail.
+        // The rent it was supposed to recover is still locked, and the
+        // settlement has to know that rather than assume the float came back.
+        ...(baseAtaClosedInSell === false
+          ? [`the base token account ${req.takerBaseAtaToClose} survived the sell, so its rent was not recovered`]
+          : []),
+      ],
     };
   } catch (e) {
     // An apparatus failure and a market refusal are different facts, and only

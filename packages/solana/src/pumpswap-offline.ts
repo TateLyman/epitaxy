@@ -15,6 +15,7 @@ import {
   userVolumeAccumulatorPda,
   coinCreatorVaultAuthorityPda,
   coinCreatorVaultAtaPda,
+  poolV2Pda,
 } from '@pump-fun/pump-swap-sdk';
 
 /**
@@ -222,6 +223,97 @@ export function swapAccountAddresses(p: {
     }
   }
   return [...out];
+}
+
+/**
+ * The same addresses as `swapAccountAddresses`, but NAMED.
+ *
+ * P6 needs the names, not the set. `swapAccountAddresses` returns an unordered
+ * bag suitable for "fetch all of these", and a bag is exactly what a classifier
+ * cannot use: every account the buy created came back as `UNKNOWN`, which the
+ * warm gate then treats as shared. Safe, and uninformative — an entry that
+ * opened only its own recoverable ATAs was indistinguishable from one that paid
+ * a creator vault's rent.
+ *
+ * P7 needs them too, for a different reason: the cashback remaining accounts
+ * are POSITIONAL, so verifying placement means knowing which address belongs at
+ * which index.
+ *
+ * A derivation that throws yields `null` rather than a guess. An address we
+ * could not derive must not silently equal an address we did.
+ */
+export interface SwapAccountRoles {
+  readonly userVolumeAccumulator: string | null;
+  readonly accumulatorWsolAta: string | null;
+  readonly globalVolumeAccumulator: string;
+  readonly coinCreatorVaultAuthority: string | null;
+  readonly coinCreatorVaultAta: string | null;
+  /**
+   * The `pool-v2` PDA the SDK appends after the cashback accounts whenever
+   * `coinCreator` is set. Part of the remaining-account TAIL, so P7's placement
+   * check has to know about it even though it carries no cashback itself.
+   */
+  readonly poolV2: string | null;
+}
+
+export function swapAccountRoles(p: {
+  user: string;
+  baseMint?: string;
+  coinCreator?: string | null;
+  quoteMint?: string;
+  quoteTokenProgram?: string;
+}): SwapAccountRoles {
+  const quoteMint = p.quoteMint ?? WSOL_MINT;
+  const quoteProgram = p.quoteTokenProgram ?? 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+  let uva: string | null = null;
+  let uvaAta: string | null = null;
+  try {
+    const pda = userVolumeAccumulatorPda(new PublicKey(p.user));
+    uva = pda.toBase58();
+    /**
+     * The accumulator's WSOL account is an ATA owned by the PDA.
+     *
+     * `coinCreatorVaultAtaPda` is a misleading name for what it is — the SDK
+     * defines it as `getAssociatedTokenAddressSync(mint, owner, true, program)`
+     * with no creator-specific logic at all — but it is the SAME call the SDK
+     * makes when it pushes remaining_accounts[0], so using it here derives the
+     * identical address rather than a parallel one that might drift.
+     */
+    uvaAta = coinCreatorVaultAtaPda(pda, new PublicKey(quoteMint), new PublicKey(quoteProgram)).toBase58();
+  } catch {
+    /* an undecodable user has no accumulator; null, never a placeholder */
+  }
+
+  let poolV2: string | null = null;
+  if (p.baseMint !== undefined) {
+    try {
+      poolV2 = poolV2Pda(new PublicKey(p.baseMint)).toBase58();
+    } catch {
+      /* a mint that does not decode has no pool-v2 PDA */
+    }
+  }
+
+  let auth: string | null = null;
+  let ata: string | null = null;
+  if (p.coinCreator !== null && p.coinCreator !== undefined) {
+    try {
+      const a = coinCreatorVaultAuthorityPda(new PublicKey(p.coinCreator));
+      auth = a.toBase58();
+      ata = coinCreatorVaultAtaPda(a, new PublicKey(quoteMint), new PublicKey(quoteProgram)).toBase58();
+    } catch {
+      /* a creator that does not decode has no vault */
+    }
+  }
+
+  return {
+    userVolumeAccumulator: uva,
+    accumulatorWsolAta: uvaAta,
+    globalVolumeAccumulator: GLOBAL_VOLUME_ACCUMULATOR_PDA.toBase58(),
+    coinCreatorVaultAuthority: auth,
+    coinCreatorVaultAta: ata,
+    poolV2,
+  };
 }
 
 export interface OfflinePoolFacts {
