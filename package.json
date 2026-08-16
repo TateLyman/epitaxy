@@ -29,6 +29,7 @@
     "direct-signal:status": "tsx scripts/direct-signal-status.ts",
     "doctor": "tsx scripts/doctor.ts",
     "enrichment:probe": "tsx scripts/enrichment-probe.ts",
+    "evidence:artifacts": "tsx scripts/evidence-artifacts.ts",
     "evidence:status": "tsx scripts/evidence-status.ts all",
     "exploration:status": "tsx scripts/not-implemented.ts exploration:status",
     "fee:tier-surface": "tsx scripts/fee-tier-surface.ts",
