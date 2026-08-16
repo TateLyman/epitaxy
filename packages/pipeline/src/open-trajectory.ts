@@ -23,6 +23,13 @@ import { mechanicsStratum } from '../../solana/src/cashback.js';
 import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
+import {
+  classifyCreatedAccount,
+  summariseSetup,
+  requiresSharedAccountCreation,
+  type CreatedAccount,
+  type SetupEconomics,
+} from '../../solana/src/created-accounts.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 
 /**
@@ -91,6 +98,25 @@ export interface OpenedTrajectory {
    * rather than against what a rebuild would probably produce.
    */
   readonly entryPlan: AccountPlan;
+  /**
+   * P6 — every account the entry brought into existence, and who benefits.
+   *
+   * The size surface reported ZERO created-account rent on every row while
+   * total drag ran to 0.010–0.012 SOL, because the accounts the transaction
+   * created were not in anyone's observe list. An account nobody observed
+   * reports identically to one that cost nothing.
+   */
+  readonly createdAccounts: readonly CreatedAccount[];
+  readonly setup: SetupEconomics;
+  /**
+   * True when the entry had to open an account another trader's organic
+   * transaction would have opened anyway — or one we could not classify.
+   *
+   * P6's stratum boundary. A candidate like this is COLD and does not belong in
+   * the same average as a warm one, because most of its cost is a one-time
+   * payment on behalf of everyone who trades the pool afterwards.
+   */
+  readonly requiresSharedSetup: boolean;
   readonly incompleteness: readonly string[];
   readonly openedUtcMs: number;
 }
@@ -448,6 +474,39 @@ export async function openTrajectory(
     };
   }
 
+  /**
+   * P6 — classify what the buy actually created.
+   *
+   * Present-and-absent are read from the step's own pre/post observation, so
+   * this measures the transaction rather than re-deriving what it "should"
+   * have done. `dataLen` is reported even for accounts whose bytes were
+   * withheld, which is why scoping the worker output did not cost this.
+   */
+  const preByKey = new Map(trip.buy.preAccounts.map((a) => [a.pubkey, a]));
+  const createdAccounts: CreatedAccount[] = [];
+  for (const post of trip.buy.postAccounts) {
+    const prior = preByKey.get(post.pubkey);
+    const existed = prior !== undefined && (prior.lamports > 0n || prior.dataLen > 0);
+    if (existed || post.lamports <= 0n) continue;
+    createdAccounts.push(
+      classifyCreatedAccount(
+        { pubkey: post.pubkey, owner: post.owner, space: post.dataLen, lamports: post.lamports },
+        {
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          takerQuoteAta: takerWsol,
+          pool,
+          poolBaseVault: addrs.poolBaseTokenAccount,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          baseMint: p.mint,
+          quoteMint: WSOL_MINT,
+          coinCreator: addrs.coinCreator,
+        },
+      ),
+    );
+  }
+  const setup = summariseSetup(createdAccounts);
+
   const facts = poolFactsFrom(preSrc, pool);
   const impact = boundEntryImpact({
     entryQuoteInLamports: p.notionalLamports,
@@ -479,6 +538,9 @@ export async function openTrajectory(
       // P2 — the exact plan of the bytes that ran, not a description of what a
       // rebuild would probably produce.
       entryPlan: buyPlan,
+      createdAccounts,
+      setup,
+      requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),
       incompleteness: [
         ...trip.incompleteness,
         // Named rather than dropped. An account the chain does not have is

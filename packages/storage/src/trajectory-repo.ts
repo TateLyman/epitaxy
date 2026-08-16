@@ -294,3 +294,113 @@ export function accountPlanFor(
 export function accountPlanCount(db: Db): number {
   return (db.prepare('SELECT COUNT(*) c FROM leg_account_plans').get() as { c: number }).c;
 }
+
+/**
+ * P6 — persist every account a leg created, with who benefits from it.
+ *
+ * Append-only via `INSERT OR IGNORE` on the (trajectory, leg, pubkey) key: a
+ * retry of the same observation is idempotent, and nothing can rewrite what a
+ * transaction was measured to have created. The alternative — an upsert — would
+ * let a later, differently-scoped classification silently redefine an earlier
+ * cost, which is the same class of defect as a rebuilt account plan.
+ */
+export function insertCreatedAccounts(
+  db: Db,
+  trajectoryId: string,
+  leg: string,
+  accounts: readonly {
+    pubkey: string;
+    owner: string;
+    space: number;
+    rentExemptMinimumLamports: bigint;
+    excessLamports: bigint;
+    scope: string;
+    recoverability: string;
+    sharedWithOtherTraders: boolean;
+  }[],
+  recordedUtcMs: number,
+): void {
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO created_accounts (
+       trajectory_id, leg, pubkey, owner, space,
+       rent_exempt_min, excess_lamports,
+       economic_scope, recoverability, shared_with_other, recorded_utc_ms
+     ) VALUES (?,?,?,?,?, ?,?, ?,?,?,?)`,
+  );
+  for (const a of accounts) {
+    stmt.run(
+      trajectoryId,
+      leg,
+      a.pubkey,
+      a.owner,
+      a.space,
+      a.rentExemptMinimumLamports.toString(),
+      a.excessLamports.toString(),
+      a.scope,
+      a.recoverability,
+      a.sharedWithOtherTraders ? 1 : 0,
+      recordedUtcMs,
+    );
+  }
+}
+
+export function createdAccountsFor(
+  db: Db,
+  trajectoryId: string,
+): {
+  leg: string;
+  pubkey: string;
+  owner: string;
+  space: number;
+  rent_exempt_min: string;
+  excess_lamports: string;
+  economic_scope: string;
+  recoverability: string;
+  shared_with_other: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT leg, pubkey, owner, space, rent_exempt_min, excess_lamports,
+              economic_scope, recoverability, shared_with_other
+         FROM created_accounts WHERE trajectory_id = ? ORDER BY leg, pubkey`,
+    )
+    .all(trajectoryId) as never;
+}
+
+/**
+ * The corpus-level cold/warm picture, in lamports rather than in adjectives.
+ *
+ * `subsidy` is the number the P6 hypothesis is about: rent this system paid to
+ * open accounts every later trader through the same pool gets for free.
+ */
+export function setupEconomicsTotals(db: Db): {
+  accounts: number;
+  trajectories: number;
+  totalRentLamports: string;
+  recoverableLamports: string;
+  subsidyLamports: string;
+  unknownScope: number;
+} {
+  const sum = (sql: string): bigint => {
+    const rows = db.prepare(sql).all() as { v: string }[];
+    let t = 0n;
+    for (const r of rows) t += BigInt(r.v);
+    return t;
+  };
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number }).c;
+
+  return {
+    accounts: one('SELECT COUNT(*) c FROM created_accounts'),
+    trajectories: one('SELECT COUNT(DISTINCT trajectory_id) c FROM created_accounts'),
+    totalRentLamports: sum('SELECT rent_exempt_min v FROM created_accounts').toString(),
+    recoverableLamports: sum(
+      "SELECT rent_exempt_min v FROM created_accounts WHERE recoverability = 'RECOVERABLE_BY_US'",
+    ).toString(),
+    subsidyLamports: sum(
+      'SELECT rent_exempt_min v FROM created_accounts WHERE shared_with_other = 1',
+    ).toString(),
+    unknownScope: one(
+      "SELECT COUNT(*) c FROM created_accounts WHERE economic_scope = 'UNKNOWN' OR recoverability = 'UNKNOWN'",
+    ),
+  };
+}

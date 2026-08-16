@@ -2273,6 +2273,47 @@ CREATE TABLE IF NOT EXISTS leg_account_plans (
 CREATE INDEX IF NOT EXISTS idx_leg_plans_fingerprint ON leg_account_plans(fingerprint);
 `,
   },
+  {
+    id: 40,
+    name: 'created_accounts',
+    sql: `
+-- P6 -- every account a leg brought into existence, and who benefits from it.
+--
+-- The size surface reported ZERO created-account rent on every row while total
+-- drag ran to 0.010-0.012 SOL. The accounts the transaction created were simply
+-- not in anyone's observe list, and an account nobody observed reports
+-- identically to one that cost nothing.
+--
+-- The economically load-bearing columns are the last three. Rent on an account
+-- we hold close authority over is a FLOAT: it comes back. Rent on a shared
+-- protocol account we cannot close is a TRANSFER from us to whoever trades the
+-- pool next. Collapsing them into one "rent" number is what made a first
+-- trader's one-time cost look like a recurring mechanics floor, and then made a
+-- larger notional look like the fix.
+CREATE TABLE IF NOT EXISTS created_accounts (
+  trajectory_id     TEXT NOT NULL,
+  leg               TEXT NOT NULL,
+  pubkey            TEXT NOT NULL,
+  owner             TEXT NOT NULL,
+  space             INTEGER NOT NULL,
+  -- TEXT because SQLite INTEGER is 64-bit SIGNED and these are u64 lamports.
+  rent_exempt_min   TEXT NOT NULL,
+  -- Balance above the exemption. The coin-creator fee vault is opened AND paid
+  -- in one transaction, so its closing balance is rent plus a fee the pool sent
+  -- it; crediting the whole balance back to the payer flattered every sell.
+  excess_lamports   TEXT NOT NULL,
+  economic_scope    TEXT NOT NULL,
+  recoverability    TEXT NOT NULL,
+  shared_with_other INTEGER NOT NULL,
+  recorded_utc_ms   INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, leg, pubkey),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_created_scope ON created_accounts(economic_scope);
+CREATE INDEX IF NOT EXISTS idx_created_shared ON created_accounts(shared_with_other);
+`,
+  },
 ];
 
 export interface OpenOptions {

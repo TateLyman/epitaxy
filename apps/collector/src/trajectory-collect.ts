@@ -37,6 +37,8 @@ import {
   insertTrajectory,
   insertAccountPlan,
   accountPlanCount,
+  insertCreatedAccounts,
+  setupEconomicsTotals,
   migrationCandidates,
   confirmedMigrationCounts,
   trajectoryCounts,
@@ -406,6 +408,16 @@ async function runCycle(): Promise<void> {
       });
 
       insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
+
+      // P6 — what the entry had to open, and who ends up owning it. Written
+      // per leg, so a later exit leg's creations do not merge into the entry's.
+      insertCreatedAccounts(db, t.trajectoryId, 'buy', t.createdAccounts, Date.now());
+      if (t.requiresSharedSetup) {
+        console.log(
+          `              COLD_SETUP  paid ${t.setup.subsidyToOtherTradersLamports} lamports of rent ` +
+            `for ${t.createdAccounts.filter((a) => a.sharedWithOtherTraders).length} shared account(s)`,
+        );
+      }
       opened++;
       console.log(
         `  ${c.mint.slice(0, 10)}  OPENED  acquired=${t.acquiredAtoms} soleVenue=${t.soleVenueAttributed} ` +
@@ -492,6 +504,20 @@ async function runCycle(): Promise<void> {
     counts.settled,
     'plans',
     accountPlanCount(db),
+  );
+
+  // P6 — the cold/warm picture in lamports rather than in adjectives.
+  //
+  // `subsidy` is the hypothesis itself: rent this system paid to open accounts
+  // that every later trader through the same pool gets for free. If it is a
+  // large fraction of total drag, the answer is to wait for a warm pool, not to
+  // trade a bigger size.
+  const setup = setupEconomicsTotals(db);
+  console.log(
+    `setup accounts        : ${setup.accounts} across ${setup.trajectories} trajector(ies) — ` +
+      `rent ${setup.totalRentLamports}, recoverable ${setup.recoverableLamports}, ` +
+      `subsidy to other traders ${setup.subsidyLamports}` +
+      (setup.unknownScope > 0 ? `, UNCLASSIFIED ${setup.unknownScope}` : ''),
   );
   console.log('trajectories by state :', JSON.stringify(trajectoryCounts(db)));
 
