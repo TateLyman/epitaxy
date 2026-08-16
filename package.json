@@ -98,6 +98,7 @@
     "trajectory:one-pass": "tsx scripts/live-one-pass-trajectory.ts",
     "trajectory:status": "tsx scripts/database-trajectory-status.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "window:stamp": "tsx scripts/window-stamp.ts",
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
