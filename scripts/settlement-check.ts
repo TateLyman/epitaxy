@@ -6,6 +6,8 @@
  * engine, one of them is deriving the trade a second way, which is the defect
  * the settlement module exists to make impossible.
  */
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { openDb } from '../packages/storage/src/db.js';
 import { loadSecrets } from '../packages/domain/src/config.js';
 import { measuredSettlementOf } from '../packages/storage/src/settlement-repo.js';
@@ -60,4 +62,81 @@ if (buy && sell) {
   console.log(`  TRADING lossBps=${rt.tradingLossBps}  rent locked=${rt.recoverableRentLamports}  <- what the cap gates on`);
   if (!rt.complete) console.log(`  ${rt.reasons.join(' | ')}`);
 }
+/**
+ * P5/P12 — the settlement identity, as an artifact.
+ *
+ * It says plainly what it does NOT cover. This reads `simulation_jobs` joined to
+ * `execution_observations`, which is the PAPER engine's path. Trajectory legs
+ * run inside the sequential runtime and do not write a canonical settlement per
+ * leg yet, so a trajectory's net PnL is UNKNOWN rather than computed — and
+ * `pnpm readiness` fails on that UNKNOWN rather than substituting the gross
+ * figure the outcomes table happens to carry.
+ *
+ * Emitting an artifact that quietly reported "0 settlements, all consistent"
+ * would be the substitution this file exists to prevent.
+ */
+let sourceCommit = 'unknown';
+let dirty = true;
+try {
+  sourceCommit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+  dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim().length > 0;
+} catch {
+  /* unknown provenance is reported, never omitted */
+}
+
+const trajectories = (db.prepare('SELECT COUNT(*) c FROM development_trajectories').get() as { c: number }).c;
+const settledTrajectories = (
+  db.prepare("SELECT COUNT(*) c FROM development_trajectories WHERE state = 'SETTLED'").get() as { c: number }
+).c;
+
+mkdirSync('artifacts', { recursive: true });
+writeFileSync(
+  'artifacts/settlement-identity.json',
+  JSON.stringify(
+    {
+      artifact: 'settlement-identity',
+      directiveSection: 'P5',
+      generatedUtcMs: Date.now(),
+      sourceCommit,
+      dirty,
+      sinceUtcMs: sinceMs,
+      effectVerifiedLegs: rows.length,
+      settlementsRead: settlements.length,
+      pnlEligible: settlements.filter((x) => isPnlEligible(x).ok).length,
+      settlements: settlements.map((x) => ({
+        side: x.side,
+        family: x.family,
+        complete: x.complete,
+        effectValid: x.effectValid,
+        fullAccountCoverage: x.fullAccountCoverage,
+        pnlEligible: isPnlEligible(x).ok,
+        reasons: isPnlEligible(x).reasons,
+        costs: {
+          baseFeeLamports: String(x.costs.baseFeeLamports),
+          priorityFeeLamports: String(x.costs.priorityFeeLamports),
+          rentCreatedLamports: String(x.costs.rentCreatedLamports),
+          rentRecoveredLamports: String(x.costs.rentRecoveredLamports),
+          unexplainedLamports: String(x.costs.unexplainedLamports),
+        },
+      })),
+      coverageGap: {
+        developmentTrajectories: trajectories,
+        settledTrajectories,
+        trajectoriesWithCanonicalSettlement: 0,
+        why:
+          'this check reads the PAPER path (simulation_jobs joined to execution_observations). ' +
+          'Trajectory legs run inside the sequential runtime and do not write a canonical settlement ' +
+          'per leg, so trajectory net PnL is UNKNOWN rather than computed.',
+        consequence:
+          'pnpm readiness FAILS on that UNKNOWN rather than substituting the gross delta the outcomes ' +
+          'table carries. Gross is exit mark minus entry cash-out and contains no unrecoverable rent, ' +
+          'no failed attempt, no claim cost and no cashback.',
+      },
+    },
+    null,
+    2,
+  ),
+);
+console.log('wrote artifacts/settlement-identity.json');
+
 db.close();

@@ -1,15 +1,15 @@
 {
   "provenance": {
-    "generatedUtcMs": 1786910338394,
-    "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
+    "generatedUtcMs": 1786916866298,
+    "sourceCommit": "920177d12e99ad538d99484c1fba9270db157f03",
     "dirty": true,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "schema-v31",
     "contextHash": null,
     "sampleInclusionQuery": null
   },
-  "functions": 541,
-  "edges": 688,
+  "functions": 726,
+  "edges": 962,
   "required": [
     {
       "from": "main",
@@ -21,7 +21,7 @@
         "runCycle"
       ],
       "hops": 1,
-      "declaredIn": "packages/pipeline/src/cycle.ts"
+      "declaredIn": "apps/collector/src/trajectory-collect.ts"
     },
     {
       "from": "main",

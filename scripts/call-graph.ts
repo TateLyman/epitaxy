@@ -27,6 +27,18 @@ const ENTRY_FILES = [
   'apps/engine/src/risk-alarm.ts',
   'apps/engine/src/simulate-observation.ts',
   'packages/pipeline/src/cycle.ts',
+  /**
+   * The COLLECTOR, which this graph had never once parsed.
+   *
+   * `declaredIn.get('openTrajectory')` was `undefined` — not "unreachable",
+   * simply absent, because the program was built from a fixed entry list that
+   * stopped at the paper engine. The tool whose entire purpose is proving that
+   * a decision path is wired had no view of the process this directive exists
+   * to wire, which is why `trajectory:collect` could print a refusal naming an
+   * already-built worker for two commits without anything noticing.
+   */
+  'apps/collector/src/trajectory-collect.ts',
+  'apps/collector/src/live-lane.ts',
 ];
 
 /**
@@ -223,6 +235,90 @@ const summary = {
 
 mkdirSync('artifacts', { recursive: true });
 writeFileSync('artifacts/production-call-graph.json', JSON.stringify(summary, null, 2));
+
+/**
+ * P4 — the COLLECTOR's own production path, as a separate artifact.
+ *
+ * The whole-tree graph answers "does any required edge hold". This answers a
+ * narrower and more load-bearing question: does `runCycle` actually reach the
+ * functions the directive says the collector must run?
+ *
+ * That question is the entire reason this directive exists. `trajectory:collect`
+ * printed `NOT OPENING TRAJECTORIES: the one-pass sequential worker (P3) is not
+ * built` for two commits AFTER the worker was built, because nothing checked
+ * that the collector reached it. A graph rooted at the collector makes that
+ * failure visible as a missing edge instead of as a log line nobody re-read.
+ */
+const COLLECTOR_MUST_REACH: readonly { to: string; why: string }[] = [
+  { to: 'captureCoherentSnapshotV2', why: 'the snapshot is coherent, not the legacy one-at-a-time capture' },
+  { to: 'openTrajectory', why: 'the collector opens trajectories rather than refusing to' },
+  { to: 'buildBuyFrom', why: 'the entry is built by the official PumpSwap builder, not a router' },
+  { to: 'freezeAccountPlan', why: 'the exact plan of the bytes that ran is frozen (F12)' },
+  { to: 'remainingTailRefusal', why: 'cashback placement is verified fail-closed on both legs' },
+  { to: 'sequentialRoundTrip', why: 'buy and sell run in ONE persistent runtime' },
+  { to: 'classifyCreatedAccount', why: 'every account the leg opened is classified (P6)' },
+  { to: 'legCashbackDeltas', why: 'cashback is measured per leg (P7)' },
+  { to: 'admitCandidate', why: 'risk facts gate the decision (P10)' },
+  { to: 'assertCollectedBeforeDecision', why: 'those facts precede the decision, by construction' },
+  { to: 'takeMark', why: 'the shared later mark path is collected (P9)' },
+  { to: 'evaluateExitPolicies', why: 'every policy is evaluated on that same path' },
+  { to: 'insertTrajectory', why: 'the trajectory reaches the DATABASE, not an artifact' },
+];
+
+const fromCycle = reach('runCycle');
+const collectorEdges = COLLECTOR_MUST_REACH.map((e) => {
+  const path = fromCycle.get(e.to) ?? null;
+  return { from: 'runCycle', to: e.to, why: e.why, reached: path !== null, hops: path === null ? null : path.length - 1, path };
+});
+const collectorMissing = collectorEdges.filter((e) => !e.reached);
+
+/**
+ * 61 — no signer, no key, no network send is reachable from the collector.
+ *
+ * `trajectory-collect.ts` says in its own header: "This process cannot sign. It
+ * does not import packages/execution." Nothing asserted it. A comment is the
+ * weakest possible form of that guarantee, and this repository has twice
+ * shipped a path whose reassuring identifier was present and whose behaviour
+ * was absent.
+ *
+ * Checked through the CHECKER: any function reachable from `runCycle` that is
+ * declared in `packages/execution/` is a reachable signing path, whatever the
+ * imports look like.
+ */
+const forbiddenReachable = [...fromCycle.keys()]
+  .map((fn) => ({ fn, declaredIn: declaredIn.get(fn) ?? null }))
+  .filter((x) => x.declaredIn !== null && x.declaredIn.startsWith('packages/execution/'));
+
+writeFileSync(
+  'artifacts/collector-call-graph.json',
+  JSON.stringify(
+    {
+      artifact: 'collector-call-graph',
+      directiveSection: 'P4',
+      provenance: summary.provenance,
+      root: 'runCycle (apps/collector/src/trajectory-collect.ts)',
+      required: collectorEdges,
+      missing: collectorMissing.map((m) => `${m.from} -> ${m.to} (${m.why})`),
+      // Item 61. Empty is the only acceptable value.
+      executionPackageReachableFromCollector: forbiddenReachable,
+      note:
+        'Resolved through the TypeScript checker. `trajectory:collect` printed a refusal naming the ' +
+        'sequential worker as unbuilt for two commits AFTER it was built, because nothing checked that ' +
+        'the collector reached it. A path absent here did not happen, whatever the source says.',
+    },
+    null,
+    2,
+  ),
+);
+console.log('');
+console.log('collector path from runCycle:');
+for (const e of collectorEdges) {
+  console.log(`  ${e.reached ? 'OK  ' : 'MISS'} runCycle -> ${e.to}${e.hops === null ? '' : `  (${e.hops} hops)`}`);
+}
+if (collectorMissing.length > 0) {
+  console.error(`\n${collectorMissing.length} collector edge(s) missing`);
+  process.exitCode = 1;
+}
 
 console.log(`${summary.functions} functions, ${summary.edges} edges\n`);
 for (const r of results) {

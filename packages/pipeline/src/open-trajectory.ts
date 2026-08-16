@@ -29,7 +29,7 @@ import {
   type LegCashbackDeltas,
 } from '../../solana/src/cashback.js';
 import { AMM_PROGRAM_ID } from '../../solana/src/pumpswap-offline.js';
-import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
+import { boundEntryImpact, attributeSoleVenue } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
 import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
@@ -663,14 +663,15 @@ export async function openTrajectory(
   const baseOut = baseBefore > baseAfter ? baseBefore - baseAfter : 0n;
   const quoteIn = quoteAfter > quoteBefore ? quoteAfter - quoteBefore : 0n;
   const takerCredit = takerAfter > takerBefore ? takerAfter - takerBefore : 0n;
-  const soleVenue = baseOut > 0n && quoteIn > 0n && baseOut === takerCredit;
+  const attribution = attributeSoleVenue({
+    baseOutAtoms: baseOut,
+    quoteInLamports: quoteIn,
+    takerCreditAtoms: takerCredit,
+  });
+  const soleVenue = attribution.attributed;
 
   if (!soleVenue) {
-    return {
-      ok: false,
-      refusal: 'ENTRY_NOT_SOLE_VENUE',
-      detail: `pool base out ${baseOut} != taker credit ${takerCredit} (quote in ${quoteIn}); part of the flow went elsewhere`,
-    };
+    return { ok: false, refusal: 'ENTRY_NOT_SOLE_VENUE', detail: attribution.refusal ?? 'not sole venue' };
   }
 
   /**
