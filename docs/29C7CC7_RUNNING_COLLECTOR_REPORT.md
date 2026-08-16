@@ -77,12 +77,17 @@ and became the frozen plan.
 
 
 **Starting SHA:** `4ec715f` (local `master`, equal to `origin/master`)
-**Ending SHA:** `a2ce674` — nine commits ahead, not pushed
+**Ending SHA:** see `git log`; local `master` is many commits ahead and **not
+pushed**. `origin/master` is still `4ec715f`.
 **Date:** 2026-08-16
 
 ---
 
-## 1. Why the state is not `VALID_TRAJECTORY_KERNEL_RUNNING`
+## 1. Why the state was not `VALID_TRAJECTORY_KERNEL_RUNNING`
+
+> **SUPERSEDED** — this section records the state before a working endpoint was
+> supplied. It is kept because the reasoning was correct at the time and the
+> upgrade was earned by evidence rather than by argument.
 
 The directive's own definition requires an **actual `pnpm trajectory:collect`
 process** to carry a current confirmed candidate all the way to an append-only
