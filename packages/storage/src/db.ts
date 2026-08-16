@@ -2535,6 +2535,62 @@ CREATE INDEX IF NOT EXISTS idx_risk_stratum ON candidate_risk_facts(stratum);
 CREATE INDEX IF NOT EXISTS idx_risk_trajectory ON candidate_risk_facts(trajectory_id);
 `,
   },
+  {
+    id: 44,
+    name: 'trajectory_settlements',
+    sql: `
+-- P5 -- ONE canonical settlement per trajectory, written once.
+--
+-- \`buildTrajectorySettlement\` was correct and unreachable for several commits:
+-- its only call site was the trajectory kernel, which the collector never
+-- reaches, and no table existed to put a result in. So every trajectory net PnL
+-- was UNKNOWN BY CONSTRUCTION rather than for want of a sample -- the collector
+-- measured a full round trip and then discarded the economics.
+--
+-- This settles the IMMEDIATE MECHANICS: the buy and the sell that actually
+-- executed, in one runtime, against exact captured state. It deliberately does
+-- NOT settle the policy exit, which is a mark on a later path and therefore a
+-- counterfactual; conflating the two would let a hypothetical exit price wear
+-- the label of a measured one.
+--
+-- Append-only on the trajectory id. An outcome that could be rewritten is not
+-- evidence, and INSERT OR IGNORE makes a retry idempotent while refusing a
+-- second, different answer for the same trajectory.
+CREATE TABLE IF NOT EXISTS trajectory_settlements (
+  trajectory_id            TEXT PRIMARY KEY,
+  scope                    TEXT NOT NULL,
+  -- TEXT because SQLite INTEGER is 64-bit SIGNED and these are lamport figures.
+  entry_cash_out           TEXT NOT NULL,
+  exit_cash_in             TEXT,
+  gross_exit_credit        TEXT,
+  base_fees                TEXT NOT NULL,
+  priority_fees            TEXT NOT NULL,
+  tips                     TEXT NOT NULL,
+  transfer_fees            TEXT NOT NULL,
+  failed_attempt_fees      TEXT NOT NULL,
+  rent_created             TEXT NOT NULL,
+  rent_recovered           TEXT NOT NULL,
+  rent_still_locked        TEXT NOT NULL,
+  cashback_accrued         TEXT NOT NULL,
+  cashback_claimable       TEXT NOT NULL,
+  cashback_claimed         TEXT NOT NULL,
+  cashback_claim_cost      TEXT NOT NULL,
+  residual_token_atoms     TEXT NOT NULL,
+  -- DERIVED from the payer identity, never assumed zero. A residue is a cost
+  -- the model does not know about.
+  unexplained_lamports     TEXT NOT NULL,
+  execution_cost           TEXT NOT NULL,
+  -- NULL with reasons whenever a component is unknown. Never a silent zero.
+  net_pnl                  TEXT,
+  pnl_blocked_reasons      TEXT NOT NULL,
+  identity_violations      TEXT NOT NULL,
+  settled_utc_ms           INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tsettle_net ON trajectory_settlements(net_pnl);
+`,
+  },
 ];
 
 export interface OpenOptions {

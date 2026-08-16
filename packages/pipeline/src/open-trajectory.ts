@@ -33,6 +33,8 @@ import { boundEntryImpact, attributeSoleVenue } from '../../domain/src/trajector
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
 import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
+import { legSettlementFromRuntime, type ObservedAccount } from './leg-settlement.js';
+import { buildTrajectorySettlement, checkIdentities, type TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
 import {
   classifyCreatedAccount,
   summariseSetup,
@@ -170,6 +172,22 @@ export interface OpenedTrajectory {
   readonly cashbackLegs: readonly LegCashbackDeltas[];
   /** The exact remaining-account tail the built legs were verified against. */
   readonly cashbackVerified: boolean;
+  /**
+   * P5 — the ONE canonical settlement, for the IMMEDIATE MECHANICS.
+   *
+   * The buy and the sell that actually executed, in one runtime, against exact
+   * captured state. NOT the policy exit, which is a mark on a later path and
+   * therefore a counterfactual — conflating the two would let a hypothetical
+   * exit price wear the label of a measured one.
+   *
+   * `buildTrajectorySettlement` was correct and unreachable for several
+   * commits: its only caller was the trajectory kernel, which the collector
+   * never reaches, and no table existed to store a result. Net PnL was UNKNOWN
+   * BY CONSTRUCTION rather than for want of a sample.
+   */
+  readonly settlement: TrajectorySettlement;
+  /** Empty when the settlement's own identities hold. Never silently dropped. */
+  readonly identityViolations: readonly string[];
   /**
    * How much of the pool this entry actually is.
    *
@@ -506,7 +524,32 @@ export async function openTrajectory(
    * off the frozen plan, which is the only place they exist.
    */
   const selectedTail = [...selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey))];
-  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts, ...cashbackAccounts, ...selectedTail])];
+  /**
+   * EVERY account the built plan touches. The plan is authoritative.
+   *
+   * The observe set was a DERIVED guess, and F12's whole lesson is that a
+   * derivation is not the transaction. It omits the protocol fee recipient and
+   * the buyback recipient — both SELECTED by the SDK from a list in the global
+   * config — and both receive lamports on every leg.
+   *
+   * The cost of the gap was not subtle: `fullAccountCoverage` was false on
+   * every leg, so `buildTrajectorySettlement` refused to produce a net PnL and
+   * named the unobserved writable. Capture already used the plan
+   * (`planAccountsNotCaptured`); observation did not. Same rule, both sides.
+   */
+  const planAccountKeys = buyPlan.instructions.flatMap((i) => i.accounts.map((a) => a.pubkey));
+  const observe = [
+    ...new Set([
+      ...priceBearing,
+      p.taker,
+      takerAta,
+      takerWsol,
+      ...swapAccounts,
+      ...cashbackAccounts,
+      ...selectedTail,
+      ...planAccountKeys,
+    ]),
+  ];
 
   const trip = await sequentialRoundTrip(
     {
@@ -682,6 +725,7 @@ export async function openTrajectory(
    * have done. `dataLen` is reported even for accounts whose bytes were
    * withheld, which is why scoping the worker output did not cost this.
    */
+  const trajectoryIdValue = randomUUID();
   const preByKey = new Map(trip.buy.preAccounts.map((a) => [a.pubkey, a]));
   const createdAccounts: CreatedAccount[] = [];
   for (const post of trip.buy.postAccounts) {
@@ -775,6 +819,128 @@ export async function openTrajectory(
         ]),
   ];
 
+  /**
+   * P5 - settle the immediate mechanics, from the legs that actually ran.
+   *
+   * Both legs are turned into `MeasuredLegSettlement` from their own pre/post
+   * observations, then combined by the canonical builder. Every figure derives
+   * from the payer native delta, the one quantity that cannot disagree with
+   * itself, and `unexplained` is DERIVED rather than assumed zero.
+   */
+  const closedInSell = trip.baseAtaClosedInSell === true ? [takerAta] : [];
+
+  /**
+   * An account that DID NOT EXIST is not a coverage failure.
+   *
+   * The worker reports `unobserved` for anything it was asked to read and could
+   * not find. Once the observe set became the full frozen plan, that list began
+   * including every account the transaction was about to CREATE — which are
+   * unobservable before execution by definition.
+   *
+   * Treating those as missing coverage made `fullAccountCoverage` false on
+   * every leg, so `buildTrajectorySettlement` refused a net PnL for a run where
+   * nothing was actually unmeasured. Coverage is about writables that EXISTED
+   * and were not looked at; the ones the leg brought into existence are
+   * measured by `createdAccounts` and by `stillAbsent`.
+   */
+  /**
+   * A writable is a coverage gap only if it EXISTED and was not read.
+   *
+   * Three kinds of account end up in the worker's `unobserved` list once the
+   * observe set is the full frozen plan, and only one of them is a defect:
+   *
+   *   - accounts the leg CREATES, absent before execution by definition;
+   *   - accounts created AND CLOSED inside the same transaction — the SDK wraps
+   *     and unwraps the taker WSOL ATA on every leg, so it exists in neither
+   *     the pre nor the post observation;
+   *   - a writable that was there all along and nobody looked at. THIS one.
+   *
+   * The first two were making `fullAccountCoverage` false on every leg, so
+   * `buildTrajectorySettlement` refused a net PnL for runs where nothing was
+   * actually unmeasured. An account that did not exist cannot be observed, and
+   * calling that missing coverage confuses an impossibility with an omission.
+   */
+  const existedDuringLeg = (step: { preAccounts: readonly { pubkey: string; lamports: bigint }[]; postAccounts: readonly { pubkey: string; lamports: bigint }[] }): Set<string> => {
+    const live = new Set<string>();
+    for (const a of [...step.preAccounts, ...step.postAccounts]) if (a.lamports > 0n) live.add(a.pubkey);
+    return live;
+  };
+  const realGap = (entries: readonly string[], live: Set<string>): string[] =>
+    entries.filter((u) => [...live].some((k) => u.includes(k)));
+
+  const buyGap = realGap(trip.buy.unobserved, existedDuringLeg(trip.buy));
+  const sellGap = trip.sell === null ? [] : realGap(trip.sell.unobserved, existedDuringLeg(trip.sell));
+  const entryLeg = legSettlementFromRuntime({
+    observationId: `obs-buy-${p.mint.slice(0, 8)}`,
+    simulationJobId: `job-buy-${p.mint.slice(0, 8)}`,
+    side: 'buy',
+    capabilityFingerprint: buyPlan.fingerprint,
+    taker: p.taker,
+    takerBaseAta: takerAta,
+    mint: p.mint,
+    baseTokenProgram: mintOwner,
+    poolQuoteVault: addrs.poolQuoteTokenAccount,
+    requested: p.notionalLamports,
+    minimumOut: 0n,
+    pre: trip.buy.preAccounts as unknown as ObservedAccount[],
+    post: trip.buy.postAccounts as unknown as ObservedAccount[],
+    createdAccounts,
+    closedAccounts: [],
+    runtimeOk: trip.buy.status === 'SIMULATED_OK',
+    incompleteness: buyGap.map((u) => `unobserved on buy: ${u}`),
+    fullAccountCoverage: buyGap.length === 0,
+    snapshotManifestHash: null,
+  });
+
+  const exitLeg =
+    trip.sell === null
+      ? null
+      : legSettlementFromRuntime({
+          observationId: `obs-sell-${p.mint.slice(0, 8)}`,
+          simulationJobId: `job-sell-${p.mint.slice(0, 8)}`,
+          side: 'sell',
+          capabilityFingerprint: buyPlan.fingerprint,
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          mint: p.mint,
+          baseTokenProgram: mintOwner,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          requested: trip.acquiredAtoms,
+          minimumOut: 0n,
+          pre: trip.sell.preAccounts as unknown as ObservedAccount[],
+          post: trip.sell.postAccounts as unknown as ObservedAccount[],
+          createdAccounts: [],
+          closedAccounts: closedInSell,
+          runtimeOk: trip.sell.status === 'SIMULATED_OK',
+          incompleteness: sellGap.map((u) => `unobserved on sell: ${u}`),
+          fullAccountCoverage: sellGap.length === 0,
+          snapshotManifestHash: null,
+        });
+
+  // Rent on accounts we opened and did NOT close is still locked. Counting it
+  // as recovered is how an earlier version flattered every sell.
+  const stillLocked = setup.totalRentLamports - (trip.baseAtaClosedInSell === true ? setup.recoverableLamports : 0n);
+
+  const settlement = buildTrajectorySettlement({
+    trajectoryId: trajectoryIdValue,
+    entry: entryLeg,
+    exit: exitLeg,
+    cashback: {
+      // ACCRUED, not claimed. `claim_cashback` has never been called, so only
+      // the receivable exists and realized cashback PnL is zero.
+      accruedLamports: cashbackLegs.reduce(
+        (n, l) => n + (l.accumulatorWsolDeltaLamports !== null && l.accumulatorWsolDeltaLamports > 0n ? l.accumulatorWsolDeltaLamports : 0n),
+        0n,
+      ),
+      claimableLamports: 0n,
+      claimedLamports: 0n,
+      claimCostLamports: 0n,
+    },
+    rentStillLockedLamports: stillLocked < 0n ? 0n : stillLocked,
+    venueFeeDecompositionKnown: false,
+  });
+  const identity = checkIdentities(settlement);
+
   const facts = poolFactsFrom(preSrc, pool);
   const impact = boundEntryImpact({
     entryQuoteInLamports: p.notionalLamports,
@@ -799,7 +965,7 @@ export async function openTrajectory(
   return {
     ok: true,
     trajectory: {
-      trajectoryId: randomUUID(),
+      trajectoryId: trajectoryIdValue,
       mint: p.mint,
       pool,
       snapshotHash: `${snapshot.slot}`,
@@ -843,6 +1009,8 @@ export async function openTrajectory(
       // Both tails were checked against the frozen plans before either leg ran.
       // A trajectory that reached here on a cashback coin carries the accounts.
       cashbackVerified: isCashback,
+      settlement,
+      identityViolations: identity.violations,
       impact,
       requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),
       incompleteness: [

@@ -65,6 +65,8 @@ import {
   insertLegCashback,
   cashbackLegTotals,
   insertCandidateRiskFacts,
+  insertTrajectorySettlement,
+  settlementTotals,
   admissionTotals,
   samplingSpread,
   migrationCandidates,
@@ -145,6 +147,15 @@ interface Args {
    * positive untouched edge exists is exactly what P13 forbids.
    */
   readonly liveLane: boolean;
+  /**
+   * How many trajectories one mint may ever contribute.
+   *
+   * Default 3. Exposed because the ceiling is real: with N deep candidate mints
+   * known, the corpus cannot exceed N x this until new migrations arrive, and
+   * an operator who cannot see that knob reads the resulting empty cycles as a
+   * dead chain rather than as an exhausted candidate set.
+   */
+  readonly maxPerMint: number;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -164,6 +175,7 @@ function parseArgs(argv: readonly string[]): Args {
     backfillScan: num('--backfill-scan', 25),
     // Opt-in. See the field comment: 219 messages/second, measured.
     liveLane: argv.includes('--live-lane'),
+    maxPerMint: num('--max-per-mint', 3),
   };
 }
 
@@ -607,7 +619,7 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
     return;
   }
 
-  const candidates = migrationCandidates(db, args.maxCandidates);
+  const candidates = migrationCandidates(db, args.maxCandidates, args.maxPerMint);
   console.log('');
   console.log(`candidate queue: ${candidates.length} confirmed migration(s)`);
 
@@ -825,6 +837,22 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
        * accrual stays at zero while `buy` climbs, the old model was right.
        */
       insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
+
+      /**
+       * P5 - the ONE canonical settlement, written once.
+       *
+       * Scope is IMMEDIATE_MECHANICS: the legs that actually executed. The
+       * policy exit is a mark on a later path and stays a counterfactual, so it
+       * is deliberately not settled here.
+       */
+      insertTrajectorySettlement(
+        db,
+        t.trajectoryId,
+        'IMMEDIATE_MECHANICS',
+        t.settlement,
+        t.identityViolations,
+        Date.now(),
+      );
 
       // P6 — what the entry had to open, and who ends up owning it. Written
       // per leg, so a later exit leg's creations do not merge into the entry's.
@@ -1051,6 +1079,23 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   }
   for (const s of adm.byStratum.slice(0, 5)) {
     console.log(`  stratum ${String(s.n).padStart(4)} (${s.admitted} admitted)  ${s.stratum}`);
+  }
+
+  /**
+   * P5 - net PnL, or the reasons there is none.
+   *
+   * `buildTrajectorySettlement` was correct and unreachable for several
+   * commits, so this line reports a quantity the system measured in full and
+   * then discarded.
+   */
+  const st = settlementTotals(db);
+  console.log(
+    `settlements           : ${st.settlements} (${st.withNetPnl} with net PnL) — ` +
+      `net ${st.netPnlLamports} lamports, ${st.nonZeroUnexplained} with a non-zero unexplained remainder` +
+      (st.withIdentityViolations > 0 ? `, ${st.withIdentityViolations} with IDENTITY VIOLATIONS` : ''),
+  );
+  for (const b of st.topBlockers.slice(0, 3)) {
+    console.log(`  blocked ${String(b.n).padStart(4)}  ${b.reason.slice(0, 88)}`);
   }
 
   const cb = cashbackLegTotals(db);

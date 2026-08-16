@@ -688,3 +688,117 @@ export function admissionTotals(db: Db): {
       .map(([reason, n]) => ({ reason, n })),
   };
 }
+
+
+/**
+ * P5 - write the ONE canonical settlement for a trajectory.
+ *
+ * `INSERT OR IGNORE` on the trajectory id: a retry of the same settlement is
+ * idempotent, and a second, DIFFERENT answer for the same trajectory is refused
+ * rather than allowed to overwrite the first. An outcome that can be rewritten
+ * is not evidence.
+ */
+export function insertTrajectorySettlement(
+  db: Db,
+  trajectoryId: string,
+  scope: string,
+  s: {
+    entryCashOutLamports: bigint;
+    exitCashInLamports: bigint | null;
+    grossExitCreditLamports: bigint | null;
+    baseFeesLamports: bigint;
+    priorityFeesLamports: bigint;
+    tipsLamports: bigint;
+    transferFeesLamports: bigint;
+    failedAttemptFeesLamports: bigint;
+    rentCreatedLamports: bigint;
+    rentRecoveredLamports: bigint;
+    rentStillLockedLamports: bigint;
+    cashbackAccruedLamports: bigint;
+    cashbackClaimableLamports: bigint;
+    cashbackClaimedLamports: bigint;
+    cashbackClaimCostLamports: bigint;
+    residualTokenAtoms: bigint;
+    unexplainedLamports: bigint;
+    executionCostLamports: bigint;
+    netPnlLamports: bigint | null;
+    pnlBlockedReasons: readonly string[];
+  },
+  identityViolations: readonly string[],
+  settledUtcMs: number,
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO trajectory_settlements (
+       trajectory_id, scope, entry_cash_out, exit_cash_in, gross_exit_credit,
+       base_fees, priority_fees, tips, transfer_fees, failed_attempt_fees,
+       rent_created, rent_recovered, rent_still_locked,
+       cashback_accrued, cashback_claimable, cashback_claimed, cashback_claim_cost,
+       residual_token_atoms, unexplained_lamports, execution_cost, net_pnl,
+       pnl_blocked_reasons, identity_violations, settled_utc_ms
+     ) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?)`,
+  ).run(
+    trajectoryId,
+    scope,
+    s.entryCashOutLamports.toString(),
+    s.exitCashInLamports === null ? null : s.exitCashInLamports.toString(),
+    s.grossExitCreditLamports === null ? null : s.grossExitCreditLamports.toString(),
+    s.baseFeesLamports.toString(),
+    s.priorityFeesLamports.toString(),
+    s.tipsLamports.toString(),
+    s.transferFeesLamports.toString(),
+    s.failedAttemptFeesLamports.toString(),
+    s.rentCreatedLamports.toString(),
+    s.rentRecoveredLamports.toString(),
+    s.rentStillLockedLamports.toString(),
+    s.cashbackAccruedLamports.toString(),
+    s.cashbackClaimableLamports.toString(),
+    s.cashbackClaimedLamports.toString(),
+    s.cashbackClaimCostLamports.toString(),
+    s.residualTokenAtoms.toString(),
+    s.unexplainedLamports.toString(),
+    s.executionCostLamports.toString(),
+    s.netPnlLamports === null ? null : s.netPnlLamports.toString(),
+    JSON.stringify(s.pnlBlockedReasons),
+    JSON.stringify(identityViolations),
+    settledUtcMs,
+  );
+}
+
+/** The corpus-level settlement picture. Net PnL exists or it does not. */
+export function settlementTotals(db: Db): {
+  settlements: number;
+  withNetPnl: number;
+  netPnlLamports: string;
+  nonZeroUnexplained: number;
+  withIdentityViolations: number;
+  topBlockers: { reason: string; n: number }[];
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number } | undefined)?.c ?? 0;
+  let net = 0n;
+  for (const r of db.prepare('SELECT net_pnl v FROM trajectory_settlements WHERE net_pnl IS NOT NULL').all() as {
+    v: string;
+  }[]) {
+    net += BigInt(r.v);
+  }
+  const hist = new Map<string, number>();
+  for (const r of db.prepare('SELECT pnl_blocked_reasons r FROM trajectory_settlements').all() as { r: string }[]) {
+    let parsed: string[] = [];
+    try {
+      parsed = JSON.parse(r.r) as string[];
+    } catch {
+      parsed = ['(unparseable)'];
+    }
+    for (const x of parsed) hist.set(x, (hist.get(x) ?? 0) + 1);
+  }
+  return {
+    settlements: one('SELECT COUNT(*) c FROM trajectory_settlements'),
+    withNetPnl: one('SELECT COUNT(*) c FROM trajectory_settlements WHERE net_pnl IS NOT NULL'),
+    netPnlLamports: net.toString(),
+    nonZeroUnexplained: one("SELECT COUNT(*) c FROM trajectory_settlements WHERE unexplained_lamports != '0'"),
+    withIdentityViolations: one("SELECT COUNT(*) c FROM trajectory_settlements WHERE identity_violations != '[]'"),
+    topBlockers: [...hist.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([reason, n]) => ({ reason, n })),
+  };
+}
