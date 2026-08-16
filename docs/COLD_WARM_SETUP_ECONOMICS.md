@@ -1,10 +1,9 @@
 # Cold, warm and repeat: who pays to open the accounts
 
 **Directive section:** P6 — "the fastest mechanics win: do not be the account-setup payer"
-**Status:** measurement wired and the three surfaces are built.
-**The surface has not been RUN** — `pnpm size:cold-warm-surface` needs live RPC
-and the daily quota is exhausted. No number below was inferred rather than
-measured.
+**Status:** all three surfaces RUN against live mainnet state on 2026-08-16.
+COLD and REPEAT are sound. **PREWARMED is refused as NOT_COMPARABLE** — see
+"What the surface cannot yet answer".
 
 ## The finding this exists to correct
 
@@ -160,3 +159,76 @@ is to wait for a warm pool, not to trade a bigger size.
 No profitability claim. These are costs measured in an isolated local runtime
 against exact captured state; nothing here has been funded, signed or submitted,
 and a mechanics measurement is not a strategy outcome.
+
+
+---
+
+# What running it actually found
+
+## The observe set was hiding the largest costs
+
+The first run reported an 8.59M lamport **unexplained** remainder on a 20M
+notional. P5 requires that remainder to be derived rather than assumed zero, and
+deriving it is what exposed the defect: the observe set was
+`swapAccountAddresses`, a DERIVATION, and PumpSwap sends lamports to two
+accounts no derivation can name — the **protocol fee recipient** and the
+**buyback fee recipient**, both SELECTED by the SDK from a list in the global
+config.
+
+Observing the FROZEN PLAN instead of a derived guess brought them into view:
+
+```
+protocol fee recipient token account   created   +2,222,984  (rent + 183,704 fee)
+buyback  fee recipient token account   created   +2,131,132  (rent +  91,852 fee)
+```
+
+Capture already used the plan (`planAccountsNotCaptured`). Observation did not.
+Same rule, both sides — and until it was applied, millions of lamports per round
+trip landed in no observed account.
+
+## The subsidy is real, and it is the protocol's own fee accounts
+
+Those two accounts are the clearest case of what P6 is about: **we pay
+2,039,280 lamports of rent each to open accounts the protocol collects into**,
+which every later trader through them then uses for free. We cannot close them.
+They are now classified `POOL_GLOBAL / NOT_RECOVERABLE / shared`.
+
+## A measured cold round trip
+
+```
+taker pays                                     -12,544,627
+  pool quote vault (venue, net round trip)          +7,899
+  UserVolumeAccumulator PDA        (rent)        +1,844,400
+  accumulator WSOL ATA      (rent + cashback)    +2,157,800
+  protocol fee recipient    (rent + fee)         +2,222,984
+  buyback fee recipient     (rent + fee)         +2,131,132
+```
+
+The **venue** — the thing a fee table describes — is 7,899 lamports. Everything
+else is account rent and protocol fees. A cost model built from the fee tiers
+alone would have missed roughly 8.3 million lamports per cold round trip.
+
+## What the surface cannot yet answer
+
+`setupCostLamports` is **null on every row**, and deliberately.
+
+COLD − PREWARMED is only a setup cost if the two ran the same transaction. They
+do not reliably: each surface REBUILDS the buy against its own state, and the
+SDK selects the protocol and buyback recipients from a list. Measured twice with
+identical code:
+
+- once the transplant landed on the same recipients and the difference was
+  4,078,560 — exactly two rent exemptions;
+- once the rebuild selected different recipients, created new accounts, and the
+  difference was **zero to the lamport**.
+
+That is F12 exactly, found in this script rather than in the collector. A number
+that silently depends on which recipient the SDK happened to pick is not a
+measurement, so `comparable()` marks the pair NOT_COMPARABLE and the field stays
+null rather than reporting either value.
+
+**This is the open item.** Pinning the recipient across surfaces needs the
+builder to accept one, which the installed SDK does not expose. Until then the
+PREWARMED surface cannot be trusted, and no cold-versus-warm delta is claimed.
+
+COLD and REPEAT carry the same guard and are reported when it passes.

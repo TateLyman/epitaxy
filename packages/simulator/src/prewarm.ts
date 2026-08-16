@@ -111,7 +111,22 @@ export function prewarmNonPriceAccounts(p: {
  * The point of the surface is the accounts SOMEBODY ELSE would have opened.
  */
 export function sharedAccountsToPrewarm(
-  created: readonly { pubkey: string; sharedWithOtherTraders: boolean }[],
+  created: readonly { pubkey: string; sharedWithOtherTraders: boolean; scope?: string; recoverability?: string }[],
 ): string[] {
-  return created.filter((a) => a.sharedWithOtherTraders).map((a) => a.pubkey);
+  /**
+   * UNKNOWN counts, because the warm GATE already counts it.
+   *
+   * `requiresSharedAccountCreation` treats an unclassified account as shared —
+   * "we did not recognise it" must not read as "it costs nothing". This
+   * function filtered on `sharedWithOtherTraders` alone, so the two disagreed
+   * about the same account: the gate called a candidate COLD and the surface
+   * then had nothing to warm, and PREWARMED was skipped as though the entry had
+   * opened nothing shared.
+   *
+   * Transplanting an account that turns out to be ours costs only a slightly
+   * conservative warm surface. NOT transplanting one that is genuinely shared
+   * makes the setup cost invisible, which is the error this whole section
+   * exists to remove.
+   */
+  return created.filter((a) => a.sharedWithOtherTraders || a.scope === 'UNKNOWN' || a.recoverability === 'UNKNOWN').map((a) => a.pubkey);
 }

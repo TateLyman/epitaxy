@@ -171,6 +171,16 @@ export interface OpenedTrajectory {
   /** The exact remaining-account tail the built legs were verified against. */
   readonly cashbackVerified: boolean;
   /**
+   * How much of the pool this entry actually is.
+   *
+   * `withinSmallImpactBound` false means the exit price is dominated by our own
+   * footprint, so the trajectory measures the instrument rather than the market.
+   * Recorded rather than refused: the sampling design is frozen, and a corpus
+   * that silently dropped its deepest-impact rows would misreport what the
+   * notional does to this population.
+   */
+  readonly impact: ReturnType<typeof boundEntryImpact>;
+  /**
    * True when the entry had to open an account another trader's organic
    * transaction would have opened anyway — or one we could not classify.
    *
@@ -771,7 +781,19 @@ export async function openTrajectory(
     tokensAcquiredAtoms: trip.acquiredAtoms,
     baseReserveAtoms: facts.baseReserve,
   });
-  void impact;
+  /**
+   * NOT discarded. This was `void impact;` and the collector then wrote
+   * hardcoded zeros with `withinSmallImpactBound: true` into every row.
+   *
+   * Measured on the first live surface: pools with 0.018 SOL of quote reserve
+   * taking a 0.02 SOL entry — an impact ratio above 1.0, stored as 0. The rows
+   * asserted the entry was inside a 50 bps bound while it was over a hundred
+   * times outside it, which makes every counterfactual exit built on them a
+   * measurement of our own footprint.
+   *
+   * A computed value that reaches nothing is the defect class this whole
+   * directive is about, and it was sitting in the open path.
+   */
 
   return {
     ok: true,
@@ -820,6 +842,7 @@ export async function openTrajectory(
       // Both tails were checked against the frozen plans before either leg ran.
       // A trajectory that reached here on a cashback coin carries the accounts.
       cashbackVerified: isCashback,
+      impact,
       requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),
       incompleteness: [
         ...trip.incompleteness,

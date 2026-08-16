@@ -1,0 +1,658 @@
+{
+  "artifact": "cold-warm-size-surface",
+  "directiveSection": "P6",
+  "generatedUtcMs": 1786913259054,
+  "sourceCommit": "c7355ca963ae64455344fffdc7f76904b9d41b65",
+  "dirty": true,
+  "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+  "notionalLamports": "20000000",
+  "slippagePct": 3,
+  "referenceUnitPriceMicroLamports": "10000",
+  "tokens": 3,
+  "refusals": {},
+  "rows": [
+    {
+      "mint": "38p2gd3pnTMTAFSA9TsarVUMhvFEpP1Mk4xBDm9upump",
+      "pool": "UFJYs1STkiN6HiZR1VcgTeuuC6JLvsSHBdAHqjm3jYx",
+      "stratum": "CANONICAL_CASHBACK",
+      "notionalLamports": "20000000",
+      "surfaces": {
+        "cold": {
+          "label": "COLD",
+          "ok": true,
+          "acquiredAtoms": "676621747708",
+          "dragLamports": "12544627",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19749136",
+            "venueRoundTripLamports": "7899",
+            "rentPaidLamports": "10036320",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "59260",
+            "unexplainedLamports": "4515228"
+          },
+          "dragBps": 6272,
+          "selfImpactLamports": "-33441",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "FDNhjRkjcdXc5tNnciXitTzaWfnDpoMvwyq4rHkmd8jC",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "3UciUy1XAyV1jfiCNa2d7THzKtNyiQDHA6pFBu6bXawE",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "59260",
+              "scope": "WALLET_QUOTE_MINT",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "7GFUN3bWzJMKMRZ34JLsvcqdssDbXnp589SiE33KVwcC",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            },
+            {
+              "pubkey": "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "10036320",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "7962240",
+            "subsidyToOtherTradersLamports": "4078560",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR",
+            "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D"
+          ],
+          "computeUnitsConsumed": 268379,
+          "requestedComputeUnits": 322055,
+          "priorityFeeSavedAtReferencePrice": "6779"
+        },
+        "prewarmed": {
+          "label": "PREWARMED_NON_PRICE_ACCOUNTS",
+          "ok": true,
+          "acquiredAtoms": "676621747708",
+          "dragLamports": "12544627",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19749136",
+            "venueRoundTripLamports": "7899",
+            "rentPaidLamports": "10036320",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "59260",
+            "unexplainedLamports": "4515228"
+          },
+          "dragBps": 6272,
+          "selfImpactLamports": "-33441",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "FDNhjRkjcdXc5tNnciXitTzaWfnDpoMvwyq4rHkmd8jC",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "3UciUy1XAyV1jfiCNa2d7THzKtNyiQDHA6pFBu6bXawE",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "59260",
+              "scope": "WALLET_QUOTE_MINT",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "FGptqdxjahafaCzpZ1T6EDtCzYMv7Dyn5MgBLyB3VUFW",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            },
+            {
+              "pubkey": "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "10036320",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "7962240",
+            "subsidyToOtherTradersLamports": "4078560",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "EHAAiTxcdDwQ3U4bU6YcMsQGaekdzLS3B5SmYo46kJtL",
+            "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck"
+          ],
+          "computeUnitsConsumed": 277343,
+          "requestedComputeUnits": 332812,
+          "priorityFeeSavedAtReferencePrice": "6671"
+        },
+        "repeat": {
+          "label": "REPEAT",
+          "ok": true,
+          "acquiredAtoms": "676621515599",
+          "dragLamports": "8660947",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19749136",
+            "venueRoundTripLamports": "7899",
+            "rentPaidLamports": "6152640",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "4574488"
+          },
+          "dragBps": 4330,
+          "selfImpactLamports": "-33441",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "FDNhjRkjcdXc5tNnciXitTzaWfnDpoMvwyq4rHkmd8jC",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "94qWNrtmfn42h3ZjUZwWvK1MEo9uVmmrBPd2hpNjYDjb",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            },
+            {
+              "pubkey": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "91852",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "6152640",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "4078560",
+            "subsidyToOtherTradersLamports": "4078560",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+            "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i"
+          ],
+          "computeUnitsConsumed": 245389,
+          "requestedComputeUnits": 294467,
+          "priorityFeeSavedAtReferencePrice": "7055"
+        }
+      },
+      "setupCostLamports": null,
+      "setupCostNotComparableBecause": "COLD and PREWARMED selected different protocol fee recipients, so they are different transactions (F12)",
+      "selfImpactAndFeeLamports": null,
+      "coldMinusRepeatLamports": null,
+      "prewarmSkipped": null
+    },
+    {
+      "mint": "24fTiNwEG3dEusEjT1GfskFwKpYZhx6MDigceXt2pump",
+      "pool": "81uxiueSporvHDhyBQDuecuGC1YQYW9mqxisvfaivDQX",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "notionalLamports": "20000000",
+      "surfaces": {
+        "cold": {
+          "label": "COLD",
+          "ok": true,
+          "acquiredAtoms": "707816340718440",
+          "dragLamports": "6424744",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19751204",
+            "venueRoundTripLamports": "5831",
+            "rentPaidLamports": "5957760",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535233"
+          },
+          "dragBps": 3212,
+          "selfImpactLamports": "-13425767",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "GgSuFAyZRqpzYNE32WNv5uihdENhz1nPHB7MquioFMj3",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "BZeq7y8ajn5Pjpy5KjEhF6eBY2H9ippTpqCtQLQPsmJf",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "5957760",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "3883680",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+            "GAFuhgcd328SkkBYHpfadzmef9hTGAFRCi9QoCnsZQug"
+          ],
+          "computeUnitsConsumed": 213370,
+          "requestedComputeUnits": 256044,
+          "priorityFeeSavedAtReferencePrice": "7439"
+        },
+        "prewarmed": {
+          "label": "PREWARMED_NON_PRICE_ACCOUNTS",
+          "ok": true,
+          "acquiredAtoms": "707816340718440",
+          "dragLamports": "6424744",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19751204",
+            "venueRoundTripLamports": "5831",
+            "rentPaidLamports": "5957760",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535233"
+          },
+          "dragBps": 3212,
+          "selfImpactLamports": "-13425767",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "GgSuFAyZRqpzYNE32WNv5uihdENhz1nPHB7MquioFMj3",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "C93K8DX4YsABYJtHX9awzgZW3LWzBqBVezEbbLJH4yet",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "5957760",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "3883680",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+            "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i"
+          ],
+          "computeUnitsConsumed": 223682,
+          "requestedComputeUnits": 268419,
+          "priorityFeeSavedAtReferencePrice": "7315"
+        },
+        "repeat": {
+          "label": "REPEAT",
+          "ok": true,
+          "acquiredAtoms": "707706746534292",
+          "dragLamports": "4580344",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19751204",
+            "venueRoundTripLamports": "5831",
+            "rentPaidLamports": "4113360",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535233"
+          },
+          "dragBps": 2290,
+          "selfImpactLamports": "-13424404",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "GgSuFAyZRqpzYNE32WNv5uihdENhz1nPHB7MquioFMj3",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "ghSBUgyxyvyurm1vJBkU4rUyLJoUipCZhFeiBogKCSy",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "4113360",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "2039280",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+            "GAFuhgcd328SkkBYHpfadzmef9hTGAFRCi9QoCnsZQug"
+          ],
+          "computeUnitsConsumed": 219429,
+          "requestedComputeUnits": 263315,
+          "priorityFeeSavedAtReferencePrice": "7366"
+        }
+      },
+      "setupCostLamports": null,
+      "setupCostNotComparableBecause": "COLD and PREWARMED selected different protocol fee recipients, so they are different transactions (F12)",
+      "selfImpactAndFeeLamports": null,
+      "coldMinusRepeatLamports": "1844400",
+      "prewarmSkipped": null
+    },
+    {
+      "mint": "3Ydh3BiTFP4h4juWbZPbkDikmGNXbEF2NpCvRENjpump",
+      "pool": "DpR36FUU7F7gcv2aqCGSJyvkFe81SiJk7zzibB4wpPj1",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "notionalLamports": "20000000",
+      "surfaces": {
+        "cold": {
+          "label": "COLD",
+          "ok": true,
+          "acquiredAtoms": "809278015252286",
+          "dragLamports": "6425188",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19750755",
+            "venueRoundTripLamports": "6280",
+            "rentPaidLamports": "5957760",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535228"
+          },
+          "dragBps": 3212,
+          "selfImpactLamports": "-11358194",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "6hh2n6xkDu5sm3BWWGkTQy6T6tf55i3xKh5pPGYgaMM5",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "9tvBjCQ4m3954ESgxW9PnBPvW8afHEjKpkNEAdfN2D8U",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "5957760",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "3883680",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "EHAAiTxcdDwQ3U4bU6YcMsQGaekdzLS3B5SmYo46kJtL",
+            "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck"
+          ],
+          "computeUnitsConsumed": 210366,
+          "requestedComputeUnits": 252440,
+          "priorityFeeSavedAtReferencePrice": "7475"
+        },
+        "prewarmed": {
+          "label": "PREWARMED_NON_PRICE_ACCOUNTS",
+          "ok": true,
+          "acquiredAtoms": "809278015252286",
+          "dragLamports": "6425188",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19750755",
+            "venueRoundTripLamports": "6280",
+            "rentPaidLamports": "5957760",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535228"
+          },
+          "dragBps": 3212,
+          "selfImpactLamports": "-11358194",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "6hh2n6xkDu5sm3BWWGkTQy6T6tf55i3xKh5pPGYgaMM5",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+              "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+              "space": 137,
+              "rentLamports": "1844400",
+              "excessLamports": "0",
+              "scope": "WALLET_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": false
+            },
+            {
+              "pubkey": "ghSBUgyxyvyurm1vJBkU4rUyLJoUipCZhFeiBogKCSy",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "5957760",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "3883680",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+            "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i"
+          ],
+          "computeUnitsConsumed": 220871,
+          "requestedComputeUnits": 265046,
+          "priorityFeeSavedAtReferencePrice": "7349"
+        },
+        "repeat": {
+          "label": "REPEAT",
+          "ok": true,
+          "acquiredAtoms": "809172375263016",
+          "dragLamports": "4580788",
+          "decomposition": {
+            "poolQuoteInLamports": "19757035",
+            "poolQuoteOutLamports": "19750755",
+            "venueRoundTripLamports": "6280",
+            "rentPaidLamports": "4113360",
+            "rentRecoveredLamports": "2074080",
+            "cashbackAccruedLamports": "0",
+            "unexplainedLamports": "2535228"
+          },
+          "dragBps": 2290,
+          "selfImpactLamports": "-11357143",
+          "baseAtaClosedInSell": true,
+          "createdAccounts": [
+            {
+              "pubkey": "6hh2n6xkDu5sm3BWWGkTQy6T6tf55i3xKh5pPGYgaMM5",
+              "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+              "space": 170,
+              "rentLamports": "2074080",
+              "excessLamports": "0",
+              "scope": "WALLET_TOKEN_MINT",
+              "recoverability": "RECOVERABLE_BY_US",
+              "shared": false
+            },
+            {
+              "pubkey": "Bckr4rY4rUGvWtwqC9mnWN35LKzfPRcmsoMRYq6DFEjN",
+              "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "space": 165,
+              "rentLamports": "2039280",
+              "excessLamports": "183704",
+              "scope": "POOL_GLOBAL",
+              "recoverability": "NOT_RECOVERABLE",
+              "shared": true
+            }
+          ],
+          "setup": {
+            "totalRentLamports": "4113360",
+            "recoverableLamports": "2074080",
+            "unrecoverableLamports": "2039280",
+            "subsidyToOtherTradersLamports": "2039280",
+            "unknownScopeCount": 0
+          },
+          "selectedFeeAccounts": [
+            "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+            "GAFuhgcd328SkkBYHpfadzmef9hTGAFRCi9QoCnsZQug"
+          ],
+          "computeUnitsConsumed": 207267,
+          "requestedComputeUnits": 248721,
+          "priorityFeeSavedAtReferencePrice": "7512"
+        }
+      },
+      "setupCostLamports": null,
+      "setupCostNotComparableBecause": "COLD and PREWARMED selected different protocol fee recipients, so they are different transactions (F12)",
+      "selfImpactAndFeeLamports": null,
+      "coldMinusRepeatLamports": null,
+      "prewarmSkipped": null
+    }
+  ],
+  "reading": {
+    "COLD": "we open every shared account ourselves",
+    "PREWARMED_NON_PRICE_ACCOUNTS": "somebody else opened them; reserves untouched",
+    "REPEAT": "the second trade, after the first moved the pool",
+    "setupCostLamports": "COLD minus PREWARMED. One-time. Says WAIT FOR A WARM POOL.",
+    "selfImpactAndFeeLamports": "PREWARMED minus REPEAT. Recurring. Says TRADE SMALLER."
+  },
+  "notClaimed": "mechanics measured in an isolated local runtime against exact captured state. Not a strategy outcome, not a profitability claim. Nothing funded, signed or submitted."
+}

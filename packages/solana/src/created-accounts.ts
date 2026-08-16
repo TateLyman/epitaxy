@@ -80,6 +80,21 @@ export interface ScopeContext {
   readonly accumulatorWsolAta?: string | null;
   /** The `pool-v2` PDA the SDK appends whenever the pool names a coin creator. */
   readonly poolV2?: string | null;
+  /**
+   * The PROTOCOL's own fee-collection accounts, read off the built plan.
+   *
+   * The protocol fee recipient and the buyback fee recipient are SELECTED by
+   * the SDK from a list in the global config, so no derivation can name them —
+   * they have to come from the instruction that ran. Measured on 2026-08-16:
+   * a cold entry created two of them at 2,039,280 lamports of rent each, and
+   * because they were absent from the observe set the payer's outflow into them
+   * landed nowhere and appeared as an unexplained remainder.
+   *
+   * They are the clearest possible case of P6's subsidy: rent WE pay to open an
+   * account the PROTOCOL collects into, which every later trader through it then
+   * uses for free.
+   */
+  readonly protocolFeeAccounts?: readonly string[];
 }
 
 export interface CreatedAccount {
@@ -210,6 +225,17 @@ function roleOf(
     return { scope: 'POOL_GLOBAL', recoverability: 'NOT_RECOVERABLE', shared: true };
   }
 
+  /**
+   * The protocol's own fee-collection accounts.
+   *
+   * Not ours, not the creator's, and not closable by us. Whoever trades next
+   * finds them already open, which makes our rent a transfer to them — the
+   * subsidy the whole cold/warm hypothesis is about.
+   */
+  if (ctx.protocolFeeAccounts?.includes(pubkey) === true) {
+    return { scope: 'POOL_GLOBAL', recoverability: 'NOT_RECOVERABLE', shared: true };
+  }
+
   // Not recognised.
   //
   // `shared` stays false because it is a CLAIM about who else benefits and we
@@ -277,6 +303,10 @@ export function summariseSetup(accounts: readonly CreatedAccount[]): SetupEconom
  * not is a COLD_SETUP candidate and belongs in its own stratum rather than in
  * the same average.
  */
+export function sharedOrUnknown(a: CreatedAccount): boolean {
+  return a.sharedWithOtherTraders || a.scope === 'UNKNOWN' || a.recoverability === 'UNKNOWN';
+}
+
 export function requiresSharedAccountCreation(accounts: readonly CreatedAccount[]): boolean {
   // An UNKNOWN account counts. We cannot show that it is ours and recoverable,
   // and "we did not recognise it" must not read the same as "it costs nothing"

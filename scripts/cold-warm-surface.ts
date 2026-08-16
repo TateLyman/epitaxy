@@ -114,10 +114,55 @@ const lamportsOf = (xs: readonly Observed[], key: string): bigint | null =>
  * Used for REPEAT, and ONLY for REPEAT: it carries reserves forward on purpose,
  * which is exactly what PREWARMED must not do.
  */
-function overlayAll(base: readonly SnapAccount[], observed: readonly Observed[]): SnapAccount[] {
+function overlayAll(
+  base: readonly SnapAccount[],
+  observed: readonly Observed[],
+  /** Every program the runtime LOADS. None of them may be overlaid. */
+  programIds: readonly string[],
+): SnapAccount[] {
   const out = new Map(base.map((a) => [a.pubkey, a]));
+
+  /**
+   * A PROGRAM is never overlaid, and the executable flag is not how to find one.
+   *
+   * The first fix here skipped accounts flagged `executable` in the base
+   * snapshot. Measured: that set is EMPTY — `captureSnapshot` returns the
+   * programs in its `programs` list and their account entries do not carry the
+   * flag through. So the AMM program, which is in the observe set because
+   * `swapAccountAddresses` names it, was still being written back as a plain
+   * account and shadowing the loaded program. Every REPEAT buy then failed with
+   * `InvalidProgramForExecution` while COLD succeeded on the same snapshot,
+   * because only REPEAT passes through here.
+   *
+   * The authoritative list is what the runtime is told to LOAD, so that is what
+   * this excludes. Programs cannot have changed anyway: a swap does not rewrite
+   * the code it calls, so carrying them forward could only break the runtime,
+   * never inform it.
+   */
+  const protectedKeys = new Set([
+    ...programIds,
+    ...base.filter((a) => a.executable === true).map((a) => a.pubkey),
+    /**
+     * The builtins the runtime supplies itself.
+     *
+     * Observing the FULL account plan (which is correct) means the observe set
+     * now contains the System, Token, ATA and Compute Budget programs. Writing
+     * any of them back as a plain account replaces a working builtin with
+     * whatever bytes came out of the runtime, and every instruction through it
+     * then fails. `captureSnapshot` skips these for the same reason.
+     */
+    '11111111111111111111111111111111',
+    'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+    'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+    'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+    'ComputeBudget111111111111111111111111111111',
+    'SysvarRent111111111111111111111111111111111',
+    'SysvarC1ock11111111111111111111111111111111',
+  ]);
+
   for (const o of observed) {
     if (o.dataBase64 === null) continue; // withheld bytes cannot restore an account
+    if (protectedKeys.has(o.pubkey)) continue;
     out.set(o.pubkey, {
       pubkey: o.pubkey,
       owner: o.owner,
@@ -267,6 +312,7 @@ async function main(): Promise<void> {
       ) => {
         const src = accountSourceOf(accounts as never);
         let buyBytes: string;
+        let selected: string[] = [];
         try {
           const built = await buildBuyFrom(src, {
             poolKey: c.canonical_pool,
@@ -275,6 +321,32 @@ async function main(): Promise<void> {
             slippagePct: SLIPPAGE_PCT,
           });
           buyBytes = encode(built.instructions as unknown[], taker, blockhash);
+          /**
+           * The SDK-SELECTED buyback pair, added to the observe set.
+           *
+           * PumpSwap appends `[buybackFeeRecipient, buybackFeeRecipientTokenAccount]`
+           * to every leg, chosen from a list in the global config, so
+           * `swapAccountAddresses` cannot name them. Without them the payer's
+           * largest single outflow lands in no observed account and shows up as
+           * an unexplained remainder — which is precisely the residual P5
+           * forbids leaving unattributed.
+           */
+          /**
+           * EVERY account the built instructions touch — the plan is authoritative.
+           *
+           * The observe set was a DERIVED guess (`swapAccountAddresses`), and
+           * F12's whole lesson is that a derivation is not the transaction. It
+           * omits the protocol fee recipient and the buyback recipient, both
+           * SELECTED by the SDK from a list in the global config, and both of
+           * which receive lamports. Measured: those two sinks accounted for
+           * millions of lamports per round trip that landed in no observed
+           * account and appeared as an unexplained remainder.
+           *
+           * Capture already used the plan (`planAccountsNotCaptured`).
+           * Observation did not. Same rule, both sides.
+           */
+          const raw = (built.instructions as (TransactionInstruction | RawInstruction)[]).map(toRaw);
+          selected = [...new Set(raw.flatMap((i) => (i.accounts ?? []).map((a) => a.pubkey)))];
         } catch (e) {
           return { label, ok: false as const, refusal: `buy build: ${(e as Error).message.slice(0, 90)}` };
         }
@@ -303,10 +375,10 @@ async function main(): Promise<void> {
             buyTransactionBase64: buyBytes,
             blockhash,
             priceBearingAccounts: priceBearing,
-            observe,
+            observe: [...new Set([...observe, ...selected])],
             // Every payload comes back: the transplant needs the BYTES of the
             // accounts the first trade created, not just their balances.
-            economicAccounts: observe,
+            economicAccounts: [...new Set([...observe, ...selected])],
             buildSell: standardPumpSwapSell({
               preState: src,
               pool: c.canonical_pool,
@@ -367,6 +439,9 @@ async function main(): Promise<void> {
                 globalVolumeAccumulator: roles.globalVolumeAccumulator,
                 accumulatorWsolAta: roles.accumulatorWsolAta,
                 poolV2: roles.poolV2,
+                // The SDK-selected protocol and buyback fee recipients, taken
+                // from the plan that ran. No derivation can name them.
+                protocolFeeAccounts: selected,
               },
             ),
           );
@@ -385,6 +460,74 @@ async function main(): Promise<void> {
         const wsolPost = lamportsOf(post, takerWsol) ?? 0n;
         const drag = payerPre + wsolPre - (payerPost + wsolPost);
 
+        /**
+         * P5 — the drag DECOMPOSED, with an explicit unexplained remainder.
+         *
+         * A single drag number is a residual, and a residual is where a wrong
+         * model hides. The directive's rule is that the payer delta must equal
+         * named trade flow + named fees + named rent + named cashback +
+         * unexplained, and that the last term is derived rather than assumed to
+         * be zero.
+         *
+         * `proceeds` is what the sell actually returned to the pool's quote
+         * side, read from the vault rather than from a quote.
+         */
+        const quoteVaultAfterBuy =
+          (trip.buy.postAccounts as unknown as Observed[]).find((a) => a.pubkey === addrs.poolQuoteTokenAccount) ?? null;
+        const quoteVaultAfterSell = post.find((a) => a.pubkey === addrs.poolQuoteTokenAccount) ?? null;
+        const tokenAmt = (o: Observed | null): bigint | null => {
+          if (o === null || o.dataBase64 === null) return null;
+          const b = Buffer.from(o.dataBase64, 'base64');
+          return b.length >= 72 ? b.readBigUInt64LE(64) : null;
+        };
+        const qPreBuy = tokenAmt(pre.find((a) => a.pubkey === addrs.poolQuoteTokenAccount) ?? null);
+        const qPostBuy = tokenAmt(quoteVaultAfterBuy);
+        const qPostSell = tokenAmt(quoteVaultAfterSell);
+        // What the pool took in on the buy, and gave back on the sell.
+        const quoteIn = qPreBuy !== null && qPostBuy !== null ? qPostBuy - qPreBuy : null;
+        const quoteOut = qPostBuy !== null && qPostSell !== null ? qPostBuy - qPostSell : null;
+        const venueRoundTrip = quoteIn !== null && quoteOut !== null ? quoteIn - quoteOut : null;
+
+        const rentPaid = setup.totalRentLamports;
+        const rentRecovered = trip.baseAtaClosedInSell === true ? setup.recoverableLamports : 0n;
+        const cashbackAccrued = created
+          .filter((a) => a.pubkey === roles.accumulatorWsolAta)
+          .reduce((n, a) => n + a.excessLamports, 0n);
+        const named = (venueRoundTrip ?? 0n) + rentPaid - rentRecovered + cashbackAccrued;
+        const unexplained = venueRoundTrip === null ? null : drag - named;
+
+        if (process.env['COLD_WARM_DEBUG'] === '1' && label === 'COLD') {
+          const preMap = new Map(pre.map((a) => [a.pubkey, a.lamports]));
+          console.log(`  DEBUG lamport deltas across the trip (${label}):`);
+          for (const a of post) {
+            const b = preMap.get(a.pubkey);
+            const d = b === undefined ? a.lamports : a.lamports - b;
+            if (d !== 0n) {
+              const name =
+                a.pubkey === taker ? 'TAKER' :
+                a.pubkey === takerWsol ? 'takerWSOL' :
+                a.pubkey === takerAta ? 'takerBaseATA' :
+                a.pubkey === addrs.poolQuoteTokenAccount ? 'poolQuoteVault' :
+                a.pubkey === addrs.poolBaseTokenAccount ? 'poolBaseVault' :
+                a.pubkey === roles.accumulatorWsolAta ? 'accumWSOL' : a.pubkey.slice(0, 10);
+              console.log(`    ${name.padEnd(16)} ${b === undefined ? '(created)' : ''} ${d.toString().padStart(14)}`);
+            }
+          }
+          const missing = pre.filter((a) => !post.some((x) => x.pubkey === a.pubkey) && a.lamports > 0n);
+          for (const m of missing) console.log(`    ${m.pubkey.slice(0,10).padEnd(16)} (GONE from post) -${m.lamports}`);
+          const where = (key: string, nm: string): void => {
+            const inPre = pre.find((a) => a.pubkey === key);
+            const inBuyPost = buyPost.find((a) => a.pubkey === key);
+            const inSellPost = post.find((a) => a.pubkey === key);
+            console.log(
+              `    PRESENCE ${nm.padEnd(14)} pre=${inPre ? inPre.lamports : 'ABSENT'} ` +
+                `afterBuy=${inBuyPost ? inBuyPost.lamports : 'ABSENT'} afterSell=${inSellPost ? inSellPost.lamports : 'ABSENT'}`,
+            );
+          };
+          where(takerWsol, 'takerWSOL');
+          where(takerAta, 'takerBaseATA');
+          where(taker, 'TAKER');
+        }
         const cu = Math.max(trip.buy.computeUnitsConsumed ?? 0, trip.sell.computeUnitsConsumed ?? 0);
         const plan = frozenComputeLimit(cu || null);
 
@@ -393,6 +536,22 @@ async function main(): Promise<void> {
           ok: true as const,
           acquiredAtoms: trip.acquiredAtoms.toString(),
           dragLamports: drag.toString(),
+          /**
+           * P5 — every component named, and the remainder DERIVED.
+           *
+           * `unexplained` is null when a component could not be measured, never
+           * zero: a residual reported as zero is the claim that the model is
+           * complete, which is exactly the claim that needs evidence.
+           */
+          decomposition: {
+            poolQuoteInLamports: quoteIn === null ? null : quoteIn.toString(),
+            poolQuoteOutLamports: quoteOut === null ? null : quoteOut.toString(),
+            venueRoundTripLamports: venueRoundTrip === null ? null : venueRoundTrip.toString(),
+            rentPaidLamports: rentPaid.toString(),
+            rentRecoveredLamports: rentRecovered.toString(),
+            cashbackAccruedLamports: cashbackAccrued.toString(),
+            unexplainedLamports: unexplained === null ? null : unexplained.toString(),
+          },
           dragBps: NOTIONAL_LAMPORTS > 0n ? Number((drag * 10_000n) / NOTIONAL_LAMPORTS) : null,
           selfImpactLamports: trip.selfImpactLamports?.toString() ?? null,
           baseAtaClosedInSell: trip.baseAtaClosedInSell,
@@ -413,6 +572,16 @@ async function main(): Promise<void> {
             subsidyToOtherTradersLamports: setup.subsidyToOtherTradersLamports.toString(),
             unknownScopeCount: setup.unknownScopeCount,
           },
+          /**
+           * F12 — which fee accounts THIS build selected.
+           *
+           * Two surfaces are only comparable if they selected the same ones.
+           * The SDK picks the protocol and buyback recipients from a list in
+           * the global config, so a rebuild is not guaranteed to be the same
+           * transaction — which is the whole of F12, and this script rebuilds
+           * once per surface because each runs against different state.
+           */
+          selectedFeeAccounts: selected.slice(-2),
           computeUnitsConsumed: cu || null,
           requestedComputeUnits: plan?.requestedUnits ?? null,
           // What the explicit limit is worth at a representative price. The
@@ -445,7 +614,12 @@ async function main(): Promise<void> {
       // stay cold: their rent is a float either way, so transplanting them
       // moves a number without changing an economic fact.
       const toWarm = sharedAccountsToPrewarm(
-        cold.createdAccounts.map((a) => ({ pubkey: a.pubkey, sharedWithOtherTraders: a.shared })),
+        cold.createdAccounts.map((a) => ({
+          pubkey: a.pubkey,
+          sharedWithOtherTraders: a.shared,
+          scope: a.scope,
+          recoverability: a.recoverability,
+        })),
       );
       let prewarmed: Awaited<ReturnType<typeof runSurface>> | null = null;
       if (toWarm.length > 0) {
@@ -462,6 +636,12 @@ async function main(): Promise<void> {
           priceBearing,
           transplant: toWarm,
         });
+        if (process.env['COLD_WARM_DEBUG'] === '1') {
+          console.log('  DEBUG toWarm      :', toWarm.length, toWarm.map((x) => x.slice(0, 8)).join(','));
+          console.log('  DEBUG transplanted:', warmState.transplanted.length, warmState.transplanted.map((x) => x.slice(0, 8)).join(','));
+          console.log('  DEBUG unavailable :', warmState.unavailable.length, warmState.unavailable.map((x) => x.slice(0, 8)).join(','));
+          console.log('  DEBUG buyPost with bytes:', cold.buyPostObserved.filter((o) => o.dataBase64 !== null).length, 'of', cold.buyPostObserved.length);
+        }
         prewarmed = await runSurface('PREWARMED_NON_PRICE_ACCOUNTS', warmState.accounts as SnapAccount[]);
       }
 
@@ -469,7 +649,44 @@ async function main(): Promise<void> {
       //
       // Everything carried forward, reserves included. This is the surface the
       // old one was actually producing under the wrong name.
-      const repeat = await runSurface('REPEAT', overlayAll(original, cold.sellPostObserved));
+      const repeatAccounts = overlayAll(original, cold.sellPostObserved, [
+        ...snapshot.programs.map((x) => x.programId),
+        ...SWAP_PROGRAM_IDS,
+      ]);
+      if (process.env['COLD_WARM_DEBUG'] === '1') {
+        const execOrig = original.filter((a) => a.executable === true).map((a) => a.pubkey);
+        const obsKeys = new Set(cold.sellPostObserved.filter((o) => o.dataBase64 !== null).map((o) => o.pubkey));
+        console.log('  DEBUG executables in original:', execOrig.length, execOrig.map((x) => x.slice(0, 8)).join(','));
+        console.log('  DEBUG observed-with-bytes    :', obsKeys.size);
+        console.log('  DEBUG overlaid programs      :', execOrig.filter((x) => obsKeys.has(x)).join(','));
+        const changedExec = repeatAccounts.filter((a) => execOrig.includes(a.pubkey) && a.executable !== true);
+        console.log('  DEBUG programs now NON-exec  :', changedExec.map((x) => x.pubkey.slice(0, 8)).join(','));
+        console.log('  DEBUG programs list          :', snapshot.programs.map((p) => p.programId.slice(0, 8)).join(','));
+      }
+      const repeat = await runSurface('REPEAT', repeatAccounts);
+
+      /**
+       * Are two surfaces measuring the same transaction shape?
+       *
+       * Measured on 2026-08-16: PREWARMED transplanted the two protocol fee
+       * accounts COLD had created, the transplant landed (2 transplanted, 0
+       * unavailable) — and the drag came back identical to the lamport, because
+       * the rebuilt buy had SELECTED different recipients and created new ones.
+       * On an earlier run the same code produced a 4,078,560 difference,
+       * because that time the selection happened to match.
+       *
+       * A comparison that silently depends on which recipient the SDK picked is
+       * not a measurement. It is marked NOT_COMPARABLE rather than reported.
+       */
+      const comparable = (
+        a: Awaited<ReturnType<typeof runSurface>> | null,
+        b: Awaited<ReturnType<typeof runSurface>> | null,
+      ): boolean => {
+        if (a === null || b === null || !a.ok || !b.ok) return false;
+        const x = [...a.selectedFeeAccounts].sort().join(',');
+        const y = [...b.selectedFeeAccounts].sort().join(',');
+        return x === y;
+      };
 
       const strip = (s: Awaited<ReturnType<typeof runSurface>> | null): unknown => {
         if (s === null) return null;
@@ -494,8 +711,31 @@ async function main(): Promise<void> {
         // The two decompositions, kept apart because they recommend opposite
         // things. Null rather than zero when a surface refused: an unmeasured
         // difference is not a difference of zero.
-        setupCostLamports: coldDrag !== null && warmDrag !== null ? (coldDrag - warmDrag).toString() : null,
-        selfImpactAndFeeLamports: warmDrag !== null && repeatDrag !== null ? (warmDrag - repeatDrag).toString() : null,
+        // Null unless the two surfaces selected the SAME fee accounts. A
+        // difference between two different transactions is not a setup cost.
+        setupCostLamports:
+          coldDrag !== null && warmDrag !== null && comparable(cold, prewarmed)
+            ? (coldDrag - warmDrag).toString()
+            : null,
+        setupCostNotComparableBecause:
+          prewarmed !== null && prewarmed.ok && !comparable(cold, prewarmed)
+            ? 'COLD and PREWARMED selected different protocol fee recipients, so they are different transactions (F12)'
+            : null,
+        selfImpactAndFeeLamports:
+          warmDrag !== null && repeatDrag !== null && comparable(prewarmed, repeat)
+            ? (warmDrag - repeatDrag).toString()
+            : null,
+        /**
+         * COLD minus REPEAT, which IS stable.
+         *
+         * Both run the full setup path and differ only in whether the pool has
+         * already been traded, and on both tokens measured this difference
+         * equalled the unrecoverable setup rent to the lamport.
+         */
+        coldMinusRepeatLamports:
+          coldDrag !== null && repeatDrag !== null && comparable(cold, repeat)
+            ? (coldDrag - repeatDrag).toString()
+            : null,
         prewarmSkipped: toWarm.length === 0 ? 'the entry created no shared account, so COLD is already warm' : null,
       });
       done++;

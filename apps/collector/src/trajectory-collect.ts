@@ -772,14 +772,10 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
         entryPolicy: 'HARD_GATES_RANDOM',
         exitPolicy: 'FIXED_15M_CONTROL',
         state: 'AWAITING_FILL_OBSERVATION',
-        impact: {
-          quoteImpactRatio: 0,
-          baseImpactRatio: 0,
-          maxImpactRatio: 0,
-          haircutBps: 0,
-          withinSmallImpactBound: true,
-          boundUsed: 0.005,
-        },
+        // The MEASURED bound, not zeros. These were hardcoded, and every row
+        // claimed a 0% impact inside a 50 bps bound while the first live
+        // surface found entries larger than the pool's whole quote reserve.
+        impact: t.impact,
         maxAttainableGrade: 'SIMULATED_EXECUTION',
         refusals: t.incompleteness,
         openedUtcMs: t.openedUtcMs,
@@ -811,6 +807,15 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
         );
       }
       opened++;
+      if (!t.impact.withinSmallImpactBound) {
+        // Named on the line, because a row whose exit is dominated by its own
+        // footprint is not evidence about the market and must not read as if
+        // it were.
+        console.log(
+          `              HIGH_IMPACT  entry is ${(t.impact.maxImpactRatio * 100).toFixed(1)}% of the pool ` +
+            `(bound ${(t.impact.boundUsed * 100).toFixed(1)}%), haircut ${t.impact.haircutBps} bps`,
+        );
+      }
       console.log(
         `  ${c.mint.slice(0, 10)}  OPENED  acquired=${t.acquiredAtoms} soleVenue=${t.soleVenueAttributed} ` +
           `quoteState=${t.quoteStateSurvived}`,
