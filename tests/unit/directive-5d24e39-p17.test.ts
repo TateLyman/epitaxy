@@ -40,6 +40,7 @@ import {
   insertTrajectorySettlement,
   persistTrajectoryEconomics,
   settleTrajectory,
+  migrationCandidates,
 } from '../../packages/storage/src/trajectory-repo.js';
 import { insertMark, insertPolicyOutcome, closeTrajectory } from '../../packages/storage/src/mark-repo.js';
 import { attributeSoleVenue } from '../../packages/domain/src/trajectory-evidence.js';
@@ -231,6 +232,78 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('3b — a permanently-refused population cannot starve the candidate queue', () => {
+    /**
+     * Least-sampled-first is right, and combined with a gate that PERMANENTLY
+     * refuses part of the population it is self-defeating: a drained pool is
+     * refused on depth, so it is never sampled, so it stays least-sampled, so
+     * it returns to the head of the queue on the very next cycle. Forever.
+     *
+     * Measured 2026-08-17: 38 of 58 live pools were deep enough and 11 were
+     * still under the cap, while the collector refused EVERY candidate it saw
+     * on depth — because the head was permanently occupied by the drained ones.
+     */
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      const migration = (mint: string, slot: number): void => {
+        db.prepare(
+          `INSERT INTO confirmed_migrations
+             (signature, instruction_index, program_id, mint, bonding_curve, canonical_pool,
+              pool_base_token_account, pool_quote_token_account, quote_mint, creator,
+              slot, block_time, commitment, reversal_status, identity_source, observed_utc_ms)
+           VALUES (?, 0, 'P', ?, 'B', ?, 'BV', 'QV', 'Q', 'C', ?, NULL, 'confirmed', 'CONFIRMED', 'src', ?)`,
+        ).run(`sig-${mint}`, mint, `pool-${mint}`, slot, NOW);
+      };
+      const riskFacts = (mint: string, refusedForDepth: boolean): void => {
+        db.prepare(
+          `INSERT INTO candidate_risk_facts
+             (mint, pool, collected_utc_ms, trajectory_id, mint_overall, freeze_authority,
+              mint_authority, permanent_delegate, transfer_hook, transfer_fee_kind, mayhem_source,
+              breadth_usability, concentration_kind, canonical_pool, stratum, admitted, refusals)
+           VALUES (?, ?, ?, NULL, 'OK', 'NONE', 'NONE', 'NONE', 'NONE', 'NOT_APPLICABLE', 'DECODED',
+                   'USABLE', 'MEASURED', 1, 'S', 0, ?)`,
+        ).run(
+          mint,
+          `pool-${mint}`,
+          NOW,
+          refusedForDepth
+            ? JSON.stringify(["the entry is 568.1% of the pool's effective quote reserve, over the 0.5% bound"])
+            : '[]',
+        );
+      };
+
+      // DRAINED is never sampled and therefore always least-sampled. DEEP has
+      // already produced one trajectory, so under a pure least-sampled-first
+      // ordering it would sit BEHIND the drained one forever.
+      migration('DRAINED', 100);
+      riskFacts('DRAINED', true);
+      migration('DEEP', 99);
+      riskFacts('DEEP', false);
+      insertTrajectory(db, trajectoryRow('t-deep', 'DEEP') as never);
+      closeTrajectory(db, 't-deep', NOW);
+
+      const queue = migrationCandidates(db, 10, 3).map((c) => c.mint);
+      expect(queue).toEqual(['DEEP', 'DRAINED']);
+      db.close();
+    } finally {
+      /**
+       * Windows can hold the WAL/SHM handles past `close()`, and this test
+       * writes to four tables so it sees it where lighter ones do not.
+       *
+       * The cleanup is housekeeping; the assertion above already ran. Failing
+       * the test on a temp-directory removal would report a queue-ordering
+       * defect that is not there — which is the exact substitution this file
+       * exists to prevent.
+       */
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
     }
   });
 

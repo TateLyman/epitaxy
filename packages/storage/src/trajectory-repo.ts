@@ -299,29 +299,65 @@ export function migrationCandidates(
    * A hundred paths across three pools is three outcomes with a hundred
    * observations of them, and no amount of collection turns one into the other.
    *
-   * Two rules:
+   * Three rules:
    *
    * - a mint with an OPEN trajectory is excluded outright — two concurrent
    *   trajectories on one pool share a mark path and duplicate each other
    *   exactly;
+   * - a mint whose MOST RECENT risk-fact reading refused it for DEPTH sinks to
+   *   the back, because least-sampled-first plus a permanently-refused
+   *   population is a starvation loop (see below);
    * - the rest are ordered by how many trajectories they have already produced,
    *   so coverage spreads before it deepens, with `slot DESC` breaking ties
    *   toward the fresher migration.
+   *
+   * ## The starvation loop, measured
+   *
+   * Least-sampled-first is right, and combined with a gate that PERMANENTLY
+   * refuses part of the population it is self-defeating: a drained pool is
+   * refused on depth, so it is never sampled, so it stays least-sampled, so it
+   * returns to the head of the queue on the very next cycle. Forever.
+   *
+   * Measured 2026-08-17 against live reserves for all 58 confirmed migrations:
+   *
+   *     38 of 58 pools were deep enough for a 0.02 SOL entry at the 0.5% bound
+   *     11 of those were still under the per-mint cap of 3
+   *     the deepest was 184 SOL, where the entry is 0.01% of the pool
+   *
+   * and the collector refused EVERY candidate it looked at, on depth, at 14.3%
+   * to 568.1% — because the queue head was permanently occupied by the drained
+   * ones and `--max-candidates` never reached past them. The corpus shows both
+   * ends of it at once: one mint at 58 trajectories while eleven admissible
+   * pools sat untouched.
+   *
+   * Sinking rather than excluding: a pool can recover, and a mint that is
+   * shallow now is a legitimate candidate later. It just must not block the
+   * ones that are admissible today.
    */
   return db
     .prepare(
       `SELECT m.mint, m.canonical_pool, m.slot, m.block_time, m.is_cashback_coin, m.is_mayhem_mode,
-              COALESCE(t.n, 0) AS sampled
+              COALESCE(t.n, 0) AS sampled,
+              COALESCE(d.depth_refused, 0) AS depth_refused
          FROM confirmed_migrations m
          LEFT JOIN (
            SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint
          ) t ON t.mint = m.mint
+         LEFT JOIN (
+           -- The most recent reading per mint, and whether it refused on depth.
+           SELECT f.mint,
+                  CASE WHEN f.refusals LIKE '%effective quote reserve%' THEN 1 ELSE 0 END AS depth_refused
+             FROM candidate_risk_facts f
+             JOIN (SELECT mint, MAX(collected_utc_ms) AS newest
+                     FROM candidate_risk_facts GROUP BY mint) x
+               ON x.mint = f.mint AND x.newest = f.collected_utc_ms
+         ) d ON d.mint = m.mint
         WHERE m.reversal_status = 'CONFIRMED'
           AND COALESCE(t.n, 0) < ?
           AND m.mint NOT IN (
             SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
           )
-        ORDER BY sampled ASC, m.slot DESC
+        ORDER BY depth_refused ASC, sampled ASC, m.slot DESC
         LIMIT ?`,
     )
     .all(maxPerMint, limit) as never;
