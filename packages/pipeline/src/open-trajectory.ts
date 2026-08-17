@@ -13,6 +13,7 @@ import {
   FEE_CONFIG_ADDR,
   GLOBAL_CONFIG_ADDR,
   SWAP_PROGRAM_IDS,
+  namedQuoteDestinations,
 } from '../../solana/src/pumpswap-offline.js';
 import { associatedTokenAddress, TOKEN_PROGRAM } from '../../solana/src/pda.js';
 import { buildCloseAccount } from '../../solana/src/closeaccount.js';
@@ -770,8 +771,37 @@ export async function openTrajectory(
    * conservation check reads a token amount out of each, and a token amount
    * lives in the account's data.
    */
+  /**
+   * The PROTOCOL FEE RECIPIENT's token account, read off the frozen plan.
+   *
+   * It is SELECTED BY THE SDK from a list in the global config, so it cannot be
+   * derived — only read. `namedQuoteDestinations` verifies the layout by
+   * checking that the accounts we CAN derive land where the layout says, and
+   * returns null rather than reading whatever happens to sit at index 10.
+   *
+   * Its absence cost 46 bps of unattributed quote on every entry.
+   */
+  const named = namedQuoteDestinations(
+    buySwap.accounts.map((a) => a.pubkey),
+    { poolQuoteTokenAccount: addrs.poolQuoteTokenAccount, globalConfig: GLOBAL_CONFIG_ADDR },
+  );
+  if (named === null) {
+    return {
+      ok: false,
+      refusal: 'BUY_BUILD_FAILED',
+      detail:
+        'the built swap does not match the known PumpSwap account layout, so the protocol fee recipient ' +
+        'cannot be located and the quote side cannot be conserved. Refusing rather than reading index 10 blind.',
+    };
+  }
   const feeDestinations = [
-    ...new Set([roles.coinCreatorVaultAta, roles.accumulatorWsolAta, ...selectedTail]),
+    ...new Set([
+      named.protocolFeeRecipientTokenAccount,
+      named.coinCreatorVaultAta,
+      roles.coinCreatorVaultAta,
+      roles.accumulatorWsolAta,
+      ...selectedTail,
+    ]),
   ].filter((a): a is string => typeof a === 'string' && a.length > 0 && a !== addrs.poolQuoteTokenAccount);
   /**
    * EVERY account the built plan touches. The plan is authoritative.
