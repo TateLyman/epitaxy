@@ -286,6 +286,15 @@ async function discover(
   limit: number,
   /** How many unseen mints this cycle may probe. Recovery, not the main lane. */
   scanBudget: number,
+  /**
+   * Called between probed mints. See `yieldToMarks`.
+   *
+   * The backfill scan is the LONGEST single stretch of a cycle — up to
+   * `scanBudget` mints, each a pool derivation and an on-chain read. Yielding
+   * only between candidates left this whole stretch unyielded, and a horizon
+   * that came due inside it slipped by however long the rest of the scan took.
+   */
+  yieldToMarks?: () => Promise<void>,
 ): Promise<{ found: number; refusals: Record<string, number> }> {
   const refusals: Record<string, number> = {};
   let found = 0;
@@ -354,6 +363,7 @@ async function discover(
     }
     if (alreadyKnown.has(mint)) continue;
     probed++;
+    if (yieldToMarks !== undefined) await yieldToMarks();
     let pool: string;
     try {
       pool = canonicalPool(mint);
@@ -830,7 +840,7 @@ async function runCycle(
     return;
   }
 
-  const disc = await discover(db, rpc, args.maxCandidates, args.backfillScan);
+  const disc = await discover(db, rpc, args.maxCandidates, args.backfillScan, opts.yieldToMarks);
   console.log(`history backfill: ${disc.found} confirmed migration(s) recorded`);
   for (const [r, n] of Object.entries(disc.refusals).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
     console.log(`  refused ${String(n).padStart(4)}  ${r}`);
@@ -851,6 +861,9 @@ async function runCycle(
   let viable = 0;
   const reasons: Record<string, number> = {};
   for (const c of candidates) {
+    // The second unyielded stretch: one coherent snapshot per candidate, each
+    // several account reads.
+    if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
     const s = await snapshotCandidate(rpc, c.mint);
     if (!s.ok) {
       reasons[s.reason] = (reasons[s.reason] ?? 0) + 1;
@@ -2351,6 +2364,8 @@ async function main(): Promise<void> {
   let cycle = 0;
   let markPasses = 0;
   let lastDiscoveryMs = 0;
+  /** Guards the mark yield against re-entering itself. See `yieldToMarks`. */
+  let yielding = false;
 
   while (!stopping) {
     const started = Date.now();
@@ -2383,18 +2398,29 @@ async function main(): Promise<void> {
              * Scoped to this window, like the brake and the sleep, so it takes
              * the marks it is responsible for and no others.
              */
+            /**
+             * REENTRANT-SAFE. The hook is now called from three places inside
+             * one cycle — the backfill scan, the screening loop and the open
+             * loop — and each awaits a full mark pass. Without the guard a mark
+             * pass that itself takes long enough for another horizon to come
+             * due would re-enter, and the stack would grow with the market.
+             */
             yieldToMarks: async () => {
+              if (yielding) return;
               const due = dueMarks(telemetryDb, {
                 nowMs: Date.now(),
                 offsets: MARK_OFFSETS_MS,
                 evidenceContextId: lanes.evidenceContextId,
               });
               if (due.length === 0) return;
+              yielding = true;
               console.log(`  (yielding to ${due.length} due mark(s) mid-discovery)`);
               try {
                 await runCycle(lanes, { marksOnly: true });
               } catch (e) {
                 console.error(`mid-discovery mark pass failed: ${(e as Error).message.slice(0, 160)}`);
+              } finally {
+                yielding = false;
               }
             },
           });
