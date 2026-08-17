@@ -5,12 +5,12 @@
   "verdict": "NOT_READY",
   "ready": false,
   "contract": {
-    "contractId": "contract-d383a315439e500c",
-    "contractHash": "d383a315439e500cb79534168cabad04faac6bd1b9b41a56deea482dea915b77",
-    "evidenceContextId": "ctx-0293583cdca9-DEV_WINDOW_5D24E",
+    "contractId": "contract-7702c46113751c78",
+    "contractHash": "7702c46113751c78b0b19406ae92cbdc1713dac1d584bc42dc2b4564aa05ae2a",
+    "evidenceContextId": "ctx-3ff21aa45e43-DEV_WINDOW_5D24E",
     "contextValidity": "DEVELOPMENT_EVIDENCE",
-    "frozenUtcMs": 1787000742349,
-    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
+    "frozenUtcMs": 1787002777126,
+    "sourceCommit": "3ff21aa45e43e0ee683c78d1ec6d23acb0d124a8",
     "markSlaMs": 10000,
     "counterfactualContract": "counterfactual-v1 (bounded impact cap 10 bps)",
     "entryPolicies": [
@@ -80,19 +80,19 @@
     ]
   },
   "sample": {
-    "settledInContract": 0,
-    "eligible": 0,
-    "withNetPnl": 0,
-    "distinctMints": 0,
-    "distinctUtcDays": 0,
+    "settledInContract": 4,
+    "eligible": 3,
+    "withNetPnl": 3,
+    "distinctMints": 3,
+    "distinctUtcDays": 1,
     "droppedNoEvidenceLinks": 0,
-    "droppedLateMark": 0,
+    "droppedLateMark": 1,
     "droppedNonZeroUnexplained": 0
   },
-  "netPnlLamports": null,
-  "outcomesWithCounterfactualContract": 0,
-  "outcomesTotal": 0,
-  "entryPoliciesDecided": 0,
+  "netPnlLamports": "-17241082",
+  "outcomesWithCounterfactualContract": 3,
+  "outcomesTotal": 6,
+  "entryPoliciesDecided": 3,
   "thresholds": {
     "minCompletedTrajectories": 200,
     "minDistinctUtcDays": 21,
@@ -110,23 +110,23 @@
   "gates": [
     {
       "name": "contract held",
-      "pass": false,
-      "detail": "the frozen contract does not hold"
+      "pass": true,
+      "detail": "every bound field matches"
     },
     {
       "name": "completed trajectories",
       "pass": false,
-      "detail": "0 of 200"
+      "detail": "3 of 200"
     },
     {
       "name": "distinct UTC days",
       "pass": false,
-      "detail": "0 of 21"
+      "detail": "1 of 21"
     },
     {
       "name": "net PnL positive",
       "pass": false,
-      "detail": "unknown (UNKNOWN, which is a fail)"
+      "detail": "-17241082"
     },
     {
       "name": "expected log growth positive",
@@ -230,7 +230,6 @@
     }
   ],
   "blockers": [
-    "contract held",
     "completed trajectories",
     "distinct UTC days",
     "net PnL positive",
@@ -255,9 +254,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
+    "sourceCommit": "3ff21aa45e43e0ee683c78d1ec6d23acb0d124a8",
     "treeDirty": true,
-    "dirtyFiles": 13,
-    "writtenUtc": "2026-08-17T21:31:39.342Z"
+    "dirtyFiles": 11,
+    "writtenUtc": "2026-08-17T22:45:57.119Z"
   }
 }

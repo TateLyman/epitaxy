@@ -1396,7 +1396,7 @@ async function runCycle(
               SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?,
                   fee_config_hash = ?, selected_tier = ?, market_cap_lamports = ?,
                   creator_fee_bps = ?, protocol_fee_bps = ?, lp_fee_bps = ?, cashback_flag = ?,
-                  exit_simulation_job_id = ?, exit_settlement_id = ?,
+                  exit_observation_id = ?, exit_simulation_job_id = ?, exit_settlement_id = ?,
                   entry_step_index = ?, exit_step_index = ?,
                   concentration_raw = ?, concentration_entity_adjusted = ?, concentration_stratum = ?
             WHERE trajectory_id = ?`,
@@ -1413,6 +1413,17 @@ async function runCycle(
           t.protocolFeeBps,
           t.lpFeeBps,
           t.cashbackVerified ? 1 : 0,
+          /**
+           * The SELL leg's observation id, which nothing wrote.
+           *
+           * `settleTrajectory` sets this column and the collector does not use
+           * that path — it closes through the mark scheduler — so the id was
+           * produced at open time, carried out of `openTrajectory`, and then
+           * dropped. C-1 asks that every link in the trace resolve, and this
+           * one was NULL on every trajectory the collector has ever opened
+           * while the observation itself existed in `execution_observations`.
+           */
+          t.exitObservationId,
           t.exitSimulationJobId,
           t.exitSettlementId,
           t.entryStepIndex,

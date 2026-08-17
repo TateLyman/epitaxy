@@ -1,105 +1,119 @@
 {
-  "activeContext": "ctx-0293583cdca9-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-3ff21aa45e43-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 9,
-      "onTime": 8,
-      "missed": 1,
+      "total": 17,
+      "onTime": 17,
+      "missed": 0,
       "unclassified": 0
     },
     {
       "offsetMs": 180000,
-      "total": 9,
-      "onTime": 7,
-      "missed": 2,
+      "total": 17,
+      "onTime": 16,
+      "missed": 1,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 7,
-      "onTime": 5,
-      "missed": 2,
+      "total": 15,
+      "onTime": 15,
+      "missed": 0,
       "unclassified": 0
     },
     {
       "offsetMs": 600000,
-      "total": 6,
-      "onTime": 4,
-      "missed": 2,
+      "total": 14,
+      "onTime": 14,
+      "missed": 0,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 5,
-      "onTime": 3,
-      "missed": 2,
+      "total": 11,
+      "onTime": 11,
+      "missed": 0,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 1800000,
+      "total": 9,
+      "onTime": 9,
+      "missed": 0,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 3600000,
+      "total": 4,
+      "onTime": 4,
+      "missed": 0,
       "unclassified": 0
     }
   ],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 333,
-      "onTime": 35,
-      "missed": 6,
+      "total": 351,
+      "onTime": 52,
+      "missed": 7,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 46,
-      "onTime": 34,
-      "missed": 12,
+      "total": 64,
+      "onTime": 50,
+      "missed": 14,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 318,
-      "onTime": 17,
-      "missed": 9,
+      "total": 335,
+      "onTime": 32,
+      "missed": 11,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 27,
-      "onTime": 17,
-      "missed": 10,
+      "total": 42,
+      "onTime": 31,
+      "missed": 11,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 307,
-      "onTime": 12,
+      "total": 318,
+      "onTime": 23,
       "missed": 3,
       "unclassified": 292
     },
     {
       "offsetMs": 1800000,
-      "total": 292,
-      "onTime": 0,
+      "total": 301,
+      "onTime": 9,
       "missed": 0,
       "unclassified": 292
     },
     {
       "offsetMs": 3600000,
-      "total": 292,
-      "onTime": 0,
+      "total": 296,
+      "onTime": 4,
       "missed": 0,
       "unclassified": 292
     }
   ],
-  "dueNow": 4,
-  "overdue": 4,
+  "dueNow": 2,
+  "overdue": 2,
   "nextWakeMs": 0,
-  "activeTotal": 36,
-  "activeMissedOrUnclassified": 9,
+  "activeTotal": 87,
+  "activeMissedOrUnclassified": 1,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
+    "sourceCommit": "3ff21aa45e43e0ee683c78d1ec6d23acb0d124a8",
     "treeDirty": true,
-    "dirtyFiles": 9,
-    "writtenUtc": "2026-08-17T21:31:37.377Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-17T22:45:55.153Z"
   }
 }

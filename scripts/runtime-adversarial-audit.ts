@@ -457,17 +457,37 @@ function sectionB(db: DatabaseSync, sidecar: Record<string, unknown> | null): vo
 
   // Whether the mark path ever reaches a live horizon at all is a DATABASE
   // question, not a claim about one pass.
+  /**
+   * READ FROM THE COPY, because the gate perturbs the very thing this measures.
+   *
+   * `pnpm gate --with-live-run` stops the collector, takes a VACUUM copy, runs
+   * the worker probe and the sweeps, and only then spawns its `--once` passes.
+   * By that point every horizon that came due during those minutes is overdue,
+   * and the `--once` pass backfills them as late marks — so B-4 reported 5 of
+   * 95 marks more than sixty seconds late on a window whose own collector had
+   * just been measured at 0 of 87.
+   *
+   * The copy is taken at step 1, before anything is stopped for long or
+   * written. It is the collector's own record of its own timeliness, which is
+   * what this invariant is about. Measuring the gate's cleanup as the
+   * collector's lateness is the same substitution as reading an apparatus
+   * failure as a market fact.
+   */
+  const timeliness = COPY_DB === null ? db : ro(COPY_DB);
   const backfilled = one<{ n: number; late: number }>(
-    db,
+    timeliness,
     'SELECT COUNT(*) n, SUM(CASE WHEN lateness_ms > 60000 THEN 1 ELSE 0 END) late FROM trajectory_marks',
   );
+  if (COPY_DB !== null) timeliness.close();
   record({
     section: 'B',
     invariant: 'the corpus contains marks taken at their horizon rather than backfilled',
     verdict: (backfilled?.late ?? 0) === 0 ? 'PASS' : 'FAIL',
-    source: 'trajectory_marks.lateness_ms',
+    source: `trajectory_marks.lateness_ms, read from ${COPY_DB === null ? 'the live database' : 'the pre-gate copy'}`,
     mutation: 'observation',
-    result: `${backfilled?.late ?? 0} of ${backfilled?.n ?? 0} marks are more than 60s late`,
+    result:
+      `${backfilled?.late ?? 0} of ${backfilled?.n ?? 0} marks are more than 60s late` +
+      (COPY_DB === null ? '' : ' (measured on the copy taken before the gate stopped anything)'),
     economicConsequence:
       'a backfilled horizon carries the right label and the wrong instant, so both exit policies agree ' +
       'trivially and the tournament cannot distinguish the policies it exists to compare',
@@ -509,7 +529,21 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
     link('candidate risk facts', t['mint'], 'SELECT COUNT(*) c FROM candidate_risk_facts WHERE trajectory_id = ?', id),
     link('account-plan (buy)', `${id}/buy`, "SELECT COUNT(*) c FROM leg_account_plans WHERE trajectory_id = ? AND leg = 'buy'", id),
     link('account-plan (sell)', `${id}/sell`, "SELECT COUNT(*) c FROM leg_account_plans WHERE trajectory_id = ? AND leg = 'sell'", id),
-    link('snapshot hash', t['snapshot_hash'], 'SELECT COUNT(*) c FROM snapshot_manifests WHERE manifest_hash = ?', t['snapshot_hash']),
+    /**
+     * `coherent_snapshots`, NOT `snapshot_manifests`.
+     *
+     * `snapshot_manifests` is the PAPER engine's table — written only by
+     * `apps/engine/src/simulate-observation.ts` via `storeJitSnapshot`, and its
+     * `manifest_hash` is `sha({jobId, accounts, programs})`. A trajectory's
+     * `snapshot_hash` is `computeSnapshotHash(manifest, clock, rent,
+     * epochSchedule)`, which commits to the sysvars as well. Two different
+     * hashes of two different things, in two tables written by two programs.
+     *
+     * Measured 2026-08-17: 0 of the corpus's trajectories matched a
+     * manifest_hash and 64 of them resolve in `coherent_snapshots`, so this
+     * link reported the trace broken on every trajectory ever opened.
+     */
+    link('snapshot hash', t['snapshot_hash'], 'SELECT COUNT(*) c FROM coherent_snapshots WHERE snapshot_hash = ?', t['snapshot_hash']),
     link('entry observation', t['entry_observation_id'], 'SELECT COUNT(*) c FROM execution_observations WHERE observation_id = ?', t['entry_observation_id']),
     link('entry worker job/step', t['entry_simulation_job_id'], 'SELECT COUNT(*) c FROM simulation_jobs WHERE job_id = ?', t['entry_simulation_job_id']),
     link('entry settlement id', t['entry_settlement_id'], 'SELECT COUNT(*) c FROM trajectory_settlements WHERE trajectory_id = ?', id),
@@ -2213,7 +2247,6 @@ function sectionO(db: DatabaseSync): void {
   if (subject !== undefined) {
     const f = JSON.parse(subject.feature_snapshot) as PreEntryFeatures;
     const asMeasured = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', f);
-    const compliant = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...f, entityConcentration: 0.01 });
     // And on a snapshot whose OTHER features are known, so the concentration is
     // the only thing standing between reject and enter.
     const complete: PreEntryFeatures = {
@@ -2224,12 +2257,29 @@ function sectionO(db: DatabaseSync): void {
     };
     const highConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.9 });
     const lowConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.01 });
-    mutationBites =
-      asMeasured.reason !== compliant.reason && highConc.enter === false && lowConc.enter === true;
+    /**
+     * THE MUTATION IS THE FLIP, not a change in the refusal TEXT.
+     *
+     * This also required `asMeasured.reason !== compliant.reason` — that the
+     * stored share and a compliant one produce different refusal strings. That
+     * only holds when the sampled share happens to be ABOVE the limit, which is
+     * an accident of which token the collector reached, not a property of the
+     * wiring. Measured: 20 of 21 stored decisions carried a MEASURED share, the
+     * subject's was 0.1998 — already under the 0.35 the policy checks — so the
+     * two refusals read identically and the probe failed a correct apparatus.
+     *
+     * What has to be true is that the share is LOAD-BEARING: on a snapshot
+     * whose other features are known, moving only the entity share moves the
+     * decision. That is tested directly below and does not depend on the
+     * sample. The corpus half — the fact reaching a real decision at all — is
+     * the `withMeasured` and `namedTheFact` counts.
+     */
+    mutationBites = highConc.enter === false && lowConc.enter === true;
     mutationResult =
-      `on the stored snapshot the measured share ${f.entityConcentration} refuses with "${asMeasured.reason.slice(0, 70)}" ` +
-      `and 0.01 refuses with "${compliant.reason.slice(0, 70)}"; on an otherwise-complete snapshot 0.9 -> ` +
-      `${highConc.enter ? 'ENTER' : 'REJECT'} and 0.01 -> ${lowConc.enter ? 'ENTER' : 'REJECT'}`;
+      `the stored snapshot's measured share is ${f.entityConcentration} and the policy refuses it with ` +
+      `"${asMeasured.reason.slice(0, 60)}"; on an otherwise-complete snapshot 0.9 -> ` +
+      `${highConc.enter ? 'ENTER' : 'REJECT'} and 0.01 -> ${lowConc.enter ? 'ENTER' : 'REJECT'}, ` +
+      `so the share alone decides`;
   }
 
   const o2Pass = withMeasured.length > 0 && namedTheFact > 0 && mutationBites;

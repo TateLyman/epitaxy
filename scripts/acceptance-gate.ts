@@ -338,6 +338,20 @@ function liveRun(): { B: Record<string, unknown> | null; S: Record<string, unkno
    * re-open a candidate the first one already reserved.
    */
   const openBefore = liveCount("SELECT COUNT(*) c FROM development_trajectories WHERE state <> 'SETTLED'");
+  /**
+   * WAIT FOR THE LOCK TO GO STALE.
+   *
+   * The collector lock refuses a takeover from a pid that is dead but whose
+   * heartbeat is younger than STALE_AFTER_MS — "it may still be shutting down;
+   * refusing to race it" — and that rule is right. Firing the second `--once`
+   * pass immediately after the first therefore gets it REFUSED, and S-3 read
+   * the refusal as the collector failing to resume: "pass 2 exited 1".
+   *
+   * The restart being tested is a restart, not a race. Ninety-five seconds is
+   * the lock's own bound plus a margin.
+   */
+  const STALE_AFTER_MS = 95_000;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, STALE_AFTER_MS);
   const second = run(process.execPath, args, { timeoutMs: 900_000 });
   const dupMarks = liveCount(
     `SELECT COUNT(*) c FROM (SELECT trajectory_id, offset_ms FROM trajectory_marks
