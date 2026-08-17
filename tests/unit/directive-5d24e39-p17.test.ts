@@ -17,6 +17,7 @@ import {
 import {
   reserveCandidate,
   resolveReservation,
+  abandonReservation,
   ReservationRefused,
   capBreaches,
 } from '../../packages/storage/src/reservation-repo.js';
@@ -232,6 +233,58 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('3c — a candidate REFUSED once is retryable in the same window', () => {
+    /**
+     * `abandonReservation` frees the ordinal for COUNTING, but the abandoned
+     * row still occupied the deterministic primary key its own retry needed —
+     * so the retry failed on the PRIMARY KEY and reported RESERVATION_RACE_LOST
+     * in a window with one process and no race at all.
+     *
+     * Measured 2026-08-17: eleven admissible, deep, under-cap pools were
+     * refused for exactly this on the pass after the one that abandoned them. A
+     * window could only ever open the mints that succeeded on their FIRST
+     * attempt, and a transient refusal removed a mint permanently.
+     *
+     * A refusal is a fact about an instant, not about a mint.
+     */
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      const take = (): string =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'RETRY',
+          maxPerMint: 3,
+          ownerSessionId: 's',
+          nowMs: NOW,
+        }).reservationId;
+
+      const first = take();
+      abandonReservation(db, first, NOW, 'MECHANICS_FAILED');
+      const second = take();
+      expect(second).not.toBe(first);
+      abandonReservation(db, second, NOW, 'MECHANICS_FAILED');
+      const third = take();
+      expect(third).not.toBe(second);
+
+      // Abandoned rows are HISTORY: they are preserved, and they do not consume
+      // the cap. Three refusals must not exhaust a cap of three.
+      resolveReservation(db, third, 'traj-1', NOW);
+      expect(capBreaches(db, 'W')).toEqual([]);
+      const kept = Number(
+        (db.prepare('SELECT COUNT(*) c FROM trajectory_reservations WHERE mint = ?').get('RETRY') as { c: number }).c,
+      );
+      expect(kept).toBe(3);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
     }
   });
 

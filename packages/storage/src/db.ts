@@ -3273,6 +3273,35 @@ ALTER TABLE trajectory_policy_outcomes ADD COLUMN evidence_class TEXT;
 CREATE INDEX IF NOT EXISTS idx_marks_sla ON trajectory_marks(sla_status);
 `,
   },
+{
+    id: 49,
+    name: 'reservation_retry',
+    sql: `
+-- A CANDIDATE REFUSED ONCE MUST BE RETRYABLE.
+--
+-- \`abandonReservation\` frees the ordinal for COUNTING — \`used\` excludes
+-- ABANDONED rows — but the abandoned row still occupies the deterministic
+-- primary key sha256(window|mint|ordinal). So the next attempt at the same
+-- mint collided on the PRIMARY KEY and reported RESERVATION_RACE_LOST, in a
+-- window with exactly one process running and no race at all.
+--
+-- Measured 2026-08-17: eleven admissible, deep, under-cap pools were refused
+-- for this reason on the pass immediately after the one that abandoned them.
+-- A window could therefore only ever open the mints that succeeded on their
+-- FIRST attempt, and a transient refusal — a thin minute, an RPC hiccup —
+-- removed a mint permanently.
+--
+-- A refusal is a fact about an instant, not about a mint.
+--
+-- The cap is unchanged and still enforced: at most maxPerMint NON-ABANDONED
+-- reservations per (window, mint), which is what the partial index below says.
+-- Abandoned rows are history and are excluded from it.
+DROP INDEX IF EXISTS idx_resv_ordinal;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_ordinal
+  ON trajectory_reservations(window_id, mint, reservation_ordinal)
+  WHERE status <> 'ABANDONED';
+`,
+  },
 ];
 
 export interface OpenOptions {

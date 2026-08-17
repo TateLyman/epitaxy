@@ -58,9 +58,23 @@ export interface Reservation {
   readonly reservedUtcMs: number;
 }
 
-/** Deterministic, so the same (window, mint, ordinal) is always the same id. */
-export function reservationId(windowId: string, mint: string, ordinal: number): string {
-  return `resv-${createHash('sha256').update(`${windowId}|${mint}|${ordinal}`).digest('hex').slice(0, 32)}`;
+/**
+ * Deterministic, and unique per ATTEMPT.
+ *
+ * `attempt` is load-bearing. Without it the id is a function of
+ * (window, mint, ordinal) alone, so an ABANDONED row permanently occupies the
+ * key its own retry would need — and the retry fails on the PRIMARY KEY,
+ * reporting a race in a window with one process and no race at all.
+ *
+ * Measured 2026-08-17: eleven admissible, deep, under-cap pools were refused
+ * for exactly this on the pass after the one that abandoned them. A window
+ * could only ever open the mints that succeeded on their FIRST attempt, and a
+ * transient refusal removed a mint permanently.
+ *
+ * A refusal is a fact about an instant, not about a mint.
+ */
+export function reservationId(windowId: string, mint: string, ordinal: number, attempt = 1): string {
+  return `resv-${createHash('sha256').update(`${windowId}|${mint}|${ordinal}|${attempt}`).digest('hex').slice(0, 32)}`;
 }
 
 /**
@@ -137,7 +151,22 @@ export function reserveCandidate(
     // 4 — insert. The unique indexes are the real enforcement; if a concurrent
     //     transaction beat us here despite BEGIN IMMEDIATE, this throws rather
     //     than producing an over-cap row.
-    const id = reservationId(windowId, mint, ordinal);
+    /**
+     * Which attempt this is at this exact slot. Counts EVERY prior row for
+     * (window, mint, ordinal), abandoned ones included, because those are the
+     * rows whose keys are already taken.
+     */
+    const priorAttempts = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM trajectory_reservations
+              WHERE window_id = ? AND mint = ? AND reservation_ordinal = ?`,
+          )
+          .get(windowId, mint, ordinal) as { c: number }
+      ).c,
+    );
+    const id = reservationId(windowId, mint, ordinal, priorAttempts + 1);
     try {
       db.prepare(
         `INSERT INTO trajectory_reservations
