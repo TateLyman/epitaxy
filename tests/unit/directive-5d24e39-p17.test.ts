@@ -234,14 +234,26 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
   });
 
   it('4 — a DIRTY tree cannot open an evidence context without saying so', () => {
-    const dirty = { commit: 'aaa', dirty: true, dirtyFiles: ['packages/x.ts'] };
+    const dirty = { commit: 'aaa', dirty: true, dirtyFiles: ['packages/x.ts'], dirtyArtifacts: [] };
     expect(() => evidenceContextValidity(dirty, { instrumentDevelopment: false })).toThrow(
       DirtyEvidenceCollection,
     );
     const quarantined = evidenceContextValidity(dirty, { instrumentDevelopment: true });
     expect(quarantined.validity).toBe('INSTRUMENT_DEVELOPMENT_INVALID');
 
-    const clean = evidenceContextValidity({ commit: 'aaa', dirty: false, dirtyFiles: [] }, { instrumentDevelopment: false });
+    /**
+     * A modified ARTIFACT is not a dirty tree.
+     *
+     * An artifact is an OUTPUT of a run, so it cannot make a trajectory
+     * non-re-derivable from its commit — which is the whole property this gate
+     * protects. Without the distinction the gate is unusable in the one
+     * sequence it exists for: contract:freeze writes an artifact, committing it
+     * moves HEAD, and the contract it just froze names the previous commit.
+     */
+    const clean = evidenceContextValidity(
+      { commit: 'aaa', dirty: false, dirtyFiles: [], dirtyArtifacts: ['artifacts/x.json'] },
+      { instrumentDevelopment: false },
+    );
     expect(clean.validity).toBe('DEVELOPMENT_EVIDENCE');
   });
 });

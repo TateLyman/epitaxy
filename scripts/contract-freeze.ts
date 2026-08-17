@@ -82,6 +82,9 @@ function main(): void {
   const windowId = process.argv.find((a) => a.startsWith('--window='))?.slice(9) ?? 'DEV_WINDOW_5D24E';
 
   const tree = readTreeState();
+  if (tree.dirtyArtifacts.length > 0) {
+    console.log(`(${tree.dirtyArtifacts.length} modified artifact(s); outputs do not change what the code does)`);
+  }
   if (tree.dirty && !process.argv.includes('--instrument-development')) {
     console.error(
       `\nREFUSED: the tree is DIRTY (${tree.dirtyFiles.length} modified file(s)).\n` +

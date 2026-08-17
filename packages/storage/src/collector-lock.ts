@@ -343,9 +343,32 @@ export class TrajectoryCollectorLock {
 
 export interface TreeState {
   readonly commit: string;
+  /** True when SOURCE differs from the commit. Artifacts do not count. */
   readonly dirty: boolean;
+  /** Source files only — the ones that change what the code does. */
   readonly dirtyFiles: readonly string[];
+  /** Modified outputs, reported but not disqualifying. */
+  readonly dirtyArtifacts: readonly string[];
 }
+
+/**
+ * Paths whose contents are OUTPUTS of a run, never inputs to one.
+ *
+ * A modified artifact does not change what the code does, so it cannot make a
+ * trajectory non-re-derivable from its commit — which is the entire property
+ * the dirty-tree gate protects. The 8f73cef audit drew the same line, recording
+ * its own tree as `DIRTY (artifacts only)` while still treating the local SHA
+ * as equal to the remote.
+ *
+ * Without this the gate is unusable in the one sequence it exists for:
+ * `contract:freeze` writes an artifact, committing it moves HEAD, and the
+ * contract it just froze names the previous commit. Every freeze would
+ * invalidate itself.
+ *
+ * Deliberately narrow. `artifacts/` only — not `docs/`, not `data/`, not
+ * anything under `packages/`, `apps/`, `scripts/`, `config/` or `tests/`.
+ */
+const OUTPUT_ONLY = [/^artifacts\//];
 
 /** The source state this process is actually running, read from git, not asserted. */
 export function readTreeState(cwd?: string): TreeState {
@@ -357,8 +380,15 @@ export function readTreeState(cwd?: string): TreeState {
     }
   };
   const status = run(['status', '--porcelain']);
-  const dirtyFiles = status.length === 0 ? [] : status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
-  return { commit: run(['rev-parse', 'HEAD']) || 'unknown', dirty: dirtyFiles.length > 0, dirtyFiles };
+  const all = status.length === 0 ? [] : status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+  const dirtyArtifacts = all.filter((f) => OUTPUT_ONLY.some((r) => r.test(f)));
+  const dirtyFiles = all.filter((f) => !OUTPUT_ONLY.some((r) => r.test(f)));
+  return {
+    commit: run(['rev-parse', 'HEAD']) || 'unknown',
+    dirty: dirtyFiles.length > 0,
+    dirtyFiles,
+    dirtyArtifacts,
+  };
 }
 
 export class DirtyEvidenceCollection extends Error {
