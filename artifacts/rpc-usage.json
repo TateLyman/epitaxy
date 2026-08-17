@@ -1,0 +1,55 @@
+{
+  "sessionsExamined": 31,
+  "activeSeconds": 70397,
+  "sessionsNeverEnded": 7,
+  "sessionsFromDirtyTree": 26,
+  "byKind": [
+    {
+      "kind": "wss_events",
+      "detail": "logs",
+      "n": 93935,
+      "q": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getAccountInfo",
+      "n": 6238,
+      "q": 48
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getTokenLargestAccounts",
+      "n": 1700,
+      "q": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "getTokenSupply",
+      "n": 1700,
+      "q": 0
+    },
+    {
+      "kind": "mark_jobs",
+      "detail": "",
+      "n": 1279,
+      "q": 0
+    }
+  ],
+  "totalCalls": 104852,
+  "callsPerActiveSecond": 1.4894384703893633,
+  "quotaErrors": 48,
+  "trajectories": 292,
+  "trajectoriesPerActiveDay": 358.37890819211043,
+  "recommendations": [
+    "48 quota refusal(s) at 1.49 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
+    "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
+  ],
+  "provenance": {
+    "writer": "rpc-usage.ts",
+    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "treeDirty": true,
+    "dirtyFiles": 20,
+    "writtenUtc": "2026-08-17T04:15:18.462Z"
+  }
+}

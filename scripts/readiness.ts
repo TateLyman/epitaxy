@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeArtifact } from './_artifact.js';
 import { execSync } from 'node:child_process';
 import { loadSecrets, loadConfig } from '../packages/domain/src/config.js';
 import { openDb } from '../packages/storage/src/db.js';
@@ -42,7 +42,25 @@ if (!report.allPass) {
   console.log('is not evidence about the strategy, it is evidence about the operator.');
 }
 
-mkdirSync('artifacts', { recursive: true });
-writeFileSync('artifacts/readiness.json', `${JSON.stringify(report, null, 2)}\n`);
-console.log('\nwrote artifacts/readiness.json');
+/**
+ * Q-1 — ITS OWN FILE, not the trajectory gate's.
+ *
+ * This script and `scripts/trajectory-readiness.ts` both wrote
+ * `artifacts/readiness.json`. The NAMES were separate; the ARTIFACT was not, so
+ * whichever ran last owned the file a downstream reader keys on. The audit
+ * caught it live: after this script ran, the file documented as the exact
+ * trajectory contract held a report about 519 canary-shadow positions, and both
+ * carry `verdict: "NOT_READY"` — so a consumer could not tell which experiment
+ * had answered.
+ *
+ * `writeArtifact` refuses a path, so the two cannot be pointed at one file
+ * again by accident.
+ */
+const artifactPath = writeArtifact('position-readiness.json', {
+  artifact: 'position-readiness',
+  gate: 'LEGACY_POSITION_CONTRACT',
+  note: 'The paper/shadow POSITION book. A trajectory is not a position — see pnpm readiness.',
+  ...(report as unknown as Record<string, unknown>),
+});
+console.log(`\n-> ${artifactPath}`);
 db.close();

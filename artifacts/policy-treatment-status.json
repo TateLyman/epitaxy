@@ -1,0 +1,39 @@
+{
+  "entryPoliciesDefined": [
+    "HARD_GATES_RANDOM",
+    "CORRECTED_CURRENT_QUALITY_SCORE",
+    "SURVIVOR_FLOW_CONTINUATION_V1"
+  ],
+  "trajectories": 292,
+  "decisionRows": 0,
+  "trajectoriesWithAllPolicies": 0,
+  "trajectoriesWherePoliciesDisagree": 0,
+  "decisionsByPolicy": [],
+  "riskFactsApplied": 0,
+  "riskFactsChangedADecision": 0,
+  "exitPoliciesDefined": [
+    "FIXED_15M_CONTROL",
+    "FLOW_LIQUIDITY_DETERIORATION_V1"
+  ],
+  "outcomesByPolicy": [
+    {
+      "exit_policy": "FIXED_15M_CONTROL",
+      "n": 287
+    },
+    {
+      "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
+      "n": 287
+    }
+  ],
+  "pairedPaths": 287,
+  "pathsWithDifferentTriggerOffsets": 47,
+  "challengerExitedEarlier": 3,
+  "verdict": "TREATMENTS_ARE_LABELS",
+  "provenance": {
+    "writer": "policy-treatments-status.ts",
+    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "treeDirty": true,
+    "dirtyFiles": 17,
+    "writtenUtc": "2026-08-17T04:14:50.526Z"
+  }
+}

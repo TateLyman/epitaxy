@@ -1026,7 +1026,16 @@ async function runCycle(
        */
       const planWritable = new Set(t.entryPlan.writableAccounts);
       const exitWritable = new Set(t.exitPlan?.writableAccounts ?? []);
+      /**
+       * P3.2 — the roles the manifest is indexed by.
+       *
+       * PAYER first and by name, because the independent recomputation
+       * (`pnpm trajectory:trace`) derives every cash figure from the PAYER's
+       * own lamports. It is the one quantity that cannot disagree with itself,
+       * and a manifest that does not name it cannot be recomputed from.
+       */
       const roleOf: Record<string, string> = {
+        [taker]: 'PAYER',
         [t.pool]: 'POOL',
         [t.mint]: 'BASE_MINT',
       };

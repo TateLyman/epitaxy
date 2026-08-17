@@ -1,0 +1,55 @@
+{
+  "activeContext": null,
+  "slaMs": 10000,
+  "activeContextByHorizon": [],
+  "corpusByHorizon": [
+    {
+      "offsetMs": 60000,
+      "total": 292,
+      "onTime": 0,
+      "missed": 0,
+      "unclassified": 292
+    },
+    {
+      "offsetMs": 300000,
+      "total": 292,
+      "onTime": 0,
+      "missed": 0,
+      "unclassified": 292
+    },
+    {
+      "offsetMs": 900000,
+      "total": 292,
+      "onTime": 0,
+      "missed": 0,
+      "unclassified": 292
+    },
+    {
+      "offsetMs": 1800000,
+      "total": 292,
+      "onTime": 0,
+      "missed": 0,
+      "unclassified": 292
+    },
+    {
+      "offsetMs": 3600000,
+      "total": 292,
+      "onTime": 0,
+      "missed": 0,
+      "unclassified": 292
+    }
+  ],
+  "dueNow": 0,
+  "overdue": 0,
+  "nextWakeMs": 3000,
+  "activeTotal": 0,
+  "activeMissedOrUnclassified": 0,
+  "verdict": "NO_MARKS_YET",
+  "provenance": {
+    "writer": "scheduler-status.ts",
+    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "treeDirty": true,
+    "dirtyFiles": 21,
+    "writtenUtc": "2026-08-17T04:15:21.316Z"
+  }
+}
