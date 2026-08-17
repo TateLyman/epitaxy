@@ -14,6 +14,7 @@ import {
   type FeeTier,
 } from '../packages/solana/src/fee-tiers.js';
 import { sdkFeeOracle, sdkFeeOracleUnavailableReason } from '../packages/solana/src/sdk-fee-oracle.js';
+import { calibrate, admissibleForPnl } from '../packages/pipeline/src/counterfactual.js';
 import { buildTrajectorySettlement, checkIdentities, DURABLE_EVIDENCE } from '../packages/domain/src/trajectory-settlement.js';
 import {
   decideEntry,
@@ -1681,42 +1682,93 @@ function sectionL(copyPath: string | null): void {
 // M. Attack future counterfactuals
 // =====================================================================
 function sectionM(db: DatabaseSync): void {
-  const grades = all<{ evidence_grade: string; n: number }>(db, 'SELECT evidence_grade, COUNT(*) n FROM development_trajectories GROUP BY 1');
-  const replay = all<{ n: number; div: number }>(db, 'SELECT COUNT(*) n, SUM(divergences) div FROM replay_runs');
-  const fullReplay = grades.find((g) => g.evidence_grade === 'FULL_EVENT_REPLAY')?.n ?? 0;
-  const bounded = grades.find((g) => g.evidence_grade === 'BOUNDED_COUNTERFACTUAL')?.n ?? 0;
-
+  /**
+   * M-1 - REWRITTEN onto the table the contract actually lives in.
+   *
+   * The old probe read `development_trajectories.evidence_grade`, looking for
+   * the strings FULL_EVENT_REPLAY and BOUNDED_COUNTERFACTUAL. That column
+   * describes the ENTRY - how the round trip itself was established - and it is
+   * correctly SIMULATED_EXECUTION on every row, because the entry IS a
+   * simulated round trip. It was never going to carry a statement about a
+   * counterfactual FUTURE, so the probe could only ever fail, and it would have
+   * gone on failing after the contract was wired.
+   *
+   * The contract lives in `counterfactual_marks`, one row per horizon per
+   * class. What must hold is a PAIR: the same trajectory and the same horizon
+   * covered by both the cheap bounded contract and the exact reserve-delta
+   * replay, so the bound is judged rather than asserted.
+   */
+  const byClass = all<{ evidence_class: string; n: number; refused: number }>(
+    db,
+    `SELECT evidence_class, COUNT(*) n, SUM(CASE WHEN refusal IS NULL THEN 0 ELSE 1 END) refused
+       FROM counterfactual_marks GROUP BY 1`,
+  );
+  const pairs = all<{ trajectory_id: string; offset_ms: number; bounded: string; replayed: string }>(
+    db,
+    `SELECT b.trajectory_id, b.offset_ms,
+            b.counterfactual_exit_lamports AS bounded,
+            r.counterfactual_exit_lamports AS replayed
+       FROM counterfactual_marks b
+       JOIN counterfactual_marks r
+         ON r.trajectory_id = b.trajectory_id AND r.offset_ms = b.offset_ms
+        AND r.evidence_class = 'RESERVE_DELTA_REPLAY_V1'
+      WHERE b.evidence_class = 'BOUNDED_COUNTERFACTUAL_V1'
+        AND b.counterfactual_exit_lamports IS NOT NULL
+        AND r.counterfactual_exit_lamports IS NOT NULL`,
+  );
+  const compared = pairs.map((p) => calibrate(BigInt(p.bounded), BigInt(p.replayed)));
+  const optimistic = compared.filter((c) => !c.conservative).length;
   record({
     section: 'M',
     invariant: 'a bounded future trajectory and a full event replay exist for the same entry, and their errors are compared',
-    verdict: fullReplay > 0 && bounded > 0 ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.evidence_grade; replay_runs',
-    mutation: 'observation',
+    verdict: pairs.length > 0 ? 'PASS' : 'FAIL',
+    source: 'counterfactual_marks; packages/pipeline/src/counterfactual.ts calibrate',
+    mutation: 'join the two contracts on (trajectory, horizon) and compute the signed error of the bound',
     result:
-      `evidence grades in the corpus: ${grades.map((g) => `${g.evidence_grade}=${g.n}`).join(', ')}. ` +
-      `${fullReplay} FULL_EVENT_REPLAY and ${bounded} BOUNDED_COUNTERFACTUAL rows exist, so no pair can be compared. ` +
-      `replay_runs: ${replay[0]?.n ?? 0} run(s), ${replay[0]?.div ?? 0} divergence(s)`,
+      `${byClass.map((c) => `${c.evidence_class}=${c.n} (${c.refused} refused)`).join(', ') || 'no counterfactual rows'}; ` +
+      `${pairs.length} pair(s) comparable` +
+      (compared.length === 0
+        ? ''
+        : `, errors ${compared.map((c) => `${c.errorBps}bps`).join(', ')}, ${optimistic} OPTIMISTIC`),
     economicConsequence:
-      'every row is SIMULATED_EXECUTION: the exit is priced in the same runtime instant as the entry. That measures ' +
-      'MECHANICS, not a holding period, so the 15m and 60m marks are quotes taken later against mainnet and are ' +
-      'exactly the "later mainnet quote without either contract" the directive names as not a valid trajectory',
+      'the entry is a simulated round trip in one runtime instant, which measures MECHANICS. A holding-period ' +
+      'outcome needs a contract over the FUTURE, and a bound that is optimistic overstates every exit carrying it',
   });
 
-  const laterQuoteOnly = count(db, "SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE exit_mark_lamports IS NOT NULL");
+  /**
+   * M-2 - was a hardcoded FAIL with a narrative attached. Now it counts.
+   *
+   * A priced outcome must carry an admissible contract. This asks the question
+   * through `admissibleForPnl`, which is the same function the PnL path calls,
+   * rather than through a second rule that happens to agree with it today.
+   */
+  const priced = all<{ evidence_class: string | null; n: number }>(
+    db,
+    scoped(
+      `SELECT o.evidence_class, COUNT(*) n
+         FROM trajectory_policy_outcomes o
+         JOIN development_trajectories t ON t.trajectory_id = o.trajectory_id
+        WHERE o.exit_mark_lamports IS NOT NULL
+        GROUP BY 1`,
+    ),
+  );
+  const uncontracted = priced
+    .filter((r) => !admissibleForPnl(r.evidence_class, 'CALIBRATED').admissible)
+    .reduce((a, r) => a + Number(r.n), 0);
+  const totalPriced = priced.reduce((a, r) => a + Number(r.n), 0);
   record({
     section: 'M',
     invariant: 'no policy outcome rests on a later mainnet quote without a bounded or replayed contract',
-    verdict: 'FAIL',
-    source: 'trajectory_policy_outcomes.exit_mark_lamports; packages/pipeline/src/mark-path.ts takeMark',
-    mutation: 'observation',
+    verdict: totalPriced === 0 ? 'NOT TESTABLE' : uncontracted === 0 ? 'PASS' : 'FAIL',
+    source: 'trajectory_policy_outcomes.evidence_class; packages/pipeline/src/counterfactual.ts admissibleForPnl',
+    mutation: 'run every priced outcome through the same admissibility gate the PnL path uses',
     result:
-      `${laterQuoteOnly} policy outcomes carry an exit mark. Every one of them is a later mainnet quote against a ` +
-      'pool state that never contained our entry, on a trajectory graded SIMULATED_EXECUTION rather than ' +
-      'BOUNDED_COUNTERFACTUAL, and the haircut columns on those rows come from the ENTRY impact bound, not from a ' +
-      'contract over the exit',
+      `${totalPriced} priced outcome(s) in scope: ` +
+      `${priced.map((r) => `${r.evidence_class ?? 'NO CONTRACT'}=${r.n}`).join(', ') || 'none'}; ` +
+      `${uncontracted} rest on a later mainnet quote with no admissible contract`,
     economicConsequence:
-      'the gross delta over 211 control outcomes is built entirely from these marks. It is not a strategy result ' +
-      'and the corpus does not carry the grade that would say so',
+      'the entire pre-repair gross delta over 211 control outcomes was built from marks with no contract, against ' +
+      'pool states that never contained the position. It was not a strategy result and nothing on the row said so',
   });
 }
 
@@ -1797,22 +1849,93 @@ function sectionN(db: DatabaseSync): void {
     economicConsequence: 'if two policies cannot disagree, the tournament cannot discover anything',
   });
 
-  const policies = all<{ entry_policy: string; n: number }>(db, 'SELECT entry_policy, COUNT(*) n FROM development_trajectories GROUP BY 1');
-  const callers = sh('grep -rn "decideEntry(" --include=*.ts packages apps scripts | grep -v treatments.ts');
+  /**
+   * N-2 — REWRITTEN, because the thing it measured is not the thing that has to
+   * be true.
+   *
+   * It counted DISTINCT VALUES of `development_trajectories.entry_policy`. That
+   * column is one label per path, so under a correct design — one shared path,
+   * every policy asked what IT would have done — the column carries exactly one
+   * value forever and the old probe could only ever FAIL. It was measuring the
+   * broken design's shape: one policy allocated per trajectory, which is the
+   * confounding the shared path exists to remove.
+   *
+   * What must be true instead:
+   *
+   *   1. every trajectory carries a decision row for EVERY defined entry policy;
+   *   2. those decisions come from `decideEntry` over a persisted feature
+   *      snapshot, so each is re-derivable rather than asserted;
+   *   3. the policies actually disagree somewhere in the corpus — a set of rows
+   *      that unanimously agree on every path is a label under three names;
+   *   4. `decideEntry` has production callers at all.
+   *
+   * Strictly harder than the old check: (1) and (3) together cannot be passed by
+   * writing a literal, and (2) cannot be passed without storing the inputs.
+   */
+  const decisionCallers = sh('grep -rn "decideEntry(" --include=*.ts packages apps | grep -v treatments.ts')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('ERROR:') && !/\.test\.ts/.test(l));
+  const scopedTrajectories = count(db, scoped('SELECT COUNT(*) c FROM development_trajectories'));
+  const fullyDecided = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM (
+         SELECT t.trajectory_id FROM development_trajectories t
+           JOIN trajectory_policy_decisions d ON d.trajectory_id = t.trajectory_id
+          GROUP BY t.trajectory_id
+         HAVING COUNT(DISTINCT d.entry_policy) = ${ENTRY_POLICIES.length})`,
+    ),
+  );
+  const derivable = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        WHERE d.feature_snapshot_hash IS NULL OR d.feature_snapshot_hash = ''
+           OR d.feature_snapshot IS NULL OR d.feature_snapshot = ''`,
+    ),
+  );
+  const splitPaths = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM (
+         SELECT d.trajectory_id FROM trajectory_policy_decisions d
+           JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+          GROUP BY d.trajectory_id
+         HAVING COUNT(DISTINCT d.decision) > 1)`,
+    ),
+  );
+  const perPolicy = all<{ entry_policy: string; decision: string; n: number }>(
+    db,
+    scoped(
+      `SELECT d.entry_policy, d.decision, COUNT(*) n FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        GROUP BY 1, 2`,
+    ),
+  );
+  const n2Pass =
+    scopedTrajectories > 0 &&
+    fullyDecided === scopedTrajectories &&
+    derivable === 0 &&
+    splitPaths > 0 &&
+    decisionCallers.length > 0;
   record({
     section: 'N',
     invariant: 'one shared path is evaluated by ALL entry policies, and the label is not attached after a common decision',
-    verdict: policies.length === ENTRY_POLICIES.length ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.entry_policy; apps/collector/src/trajectory-collect.ts:896',
-    mutation: 'count the distinct entry policies in the corpus and search for production callers of decideEntry',
+    verdict: n2Pass ? 'PASS' : scopedTrajectories === 0 ? 'NOT TESTABLE' : 'FAIL',
+    source: 'trajectory_policy_decisions; packages/strategy/src/treatments.ts decideEntry',
+    mutation:
+      'require a decision row per defined policy on every trajectory, a stored feature snapshot behind each, ' +
+      'at least one path where the policies DISAGREE, and a production caller of decideEntry',
     result:
-      `the corpus carries ${policies.length} distinct entry polic(ies): ${policies.map((p) => `${p.entry_policy}=${p.n}`).join(', ')}, ` +
-      `against ${ENTRY_POLICIES.length} defined. decideEntry has ZERO production callers ` +
-      `(${callers.length === 0 ? 'no non-test references' : 'only tests'}); the collector writes the string literal ` +
-      "'HARD_GATES_RANDOM' on every row after admitCandidate has already made the decision",
+      `${fullyDecided} of ${scopedTrajectories} trajector(ies) carry all ${ENTRY_POLICIES.length} policy decisions; ` +
+      `${derivable} decision(s) lack a feature snapshot; ${splitPaths} path(s) split the policies; ` +
+      `${decisionCallers.length} production caller(s) of decideEntry. ` +
+      perPolicy.map((r) => `${r.entry_policy}:${r.decision}=${r.n}`).join(', '),
     economicConsequence:
-      'the entry side of the tournament does not exist. Every row is labelled with the control arm, so the two ' +
-      'challengers have a sample of zero and the label describes nothing that happened',
+      'the entry side of the tournament is a paired comparison or it is nothing. One label per path allocates each ' +
+      'policy a different set of tokens, and at these sample sizes that difference is almost entirely noise',
   });
 
   const exitPolicies = all<{ exit_policy: string; n: number; agree: number }>(
@@ -1876,21 +1999,94 @@ function sectionO(db: DatabaseSync): void {
   });
 
   const facts = all<{ enabled: number | null; n: number }>(db, 'SELECT enabled, COUNT(*) n FROM mayhem_facts GROUP BY 1');
-  const conc = count(db, 'SELECT COUNT(*) c FROM entity_concentration');
-  const rawOnly = count(db, "SELECT COUNT(*) c FROM candidate_risk_facts WHERE stratum LIKE '%CONCENTRATION_RAW_ONLY%'");
-  const examined = count(db, 'SELECT COUNT(*) c FROM candidate_risk_facts');
+
+  /**
+   * O-2 — REWRITTEN, and made a MUTATION rather than an observation.
+   *
+   * The old probe counted strata: PASS if any risk-fact row was stratified
+   * anything other than CONCENTRATION_RAW_ONLY. That is weaker than the
+   * invariant it was written under in both directions. A stratum label can be
+   * set without any decision reading it — which is exactly the state it found,
+   * 57 `entity_concentration` rows joined to nothing — and a fact that IS read
+   * but never load-bearing would still pass.
+   *
+   * Two things must hold, and neither can be faked by the other:
+   *
+   *   CORPUS      a real decision saw a MEASURED entity-adjusted share. The
+   *               feature snapshot is stored, so this reads the number the
+   *               policy actually received rather than a label beside it.
+   *
+   *   MUTATION    replaying that stored snapshot through the same policy with
+   *               ONLY the entity share changed produces a different refusal
+   *               set — and on an otherwise-complete snapshot, a different
+   *               decision. A fact that changes nothing when changed is not
+   *               wired in.
+   */
+  const measuredSnapshots = all<{ trajectory_id: string; entry_policy: string; feature_snapshot: string; decision: string; without: string | null; applied: string }>(
+    db,
+    scoped(
+      `SELECT d.trajectory_id, d.entry_policy, d.feature_snapshot, d.decision,
+              d.decision_without_risk_facts AS without, d.risk_facts_applied AS applied
+         FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        WHERE d.entry_policy = 'SURVIVOR_FLOW_CONTINUATION_V1'`,
+    ),
+  );
+  const withMeasured = measuredSnapshots.filter((r) => {
+    try {
+      const f = JSON.parse(r.feature_snapshot) as { entityConcentration: number | null };
+      return typeof f.entityConcentration === 'number';
+    } catch {
+      return false;
+    }
+  });
+  const namedTheFact = measuredSnapshots.filter((r) => /ENTITY_ADJUSTED_CONCENTRATION/.test(r.applied)).length;
+  const flippedForReal = measuredSnapshots.filter((r) => r.without !== null && r.without !== r.decision).length;
+
+  // The mutation, over a REAL stored snapshot where one exists.
+  const subject = withMeasured[0];
+  let mutationResult = 'not run: no stored decision carries a measured entity-adjusted share';
+  let mutationBites = false;
+  if (subject !== undefined) {
+    const f = JSON.parse(subject.feature_snapshot) as PreEntryFeatures;
+    const asMeasured = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', f);
+    const compliant = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...f, entityConcentration: 0.01 });
+    // And on a snapshot whose OTHER features are known, so the concentration is
+    // the only thing standing between reject and enter.
+    const complete: PreEntryFeatures = {
+      ...f,
+      hardGatesPass: true, independentBuyerPersistence: 0.9, nonMayhemNetQuoteInflowLamports: 1n,
+      effectiveQuoteReserveTrend: 1, executableExitCapacityTrend: 1, continuationSlope: 1,
+      creatorNetSellingLamports: 0n, mintBehaviourSafe: true, mechanicsViable: true,
+    };
+    const highConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.9 });
+    const lowConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.01 });
+    mutationBites =
+      asMeasured.reason !== compliant.reason && highConc.enter === false && lowConc.enter === true;
+    mutationResult =
+      `on the stored snapshot the measured share ${f.entityConcentration} refuses with "${asMeasured.reason.slice(0, 70)}" ` +
+      `and 0.01 refuses with "${compliant.reason.slice(0, 70)}"; on an otherwise-complete snapshot 0.9 -> ` +
+      `${highConc.enter ? 'ENTER' : 'REJECT'} and 0.01 -> ${lowConc.enter ? 'ENTER' : 'REJECT'}`;
+  }
+
+  const o2Pass = withMeasured.length > 0 && namedTheFact > 0 && mutationBites;
   record({
     section: 'O',
     invariant: 'entity-adjusted concentration alters an actual entry decision on a counterexample',
-    verdict: rawOnly < examined ? 'PASS' : 'FAIL',
-    source: 'candidate_risk_facts.stratum; entity_concentration',
-    mutation: 'observation: count admitted candidates whose stratum is anything other than CONCENTRATION_RAW_ONLY',
+    verdict: o2Pass ? 'PASS' : measuredSnapshots.length === 0 ? 'NOT TESTABLE' : 'FAIL',
+    source: 'trajectory_policy_decisions.feature_snapshot; packages/pipeline/src/entity-tier.ts; treatments.ts survivorFlowContinuation',
+    mutation:
+      'replay a REAL stored feature snapshot through the same policy with only the entity-adjusted share changed, ' +
+      'and require the refusal to move',
     result:
-      `${rawOnly} of ${examined} risk-fact rows are stratified CONCENTRATION_RAW_ONLY; entity_concentration holds ${conc} rows ` +
-      `and none of them is joined to a candidate decision. mayhem_facts: ${facts.map((r) => `enabled=${r.enabled}:${r.n}`).join(', ')}`,
+      `${withMeasured.length} of ${measuredSnapshots.length} stored decision(s) carry a MEASURED entity-adjusted share; ` +
+      `${namedTheFact} name ENTITY_ADJUSTED_CONCENTRATION in risk_facts_applied; ` +
+      `${flippedForReal} real decision(s) differ from their without-the-fact counterpart. ${mutationResult}. ` +
+      `mayhem_facts: ${facts.map((r) => `enabled=${r.enabled}:${r.n}`).join(', ')}`,
     economicConsequence:
-      'the entity-adjusted tier is never walked, so the raw top-holder share decides every admission. An incomplete ' +
-      'history can only UNDERSTATE clustering, so the gate that fires is the weaker of the two on every candidate',
+      'an incomplete history can only UNDERSTATE clustering, so if only the raw share is read the weaker of the two ' +
+      'gates fires on every candidate. Measured live: 74.9% entity against 64.3% address on one mint, 19 addresses ' +
+      'resolving to 16 entities behind a single funder',
   });
 
   record({

@@ -66,6 +66,17 @@ export interface CollectedMark {
   readonly executableLamports: bigint | null;
   readonly exitCapacityLamports: bigint | null;
   readonly effectiveQuoteReserveLamports: bigint | null;
+  /**
+   * P8 — THE RAW RESERVES AT THE MARK, which the counterfactual needs.
+   *
+   * `effectiveQuoteReserveLamports` includes the pool's VIRTUAL quote, which is
+   * right for depth and wrong for a constant-product exit: the virtual term is
+   * not lamports anyone can take out. The counterfactual carries our entry's
+   * displacement onto these and prices against the sum, so it must have the two
+   * real vault balances, not the depth figure.
+   */
+  readonly observedBaseReserve: bigint | null;
+  readonly observedQuoteReserve: bigint | null;
   /** Why this mark carries no price. Never collapsed to "no route". */
   readonly refusal: string | null;
 }
@@ -111,6 +122,8 @@ export async function takeMark(
       // pool's own arithmetic on the position's own size.
       exitCapacityLamports: m.executableLamports,
       effectiveQuoteReserveLamports: m.poolFacts.quoteReserveRaw + m.poolFacts.virtualQuoteReserves,
+      observedBaseReserve: m.poolFacts.baseReserve,
+      observedQuoteReserve: m.poolFacts.quoteReserveRaw + m.poolFacts.virtualQuoteReserves,
       refusal: null,
     };
   } catch (e) {
@@ -121,6 +134,8 @@ export async function takeMark(
       executableLamports: null,
       exitCapacityLamports: null,
       effectiveQuoteReserveLamports: null,
+      observedBaseReserve: null,
+      observedQuoteReserve: null,
       refusal: e instanceof DirectMarkUnavailable ? e.reason : (e as Error).message.slice(0, 120),
     };
   }
@@ -143,6 +158,15 @@ export interface PolicyOutcome {
   readonly exitMarkLamports: bigint | null;
   /** Entry cash out minus what the exit would realise. Null when unpriced. */
   readonly grossDeltaLamports: bigint | null;
+  /**
+   * P8/M-2 — WHAT KIND OF NUMBER `exitMarkLamports` IS.
+   *
+   * Null means it rests on a later mainnet quote with no contract over it,
+   * which is what all 545 pre-repair outcomes were. `admissibleForPnl` refuses
+   * on null BY NAME, so the refusal is countable rather than being an absent
+   * grade nobody looked for.
+   */
+  readonly evidenceClass: string | null;
 }
 
 /**
@@ -154,7 +178,20 @@ export interface PolicyOutcome {
  */
 export function evaluateExitPolicies(
   path: readonly CollectedMark[],
-  p: { openedAtMs: number; policies: readonly ExitPolicy[]; entryCashOutLamports: bigint },
+  p: {
+    openedAtMs: number;
+    policies: readonly ExitPolicy[];
+    entryCashOutLamports: bigint;
+    /**
+     * P8 — the counterfactual exit per horizon, and its class.
+     *
+     * Absent for a horizon means no admissible contract covers it. The outcome
+     * is then UNPRICED rather than priced at the mark's quote: a quote against
+     * a pool that never held our position is not an exit for it, and booking it
+     * as one is the defect that built the entire pre-repair gross delta.
+     */
+    counterfactualExits?: ReadonlyMap<number, { lamports: bigint; evidenceClass: string }>;
+  },
 ): readonly PolicyOutcome[] {
   /**
    * Policies are evaluated on the horizon the mark REPRESENTS, not the instant
@@ -191,6 +228,15 @@ export function evaluateExitPolicies(
     const triggerMark =
       triggeredAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === triggeredAt) ?? null);
     const fillMark = filledAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === filledAt) ?? null);
+    /**
+     * The FILL horizon decides WHEN. The counterfactual decides AT WHAT.
+     *
+     * When no contract covers the fill horizon the outcome carries a null price
+     * and a null class, and `admissibleForPnl` refuses it. That is deliberately
+     * a visible hole rather than a fallback to the quote.
+     */
+    const cf = fillMark === null ? undefined : p.counterfactualExits?.get(fillMark.offsetMs);
+    const exitLamports = cf?.lamports ?? null;
     return {
       exitPolicy: policy,
       triggeredAtMs: triggeredAt,
@@ -198,11 +244,9 @@ export function evaluateExitPolicies(
       filledAtMs: filledAt,
       filledOffsetMs: fillMark?.offsetMs ?? null,
       reason: d.reason,
-      exitMarkLamports: fillMark?.executableLamports ?? null,
-      grossDeltaLamports:
-        fillMark?.executableLamports === null || fillMark?.executableLamports === undefined
-          ? null
-          : fillMark.executableLamports - p.entryCashOutLamports,
+      exitMarkLamports: exitLamports,
+      grossDeltaLamports: exitLamports === null ? null : exitLamports - p.entryCashOutLamports,
+      evidenceClass: cf?.evidenceClass ?? null,
     };
   });
 }

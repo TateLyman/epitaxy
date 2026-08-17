@@ -22,6 +22,18 @@ export interface OpenTrajectoryRow {
   readonly maxAttainableGrade: EvidenceGrade;
   readonly refusals: readonly string[];
   readonly openedUtcMs: number;
+  /**
+   * P8 — what a counterfactual exit needs, and what no row carried.
+   *
+   * Optional so a caller that has not measured them writes NULL rather than a
+   * zero. A zero displacement reads as "our entry moved nothing", which is a
+   * claim; absent is the honest state.
+   */
+  readonly postEntryBaseReserve?: bigint | null;
+  readonly postEntryQuoteReserve?: bigint | null;
+  readonly entryBaseDeltaAtoms?: bigint | null;
+  readonly entryQuoteDeltaLamports?: bigint | null;
+  readonly entryImpactBps?: number | null;
 }
 
 export class EvidenceReplaceRefused extends Error {
@@ -53,8 +65,10 @@ export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
        entry_policy, exit_policy, state,
        evidence_grade, max_attainable_grade,
        quote_impact_ratio, base_impact_ratio, max_impact_ratio, haircut_bps, within_small_impact,
-       opened_utc_ms, refusals
-     ) VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,?)`,
+       opened_utc_ms, refusals,
+       post_entry_base_reserve, post_entry_quote_reserve,
+       entry_base_delta_atoms, entry_quote_delta_lamports, entry_impact_bps
+     ) VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,?, ?,?,?,?,?)`,
   ).run(
     r.identity.trajectoryId,
     r.identity.entryObservationId,
@@ -83,6 +97,19 @@ export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
     r.impact.withinSmallImpactBound ? 1 : 0,
     r.openedUtcMs,
     JSON.stringify(r.refusals),
+    r.postEntryBaseReserve === undefined || r.postEntryBaseReserve === null
+      ? null
+      : r.postEntryBaseReserve.toString(),
+    r.postEntryQuoteReserve === undefined || r.postEntryQuoteReserve === null
+      ? null
+      : r.postEntryQuoteReserve.toString(),
+    r.entryBaseDeltaAtoms === undefined || r.entryBaseDeltaAtoms === null
+      ? null
+      : r.entryBaseDeltaAtoms.toString(),
+    r.entryQuoteDeltaLamports === undefined || r.entryQuoteDeltaLamports === null
+      ? null
+      : r.entryQuoteDeltaLamports.toString(),
+    r.entryImpactBps ?? null,
   );
 }
 

@@ -3302,6 +3302,56 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_ordinal
   WHERE status <> 'ABANDONED';
 `,
   },
+{
+    id: 50,
+    name: 'counterfactual_inputs',
+    sql: `
+-- P8: THE INPUTS A COUNTERFACTUAL EXIT NEEDS, ON THE ROWS THAT HAVE THEM.
+--
+-- counterfactual_marks has existed since migration 48 and nothing wrote a
+-- single row, because the two states the construction needs were never
+-- persisted anywhere:
+--
+--   the LOCAL post-entry reserves -- the displacement our entry actually made,
+--   which is the only thing that distinguishes a counterfactual from a later
+--   quote; and
+--
+--   the REAL reserves at each mark, which trajectory_marks stored only as
+--   effective_quote_reserve. That figure includes the pool's VIRTUAL quote and
+--   is correct for depth and wrong for a constant-product exit: the virtual
+--   term is not lamports anyone can withdraw.
+--
+-- Without both, every policy outcome rested on a later mainnet quote against a
+-- pool that never contained our entry -- 545 of them before the repair -- and
+-- the haircut columns on those rows came from the ENTRY impact bound rather
+-- than from any contract over the exit.
+-- BOTH, because the two contracts need different things. The bounded contract
+-- carries the DISPLACEMENT onto the later real reserves; the reserve-delta
+-- replay starts from the ABSOLUTE local state and applies intervening events
+-- to it. Deriving either from the other needs the pre-entry reserves, which
+-- are not on this row.
+ALTER TABLE development_trajectories ADD COLUMN post_entry_base_reserve TEXT;
+ALTER TABLE development_trajectories ADD COLUMN post_entry_quote_reserve TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_base_delta_atoms TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_quote_delta_lamports TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_impact_bps INTEGER;
+
+ALTER TABLE trajectory_marks ADD COLUMN observed_base_reserve TEXT;
+ALTER TABLE trajectory_marks ADD COLUMN observed_quote_reserve TEXT;
+
+-- counterfactual_marks named its two displacement columns post_entry_*, and
+-- boundedCounterfactual ADDS them to the observed reserves. An absolute
+-- post-entry reserve added to the later real state doubles the pool, and the
+-- exit is then priced against roughly twice the liquidity that existed --
+-- which flatters every counterfactual by understating slippage. The table has
+-- never held a row, so the names are corrected rather than worked around.
+ALTER TABLE counterfactual_marks RENAME COLUMN post_entry_base_reserve TO entry_base_delta_atoms;
+ALTER TABLE counterfactual_marks RENAME COLUMN post_entry_quote_reserve TO entry_quote_delta_lamports;
+
+CREATE INDEX IF NOT EXISTS idx_cf_marks_class
+  ON counterfactual_marks(evidence_class, trajectory_id);
+`,
+  },
 ];
 
 export interface OpenOptions {

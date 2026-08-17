@@ -74,9 +74,22 @@ export class CounterfactualRefused extends Error {
 export interface BoundedCounterfactualInput {
   readonly trajectoryId: string;
   readonly offsetMs: number;
-  /** OUR post-entry local pool state — the displacement the entry actually made. */
-  readonly postEntryBaseReserve: bigint;
-  readonly postEntryQuoteReserve: bigint;
+  /**
+   * OUR ENTRY'S DISPLACEMENT, SIGNED — not the post-entry reserve.
+   *
+   * These were named `postEntryBaseReserve` / `postEntryQuoteReserve` and the
+   * arithmetic below adds them to the observed reserves. Adding an ABSOLUTE
+   * post-entry reserve to the later real state would double the pool, and the
+   * exit would be priced against roughly twice the liquidity that existed —
+   * which flatters every counterfactual by understating slippage. Nothing had
+   * called this yet, so the names are corrected here rather than worked around
+   * at the one call site.
+   *
+   * A buy ADDS quote to the pool and REMOVES base from it, so on the entry leg
+   * `entryQuoteDeltaLamports` is positive and `entryBaseDeltaAtoms` is negative.
+   */
+  readonly entryBaseDeltaAtoms: bigint;
+  readonly entryQuoteDeltaLamports: bigint;
   /** The real mainnet pool state at the mark. */
   readonly observedBaseReserve: bigint;
   readonly observedQuoteReserve: bigint;
@@ -138,10 +151,15 @@ export function boundedCounterfactual(input: BoundedCounterfactualInput): Bounde
   }
 
   // 2 — our displacement, carried onto the later real state.
-  const ourBaseAdded = input.postEntryBaseReserve;
-  const ourQuoteAdded = input.postEntryQuoteReserve;
-  const withUsBase = input.observedBaseReserve + ourBaseAdded;
-  const withUsQuote = input.observedQuoteReserve + ourQuoteAdded;
+  const withUsBase = input.observedBaseReserve + input.entryBaseDeltaAtoms;
+  const withUsQuote = input.observedQuoteReserve + input.entryQuoteDeltaLamports;
+  if (withUsBase <= 0n || withUsQuote <= 0n) {
+    throw new CounterfactualRefused(
+      'STATE_UNKNOWN',
+      `carrying this entry's displacement onto the mark leaves base ${withUsBase} and quote ${withUsQuote}. ` +
+        'A pool cannot hold a non-positive reserve, so the later state is not one this position could have faced.',
+    );
+  }
 
   // 3 — adverse adjustment: LESS quote available, MORE base to push through.
   // Both directions make the exit worse, which is the only direction a
@@ -203,6 +221,7 @@ export interface ReplayedCounterfactual {
  * whether the cheap bounded contract is conservative.
  */
 export function replayCounterfactual(p: {
+  /** The ABSOLUTE local pool state immediately after our entry. */
   readonly postEntryBaseReserve: bigint;
   readonly postEntryQuoteReserve: bigint;
   readonly events: readonly PoolEvent[];
@@ -305,8 +324,8 @@ export function insertCounterfactualMark(
     readonly offsetMs: number;
     readonly evidenceClass: EvidenceClass;
     readonly contractVersion: string;
-    readonly postEntryBaseReserve: bigint;
-    readonly postEntryQuoteReserve: bigint;
+    readonly entryBaseDeltaAtoms: bigint;
+    readonly entryQuoteDeltaLamports: bigint;
     readonly observedBaseReserve: bigint;
     readonly observedQuoteReserve: bigint;
     readonly adjustedBaseReserve: bigint;
@@ -336,7 +355,7 @@ export function insertCounterfactualMark(
       .prepare(
         `INSERT INTO counterfactual_marks
            (trajectory_id, offset_ms, evidence_class, contract_version,
-            post_entry_base_reserve, post_entry_quote_reserve,
+            entry_base_delta_atoms, entry_quote_delta_lamports,
             observed_base_reserve, observed_quote_reserve,
             adjusted_base_reserve, adjusted_quote_reserve,
             haircut_formula, haircut_bps, haircut_lamports, entry_impact_bps, impact_bound_bps,
@@ -348,8 +367,8 @@ export function insertCounterfactualMark(
         m.offsetMs,
         m.evidenceClass,
         m.contractVersion,
-        m.postEntryBaseReserve.toString(),
-        m.postEntryQuoteReserve.toString(),
+        m.entryBaseDeltaAtoms.toString(),
+        m.entryQuoteDeltaLamports.toString(),
         m.observedBaseReserve.toString(),
         m.observedQuoteReserve.toString(),
         m.adjustedBaseReserve.toString(),

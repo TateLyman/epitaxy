@@ -16,6 +16,16 @@ export interface OpenTrajectoryForMarking {
   readonly acquiredAtoms: bigint;
   readonly openedUtcMs: number;
   readonly entryCashOutLamports: bigint;
+  /**
+   * P8 — the counterfactual's inputs, null on any row opened before they were
+   * measured. Null is not zero: a zero displacement claims our entry moved the
+   * pool by nothing, and the mark pass must refuse rather than assert that.
+   */
+  readonly entryBaseDeltaAtoms: bigint | null;
+  readonly entryQuoteDeltaLamports: bigint | null;
+  readonly postEntryBaseReserve: bigint | null;
+  readonly postEntryQuoteReserve: bigint | null;
+  readonly entryImpactBps: number | null;
 }
 
 /** Trajectories still awaiting marks, oldest first so no path starves. */
@@ -43,7 +53,9 @@ export function openTrajectories(
                         AND c.evidence_context_id = ?)`;
   const rows = db
     .prepare(
-      `SELECT trajectory_id, mint, notional_lamports, opened_utc_ms, entry_policy_inputs
+      `SELECT trajectory_id, mint, notional_lamports, opened_utc_ms, entry_policy_inputs,
+              entry_base_delta_atoms, entry_quote_delta_lamports,
+              post_entry_base_reserve, post_entry_quote_reserve, entry_impact_bps
          FROM development_trajectories
         WHERE state = 'AWAITING_FILL_OBSERVATION'
         ${scope}
@@ -56,6 +68,11 @@ export function openTrajectories(
     notional_lamports: string;
     opened_utc_ms: number;
     entry_policy_inputs: string;
+    entry_base_delta_atoms: string | null;
+    entry_quote_delta_lamports: string | null;
+    post_entry_base_reserve: string | null;
+    post_entry_quote_reserve: string | null;
+    entry_impact_bps: number | null;
   }[];
 
   return rows.map((r) => {
@@ -72,8 +89,45 @@ export function openTrajectories(
       acquiredAtoms: acquired,
       openedUtcMs: r.opened_utc_ms,
       entryCashOutLamports: BigInt(r.notional_lamports),
+      entryBaseDeltaAtoms: r.entry_base_delta_atoms === null ? null : BigInt(r.entry_base_delta_atoms),
+      entryQuoteDeltaLamports:
+        r.entry_quote_delta_lamports === null ? null : BigInt(r.entry_quote_delta_lamports),
+      postEntryBaseReserve: r.post_entry_base_reserve === null ? null : BigInt(r.post_entry_base_reserve),
+      postEntryQuoteReserve: r.post_entry_quote_reserve === null ? null : BigInt(r.post_entry_quote_reserve),
+      entryImpactBps: r.entry_impact_bps,
     };
   });
+}
+
+/**
+ * P8 — the admissible counterfactual exit per horizon, best contract first.
+ *
+ * `RESERVE_DELTA_REPLAY_V1` is exact and wins wherever it exists;
+ * `BOUNDED_COUNTERFACTUAL_V1` is the routine contract. A refused row carries a
+ * null exit and is skipped here, so the horizon simply has no price — which is
+ * what a refusal means and is different from a price of zero.
+ */
+export function counterfactualExits(
+  db: Db,
+  trajectoryId: string,
+): Map<number, { lamports: bigint; evidenceClass: string }> {
+  const rows = db
+    .prepare(
+      `SELECT offset_ms, evidence_class, counterfactual_exit_lamports
+         FROM counterfactual_marks
+        WHERE trajectory_id = ? AND counterfactual_exit_lamports IS NOT NULL AND refusal IS NULL
+        ORDER BY CASE evidence_class WHEN 'RESERVE_DELTA_REPLAY_V1' THEN 0 ELSE 1 END`,
+    )
+    .all(trajectoryId) as { offset_ms: number; evidence_class: string; counterfactual_exit_lamports: string }[];
+  const out = new Map<number, { lamports: bigint; evidenceClass: string }>();
+  for (const r of rows) {
+    if (out.has(r.offset_ms)) continue;
+    out.set(r.offset_ms, {
+      lamports: BigInt(r.counterfactual_exit_lamports),
+      evidenceClass: r.evidence_class,
+    });
+  }
+  return out;
 }
 
 export function recordedOffsets(db: Db, trajectoryId: string): Set<number> {
@@ -145,8 +199,9 @@ export function insertMark(
       `INSERT INTO trajectory_marks
          (trajectory_id, offset_ms, observed_utc_ms, executable_lamports,
           exit_capacity_lamports, effective_quote_reserve, refusal, lateness_ms,
-          sla_status, due_utc_ms, sla_bound_ms)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          sla_status, due_utc_ms, sla_bound_ms,
+          observed_base_reserve, observed_quote_reserve)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
       trajectoryId,
@@ -160,6 +215,10 @@ export function insertMark(
       sla?.status ?? null,
       sla?.dueUtcMs ?? null,
       sla?.boundMs ?? null,
+      // P8 — the RAW reserves the counterfactual prices against, distinct from
+      // effective_quote_reserve, which carries the pool's virtual quote.
+      m.observedBaseReserve === null ? null : m.observedBaseReserve.toString(),
+      m.observedQuoteReserve === null ? null : m.observedQuoteReserve.toString(),
     );
   if (Number(r.changes) !== 1) {
     throw new Error(
@@ -189,7 +248,8 @@ export function marksFor(db: Db, trajectoryId: string): CollectedMark[] {
   const rows = db
     .prepare(
       `SELECT offset_ms, observed_utc_ms, executable_lamports, exit_capacity_lamports,
-              effective_quote_reserve, refusal
+              effective_quote_reserve, refusal, lateness_ms,
+              observed_base_reserve, observed_quote_reserve
          FROM trajectory_marks WHERE trajectory_id = ? ORDER BY offset_ms ASC`,
     )
     .all(trajectoryId) as {
@@ -200,6 +260,8 @@ export function marksFor(db: Db, trajectoryId: string): CollectedMark[] {
     effective_quote_reserve: string | null;
     refusal: string | null;
     lateness_ms: number | null;
+    observed_base_reserve: string | null;
+    observed_quote_reserve: string | null;
   }[];
   return rows.map((r) => ({
     atMs: r.observed_utc_ms,
@@ -207,6 +269,8 @@ export function marksFor(db: Db, trajectoryId: string): CollectedMark[] {
     executableLamports: r.executable_lamports === null ? null : BigInt(r.executable_lamports),
     exitCapacityLamports: r.exit_capacity_lamports === null ? null : BigInt(r.exit_capacity_lamports),
     effectiveQuoteReserveLamports: r.effective_quote_reserve === null ? null : BigInt(r.effective_quote_reserve),
+    observedBaseReserve: r.observed_base_reserve === null ? null : BigInt(r.observed_base_reserve),
+    observedQuoteReserve: r.observed_quote_reserve === null ? null : BigInt(r.observed_quote_reserve),
     refusal: r.refusal,
     latenessMs: r.lateness_ms ?? 0,
   }));

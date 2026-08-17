@@ -289,6 +289,31 @@ export interface OpenedTrajectory {
    */
   readonly impact: ReturnType<typeof boundEntryImpact>;
   /**
+   * P8 — THE COUNTERFACTUAL'S INPUTS, CARRIED OUT OF THE OPEN.
+   *
+   * `counterfactual_marks` has existed since migration 48 and nothing ever
+   * wrote a row, because these three numbers lived only inside this function.
+   * A later mainnet quote becomes a counterfactual exit exactly when our
+   * entry's displacement is carried onto it — and the displacement is
+   * observable here and nowhere else afterwards.
+   *
+   * The deltas are SIGNED as the pool saw them: a buy adds quote and removes
+   * base. The absolute post-entry reserves are kept too, because the exact
+   * reserve-delta replay starts from the local state rather than from a
+   * displacement.
+   */
+  readonly entryBaseDeltaAtoms: bigint;
+  readonly entryQuoteDeltaLamports: bigint;
+  readonly postEntryBaseReserve: bigint;
+  readonly postEntryQuoteReserve: bigint;
+  /**
+   * The entry's own impact, in bps — the impact itself, NOT the doubled
+   * haircut. `boundedCounterfactual` compares it against a frozen 10 bps cap
+   * and refuses above it, so passing the haircut here would refuse every
+   * trajectory at half the true bound.
+   */
+  readonly entryImpactBps: number;
+  /**
    * True when the entry had to open an account another trader's organic
    * transaction would have opened anyway — or one we could not classify.
    *
@@ -1720,6 +1745,16 @@ export async function openTrajectory(
       stratum: mechanicsStratum({ canonicalPool: true, cashbackCoin: p.isCashbackCoin }),
       notionalLamports: p.notionalLamports,
       acquiredAtoms: trip.acquiredAtoms,
+      // P8 — measured from the pool's own vault balances across the buy, not
+      // inferred from the quote. `quoteIn` is what the QUOTE VAULT gained, so
+      // fee flows that left the pool are already excluded from it.
+      entryBaseDeltaAtoms: -baseOut,
+      entryQuoteDeltaLamports: quoteIn,
+      postEntryBaseReserve: baseAfter ?? 0n,
+      postEntryQuoteReserve: quoteAfter ?? 0n,
+      entryImpactBps: Number.isFinite(impact.maxImpactRatio)
+        ? Math.ceil(impact.maxImpactRatio * 10_000)
+        : 10_000,
       /**
        * C-2 — identities that RESOLVE.
        *

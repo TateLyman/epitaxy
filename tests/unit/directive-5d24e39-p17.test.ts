@@ -895,6 +895,8 @@ describe('P17 18–21 — every ambiguity fails loudly', () => {
     executableLamports: price,
     exitCapacityLamports: price,
     effectiveQuoteReserveLamports: 100_000_000n,
+    observedBaseReserve: 1_000_000_000_000n,
+    observedQuoteReserve: 100_000_000n,
     refusal: null,
     latenessMs: 0,
   });
@@ -945,6 +947,7 @@ describe('P17 18–21 — every ambiguity fails loudly', () => {
         reason: 'horizon',
         exitMarkLamports: mark,
         grossDeltaLamports: mark - 20_000_000n,
+        evidenceClass: 'BOUNDED_COUNTERFACTUAL_V1',
       });
       insertPolicyOutcome(db, 't1', 20_000_000n, outcome(19_000_000n), NOW);
       expect(() => insertPolicyOutcome(db, 't1', 20_000_000n, outcome(1_000_000n), NOW)).toThrow(
@@ -1126,8 +1129,9 @@ describe('P17 26–29 — the mark clock and the counterfactual contract', () =>
       boundedCounterfactual({
         trajectoryId: 't',
         offsetMs: 900_000,
-        postEntryBaseReserve: 1_000n,
-        postEntryQuoteReserve: 20_000_000n,
+        // A buy REMOVES base and ADDS quote, so the signs are opposite.
+        entryBaseDeltaAtoms: -1_000n,
+        entryQuoteDeltaLamports: 20_000_000n,
         observedBaseReserve: 1_000_000n,
         observedQuoteReserve: 100_000_000_000n,
         tokensHeldAtoms: 1_000n,
@@ -1142,8 +1146,8 @@ describe('P17 26–29 — the mark clock and the counterfactual contract', () =>
     const c = boundedCounterfactual({
       trajectoryId: 't',
       offsetMs: 900_000,
-      postEntryBaseReserve: 1_000n,
-      postEntryQuoteReserve: 20_000_000n,
+      entryBaseDeltaAtoms: -1_000n,
+      entryQuoteDeltaLamports: 20_000_000n,
       observedBaseReserve: 1_000_000n,
       observedQuoteReserve: 100_000_000_000n,
       tokensHeldAtoms: 1_000n,

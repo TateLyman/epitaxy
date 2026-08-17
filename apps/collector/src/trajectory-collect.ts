@@ -27,6 +27,15 @@ import {
   classifyMark,
   discoveryAdmissible,
 } from '../../../packages/pipeline/src/mark-scheduler.js';
+import { measureEntityTier, type EntityTierReading } from '../../../packages/pipeline/src/entity-tier.js';
+import {
+  boundedCounterfactual,
+  insertCounterfactualMark,
+  CounterfactualRefused,
+  COUNTERFACTUAL_CONTRACT_VERSION,
+  HAIRCUT_FORMULA,
+} from '../../../packages/pipeline/src/counterfactual.js';
+import { SMALL_IMPACT_BOUND } from '../../../packages/domain/src/trajectory-evidence.js';
 import { createHash } from 'node:crypto';
 import {
   decideEntry,
@@ -68,6 +77,7 @@ import {
   insertPolicyOutcome,
   closeTrajectory,
   markAndOutcomeCounts,
+  counterfactualExits,
 } from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
 import { allocate, EXPLORATION_FRACTION } from '../../../packages/strategy/src/exploration.js';
@@ -513,6 +523,42 @@ async function candidateFacts(
     // `admitCandidate` refuses on null.
   }
 
+  /**
+   * WALKED ONLY WHERE IT COULD MATTER.
+   *
+   * The walk is ~40 RPC calls per mint and the depth gate refuses most
+   * candidates before any of it would be read. Running it on a pool where a
+   * 0.02 SOL entry is 170% of the reserve spends the budget to inform a
+   * decision that is already made — and skipping it there cannot weaken the
+   * gate, because a refusal on depth stands whatever the clustering says.
+   *
+   * An unreadable depth is NOT a skip. Depth null already refuses, and adding
+   * the entity read there would spend the budget on the same refusal.
+   */
+  const entryFraction =
+    effectiveQuote === null || effectiveQuote <= 0n
+      ? null
+      : Number(NOTIONAL_LAMPORTS) / Number(effectiveQuote);
+  const depthCouldAdmit = entryFraction !== null && entryFraction <= SMALL_IMPACT_BOUND;
+  const entity: EntityTierReading = depthCouldAdmit
+    ? await measureEntityTier(rpc as never, { mint, poolBaseVault })
+    : {
+        histories: [],
+        clusteredShare: 0,
+        addressShare: 0,
+        entityCount: 0,
+        addressCount: 0,
+        trustworthy: false,
+        notes: [],
+        refusal:
+          entryFraction === null
+            ? 'the pool depth could not be read, so the candidate is refused before the entity tier could inform anything'
+            : `the entry is ${(entryFraction * 100).toFixed(1)}% of the pool, already over the depth bound`,
+      };
+  if (entity.refusal === null) {
+    count('solana_rpc', 'entityTierWalk');
+  }
+
   const fee = decoded?.transferFeeConfig ?? null;
   return collectCandidateRiskFacts({
     mint,
@@ -530,16 +576,25 @@ async function candidateFacts(
     isCashbackCoin: cashback,
     accumulatorWsolAta: accumulator,
     /**
-     * The strong tier is NOT walked here.
+     * O-2 — THE STRONG TIER, WALKED.
      *
-     * An empty history list is HISTORY_INCOMPLETE — never a measured zero
-     * clustering, which is what it used to report. Paginating every top
-     * holder's full signature history to justify "initial funder" is a
-     * Helius-tier operation this system does not have, and the oldest item in a
-     * capped newest page is not the first transaction.
+     * This passed `[]` and `0` with a comment saying paginating every top
+     * holder's history was "a Helius-tier operation this system does not have".
+     * The endpoint changed; the comment did not. `measureEntityTier` pages
+     * `getSignaturesForAddress` backwards until a short page PROVES the
+     * earliest was reached, and reports each holder's completeness honestly, so
+     * `entityAdjustedConcentration` still refuses on any incomplete walk rather
+     * than reporting a lower bound as a fact.
+     *
+     * Measured on three live mints: one reported a 74.9% entity share against a
+     * 64.3% address share — 19 addresses resolving to 16 entities, one funder
+     * behind four of them. That gap is the entire reason the tier exists, and
+     * before this it was structurally unreachable from a trajectory decision.
+     *
+     * `entity.refusal` is a refusal, never a share of zero.
      */
-    holderHistories: [],
-    clusteredShare: 0,
+    holderHistories: entity.histories,
+    clusteredShare: entity.clusteredShare,
     rawTopHolderShare: raw.share,
     holdersExamined: raw.examined,
     canonicalPool: canonical,
@@ -1241,6 +1296,14 @@ async function runCycle(
           maxAttainableGrade: 'SIMULATED_EXECUTION',
           refusals: t.incompleteness,
           openedUtcMs: t.openedUtcMs,
+          // P8 — the local post-entry state and the entry's own impact, which
+          // is what turns a later mainnet quote into a counterfactual exit
+          // rather than a quote against a pool that never held our position.
+          postEntryBaseReserve: t.postEntryBaseReserve,
+          postEntryQuoteReserve: t.postEntryQuoteReserve,
+          entryBaseDeltaAtoms: t.entryBaseDeltaAtoms,
+          entryQuoteDeltaLamports: t.entryQuoteDeltaLamports,
+          entryImpactBps: t.entryImpactBps,
         });
 
         db.prepare(
@@ -1817,6 +1880,74 @@ async function runMarkPass(
             `${Math.round(sla.latenessMs / 1000)}s (SLA ${Math.round(args.markSlaMs / 1000)}s)`,
         );
       }
+      /**
+       * P8 — THE COUNTERFACTUAL CONTRACT, AT THE MARK.
+       *
+       * The audit's M-2: 545 policy outcomes rested on later mainnet quotes
+       * against a pool that never contained our entry, and the haircut columns
+       * on those rows came from the ENTRY impact bound rather than from any
+       * contract over the exit.
+       *
+       * A row is written for every priced mark — including a REFUSAL row when
+       * the entry moved the pool past the frozen 10 bps bound. Recording the
+       * refusal is the point: a mark with no counterfactual row and a mark
+       * whose counterfactual was refused are different facts, and only the
+       * second one is countable.
+       */
+      if (
+        m.observedBaseReserve !== null &&
+        m.observedQuoteReserve !== null &&
+        t.entryBaseDeltaAtoms !== null &&
+        t.entryQuoteDeltaLamports !== null &&
+        t.entryImpactBps !== null
+      ) {
+        const cfInput = {
+          trajectoryId: t.trajectoryId,
+          offsetMs,
+          entryBaseDeltaAtoms: t.entryBaseDeltaAtoms,
+          entryQuoteDeltaLamports: t.entryQuoteDeltaLamports,
+          observedBaseReserve: m.observedBaseReserve,
+          observedQuoteReserve: m.observedQuoteReserve,
+          tokensHeldAtoms: t.acquiredAtoms,
+          entryImpactBps: t.entryImpactBps,
+          nowMs: m.atMs,
+        };
+        try {
+          const cf = boundedCounterfactual(cfInput);
+          insertCounterfactualMark(db, {
+            ...cfInput,
+            evidenceClass: cf.evidenceClass,
+            contractVersion: cf.contractVersion,
+            adjustedBaseReserve: cf.adjustedBaseReserve,
+            adjustedQuoteReserve: cf.adjustedQuoteReserve,
+            haircutFormula: cf.haircutFormula,
+            haircutBps: cf.haircutBps,
+            haircutLamports: cf.haircutLamports,
+            counterfactualExitLamports: cf.counterfactualExitLamports,
+            evidenceGrade: cf.evidenceGrade,
+            refusal: null,
+          });
+        } catch (e) {
+          if (!(e instanceof CounterfactualRefused)) throw e;
+          const refused: CounterfactualRefused = e;
+          insertCounterfactualMark(db, {
+            ...cfInput,
+            evidenceClass: 'BOUNDED_COUNTERFACTUAL_V1',
+            contractVersion: COUNTERFACTUAL_CONTRACT_VERSION,
+            adjustedBaseReserve: 0n,
+            adjustedQuoteReserve: 0n,
+            haircutFormula: HAIRCUT_FORMULA,
+            haircutBps: 0,
+            haircutLamports: 0n,
+            // Null, never zero. A zero counterfactual exit is a claim that the
+            // position was worth nothing; absent is what a refusal means.
+            counterfactualExitLamports: null,
+            evidenceGrade: 'DEVELOPMENT',
+            refusal: `${refused.code}: ${refused.message}`,
+          });
+        }
+      }
+
       marksTaken++;
       count('mark_jobs');
       count('solana_rpc', 'getAccountInfo');
@@ -1841,12 +1972,27 @@ async function runMarkPass(
     const complete = pathIsComplete(path);
     if (!complete.complete) continue;
 
+    /**
+     * P8/M-2 — the exit is priced from the COUNTERFACTUAL, not from the quote.
+     *
+     * `evaluateExitPolicies` decides WHEN each policy exits from the shared
+     * mark path — that is a decision about observable liquidity and is right to
+     * make on the marks. What it may not do is book the exit at the mark's own
+     * executable price, because that price is a quote against a pool our
+     * position was never in.
+     */
+    const cfByOffset = counterfactualExits(db, t.trajectoryId);
     const outcomes = evaluateExitPolicies(path, {
       openedAtMs: t.openedUtcMs,
       policies: ['FIXED_15M_CONTROL', 'FLOW_LIQUIDITY_DETERIORATION_V1'],
       entryCashOutLamports: t.entryCashOutLamports,
+      counterfactualExits: cfByOffset,
     });
-    for (const o of outcomes) insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs);
+    for (const o of outcomes) {
+      insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs, {
+        evidenceClass: o.evidenceClass,
+      });
+    }
     closeTrajectory(db, t.trajectoryId, nowMs);
     settled++;
     // P11 — release the subscription, by the addresses that were STORED.

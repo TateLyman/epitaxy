@@ -121,7 +121,8 @@
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
-    "wss:status": "tsx scripts/wss-status.ts"
+    "wss:status": "tsx scripts/wss-status.ts",
+    "counterfactual:replay": "tsx scripts/counterfactual-replay.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

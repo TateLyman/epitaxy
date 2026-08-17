@@ -73,6 +73,8 @@ function mark(offsetMs: number, price: bigint) {
     executableLamports: price,
     exitCapacityLamports: price,
     effectiveQuoteReserveLamports: 100_000_000n,
+    observedBaseReserve: 1_000_000_000_000n,
+    observedQuoteReserve: 100_000_000n,
     refusal: null,
     latenessMs: 0,
   };
@@ -161,6 +163,7 @@ function main(): void {
       reason: 'the frozen 15 minute horizon',
       exitMarkLamports: exitMark,
       grossDeltaLamports: exitMark - 20_000_000n,
+      evidenceClass: 'BOUNDED_COUNTERFACTUAL_V1',
     });
     insertPolicyOutcome(db, 'conflict-1', 20_000_000n, outcome(19_000_000n), NOW);
     run(cases[5]!, () => insertPolicyOutcome(db, 'conflict-1', 20_000_000n, outcome(1_000_000n), NOW));
