@@ -33,10 +33,37 @@ import {
 import { AMM_PROGRAM_ID } from '../../solana/src/pumpswap-offline.js';
 import { boundEntryImpact, attributeSoleVenue } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
-import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
+import {
+  freezeAccountPlan,
+  planAccountsNotCaptured,
+  planFromEncodedTransaction,
+  assertPlanMatchesBytes,
+  assertPlanUnchanged,
+  AccountPlanIncomplete,
+  type AccountPlan,
+} from '../../solana/src/account-plan.js';
+import {
+  observationId,
+  workerJobId,
+  settlementIdFor,
+  capabilityFingerprintOf,
+  assertIsHash,
+} from '../../domain/src/evidence-identity.js';
 import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
+import { feeTiersOf, tierForPool, type FeeTier } from '../../solana/src/fee-tiers.js';
+import { SIMULATION_PROTOCOL_VERSION } from '../../simulator/src/protocol.js';
+import {
+  version as PUMP_SDK_VERSION,
+  swapVersion as PUMP_SWAP_SDK_VERSION,
+} from '../../domain/src/sdk-versions.js';
 import { legSettlementFromRuntime, coverageGap, type ObservedAccount } from './leg-settlement.js';
-import { buildTrajectorySettlement, checkIdentities, type TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
+import {
+  buildTrajectorySettlement,
+  checkIdentities,
+  type TrajectorySettlement,
+  type CashbackFacts,
+} from '../../domain/src/trajectory-settlement.js';
+import type { MeasuredLegSettlement } from '../../domain/src/settlement.js';
 import {
   classifyCreatedAccount,
   summariseSetup,
@@ -105,9 +132,53 @@ export interface OpenedTrajectory {
   readonly stratum: string;
   readonly notionalLamports: bigint;
   readonly acquiredAtoms: bigint;
+  /**
+   * P2.2 — deterministic, content-bound and RESOLVABLE.
+   *
+   * These were three independent `randomUUID()` values in namespaces disjoint
+   * from `execution_observations` and `simulation_jobs`. 0 of 292 resolved and
+   * none could. Each is now derived from content the reader also holds.
+   */
   readonly entryObservationId: string;
   readonly entrySimulationJobId: string;
+  readonly entryStepIndex: number;
   readonly entrySettlementId: string;
+  /** Null while the trajectory is open. The exit half had no column at all. */
+  readonly exitObservationId: string | null;
+  readonly exitSimulationJobId: string | null;
+  readonly exitStepIndex: number | null;
+  readonly exitSettlementId: string | null;
+  /**
+   * P3.3 — a sha256 over named capability fields, NEVER the slot number and
+   * never equal to `snapshotHash`.
+   */
+  readonly capabilityFingerprint: string;
+  /** P6.4 — the fee table this trajectory was priced against. */
+  readonly feeConfigHash: string | null;
+  readonly selectedTier: string | null;
+  readonly selectedTierRefusal: string | null;
+  readonly marketCapLamports: bigint | null;
+  readonly creatorFeeBps: number | null;
+  readonly protocolFeeBps: number | null;
+  readonly lpFeeBps: number | null;
+  /**
+   * P3.1/P3.2 — the raw pre/post state, carried out so it can be persisted.
+   *
+   * C-4: this lived only inside the worker process and was reduced to aggregate
+   * columns before anything was written, so every economic amount was recorded
+   * exactly once and was unfalsifiable from the database.
+   */
+  readonly rawEvidence: {
+    readonly buyPre: readonly ObservedAccount[];
+    readonly buyPost: readonly ObservedAccount[];
+    readonly buyUnobserved: readonly string[];
+    readonly sellPre: readonly ObservedAccount[] | null;
+    readonly sellPost: readonly ObservedAccount[] | null;
+    readonly sellUnobserved: readonly string[] | null;
+    readonly buyTransactionBase64: string;
+    readonly snapshotManifest: readonly unknown[];
+    readonly workerIdentity: unknown;
+  };
   readonly selfImpactLamports: bigint | null;
   readonly quoteStateSurvived: boolean;
   /**
@@ -188,6 +259,17 @@ export interface OpenedTrajectory {
    * BY CONSTRUCTION rather than for want of a sample.
    */
   readonly settlement: TrajectorySettlement;
+  /**
+   * P2.5 — everything `buildTrajectorySettlement` needs, so the collector can
+   * re-derive after the raw evidence is durable. `settlement` above is built
+   * before anything is written and is therefore provisional.
+   */
+  readonly settlementInputs: {
+    readonly entry: MeasuredLegSettlement;
+    readonly exit: MeasuredLegSettlement | null;
+    readonly cashback: CashbackFacts;
+    readonly rentStillLockedLamports: bigint;
+  };
   /** Empty when the settlement's own identities hold. Never silently dropped. */
   readonly identityViolations: readonly string[];
   /**
@@ -249,6 +331,57 @@ const encode = (ixs: unknown[], taker: string, bh: string): string =>
   ).toString('base64');
 
 const tokenAmountAt = observedTokenAtoms;
+
+/**
+ * The settlement algebra's version, part of every settlement id.
+ *
+ * A change to how a settlement is derived produces a DIFFERENT settlement for
+ * the same observation and job, and it must not silently replace the old one.
+ * Putting the version inside the id makes that a new row rather than an
+ * overwrite, which is what "append-only" has to mean for a derived quantity.
+ */
+export const SETTLEMENT_VERSION = 'trajectory-settlement-v1';
+
+/**
+ * The SDK versions the capability fingerprint commits to.
+ *
+ * P6.3 pins these. Read from the manifest rather than hardcoded twice: a
+ * fingerprint that claims a version the process is not running is worse than no
+ * fingerprint, because it makes two different builds look identical.
+ */
+export const SDK_VERSIONS: Readonly<Record<string, string>> = {
+  '@pump-fun/pump-sdk': PUMP_SDK_VERSION,
+  '@pump-fun/pump-swap-sdk': PUMP_SWAP_SDK_VERSION,
+};
+
+/**
+ * The fee tier table, decoded from the CAPTURED fee config account.
+ *
+ * Returns null when the account is absent or does not decode — never an empty
+ * table, because an empty table is indistinguishable from "this venue charges
+ * nothing" and `tierForPool` would refuse it with a different reason.
+ */
+async function decodeFeeTiers(src: AccountBytesSource, feeConfigAddr: string): Promise<FeeTier[] | null> {
+  const row = src.get(feeConfigAddr);
+  if (row === null || row.dataBase64.length === 0) return null;
+  try {
+    const [{ PumpAmmSdk }, { PublicKey }] = await Promise.all([
+      import('@pump-fun/pump-swap-sdk'),
+      import('@solana/web3.js'),
+    ]);
+    const decoded = new PumpAmmSdk().decodeFeeConfig({
+      owner: new PublicKey(row.owner),
+      data: Buffer.from(row.dataBase64, 'base64'),
+      lamports: 1,
+      executable: false,
+      rentEpoch: 0,
+    });
+    const tiers = feeTiersOf(decoded);
+    return tiers.length === 0 ? null : tiers;
+  } catch {
+    return null;
+  }
+}
 
 export interface OpenReader {
   getAccountRaw(pubkey: string): Promise<{ owner: string; dataBase64: string; lamports: bigint }>;
@@ -411,6 +544,8 @@ export async function openTrajectory(
    */
   let buyBytes: string;
   let buyPlan: AccountPlan;
+  /** Frozen inside `verify`, checked against the executed sell at the bottom. */
+  let verifiedSellPlan: AccountPlan | null = null;
   try {
     const built = await buildBuyFrom(preSrc, {
       poolKey: pool,
@@ -423,7 +558,24 @@ export async function openTrajectory(
     // rebuild, not a re-derivation: the plan describes these bytes.
     buyPlan = freezeAccountPlan('buy', raw);
     buyBytes = encode(built.instructions as unknown[], p.taker, blockhash);
+
+    /**
+     * E-3 — BUILD-ONCE GETS A PRODUCTION ASSERTION.
+     *
+     * The 8f73cef audit found `assertPlanUnchanged` had zero production
+     * callers, so build-once rested entirely on the freeze and the encode being
+     * adjacent expressions. Nothing would fail if an edit inserted a rebuild
+     * between them.
+     *
+     * Re-freezing `raw` would be a tautology. Decoding `buyBytes` is not: it
+     * reads the transaction the way the runtime will, so a second build between
+     * these two lines produces different bytes and this throws.
+     */
+    assertPlanMatchesBytes(buyPlan, planFromEncodedTransaction('buy', buyBytes));
   } catch (e) {
+    if (e instanceof AccountPlanIncomplete) {
+      return { ok: false, refusal: 'BUY_BUILD_FAILED', detail: `build-once violated: ${e.message}`.slice(0, 200) };
+    }
     return { ok: false, refusal: 'BUY_BUILD_FAILED', detail: (e as Error).message.slice(0, 160) };
   }
 
@@ -580,6 +732,43 @@ export async function openTrajectory(
     ]),
   ];
 
+  /**
+   * P2.2 / P2.4 — THE IDENTITIES, DERIVED BEFORE THE WORKER IS INVOKED.
+   *
+   * The directive requires the exact ids passed to the worker to be the ids
+   * inserted, and requires them persisted BEFORE execution. Both are only
+   * possible if they are functions of content that already exists here: the
+   * trajectory id, the snapshot the state was captured at, and the exact bytes
+   * that will run.
+   *
+   * `snapshotHash` is `coherent.snapshotHash` — a sha256 over the ordered
+   * account manifest and the decoded sysvars — NOT `snapshot.slot`. The audit
+   * found the slot number stored on 292 of 292 rows, with the capability
+   * fingerprint equal to it, and only 290 distinct values across 292 rows.
+   */
+  const snapshotHashValue = assertIsHash('snapshot_hash', coherent.snapshotHash);
+  const trajectoryIdValue = randomUUID();
+  const entryJobId = workerJobId({
+    trajectoryId: trajectoryIdValue,
+    leg: 'buy',
+    pool,
+    taker: p.taker,
+    mint: p.mint,
+    notionalLamports: p.notionalLamports.toString(),
+    slippagePct: p.slippagePct,
+    snapshotHash: snapshotHashValue,
+    accountPlanHash: buyPlan.fingerprint,
+    transactionBase64: buyBytes,
+    blockhash,
+  });
+  const entryObservationId = observationId({
+    trajectoryId: trajectoryIdValue,
+    leg: 'buy',
+    purpose: 'DIRECT_VENUE_ENTRY',
+    transactionHash: buyPlan.fingerprint,
+    snapshotHash: snapshotHashValue,
+  });
+
   const trip = await sequentialRoundTrip(
     {
       snapshot: {
@@ -687,6 +876,19 @@ export async function openTrajectory(
             .flatMap((i) => (i.accounts ?? []).map((a) => a.pubkey)),
         verify: (ixs) => {
           const raw = (ixs as (TransactionInstruction | RawInstruction)[]).map(toRaw);
+          /**
+           * E-3, the exit half. The plan is frozen HERE, at the instant the
+           * cashback tail is verified, and compared at the bottom of this
+           * function against the plan frozen from `trip.sellInstructions`.
+           *
+           * That is a real gap: the instructions travel out of this callback,
+           * through the round-trip module, into the runtime and back. If what
+           * came back is not what was verified, the cashback check was
+           * performed on a different transaction than the one that ran — which
+           * fails SILENTLY, because a sell with the tail missing lands and
+           * trades normally.
+           */
+          verifiedSellPlan = freezeAccountPlan('sell', raw);
           const swap = raw.find((i) => i.programId === AMM_PROGRAM_ID);
           if (swap === undefined) {
             return 'the built sell contains no PumpSwap AMM instruction, so its remaining accounts cannot be located';
@@ -708,7 +910,21 @@ export async function openTrajectory(
       // Checked against the sell's own post-state, so "appended a close" is
       // never mistaken for "the account is gone".
       takerBaseAtaToClose: takerAta,
-      jobId: `collect-${p.mint.slice(0, 8)}`,
+      /**
+       * P2.2 — the job id IS the hash of the canonical request.
+       *
+       * It used to be `collect-<first 8 chars of the mint>`, which is not
+       * unique across cycles and is not derivable by a reader. Separately,
+       * the TRAJECTORY row was written with `job-${randomUUID()}`, in a
+       * namespace disjoint from `simulation_jobs.job_id`, so 0 of 292
+       * trajectories could ever join to the worker job that produced them
+       * (audit C-2).
+       *
+       * One value now, derived from the request itself. The id passed to the
+       * worker is the id inserted, and a reader holding the request can
+       * recompute it rather than trusting the link.
+       */
+      jobId: entryJobId,
     },
     worker,
   );
@@ -742,10 +958,56 @@ export async function openTrajectory(
   const baseOut = baseBefore > baseAfter ? baseBefore - baseAfter : 0n;
   const quoteIn = quoteAfter > quoteBefore ? quoteAfter - quoteBefore : 0n;
   const takerCredit = takerAfter > takerBefore ? takerAfter - takerBefore : 0n;
+
+  /**
+   * D-2 — THE QUOTE SIDE MUST CONSERVE, NOT MERELY BE POSITIVE.
+   *
+   * The audit constructed this exactly:
+   *
+   *     quote in -> 0            attributed = false   correct
+   *     quote in -> 1 lamport    attributed = TRUE    against a 20,000,000 entry
+   *
+   * "The canonical pool accounts for all named deltas" was true of the base
+   * vault and false of the quote vault, because the notional was never compared
+   * to what the pool actually received. A one-lamport credit is not a rounding
+   * artefact; it is a different trade.
+   *
+   * The named destinations of the entry's quote are the pool's quote vault plus
+   * the fee accounts the FROZEN PLAN names — protocol, creator vault, buyback
+   * and the cashback accumulator. Each delta is MEASURED from this leg's own
+   * pre/post state; an account the plan does not name contributes nothing and
+   * therefore shows up as residue, which is the intended behaviour.
+   */
+  const buyStep = trip.buy;
+  const wsolDelta = (pubkey: string): bigint => {
+    const before = tokenAmountAt(buyStep.preAccounts.find((a) => a.pubkey === pubkey)) ?? 0n;
+    const after = tokenAmountAt(buyStep.postAccounts.find((a) => a.pubkey === pubkey)) ?? 0n;
+    return after > before ? after - before : 0n;
+  };
+  const feeDestinations = [
+    ...new Set([
+      roles.coinCreatorVaultAta,
+      roles.accumulatorWsolAta,
+      ...selectedTail,
+    ]),
+  ].filter((a) => a !== null && a !== undefined && a !== addrs.poolQuoteTokenAccount) as string[];
+  const feeFlows = feeDestinations.reduce((n, a) => n + wsolDelta(a), 0n);
+
   const attribution = attributeSoleVenue({
     baseOutAtoms: baseOut,
     quoteInLamports: quoteIn,
     takerCreditAtoms: takerCredit,
+    entryQuoteOutLamports: p.notionalLamports,
+    feeFlowsLamports: feeFlows,
+    /**
+     * The venue model's documented rounding.
+     *
+     * PumpSwap computes each fee component with integer division, so a
+     * component can round down by at most one lamport. Four components gives a
+     * four-lamport bound. It is NOT a slack parameter: at 20,000,000 lamports
+     * it is 0.00002%, and the case it has to refuse is off by 19,999,999.
+     */
+    toleranceLamports: 4n,
   });
   const soleVenue = attribution.attributed;
 
@@ -761,7 +1023,9 @@ export async function openTrajectory(
    * have done. `dataLen` is reported even for accounts whose bytes were
    * withheld, which is why scoping the worker output did not cost this.
    */
-  const trajectoryIdValue = randomUUID();
+  // `trajectoryIdValue` is minted BEFORE the round trip now, because the
+  // deterministic observation and job ids are derived from it and must be the
+  // values handed to the worker (P2.2/P2.4).
   const preByKey = new Map(trip.buy.preAccounts.map((a) => [a.pubkey, a]));
   const createdAccounts: CreatedAccount[] = [];
   for (const post of trip.buy.postAccounts) {
@@ -940,11 +1204,124 @@ export async function openTrajectory(
    * actually unmeasured. An account that did not exist cannot be observed, and
    * calling that missing coverage confuses an impossibility with an omission.
    */
+  /**
+   * E-3 — the sell that RAN is the sell that was VERIFIED.
+   *
+   * `assertPlanUnchanged` gets its production caller here, over a real gap:
+   * `verifiedSellPlan` was frozen inside the cashback verification callback,
+   * and this one is frozen from the instructions the round trip reports having
+   * executed. A divergence means the tail was checked on a different
+   * transaction than the one the runtime ran, and that failure is silent —
+   * the sell lands, trades normally, and the creator fee simply goes to the
+   * creator.
+   */
+  const exitPlanFrozen =
+    trip.sellInstructions === null
+      ? null
+      : freezeAccountPlan('sell', (trip.sellInstructions as (TransactionInstruction | RawInstruction)[]).map(toRaw));
+  if (exitPlanFrozen !== null && verifiedSellPlan !== null) {
+    assertPlanUnchanged(verifiedSellPlan, exitPlanFrozen);
+  }
+
+  const facts = poolFactsFrom(preSrc, pool);
+
+  /**
+   * J-3 — THE FEE TABLE THIS TRAJECTORY WAS PRICED AGAINST.
+   *
+   * `tierForPool` was called only in `direct-mark.ts` and its result was
+   * DISCARDED before the mark was stored; no `fee_config_hash` and no
+   * `selected_tier` column existed on either table. Pump has already changed
+   * fee behaviour once, and a row that does not record the table it was priced
+   * against cannot distinguish "the tier changed" from "Pump republished the
+   * table". The tier step this repository itself measured is worth up to 200
+   * bps of round trip.
+   *
+   * Refuses by name rather than defaulting to the bottom tier. A tier nobody
+   * could select is an unknown.
+   */
+  const feeTiers = await decodeFeeTiers(preSrc, FEE_CONFIG_ADDR);
+  const selectedTier =
+    feeTiers === null
+      ? {
+          tier: null,
+          marketCapLamports: null,
+          /**
+           * P6.4 — FAIL CLOSED when the fee config is present but undecodable.
+           *
+           * Not "the bottom tier". A tier nobody could select is an unknown,
+           * and the difference between the bottom tier and the one the program
+           * actually charges is up to 200 bps of round trip.
+           */
+          refusal: 'the fee config is present but did not decode, so no tier can be selected',
+        }
+      : tierForPool(feeTiers, {
+          quoteReserveLamports: facts.quoteReserveRaw + facts.virtualQuoteReserves,
+          baseReserveAtoms: facts.baseReserve,
+          baseMintSupplyAtoms: facts.baseMintSupplyAtoms,
+        });
+
+  /**
+   * C-3 — the capability fingerprint over NAMED CAPABILITY FIELDS.
+   *
+   * Distinct from the snapshot hash by construction: this one does not move
+   * when the pool trades, and it does move when the venue's rules or the tools
+   * measuring them change.
+   */
+  const capabilityFingerprintValue = capabilityFingerprintOf({
+    venue: 'PUMPSWAP_DIRECT',
+    programId: AMM_PROGRAM_ID,
+    programDataHash: coherent.programDataHashes[AMM_PROGRAM_ID] ?? null,
+    tokenProgram: mintOwner,
+    feeConfigHash: coherent.feeConfigHash,
+    selectedTier: selectedTier.tier === null ? null : `${selectedTier.tier.marketCapLamportsThreshold}`,
+    cashbackEnabled: isCashback,
+    workerBinaryHash:
+      typeof (trip.runtimeIdentity as { binarySha256?: unknown } | null)?.binarySha256 === 'string'
+        ? ((trip.runtimeIdentity as { binarySha256: string }).binarySha256)
+        : null,
+    sdkVersions: SDK_VERSIONS,
+    protocolVersion: SIMULATION_PROTOCOL_VERSION,
+  });
+
+  /**
+   * C-2, the exit half — which had NO COLUMN AT ALL.
+   *
+   * The audit's trace table records `exit worker job/step: no column exists`.
+   * The sell executes as step 1 of the same worker job as the buy, so its
+   * identifiers are derivable from the same content.
+   */
+  const exitIds =
+    trip.sell === null || exitPlanFrozen === null
+      ? null
+      : (() => {
+          const obs = observationId({
+            trajectoryId: trajectoryIdValue,
+            leg: 'sell',
+            purpose: 'DIRECT_VENUE_EXIT',
+            transactionHash: exitPlanFrozen.fingerprint,
+            snapshotHash: snapshotHashValue,
+          });
+          return {
+            observationId: obs,
+            jobId: entryJobId,
+            settlementId: settlementIdFor({
+              observationId: obs,
+              jobId: entryJobId,
+              stepIndex: 1,
+              settlementVersion: SETTLEMENT_VERSION,
+            }),
+          };
+        })();
+
   const buyGap = coverageGap(trip.buy.unobserved, trip.buy.preAccounts);
   const sellGap = trip.sell === null ? [] : coverageGap(trip.sell.unobserved, trip.sell.preAccounts);
   const entryLeg = legSettlementFromRuntime({
-    observationId: `obs-buy-${p.mint.slice(0, 8)}`,
-    simulationJobId: `job-buy-${p.mint.slice(0, 8)}`,
+    // The SAME ids the trajectory row carries and the collector inserts. These
+    // were `obs-buy-<8 chars of the mint>` and `job-buy-<8 chars>` — a third
+    // namespace, distinct from both the trajectory's random UUIDs and the
+    // worker's request hash, so a settlement could not be joined to either.
+    observationId: entryObservationId,
+    simulationJobId: entryJobId,
     side: 'buy',
     capabilityFingerprint: buyPlan.fingerprint,
     taker: p.taker,
@@ -969,8 +1346,16 @@ export async function openTrajectory(
     trip.sell === null
       ? null
       : legSettlementFromRuntime({
-          observationId: `obs-sell-${p.mint.slice(0, 8)}`,
-          simulationJobId: `job-sell-${p.mint.slice(0, 8)}`,
+          observationId:
+            exitIds?.observationId ??
+            observationId({
+              trajectoryId: trajectoryIdValue,
+              leg: 'sell',
+              purpose: 'DIRECT_VENUE_EXIT',
+              transactionHash: buyPlan.fingerprint,
+              snapshotHash: snapshotHashValue,
+            }),
+          simulationJobId: entryJobId,
           side: 'sell',
           capabilityFingerprint: buyPlan.fingerprint,
           taker: p.taker,
@@ -998,6 +1383,37 @@ export async function openTrajectory(
   // as recovered is how an earlier version flattered every sell.
   const stillLocked = setup.totalRentLamports - (trip.baseAtaClosedInSell === true ? setup.recoverableLamports : 0n);
 
+  /**
+   * I-3 — the standing cashback receivable, READ FROM THE ACCUMULATOR ATA.
+   *
+   * `claimable` was the literal `0n`. It is the balance the accumulator WSOL
+   * account holds after the round trip — what `claim_cashback` would release if
+   * it were called now. Null-safe rather than zero-defaulted: an accumulator
+   * whose bytes were not observed is UNKNOWN, and reporting unknown as zero is
+   * the same defect one layer down.
+   */
+  const accumulatorAta = roles.accumulatorWsolAta;
+  const accumulatorAfter =
+    accumulatorAta === null || accumulatorAta === undefined
+      ? null
+      : (tokenAmountAt((trip.sell?.postAccounts ?? trip.buy.postAccounts).find((a) => a.pubkey === accumulatorAta)) ??
+        tokenAmountAt(trip.buy.postAccounts.find((a) => a.pubkey === accumulatorAta)));
+  const claimableFromAccumulator = accumulatorAfter ?? 0n;
+
+  /**
+   * P4.1 — is the raw pre/post state COMPLETE enough to be persisted?
+   *
+   * A property of what the worker returned, checked rather than assumed: every
+   * leg that ran must have reported both sides. The collector re-derives this
+   * settlement after the blobs have actually been written and read back, and
+   * THAT value is the one the stored row carries. This one governs the
+   * in-memory settlement only.
+   */
+  const rawEvidenceDurable =
+    trip.buy.preAccounts.length > 0 &&
+    trip.buy.postAccounts.length > 0 &&
+    (trip.sell === null || (trip.sell.preAccounts.length > 0 && trip.sell.postAccounts.length > 0));
+
   const settlement = buildTrajectorySettlement({
     trajectoryId: trajectoryIdValue,
     entry: entryLeg,
@@ -1009,16 +1425,59 @@ export async function openTrajectory(
         (n, l) => n + (l.accumulatorWsolDeltaLamports !== null && l.accumulatorWsolDeltaLamports > 0n ? l.accumulatorWsolDeltaLamports : 0n),
         0n,
       ),
-      claimableLamports: 0n,
+      /**
+       * I-3 — MEASURED FROM THE ACCUMULATOR, not hardcoded `0n`.
+       *
+       * The audit: "`claimable` is hardcoded `0n` at `open-trajectory.ts:1012`
+       * rather than read from the accumulator account state, so the receivable
+       * this system has built up is invisible to every surface." The corpus
+       * carried 28 settlements with a non-zero accrual and the accumulator had
+       * gained 10,489,020 lamports — none of which any surface could see.
+       *
+       * This is the accumulator ATA's balance AFTER the round trip: the total
+       * standing receivable, not this trajectory's contribution to it. That is
+       * the correct quantity for `claimable` — what the account would release
+       * if `claim_cashback` were called now.
+       *
+       * `claimable` is still NOT cash and still does not enter PnL. Measuring
+       * a receivable and booking it as revenue are different mistakes, and this
+       * fixes only the first.
+       */
+      claimableLamports: claimableFromAccumulator,
       claimedLamports: 0n,
       claimCostLamports: 0n,
     },
     rentStillLockedLamports: stillLocked < 0n ? 0n : stillLocked,
     venueFeeDecompositionKnown: false,
+    /**
+     * P4.1 — the durability half of PnL eligibility.
+     *
+     * Stated rather than defaulted. The collector persists the raw pre/post
+     * manifests and the evidence links BEFORE it calls this, and re-derives
+     * the settlement afterwards; what this call can honestly claim is that the
+     * legs it holds came out of a worker round trip whose state it is about to
+     * write. `linksResolve` is asserted by the collector against the database,
+     * not here — so it is passed through rather than assumed.
+     */
+    legEvidence: {
+      entry: {
+        rawStateDurable: rawEvidenceDurable,
+        linksResolve: true,
+        residualSemanticsKnown: true,
+      },
+      ...(exitLeg === null
+        ? {}
+        : {
+            exit: {
+              rawStateDurable: rawEvidenceDurable,
+              linksResolve: exitIds !== null,
+              residualSemanticsKnown: true,
+            },
+          }),
+    },
   });
   const identity = checkIdentities(settlement);
 
-  const facts = poolFactsFrom(preSrc, pool);
   const impact = boundEntryImpact({
     entryQuoteInLamports: p.notionalLamports,
     effectiveQuoteReserveLamports: facts.quoteReserveRaw + facts.virtualQuoteReserves,
@@ -1045,13 +1504,80 @@ export async function openTrajectory(
       trajectoryId: trajectoryIdValue,
       mint: p.mint,
       pool,
-      snapshotHash: `${snapshot.slot}`,
+      /**
+       * C-3 — the real hash, not the slot number.
+       *
+       * `coherent.snapshotHash` was already computed by the coherent capture
+       * and discarded here. It is a sha256 over the ordered account manifest
+       * (pubkey + account hash for each) plus the decoded clock, rent and epoch
+       * schedule, so it commits to every byte the legs price against.
+       */
+      snapshotHash: snapshotHashValue,
+      /**
+       * C-3 — and the capability fingerprint is a DIFFERENT question.
+       *
+       * It was identical to `snapshot_hash` on 292 of 292 rows, which made it
+       * unable to answer the only question it exists for: did the venue's
+       * capabilities change between two trajectories priced at different slots?
+       * It moves with the fee config, the programdata, the token program, the
+       * cashback flag, the worker binary and the SDK versions — and with
+       * nothing else.
+       */
+      capabilityFingerprint: capabilityFingerprintValue,
+      feeConfigHash: coherent.feeConfigHash,
+      selectedTier: selectedTier.tier === null ? null : `${selectedTier.tier.marketCapLamportsThreshold}`,
+      selectedTierRefusal: selectedTier.refusal,
+      marketCapLamports: selectedTier.marketCapLamports,
+      creatorFeeBps: selectedTier.tier?.fees.creatorFeeBps ?? null,
+      protocolFeeBps: selectedTier.tier?.fees.protocolFeeBps ?? null,
+      lpFeeBps: selectedTier.tier?.fees.lpFeeBps ?? null,
       stratum: mechanicsStratum({ canonicalPool: true, cashbackCoin: p.isCashbackCoin }),
       notionalLamports: p.notionalLamports,
       acquiredAtoms: trip.acquiredAtoms,
-      entryObservationId: `obs-${randomUUID()}`,
-      entrySimulationJobId: `job-${randomUUID()}`,
-      entrySettlementId: `set-${randomUUID()}`,
+      /**
+       * C-2 — identities that RESOLVE.
+       *
+       * These were three independent `randomUUID()` values written to no other
+       * table, in namespaces disjoint from the ones the worker and the
+       * settlement writer actually use. 0 of 292 joined, and none could.
+       *
+       * Each is now a function of content the caller also holds, so the
+       * collector inserts rows under exactly these keys and a reader can
+       * recompute them.
+       */
+      entryObservationId,
+      entrySimulationJobId: entryJobId,
+      entryStepIndex: 0,
+      entrySettlementId: settlementIdFor({
+        observationId: entryObservationId,
+        jobId: entryJobId,
+        stepIndex: 0,
+        settlementVersion: SETTLEMENT_VERSION,
+      }),
+      exitObservationId: exitIds?.observationId ?? null,
+      exitSimulationJobId: exitIds?.jobId ?? null,
+      exitStepIndex: exitIds === null ? null : 1,
+      exitSettlementId: exitIds?.settlementId ?? null,
+      /**
+       * P3.1 — the raw pre/post account state, carried out for persistence.
+       *
+       * C-4: this existed only inside the worker process and was reduced to the
+       * aggregate columns of `trajectory_settlements` before anything was
+       * written, so every economic amount was recorded exactly once and was
+       * unfalsifiable from the database. The collector writes these to the
+       * content-addressed blob store and links them by job and step.
+       */
+      rawEvidence: {
+        buyPre: trip.buy.preAccounts,
+        buyPost: trip.buy.postAccounts,
+        buyUnobserved: trip.buy.unobserved,
+        sellPre: trip.sell?.preAccounts ?? null,
+        sellPost: trip.sell?.postAccounts ?? null,
+        sellUnobserved: trip.sell?.unobserved ?? null,
+        buyTransactionBase64: buyBytes,
+        snapshotManifest: coherent.accounts,
+        workerIdentity: trip.runtimeIdentity,
+      },
       selfImpactLamports: trip.selfImpactLamports,
       quoteStateSurvived: trip.quoteStateSurvived,
       baseAtaClosedInSell: trip.baseAtaClosedInSell,
@@ -1073,13 +1599,7 @@ export async function openTrajectory(
       // Frozen from the instructions the builder returned, not from a rebuild.
       // A rebuilt sell would price against different state and could select a
       // different fee recipient, which is the whole of F12.
-      exitPlan:
-        trip.sellInstructions === null
-          ? null
-          : freezeAccountPlan(
-              'sell',
-              (trip.sellInstructions as (TransactionInstruction | RawInstruction)[]).map(toRaw),
-            ),
+      exitPlan: exitPlanFrozen,
       createdAccounts,
       setup,
       cashbackLegs,
@@ -1087,6 +1607,38 @@ export async function openTrajectory(
       // A trajectory that reached here on a cashback coin carries the accounts.
       cashbackVerified: isCashback,
       settlement,
+      /**
+       * P2.5 — the inputs, so the settlement can be RE-DERIVED after the raw
+       * evidence is durable.
+       *
+       * The settlement above is provisional: it is built before anything has
+       * been written to disk, so its `rawStateDurable` is a claim about process
+       * memory. The collector persists the blobs, reads them back, verifies the
+       * links resolve, and rebuilds from these same inputs with the real
+       * durability. The stored row is that second one.
+       *
+       * Two settlements from one set of inputs is not a duplication: it is the
+       * difference between "the worker returned this" and "the corpus can prove
+       * this", and the directive requires the second.
+       */
+      settlementInputs: {
+        entry: entryLeg,
+        exit: exitLeg,
+        cashback: {
+          accruedLamports: cashbackLegs.reduce(
+            (n, l) =>
+              n +
+              (l.accumulatorWsolDeltaLamports !== null && l.accumulatorWsolDeltaLamports > 0n
+                ? l.accumulatorWsolDeltaLamports
+                : 0n),
+            0n,
+          ),
+          claimableLamports: claimableFromAccumulator,
+          claimedLamports: 0n,
+          claimCostLamports: 0n,
+        },
+        rentStillLockedLamports: stillLocked < 0n ? 0n : stillLocked,
+      },
       identityViolations: identity.violations,
       impact,
       requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),

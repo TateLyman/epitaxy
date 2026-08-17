@@ -3,6 +3,7 @@ import {
   buildTrajectorySettlement,
   checkIdentities,
   NO_CASHBACK,
+  DURABLE_EVIDENCE,
 } from '../../packages/domain/src/trajectory-settlement.js';
 import type { MeasuredLegSettlement } from '../../packages/domain/src/settlement.js';
 
@@ -104,9 +105,14 @@ function exitLeg(over: Partial<MeasuredLegSettlement> = {}): MeasuredLegSettleme
   } as Partial<MeasuredLegSettlement>);
 }
 
+/** Both fixtures above state complete, covered, effect-valid legs, so their
+ * persisted evidence is durable too. Named rather than defaulted: an unstated
+ * durability is UNKNOWN, and unknown blocks. */
+const EVIDENCE = { entry: DURABLE_EVIDENCE, exit: DURABLE_EVIDENCE };
+
 describe('P5 — one settlement, and PnL that refuses when a part is unknown', () => {
   it('produces a net PnL when everything is measured', () => {
-    const s = buildTrajectorySettlement({ trajectoryId: 't1', entry: leg(), exit: exitLeg() });
+    const s = buildTrajectorySettlement({ trajectoryId: 't1', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     expect(s.netPnlLamports).not.toBeNull();
     expect(s.pnlBlockedReasons).toEqual([]);
     expect(checkIdentities(s).ok).toBe(true);
@@ -146,6 +152,7 @@ describe('P5 — one settlement, and PnL that refuses when a part is unknown', (
       trajectoryId: 't4',
       entry: leg(),
       exit: exitLeg({ residualTokenAtoms: 250n }),
+      legEvidence: EVIDENCE,
     });
     expect(s.netPnlLamports).toBeNull();
     expect(s.pnlBlockedReasons.join(' ')).toMatch(/250 token atoms remain/);
@@ -159,6 +166,7 @@ describe('P5 — one settlement, and PnL that refuses when a part is unknown', (
       entry: leg(),
       exit: exitLeg(),
       venueFeeDecompositionKnown: false,
+      legEvidence: EVIDENCE,
     });
     expect(s.venueFeesEmbeddedInOutput).toBe(true);
     expect(s.venueFeeDecompositionKnown).toBe(false);
@@ -168,25 +176,26 @@ describe('P5 — one settlement, and PnL that refuses when a part is unknown', (
 
 describe('P5 — principal is never execution cost', () => {
   it('execution cost excludes the principal and includes the transfer fee', () => {
-    const s = buildTrajectorySettlement({ trajectoryId: 't6', entry: leg(), exit: exitLeg() });
+    const s = buildTrajectorySettlement({ trajectoryId: 't6', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     // 20,000,000 of principal must not appear in the cost.
     expect(s.executionCostLamports).toBeLessThan(20_000_000n);
     expect(checkIdentities(s).ok).toBe(true);
   });
 
   it('the identity check catches principal leaking in', () => {
-    const s = buildTrajectorySettlement({ trajectoryId: 't7', entry: leg(), exit: exitLeg() });
+    const s = buildTrajectorySettlement({ trajectoryId: 't7', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     const leaked = { ...s, executionCostLamports: s.entryCashOutLamports + 1n };
     expect(checkIdentities(leaked).ok).toBe(false);
     expect(checkIdentities(leaked).violations.join(' ')).toMatch(/principal/);
   });
 
   it('unrecovered rent is a cost; recovered rent is not', () => {
-    const recovered = buildTrajectorySettlement({ trajectoryId: 't8', entry: leg(), exit: exitLeg() });
+    const recovered = buildTrajectorySettlement({ trajectoryId: 't8', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     const stranded = buildTrajectorySettlement({
       trajectoryId: 't9',
       entry: leg(),
       exit: { ...exitLeg(), costs: { ...exitLeg().costs, rentRecoveredLamports: 0n } },
+      legEvidence: EVIDENCE,
     });
     expect(stranded.rentStillLockedLamports).toBeGreaterThan(recovered.rentStillLockedLamports);
     expect(stranded.executionCostLamports).toBeGreaterThan(recovered.executionCostLamports);
@@ -200,8 +209,9 @@ describe('P5 — cashback is a receivable until it is claimed', () => {
       entry: leg(),
       exit: exitLeg(),
       cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 0n, claimCostLamports: 0n },
+      legEvidence: EVIDENCE,
     });
-    const without = buildTrajectorySettlement({ trajectoryId: 'c2', entry: leg(), exit: exitLeg() });
+    const without = buildTrajectorySettlement({ trajectoryId: 'c2', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     // Booking a receivable as revenue is exactly what keeping the three fields
     // separate prevents.
     expect(withAccrual.netPnlLamports).toBe(without.netPnlLamports);
@@ -215,8 +225,9 @@ describe('P5 — cashback is a receivable until it is claimed', () => {
       entry: leg(),
       exit: exitLeg(),
       cashback: { accruedLamports: 60_000n, claimableLamports: 0n, claimedLamports: 60_000n, claimCostLamports: 5_000n },
+      legEvidence: EVIDENCE,
     });
-    const base = buildTrajectorySettlement({ trajectoryId: 'c4', entry: leg(), exit: exitLeg() });
+    const base = buildTrajectorySettlement({ trajectoryId: 'c4', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     expect(s.netPnlLamports).toBe((base.netPnlLamports ?? 0n) + 60_000n - 5_000n);
     expect(s.executionCostLamports).toBe(base.executionCostLamports + 5_000n);
     expect(checkIdentities(s).ok).toBe(true);
@@ -228,6 +239,7 @@ describe('P5 — cashback is a receivable until it is claimed', () => {
       entry: leg(),
       exit: exitLeg(),
       cashback: { ...NO_CASHBACK, claimedLamports: 1_000n },
+      legEvidence: EVIDENCE,
     });
     expect(checkIdentities(s).ok).toBe(false);
     expect(checkIdentities(s).violations.join(' ')).toMatch(/more cashback claimed/);
@@ -238,7 +250,7 @@ describe('P5 — the gross exit credit is gross', () => {
   it('reports the venue payout, not the net wallet cash', () => {
     // Writing net cash into a gross field was one of finding D's seven ways for
     // an exit to disagree with itself.
-    const s = buildTrajectorySettlement({ trajectoryId: 'g1', entry: leg(), exit: exitLeg() });
+    const s = buildTrajectorySettlement({ trajectoryId: 'g1', entry: leg(), exit: exitLeg(), legEvidence: EVIDENCE });
     expect(s.grossExitCreditLamports).toBe(19_500_000n);
     expect(s.exitCashInLamports).not.toBe(s.grossExitCreditLamports);
   });

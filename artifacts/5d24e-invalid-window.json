@@ -1,0 +1,87 @@
+{
+  "applied": true,
+  "contextId": "5d24e-pre-repair",
+  "validity": "INSTRUMENT_DEVELOPMENT_INVALID",
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "openedUtcMs": 1786760811823,
+  "closedUtcMs": 1786937275720,
+  "trajectoriesInContext": 292,
+  "trajectoriesUnassigned": 0,
+  "auditArtifact": "docs/RUNTIME_ADVERSARIAL_AUDIT_8F73CEF.md",
+  "auditArtifactSha256": "90c61931369fa7e2c53e4d7f085acb731f776719ba6e40ab4258681f70c378b1",
+  "reasons": [
+    {
+      "code": "DANGLING_EVIDENCE_LINKS",
+      "statement": "the entry observation and worker-job identifiers do not resolve",
+      "measured": "292/292 observation ids and 292/292 job ids dangle",
+      "holds": true
+    },
+    {
+      "code": "NO_RAW_PRE_POST_STATE",
+      "statement": "no raw pre/post account state is persisted, so no amount is recomputable",
+      "measured": "292/292 trajectories have no evidence-link row",
+      "holds": true
+    },
+    {
+      "code": "SNAPSHOT_HASH_IS_NOT_A_HASH",
+      "statement": "snapshot_hash is a decimal slot number and commits to no byte of the state",
+      "measured": "292/292 snapshot_hash values are not 64-hex digests; 292 capability fingerprints equal the snapshot hash",
+      "holds": true
+    },
+    {
+      "code": "PNL_OVER_UNEXPLAINED_VALUE",
+      "statement": "net PnL is published over a payer identity that does not close",
+      "measured": "51 settlements carry a non-zero unexplained remainder; 30 publish net PnL anyway",
+      "holds": true
+    },
+    {
+      "code": "UNOBSERVED_WRITABLE_ACCOUNTS",
+      "statement": "writable accounts were touched and not observed on both sides",
+      "measured": "292/292 trajectories carry an unobserved-writable refusal",
+      "holds": true
+    },
+    {
+      "code": "ENTRY_POLICY_IS_A_LABEL",
+      "statement": "the entry policy was written as a label after a common admission decision",
+      "measured": "1 distinct entry policy value(s) across the corpus",
+      "holds": true
+    },
+    {
+      "code": "LATE_MARKS",
+      "statement": "later horizons carry the right label on the wrong instant",
+      "measured": "708/1460 marks are more than 60s late",
+      "holds": true
+    },
+    {
+      "code": "NO_COUNTERFACTUAL_CONTRACT",
+      "statement": "future marks are plain later-mainnet quotes with no bounded or replayed contract",
+      "measured": "292/292 rows are graded SIMULATED_EXECUTION",
+      "holds": true
+    },
+    {
+      "code": "TRAJECTORY_ECONOMICS_NULL",
+      "statement": "settleTrajectory was never called, so the trajectory row and the settlement row disagree",
+      "measured": "292/292 trajectories have a NULL net_pnl_lamports",
+      "holds": true
+    },
+    {
+      "code": "DIRTY_TREE_PROVENANCE",
+      "statement": "sessions were opened from uncommitted trees and cannot be re-derived from their commit",
+      "measured": "26/31 collector sessions were dirty",
+      "holds": true
+    },
+    {
+      "code": "UNMANAGED_CONCURRENCY",
+      "statement": "multiple unlocked collectors sampled the same mints, breaching the per-mint cap",
+      "measured": "worst mint produced 58 trajectories",
+      "holds": true
+    }
+  ],
+  "provenance": {
+    "writer": "evidence-invalidate-old.ts",
+    "sourceCommit": "5d24e3973ced25b3b873c0223463895a25828e5a",
+    "treeDirty": true,
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-17T03:27:55.771Z"
+  }
+}

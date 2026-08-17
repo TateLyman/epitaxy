@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { RawInstruction } from './instructionpolicy.js';
+import { decodeTransaction } from './transaction.js';
 
 /**
  * P2/F12 — the exact account plan of a leg, frozen once.
@@ -170,6 +171,97 @@ export function planAccountsNotCaptured(
  * so that they still have to be the same object tomorrow — the defect it guards
  * against is somebody adding a convenient rebuild between the two.
  */
+/**
+ * The plan the ENCODED BYTES describe.
+ *
+ * E-3 from the 8f73cef runtime audit: `assertPlanUnchanged` had zero production
+ * callers, so build-once rested entirely on a freeze and an encode being
+ * adjacent expressions in one function. Nothing would fail if an edit inserted
+ * a rebuild between them.
+ *
+ * Re-freezing the same in-memory array would be a tautology and would guard
+ * nothing. Decoding the bytes that are actually handed to the runtime is not:
+ * it reads the transaction the way the runtime will, so a second build between
+ * the freeze and the encode produces different bytes, a different decoded plan,
+ * and a throw.
+ *
+ * Writability is taken from the message header, which is where the runtime
+ * takes it from. Signer-ness likewise. If the compiler ever reordered or
+ * deduplicated metas differently from the builder, this is the call that finds
+ * out.
+ */
+export function planFromEncodedTransaction(leg: string, transactionBase64: string): AccountPlan {
+  const raw = decodeTransaction(Buffer.from(transactionBase64, 'base64'));
+  const keys = raw.staticAccountKeys;
+  const signers = raw.numRequiredSignatures;
+  const readonlySigned = raw.numReadonlySignedAccounts;
+  const readonlyUnsigned = raw.numReadonlyUnsignedAccounts;
+
+  const isSigner = (i: number): boolean => i < signers;
+  const isWritable = (i: number): boolean => {
+    if (i < signers) return i < signers - readonlySigned;
+    return i < keys.length - readonlyUnsigned;
+  };
+
+  const instructions: RawInstruction[] = raw.instructions.map((ix) => ({
+    programId: keys[ix.programIdIndex] ?? '',
+    accounts: ix.accountIndexes.map((i) => ({
+      pubkey: keys[i] ?? '',
+      isSigner: isSigner(i),
+      isWritable: isWritable(i),
+    })),
+    data: Buffer.from(ix.data).toString('base64'),
+  }));
+
+  return freezeAccountPlan(leg, instructions);
+}
+
+/**
+ * The frozen plan describes the ENCODED BYTES.
+ *
+ * Separate from `assertPlanUnchanged` because the two compare different things
+ * and conflating them would produce spurious failures. A compiled message
+ * carries ONE writability bit per account key, derived from the header, while a
+ * builder's metas carry one per (instruction, account) pair — the compiler ORs
+ * them. An account that is writable in one instruction and readonly in another
+ * therefore decodes as writable in both, and that is a faithful encoding rather
+ * than a changed plan.
+ *
+ * So this compares what the runtime will actually execute: instruction count,
+ * program ids in order, instruction data in order, and account pubkeys in
+ * order. A second build inserted between the freeze and the encode changes at
+ * least one of those.
+ */
+export function assertPlanMatchesBytes(frozen: AccountPlan, decoded: AccountPlan): void {
+  const differing: string[] = [];
+  if (frozen.instructions.length !== decoded.instructions.length) {
+    differing.push(`instruction count ${frozen.instructions.length} -> ${decoded.instructions.length}`);
+  }
+  for (const [i, a] of frozen.instructions.entries()) {
+    const b = decoded.instructions[i];
+    if (b === undefined) {
+      differing.push(`ix${i} is absent from the encoded bytes`);
+      continue;
+    }
+    if (a.programId !== b.programId) differing.push(`ix${i} program ${a.programId} -> ${b.programId}`);
+    if (a.data !== b.data) differing.push(`ix${i} data changed`);
+    if (a.accounts.length !== b.accounts.length) {
+      differing.push(`ix${i} account count ${a.accounts.length} -> ${b.accounts.length}`);
+      continue;
+    }
+    for (const [j, m] of a.accounts.entries()) {
+      const n = b.accounts[j];
+      if (n !== undefined && m.pubkey !== n.pubkey) {
+        differing.push(`ix${i} account ${j} ${m.pubkey} -> ${n.pubkey}`);
+      }
+    }
+  }
+  if (differing.length === 0) return;
+  throw new AccountPlanIncomplete(
+    `the frozen plan does not describe the bytes that will execute: ${differing.slice(0, 4).join('; ')}`,
+  );
+}
+
 export function assertPlanUnchanged(frozen: AccountPlan, executed: AccountPlan): void {
   if (frozen.fingerprint === executed.fingerprint) return;
   const differing: string[] = [];

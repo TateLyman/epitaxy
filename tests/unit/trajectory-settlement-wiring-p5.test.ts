@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { openDb } from '../../packages/storage/src/db.js';
 import { insertTrajectorySettlement, settlementTotals } from '../../packages/storage/src/trajectory-repo.js';
 import { legSettlementFromRuntime, coverageGap, BASE_FEE_PER_SIGNATURE_LAMPORTS } from '../../packages/pipeline/src/leg-settlement.js';
-import { buildTrajectorySettlement, checkIdentities } from '../../packages/domain/src/trajectory-settlement.js';
+import { buildTrajectorySettlement,
+  DURABLE_EVIDENCE, checkIdentities } from '../../packages/domain/src/trajectory-settlement.js';
 import type { CreatedAccount } from '../../packages/solana/src/created-accounts.js';
 
 /**
@@ -140,7 +141,15 @@ describe('P5 — the trajectory settlement, and what blocks net PnL', () => {
       pre: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 122_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
       post: [sys(TAKER, 499_999_490_000n), tok(QUOTE_VAULT, 102_539_280n, 100_500_000n), tok(ATA, 0n, 0n)],
     });
-    const s = buildTrajectorySettlement({ trajectoryId: 't1', entry, exit });
+    const s = buildTrajectorySettlement({
+      trajectoryId: 't1',
+      entry,
+      exit,
+      // Both legs above are built from complete observed pre/post state, so
+      // their durability is stated rather than defaulted. An unstated
+      // durability is UNKNOWN, and unknown blocks.
+      legEvidence: { entry: DURABLE_EVIDENCE, exit: DURABLE_EVIDENCE },
+    });
     expect(s.pnlBlockedReasons).toEqual([]);
     expect(s.netPnlLamports).not.toBeNull();
   });

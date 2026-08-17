@@ -1,0 +1,245 @@
+{
+  "generatedUtc": "2026-08-17T03:21:09.245Z",
+  "method": "VACUUM INTO",
+  "source": "C:\\Users\\lyman\\tradseee\\data\\runtime.db",
+  "sourceBytes": 7386337280,
+  "dest": "C:\\Users\\lyman\\tradseee\\data\\backups\\vacuum-2026-08-17T03-15-49-203Z.db",
+  "bytes": 7155707904,
+  "sha256": "97de15dd3717798baf1d466285a211f5e9a54b7fcb0fc3e212e2b1c75d737e55",
+  "integrity": "ok",
+  "foreignKeyViolations": 0,
+  "schemaVersion": 46,
+  "walCheckpoint": {
+    "busy": 0,
+    "log": 3554,
+    "checkpointed": 3554
+  },
+  "nonterminalExposure": 0,
+  "liveWritersAtStart": [],
+  "freeDiskBytes": 839325802496,
+  "maxima": {
+    "development_trajectories.opened_utc_ms": 1786928398339,
+    "trajectory_marks.taken_utc_ms": null,
+    "screenings.rowid": 612981,
+    "execution_observations.rowid": 43096
+  },
+  "tableCounts": [
+    {
+      "table": "candidate_risk_facts",
+      "rows": 1959
+    },
+    {
+      "table": "candidates",
+      "rows": 111132
+    },
+    {
+      "table": "chain_events",
+      "rows": 356027
+    },
+    {
+      "table": "chain_flow_bars",
+      "rows": 92
+    },
+    {
+      "table": "chain_flow_bars_v2",
+      "rows": 156329
+    },
+    {
+      "table": "chain_pipeline_health",
+      "rows": 1963
+    },
+    {
+      "table": "chain_unknown_samples",
+      "rows": 11731
+    },
+    {
+      "table": "clock_checkpoints",
+      "rows": 670
+    },
+    {
+      "table": "collector_counters",
+      "rows": 83
+    },
+    {
+      "table": "collector_latency_samples",
+      "rows": 1279
+    },
+    {
+      "table": "collector_sessions",
+      "rows": 31
+    },
+    {
+      "table": "confirmed_migrations",
+      "rows": 73
+    },
+    {
+      "table": "created_accounts",
+      "rows": 545
+    },
+    {
+      "table": "daily_accounting",
+      "rows": 3
+    },
+    {
+      "table": "decision_snapshots",
+      "rows": 612981
+    },
+    {
+      "table": "development_trajectories",
+      "rows": 292
+    },
+    {
+      "table": "direct_chain_events",
+      "rows": 7023666
+    },
+    {
+      "table": "direct_mint_facts",
+      "rows": 80308
+    },
+    {
+      "table": "entity_concentration",
+      "rows": 57
+    },
+    {
+      "table": "execution_observations",
+      "rows": 43096
+    },
+    {
+      "table": "exploration_debt",
+      "rows": 1
+    },
+    {
+      "table": "exploration_entitlement",
+      "rows": 1
+    },
+    {
+      "table": "fills",
+      "rows": 40
+    },
+    {
+      "table": "health_events",
+      "rows": 45509
+    },
+    {
+      "table": "ledger_entries",
+      "rows": 1574
+    },
+    {
+      "table": "leg_account_plans",
+      "rows": 482
+    },
+    {
+      "table": "leg_cashback",
+      "rows": 456
+    },
+    {
+      "table": "mayhem_facts",
+      "rows": 63
+    },
+    {
+      "table": "position_exits",
+      "rows": 20
+    },
+    {
+      "table": "position_marks",
+      "rows": 603
+    },
+    {
+      "table": "positions",
+      "rows": 20
+    },
+    {
+      "table": "process_locks",
+      "rows": 2
+    },
+    {
+      "table": "prospective_panels",
+      "rows": 1
+    },
+    {
+      "table": "prospective_samples",
+      "rows": 12533
+    },
+    {
+      "table": "quotes",
+      "rows": 6857
+    },
+    {
+      "table": "raw_payloads",
+      "rows": 4945
+    },
+    {
+      "table": "reject_tracking",
+      "rows": 1219052
+    },
+    {
+      "table": "replay_runs",
+      "rows": 1
+    },
+    {
+      "table": "run_contexts",
+      "rows": 41
+    },
+    {
+      "table": "schema_migrations",
+      "rows": 46
+    },
+    {
+      "table": "screenings",
+      "rows": 612981
+    },
+    {
+      "table": "shadow_marks",
+      "rows": 41044
+    },
+    {
+      "table": "shadow_positions",
+      "rows": 1213
+    },
+    {
+      "table": "signal_episodes",
+      "rows": 1082
+    },
+    {
+      "table": "simulation_jobs",
+      "rows": 262
+    },
+    {
+      "table": "snapshot_manifests",
+      "rows": 115
+    },
+    {
+      "table": "source_health",
+      "rows": 30161
+    },
+    {
+      "table": "trajectory_marks",
+      "rows": 1460
+    },
+    {
+      "table": "trajectory_policy_outcomes",
+      "rows": 574
+    },
+    {
+      "table": "trajectory_settlements",
+      "rows": 52
+    },
+    {
+      "table": "wss_gaps",
+      "rows": 10
+    },
+    {
+      "table": "wss_subscriptions",
+      "rows": 41
+    }
+  ],
+  "vacuumMs": 182687,
+  "elapsedMs": 320042,
+  "provenance": {
+    "writer": "vacuum-backup.ts",
+    "sourceCommit": "5d24e3973ced25b3b873c0223463895a25828e5a",
+    "treeDirty": true,
+    "dirtyFiles": 5,
+    "writtenUtc": "2026-08-17T03:21:09.313Z"
+  }
+}
