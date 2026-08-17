@@ -1,8 +1,8 @@
 {
-  "sessionsExamined": 32,
-  "activeSeconds": 70426,
-  "sessionsNeverEnded": 7,
-  "sessionsFromDirtyTree": 26,
+  "sessionsExamined": 50,
+  "activeSeconds": 73727,
+  "sessionsNeverEnded": 15,
+  "sessionsFromDirtyTree": 21,
   "byKind": [
     {
       "kind": "wss_events",
@@ -13,43 +13,49 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 6257,
+      "n": 7387,
       "q": 48
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 1700,
+      "n": 2041,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 1700,
+      "n": 2041,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 1289,
+      "n": 1331,
+      "q": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "entityTierWalk",
+      "n": 6,
       "q": 0
     }
   ],
-  "totalCalls": 104881,
-  "callsPerActiveSecond": 1.4892369295430665,
+  "totalCalls": 106741,
+  "callsPerActiveSecond": 1.447787106487447,
   "quotaErrors": 48,
-  "trajectories": 292,
-  "trajectoriesPerActiveDay": 358.2313350183171,
+  "trajectories": 303,
+  "trajectoriesPerActiveDay": 355.08294112062066,
   "recommendations": [
-    "48 quota refusal(s) at 1.49 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "48 quota refusal(s) at 1.45 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "a50808d9fb2a922d1952a27845b0d76ae4d0ae42",
     "treeDirty": true,
-    "dirtyFiles": 9,
-    "writtenUtc": "2026-08-17T05:00:11.270Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-17T14:30:51.470Z"
   }
 }

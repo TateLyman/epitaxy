@@ -196,19 +196,35 @@ export async function measureEntityTier(
     readonly poolBaseVault: string | null;
     readonly maxHolders?: number;
     readonly maxPages?: number;
+    /**
+     * The holder list the RAW tier already read, and the supply it divided by.
+     *
+     * Supplied by the collector, which reads both a few lines earlier. Passing
+     * them is not only two fewer calls per candidate: it makes the raw share and
+     * the entity share describe THE SAME INSTANT. Read twice, the gap between
+     * them is partly a gap in time, and the gap is the whole output of this
+     * module.
+     */
+    readonly holders?: { readonly address: string; readonly amount: bigint }[] | null;
+    readonly supplyAtoms?: bigint | null;
   },
 ): Promise<EntityTierReading> {
   let accounts: { address: string; amount: bigint }[];
   let supplyAtoms: bigint;
-  try {
-    const [largest, supply] = await Promise.all([
-      rpc.getTokenLargestAccounts(p.mint),
-      rpc.getTokenSupply(p.mint),
-    ]);
-    accounts = largest.accounts.filter((a) => a.address !== p.poolBaseVault && a.amount > 0n);
-    supplyAtoms = supply.amount;
-  } catch (e) {
-    return REFUSED(`the holder list could not be read: ${(e as Error).message.slice(0, 90)}`);
+  if (p.holders !== undefined && p.holders !== null && p.supplyAtoms !== undefined && p.supplyAtoms !== null) {
+    accounts = p.holders.filter((a) => a.address !== p.poolBaseVault && a.amount > 0n);
+    supplyAtoms = p.supplyAtoms;
+  } else {
+    try {
+      const [largest, supply] = await Promise.all([
+        rpc.getTokenLargestAccounts(p.mint),
+        rpc.getTokenSupply(p.mint),
+      ]);
+      accounts = largest.accounts.filter((a) => a.address !== p.poolBaseVault && a.amount > 0n);
+      supplyAtoms = supply.amount;
+    } catch (e) {
+      return REFUSED(`the holder list could not be read: ${(e as Error).message.slice(0, 90)}`);
+    }
   }
   if (supplyAtoms <= 0n) {
     return REFUSED('the mint reports zero supply, so no share of it can be computed');

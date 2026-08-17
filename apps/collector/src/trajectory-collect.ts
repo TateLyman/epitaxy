@@ -502,11 +502,24 @@ async function candidateFacts(
    * counting it would report every pool as maximally concentrated.
    */
   const raw: { share: number | null; examined: number } = { share: null, examined: 0 };
+  /**
+   * KEPT, so the entity tier reads the same instant.
+   *
+   * `measureEntityTier` used to re-read both, which is two more calls per
+   * candidate and — the part that matters — makes the raw share and the entity
+   * share describe two different moments. The gap between them is this module's
+   * entire output; a gap that is partly elapsed time is not a measurement of
+   * clustering.
+   */
+  let holderList: { address: string; amount: bigint }[] | null = null;
+  let supplyAtoms: bigint | null = null;
   try {
     const [largest, supply] = await Promise.all([
       rpc.getTokenLargestAccounts(mint),
       rpc.getTokenSupply(mint),
     ]);
+    holderList = largest.accounts.map((a) => ({ address: a.address, amount: a.amount }));
+    supplyAtoms = supply.amount;
     count('solana_rpc', 'getTokenLargestAccounts');
     count('solana_rpc', 'getTokenSupply');
     if (supply.amount > 0n) {
@@ -541,7 +554,12 @@ async function candidateFacts(
       : Number(NOTIONAL_LAMPORTS) / Number(effectiveQuote);
   const depthCouldAdmit = entryFraction !== null && entryFraction <= SMALL_IMPACT_BOUND;
   const entity: EntityTierReading = depthCouldAdmit
-    ? await measureEntityTier(rpc as never, { mint, poolBaseVault })
+    ? await measureEntityTier(rpc as never, {
+        mint,
+        poolBaseVault,
+        holders: holderList,
+        supplyAtoms,
+      })
     : {
         histories: [],
         clusteredShare: 0,
