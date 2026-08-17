@@ -3,7 +3,7 @@ import { loadConfig, loadSecrets, modeFromArgv, signerAllowed } from '../package
 import { openDb } from '../packages/storage/src/db.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { JupiterClient } from '../packages/adapters/src/jupiter/client.js';
-import { SolanaRpc } from '../packages/solana/src/rpc.js';
+import { researchRpc } from '../packages/solana/src/endpoint.js';
 import { viableFloorLamports } from '../packages/strategy/src/portfolio.js';
 import { minBigint } from '../packages/domain/src/amounts.js';
 
@@ -179,16 +179,38 @@ async function checkSources(): Promise<void> {
     record('fail', 'source.jupiter', `recent feed failed: ${(e as Error).message}`);
   }
 
-  const rpc = new SolanaRpc(limiter, { primary: secrets.rpcHttp, fallback: secrets.rpcHttpFallback });
+  /**
+   * THE ENDPOINT THE ENGINE WILL ACTUALLY USE.
+   *
+   * This constructed its own `SolanaRpc` straight from `secrets.rpcHttp`,
+   * bypassing `researchRpc` — and therefore bypassing the `RPC_ENDPOINT`
+   * override the collector honours. So the preflight could report a healthy
+   * endpoint while the collector used a dead one, or report a dead one while
+   * the collector was fine. Caught here by an override that worked everywhere
+   * except in the command whose whole job is to say whether it works.
+   *
+   * A preflight that checks a different endpoint than the engine uses is not a
+   * preflight.
+   */
+  const research = researchRpc(secrets as never);
+  const rpc = research.rpc;
   if (!rpc.configured) {
     record('warn', 'source.rpc', 'no endpoint configured; skipped');
     return;
   }
   try {
     const slot = await rpc.getSlot();
-    record('ok', 'source.rpc', `getSlot returned ${slot}`);
+    record(
+      'ok',
+      'source.rpc',
+      `getSlot returned ${slot} from ${research.host}${research.overridden ? ' (RPC_ENDPOINT override)' : ''}`,
+    );
   } catch (e) {
-    record('fail', 'source.rpc', `getSlot failed: ${(e as Error).message}`);
+    record(
+      'fail',
+      'source.rpc',
+      `getSlot failed against ${research.host}${research.overridden ? ' (RPC_ENDPOINT override)' : ''}: ${(e as Error).message}`,
+    );
   }
 
   // The authoritative concentration check depends on a method that public
@@ -204,22 +226,63 @@ async function checkSources(): Promise<void> {
   //
   // A size refusal is now distinguished from a permission refusal, because
   // they mean opposite things: the first proves the method works.
+  /**
+   * Probe a REAL CANDIDATE, not wSOL.
+   *
+   * wSOL replaced USDC here for exactly the right reason and only half solved
+   * it. USDC returned `-32600 Too many accounts requested` on every provider,
+   * so doctor called an enabled method refused. wSOL is smaller but still
+   * enormous, and on 2026-08-17 an Alchemy endpoint that served the method 6
+   * times out of 6 against a real pump.fun mint in ~280ms **timed out** on
+   * wSOL — so doctor warned about a method that works.
+   *
+   * Both failures come from probing a population the engine never queries. The
+   * collector asks about newly migrated pump.fun mints, so that is what this
+   * asks about, taken from `confirmed_migrations`. wSOL remains the fallback
+   * for a machine with no corpus yet.
+   */
+  let probeMint = 'So11111111111111111111111111111111111111112';
+  let probeIsRepresentative = false;
   try {
-    await rpc.getTokenLargestAccounts('So11111111111111111111111111111111111111112');
-    record('ok', 'source.rpc.largestAccounts', 'getTokenLargestAccounts is permitted');
+    const db = openDb({ path: secrets.databasePath, skipBackup: true, readonly: true });
+    const row = db
+      .prepare(
+        `SELECT mint FROM confirmed_migrations WHERE reversal_status = 'CONFIRMED' ORDER BY slot DESC LIMIT 1`,
+      )
+      .get() as { mint: string } | undefined;
+    db.close();
+    if (row !== undefined) {
+      probeMint = row.mint;
+      probeIsRepresentative = true;
+    }
+  } catch {
+    /* no corpus yet; wSOL it is */
+  }
+
+  try {
+    await rpc.getTokenLargestAccounts(probeMint);
+    record(
+      'ok',
+      'source.rpc.largestAccounts',
+      `getTokenLargestAccounts is permitted (probed ${probeIsRepresentative ? 'a real migrated mint' : 'wSOL'})`,
+    );
   } catch (e) {
     const msg = (e as Error).message;
-    if (/too many accounts/i.test(msg)) {
+    // A SIZE refusal proves the method works. A timeout on a huge fallback mint
+    // is the same fact wearing a different error, and treating it as a refusal
+    // is what made this check wrong twice.
+    if (/too many accounts/i.test(msg) || (!probeIsRepresentative && /timeout|aborted/i.test(msg))) {
       record(
         'ok',
         'source.rpc.largestAccounts',
-        'permitted; endpoint refused only on result size, which cannot happen for a new mint',
+        `permitted; the endpoint refused only on RESULT SIZE for wSOL (${msg.slice(0, 50)}), which cannot happen for a new mint`,
       );
     } else {
       record(
         'warn',
         'source.rpc.largestAccounts',
-        `getTokenLargestAccounts refused (${msg.slice(0, 80)}); concentration will report unavailable`,
+        `getTokenLargestAccounts refused for ${probeIsRepresentative ? 'a real migrated mint' : 'wSOL'} ` +
+          `(${msg.slice(0, 70)}); concentration will report unavailable and every candidate will be refused`,
       );
     }
   }
