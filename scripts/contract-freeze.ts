@@ -31,6 +31,14 @@ import { writeArtifact } from './_artifact.js';
 /**
  * The invariants THIS contract claims.
  *
+ * E-4 was OUT of scope in the 8f73cef contract — "confirming the SDK against
+ * current official Pump docs needs network access this harness does not take".
+ * It is claimed now, because the question that matters has an offline answer:
+ * the Anchor IDL that ships INSIDE the installed package is what the SDK encodes
+ * against, so `tests/unit/pump-sdk-account-order-e4.test.ts` checks every named
+ * index against it, plus the buy/sell trailing-account asymmetry and the pinned
+ * versions.
+ *
  * Scoped deliberately. Sections F (worker exactness), I (cashback fail-closed),
  * J-1/J-2 (fee tier as a function of market cap) and D-1 (routed entries
  * refused) are claimed because they were PASS in the audit and remain in scope.
@@ -47,7 +55,7 @@ const CLAIMED_INVARIANTS = [
   'B-1', 'B-2', 'B-3', 'B-4',
   'C-1', 'C-2', 'C-3', 'C-4',
   'D-1', 'D-2',
-  'E-1', 'E-2', 'E-3',
+  'E-1', 'E-2', 'E-3', 'E-4',
   'F-1', 'F-2', 'F-3', 'F-4', 'F-5', 'F-6',
   'G-1', 'G-2',
   'H-1', 'H-2',
@@ -65,7 +73,6 @@ const CLAIMED_INVARIANTS = [
 ];
 
 const OUT_OF_SCOPE: Record<string, string> = {
-  'E-4': 'confirming SDK 1.19.0 against current official Pump docs needs network access this harness does not take; tracked in docs/SOURCE_MATRIX.csv instead of claimed here',
   'F-7': 'a 0.04 SOL round trip under the output limit — this contract opens at 0.02 SOL, so no such job exists to inspect',
   'H-3': 'cold / prewarmed / repeat runs for one snapshot need three full worker round trips per pool; not in this window',
   'H-4': 'a warm lane that could REFUSE shared account creation does not exist, so the guard cannot be exercised',
