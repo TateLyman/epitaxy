@@ -262,6 +262,9 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
       session('dead', NOW, NOW);
       session('alive', null, NOW);
 
+      // The pid is INJECTED, so the test states which owners are alive rather
+      // than depending on whatever pid 1 happens to be on the host.
+      const livePids = new Set<number>([1]);
       const reserve = (owner: string, nowMs: number): string =>
         reserveCandidate(db, {
           windowId: 'W',
@@ -270,6 +273,7 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
           ownerSessionId: owner,
           nowMs,
           staleReservationMs: 60_000,
+          pidAlive: (pid) => livePids.has(pid),
         }).reservationId;
 
       /**
@@ -284,12 +288,21 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
       db.prepare('UPDATE collector_sessions SET heartbeat_utc_ms = ? WHERE session_id = ?').run(NOW + 30_000, 'alive');
       expect(() => reserve('other', NOW + 40_000)).toThrow(/already holds/);
 
-      // A dead owner's FRESH reservation is left alone: it may be shutting down.
+      /**
+       * An ENDED owner is reclaimable IMMEDIATELY, with no timer.
+       *
+       * A session that wrote `ended_utc_ms` and left a reservation RESERVED
+       * crashed between reserving and opening. Waiting fifteen minutes to
+       * conclude that would make every such failure cost fifteen minutes of
+       * collection — measured: four mints were unreachable behind reservations
+       * from runs that had died seconds earlier.
+       *
+       * The reason this is safe is the `trajectory_collector` lock: it is held
+       * EXCLUSIVELY, so no other trajectory collector is running and a RESERVED
+       * row owned by a different session is not being worked on by anyone.
+       */
       db.exec("UPDATE trajectory_reservations SET owner_session_id = 'dead' WHERE mint = 'M'");
-      expect(() => reserve('other', NOW + 1_000)).toThrow(/already holds/);
-
-      // Dead AND stale: reclaimable, as an ABANDONMENT that preserves history.
-      const taken = reserve('other', NOW + 120_000);
+      const taken = reserve('other', NOW + 1_000);
       expect(taken.length).toBeGreaterThan(0);
       const abandoned = Number(
         (

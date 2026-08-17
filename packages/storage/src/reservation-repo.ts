@@ -54,6 +54,23 @@ export class ReservationRefused extends Error {
  */
 export const STALE_RESERVATION_MS = 15 * 60 * 1_000;
 
+/**
+ * Is `pid` a live process? `EPERM` means it EXISTS and we may not signal it.
+ *
+ * The same rule the collector lock uses, and for the same reason: treating
+ * EPERM as dead would let a reclamation take a reservation from a running
+ * collector owned by another user.
+ */
+function defaultPidAlive(pid: number): boolean {
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 export interface Reservation {
   readonly reservationId: string;
   readonly windowId: string;
@@ -102,6 +119,7 @@ export function reserveCandidate(
     /** Count trajectories already recorded for this mint outside the window. */
     readonly includeHistoric?: boolean;
     readonly staleReservationMs?: number;
+    readonly pidAlive?: (pid: number) => boolean;
   },
 ): Reservation {
   const { windowId, mint, maxPerMint, ownerSessionId, nowMs } = opts;
@@ -142,7 +160,7 @@ export function reserveCandidate(
     const held = db
       .prepare(
         `SELECT r.reservation_id, r.reserved_utc_ms, r.owner_session_id,
-                s.ended_utc_ms, s.heartbeat_utc_ms
+                s.ended_utc_ms, s.heartbeat_utc_ms, s.pid
            FROM trajectory_reservations r
            LEFT JOIN collector_sessions s ON s.session_id = r.owner_session_id
           WHERE r.window_id = ? AND r.mint = ? AND r.status = 'RESERVED'`,
@@ -153,16 +171,45 @@ export function reserveCandidate(
       owner_session_id: string;
       ended_utc_ms: number | null;
       heartbeat_utc_ms: number | null;
+      pid: number | null;
     }[];
 
-    for (const h of held) {
-      const ownerFinished = h.ended_utc_ms !== null;
-      const ownerSilent =
-        h.heartbeat_utc_ms === null || nowMs - h.heartbeat_utc_ms >= (opts.staleReservationMs ?? STALE_RESERVATION_MS);
-      const isOurs = h.owner_session_id === ownerSessionId;
-      const old = nowMs - h.reserved_utc_ms >= (opts.staleReservationMs ?? STALE_RESERVATION_MS);
+    const alive = opts.pidAlive ?? defaultPidAlive;
+    const staleMs = opts.staleReservationMs ?? STALE_RESERVATION_MS;
 
-      if (!isOurs && (ownerFinished || ownerSilent) && old) {
+    for (const h of held) {
+      const isOurs = h.owner_session_id === ownerSessionId;
+      if (isOurs) {
+        throw new ReservationRefused(mint, 'ALREADY_OPEN', `${mint} already holds a reservation from this session`);
+      }
+
+      const ownerEnded = h.ended_utc_ms !== null;
+      const ownerPidDead = h.pid !== null && !alive(h.pid);
+      const ownerSilent = h.heartbeat_utc_ms === null || nowMs - h.heartbeat_utc_ms >= staleMs;
+      const old = nowMs - h.reserved_utc_ms >= staleMs;
+
+      /**
+       * A DEAD OWNER'S RESERVATION IS NOT A RESERVATION.
+       *
+       * Three independent signals, any one of which is sufficient, and the
+       * reason they can be independent is the `trajectory_collector` lock: this
+       * process holds it EXCLUSIVELY, so no other trajectory collector is
+       * running and a RESERVED row owned by a different session is not being
+       * worked on by anyone.
+       *
+       *   ownerEnded     the session wrote ended_utc_ms — an orderly exit that
+       *                  should have abandoned it and did not, i.e. a crash
+       *                  between reserving and opening;
+       *   ownerPidDead   the process is gone. Same rule the lock uses, and EPERM
+       *                  still counts as ALIVE;
+       *   ownerSilent+old  a host we cannot see the pid on, bounded by time.
+       *
+       * Measured during the first clean window: four mints were unreachable
+       * behind reservations from runs that died seconds earlier, and a
+       * fifteen-minute timer would have made each of those failures cost
+       * fifteen minutes of collection.
+       */
+      if (ownerEnded || ownerPidDead || (ownerSilent && old)) {
         db.prepare(
           `UPDATE trajectory_reservations
               SET status = 'ABANDONED', resolved_utc_ms = ?
@@ -173,9 +220,8 @@ export function reserveCandidate(
       throw new ReservationRefused(
         mint,
         'ALREADY_OPEN',
-        `${mint} already holds an unresolved reservation from session ${h.owner_session_id.slice(0, 12)} ` +
-          `(${isOurs ? 'this session' : ownerFinished ? 'ended' : 'still heartbeating'}, ` +
-          `reserved ${Math.round((nowMs - h.reserved_utc_ms) / 1000)}s ago)`,
+        `${mint} already holds an unresolved reservation from LIVE session ${h.owner_session_id.slice(0, 12)} ` +
+          `(pid ${h.pid ?? '?'}, reserved ${Math.round((nowMs - h.reserved_utc_ms) / 1000)}s ago)`,
       );
     }
 
