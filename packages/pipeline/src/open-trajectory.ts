@@ -480,16 +480,38 @@ export async function openTrajectory(
    * attributed to the market rather than to the mutation.
    *
    * The fee config is a price-bearing input in exactly the sense that matters:
-   * the sell's proceeds depend on it. So it belongs here, not in a separate
-   * "fetched into the runtime" category.
+   * the sell's proceeds depend on it. So it belongs in the QUOTE-STATE EQUALITY
+   * set, not in a separate "fetched into the runtime" category.
    *
-   * The CLOCK is handled separately, below: it is a sysvar the runtime owns,
-   * and requiring byte equality on it would refuse every trajectory whose
-   * runtime advanced a slot between the two legs. What must hold is that a
-   * MUTATION of it is detected, which is what `clockBearing` gives the observe
-   * set without making an advancing clock an apparatus failure.
+   * It does NOT belong in the coherent snapshot's economic batch, and the two
+   * are different sets for a reason this module already documented:
+   *
+   *   - `coherenceEconomic` must fit ONE `getMultipleAccounts`, because the
+   *     whole guarantee is that every per-slot price input came from one call
+   *     at one slot. QuickNode's discover plan caps that at five accounts and
+   *     answers a sixth with HTTP 413. The fee config is a protocol-wide
+   *     GOVERNANCE account that changes on an admin action, not per slot with
+   *     trading, so reading it one slot later cannot pair a stale price with a
+   *     fresh reserve — the failure the batch exists to prevent. It stays
+   *     REQUIRED, and `captureCoherentSnapshotV2` reads it in the second batch.
+   *
+   *   - `quoteStateBearing` is what `assertQuoteStateSurvived` compares between
+   *     the quote and the sell INSIDE the runtime. No provider is involved and
+   *     no ceiling applies, and a fee config swapped between the two changes the
+   *     tier the sell is charged — up to 200 bps of round trip, attributed to
+   *     the market rather than to the mutation.
+   *
+   * Conflating them cost six refused candidates: adding the fee config to the
+   * coherence batch made it six accounts and every capture refused
+   * SNAPSHOT_INCOHERENT, which reads as a market fault and was an apparatus one.
+   *
+   * The CLOCK is handled separately, below: it is a sysvar the runtime owns, and
+   * requiring byte equality on it would refuse every trajectory whose runtime
+   * advanced a slot between the two legs. What must hold is that a MUTATION of
+   * it is detected, which is what observing it on both sides gives.
    */
-  const priceBearing = [pool, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, p.mint, FEE_CONFIG_ADDR];
+  const coherenceEconomic = [pool, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, p.mint];
+  const priceBearing = [...coherenceEconomic, FEE_CONFIG_ADDR];
   const swapAccounts = swapAccountAddresses({
     poolKey: pool,
     baseMint: p.mint,
@@ -523,7 +545,9 @@ export async function openTrajectory(
     coherent = await captureCoherentSnapshotV2(
       rpc as never,
       {
-        economicAccounts: priceBearing,
+        // The four PER-SLOT price inputs, in one batch at one slot. The fee
+        // config is required and read separately; see `coherenceEconomic`.
+        economicAccounts: coherenceEconomic,
         feeConfig: FEE_CONFIG_ADDR,
         staticAccounts: [GLOBAL_CONFIG_ADDR],
         requireDecodable: [pool, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount],
