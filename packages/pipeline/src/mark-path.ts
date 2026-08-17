@@ -67,13 +67,24 @@ export interface CollectedMark {
   readonly exitCapacityLamports: bigint | null;
   readonly effectiveQuoteReserveLamports: bigint | null;
   /**
-   * P8 — THE RAW RESERVES AT THE MARK, which the counterfactual needs.
+   * P8 — THE RESERVES THE CURVE PRICES AGAINST, which the counterfactual needs.
    *
-   * `effectiveQuoteReserveLamports` includes the pool's VIRTUAL quote, which is
-   * right for depth and wrong for a constant-product exit: the virtual term is
-   * not lamports anyone can take out. The counterfactual carries our entry's
-   * displacement onto these and prices against the sum, so it must have the two
-   * real vault balances, not the depth figure.
+   * This was written as "the RAW reserves", on the reasoning that the pool's
+   * virtual quote is not lamports anyone can take out and so has no place in an
+   * exit. That reasoning is right about withdrawal and wrong about pricing: the
+   * program's own arithmetic includes the virtual term, and an exit priced
+   * without it is not the exit the program would give.
+   *
+   * Measured on trajectory 33fb1978 — 216,476,180,220 base atoms against a
+   * post-entry vault quote of 23,478,665,673 gives a constant-product output of
+   * about 11,293,000 lamports, while the runtime's own immediate sell returned
+   * 17,461,890. The difference is roughly 12.8 SOL of virtual reserve.
+   *
+   * So this is the EFFECTIVE quote, and `postEntryQuoteReserve` on the
+   * trajectory is the same quantity. They are compared against each other by
+   * `counterfactual:calibrate`, and two conventions in one comparison is what
+   * made the bounded contract read as OPTIMISTIC by up to 18,260 bps when it
+   * was the replay that was mispricing.
    */
   readonly observedBaseReserve: bigint | null;
   readonly observedQuoteReserve: bigint | null;

@@ -1,16 +1,30 @@
 {
-  "activeContext": "ctx-b66a3f43d117-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-24ca08aeedb4-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 1,
-      "onTime": 1,
+      "total": 6,
+      "onTime": 6,
       "missed": 0,
       "unclassified": 0
     },
     {
       "offsetMs": 180000,
+      "total": 6,
+      "onTime": 6,
+      "missed": 0,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 300000,
+      "total": 3,
+      "onTime": 2,
+      "missed": 1,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 600000,
       "total": 1,
       "onTime": 1,
       "missed": 0,
@@ -20,29 +34,29 @@
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 311,
-      "onTime": 16,
+      "total": 317,
+      "onTime": 22,
       "missed": 3,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 24,
-      "onTime": 16,
+      "total": 30,
+      "onTime": 22,
       "missed": 8,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 301,
-      "onTime": 7,
-      "missed": 2,
+      "total": 305,
+      "onTime": 10,
+      "missed": 3,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 13,
-      "onTime": 7,
+      "total": 14,
+      "onTime": 8,
       "missed": 6,
       "unclassified": 0
     },
@@ -68,17 +82,17 @@
       "unclassified": 292
     }
   ],
-  "dueNow": 0,
-  "overdue": 0,
-  "nextWakeMs": 3000,
-  "activeTotal": 2,
-  "activeMissedOrUnclassified": 0,
-  "verdict": "SLA_HELD",
+  "dueNow": 2,
+  "overdue": 1,
+  "nextWakeMs": 0,
+  "activeTotal": 16,
+  "activeMissedOrUnclassified": 1,
+  "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "b66a3f43d1175bfcc2d4f73d3fe17bb6755ef275",
+    "sourceCommit": "24ca08aeedb478331c351f754434875c35b0c6fa",
     "treeDirty": true,
     "dirtyFiles": 1,
-    "writtenUtc": "2026-08-17T20:28:10.338Z"
+    "writtenUtc": "2026-08-17T20:53:49.064Z"
   }
 }

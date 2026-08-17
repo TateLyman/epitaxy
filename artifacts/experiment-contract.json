@@ -1,8 +1,9 @@
 {
-  "applied": false,
-  "contractId": "contract-e549d01278b91736",
-  "contractHash": "e549d01278b917362decea16e029f96619f718bdaa767a606163ddca5a559cb7",
-  "sourceCommit": "b66a3f43d1175bfcc2d4f73d3fe17bb6755ef275",
+  "applied": true,
+  "contractId": "contract-1821c56425b88964",
+  "contractHash": "1821c56425b88964b2005ae54a44908de3d8d95aaaaa97432bfd397b3f2c4504",
+  "evidenceContextId": "ctx-24ca08aeedb4-DEV_WINDOW_5D24E",
+  "sourceCommit": "24ca08aeedb478331c351f754434875c35b0c6fa",
   "cohort": "FIRST_HOUR",
   "notionalRule": "fixed 20000000 lamports per entry",
   "entryPolicies": [
@@ -101,9 +102,9 @@
   },
   "provenance": {
     "writer": "contract-freeze.ts",
-    "sourceCommit": "b66a3f43d1175bfcc2d4f73d3fe17bb6755ef275",
-    "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-17T20:21:43.786Z"
+    "sourceCommit": "24ca08aeedb478331c351f754434875c35b0c6fa",
+    "treeDirty": false,
+    "dirtyFiles": 0,
+    "writtenUtc": "2026-08-17T20:31:45.970Z"
   }
 }

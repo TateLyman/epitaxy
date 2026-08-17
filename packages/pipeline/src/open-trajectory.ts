@@ -1769,7 +1769,32 @@ export async function openTrajectory(
       entryBaseDeltaAtoms: -baseOut,
       entryQuoteDeltaLamports: quoteIn,
       postEntryBaseReserve: baseAfter ?? 0n,
-      postEntryQuoteReserve: quoteAfter ?? 0n,
+      /**
+       * THE EFFECTIVE QUOTE, because that is what the curve prices against.
+       *
+       * This stored `quoteAfter` — the quote VAULT's token balance — while the
+       * mark stores `quoteReserveRaw + virtualQuoteReserves`. Two conventions,
+       * one comparison, and the calibration duly reported the bounded contract
+       * as OPTIMISTIC by 4,878 and 18,260 bps against the replay. It was not:
+       * the REPLAY was pricing against a reserve the program does not use.
+       *
+       * Measured on trajectory 33fb1978: 216,476,180,220 base atoms against a
+       * post-entry raw quote of 23,478,665,673 gives a constant-product output
+       * of about 11,293,000 lamports, and the runtime's own immediate sell
+       * returned 17,461,890. Recovering that needs a quote of roughly
+       * 36,300,000,000 — about 12.8 SOL more than the vault holds, which is the
+       * virtual term. The pool's arithmetic includes it; the vault balance
+       * alone is not the curve.
+       *
+       * `virtualQuoteReserves` is a pool parameter and does not move on a swap,
+       * so the post-entry effective quote is the post-entry vault plus the same
+       * virtual term the pre-entry snapshot decoded.
+       *
+       * This is why the calibration exists. A bound that is optimistic and a
+       * replay that is pessimistic look identical in the error sign, and only
+       * naming the reserve convention tells them apart.
+       */
+      postEntryQuoteReserve: (quoteAfter ?? 0n) + facts.virtualQuoteReserves,
       entryImpactBps: Number.isFinite(impact.maxImpactRatio)
         ? Math.ceil(impact.maxImpactRatio * 10_000)
         : 10_000,
