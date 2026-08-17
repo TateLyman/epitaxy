@@ -30,8 +30,12 @@ import {
   NotATokenAccount,
 } from '../packages/pipeline/src/vault-watch.js';
 import { mayhemFactsOf, breadthUsability, bondingCurveMayhemMode, MAYHEM_PROGRAM } from '../packages/solana/src/mayhem.js';
-import { insertTrajectory, insertTrajectorySettlement } from '../packages/storage/src/trajectory-repo.js';
-import { insertMark, insertPolicyOutcome } from '../packages/storage/src/mark-repo.js';
+import {
+  insertTrajectory,
+  insertTrajectorySettlement,
+  persistTrajectoryEconomics,
+} from '../packages/storage/src/trajectory-repo.js';
+import { insertMark, insertPolicyOutcome, closeTrajectory } from '../packages/storage/src/mark-repo.js';
 import { expectedRemainingTail, remainingTailRefusal } from '../packages/solana/src/cashback.js';
 
 /**
@@ -1376,9 +1380,48 @@ function sectionL(copyPath: string | null): void {
   }
   const db = new DatabaseSync(copyPath);
   db.exec('PRAGMA foreign_keys = ON');
-  const id = (one<{ id: string }>(db, 'SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1'))?.id;
-  if (id === undefined) throw new Error('the copy carries no trajectory');
-  const row = one<Record<string, string | number | null>>(db, 'SELECT * FROM development_trajectories WHERE trajectory_id = ?', id)!;
+  /**
+   * A trajectory to attack, from ANY context.
+   *
+   * The bare `development_trajectories` reference goes through the active-
+   * context rewrite, and an active window with no rows yet leaves nothing to
+   * mutate. That is a fact about the window, not about the writers — the
+   * append-only rules are properties of the CODE, so the probe falls back to
+   * the whole copy and says which it used.
+   *
+   * It throws NOTHING. An exception here would abort the ledger mid-run and
+   * lose every verdict after section L, which is how a probe that cannot run
+   * becomes a report that does not exist.
+   */
+  let id = (one<{ id: string }>(db, 'SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1'))?.id;
+  let usedActiveContext = id !== undefined;
+  if (id === undefined) {
+    id = (
+      db.prepare('SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1').get() as
+        | { id: string }
+        | undefined
+    )?.id;
+    usedActiveContext = false;
+  }
+  if (id === undefined) {
+    db.close();
+    record({
+      section: 'L',
+      invariant: 'every append-only ambiguity fails LOUDLY rather than being silently discarded',
+      verdict: 'NOT TESTABLE',
+      source: copyPath,
+      mutation: 'not run',
+      result: 'the copy carries no trajectory at all, in any context, so there is nothing to attack',
+      economicConsequence:
+        'the append-only rules are properties of the writers and would hold; with no row to write against, ' +
+        'that is a belief rather than a measurement',
+    });
+    return;
+  }
+  // Fetched WITHOUT the context rewrite, so the fallback row above is reachable.
+  const row = db
+    .prepare('SELECT * FROM development_trajectories WHERE trajectory_id = ?')
+    .get(id) as Record<string, string | number | null>;
 
   const attempt = (name: string, fn: () => void): { name: string; outcome: string } => {
     try {
@@ -1388,9 +1431,13 @@ function sectionL(copyPath: string | null): void {
       const m = (e as Error).message;
       // A probe that detects a SILENT drop signals it by throwing, so the label
       // has to distinguish "the writer refused" from "the writer said nothing".
-      if (/SILENTLY DISCARDED|IMPOSSIBLE TO ATTACH|zero rows changed|rows changed in one statement/.test(m)) {
+      if (/SILENTLY DISCARDED|IMPOSSIBLE TO ATTACH|ACCEPTED:|rows changed in one statement/.test(m)) {
         return { name, outcome: m.slice(0, 140) };
       }
+      // A probe that could not be attempted is NOT a pass. It is reported as
+      // itself, so an untested ambiguity cannot hide inside a green section.
+      if (/^NOT ATTEMPTED/.test(m)) return { name, outcome: m.slice(0, 140) };
+      if (/^REFUSED_BY_KEY/.test(m)) return { name, outcome: `REFUSED LOUDLY: ${m.slice(0, 110)}` };
       return { name, outcome: `REFUSED LOUDLY: ${(e as Error).name}: ${m.slice(0, 90)}` };
     }
   };
@@ -1411,8 +1458,27 @@ function sectionL(copyPath: string | null): void {
       }),
     ),
     attempt('replacement settlement with different economics', () => {
-      const before = one<{ n: string | null; e: string }>(db, 'SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?', id);
-      insertTrajectorySettlement(db, id, 'IMMEDIATE_MECHANICS', {
+      // RAW, not `one()`: this probe attacks one named row, and the
+      // active-context rewrite would make BOTH reads return undefined, which
+      // then reads as "unchanged" and reports a defect that is not there.
+      /**
+       * A trajectory that HAS a settlement.
+       *
+       * The probe used to attack whichever trajectory section L picked first,
+       * and the newest one carries no settlement row — so the replacement it
+       * was testing never happened and the result described nothing. An
+       * ambiguity that is not attempted is not an ambiguity that passed.
+       */
+      const target = (db
+        .prepare('SELECT trajectory_id id FROM trajectory_settlements ORDER BY settled_utc_ms DESC LIMIT 1')
+        .get() as { id: string } | undefined)?.id;
+      if (target === undefined) throw new Error('NOT ATTEMPTED: the copy carries no settlement to replace');
+      const readSettlement = (): { n: string | null; e: string } | undefined =>
+        db.prepare('SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?').get(target) as
+          | { n: string | null; e: string }
+          | undefined;
+      const before = readSettlement();
+      insertTrajectorySettlement(db, target, 'IMMEDIATE_MECHANICS', {
         entryCashOutLamports: 1n, exitCashInLamports: 999_999_999n, grossExitCreditLamports: 999_999_999n,
         baseFeesLamports: 0n, priorityFeesLamports: 0n, tipsLamports: 0n, transferFeesLamports: 0n,
         failedAttemptFeesLamports: 0n, rentCreatedLamports: 0n, rentRecoveredLamports: 0n, rentStillLockedLamports: 0n,
@@ -1420,32 +1486,45 @@ function sectionL(copyPath: string | null): void {
         residualTokenAtoms: 0n, unexplainedLamports: 0n, executionCostLamports: 0n,
         netPnlLamports: 999_999_999n, pnlBlockedReasons: [],
       }, [], Date.now());
-      const after = one<{ n: string | null; e: string }>(db, 'SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?', id);
-      if (before?.n === after?.n && before?.e === after?.e) {
+      const after = readSettlement();
+      if (before === undefined) {
+        // Nothing to replace. The probe must not report a pass it did not earn.
+        throw new Error('NOT ATTEMPTED: the trajectory carried no settlement, so no replacement was possible');
+      }
+      if (before.n === after?.n && before.e === after?.e) {
         throw new Error('SILENTLY DISCARDED: the row is unchanged and the writer returned void with no signal');
       }
     }),
     attempt('a different exit attached to the same trajectory', () => {
-      const before = count(db, `SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = '${id}'`);
+      const outcomeCount = (): number =>
+        Number(
+          (db.prepare('SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = ?').get(id) as { c: number }).c,
+        );
+      const before = outcomeCount();
       insertPolicyOutcome(db, id, 1n, {
         exitPolicy: 'FIXED_15M_CONTROL', triggeredAtMs: 1, triggeredOffsetMs: 900_000,
         reason: 'a second, different answer', exitMarkLamports: 42n, grossDeltaLamports: 42n,
       } as never, Date.now());
-      const after = count(db, `SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = '${id}'`);
+      const after = outcomeCount();
       if (before === after) throw new Error('SILENTLY DISCARDED: INSERT OR IGNORE, no signal to the caller');
     }),
     attempt('duplicate mark at a recorded offset with a different price', () => {
       // A trajectory that HAS marks, not necessarily the newest one.
-      const m = one<{ t: string; o: number; v: string | null }>(
-        db,
-        'SELECT trajectory_id t, offset_ms o, executable_lamports v FROM trajectory_marks WHERE executable_lamports IS NOT NULL ORDER BY rowid DESC LIMIT 1',
-      );
+      // RAW: `rowid` does not exist on the subquery the context rewrite makes.
+      const m = db
+        .prepare(
+          'SELECT trajectory_id t, offset_ms o, executable_lamports v FROM trajectory_marks ' +
+            'WHERE executable_lamports IS NOT NULL ORDER BY rowid DESC LIMIT 1',
+        )
+        .get() as { t: string; o: number; v: string | null } | undefined;
       if (m === undefined) throw new Error('no mark exists to duplicate');
       insertMark(db, m.t, {
         offsetMs: m.o, atMs: Date.now(), executableLamports: 123_456_789n,
         exitCapacityLamports: null, effectiveQuoteReserveLamports: null, refusal: null, latenessMs: 0,
       } as never);
-      const after = one<{ v: string | null }>(db, `SELECT executable_lamports v FROM trajectory_marks WHERE trajectory_id = '${m.t}' AND offset_ms = ${m.o}`);
+      const after = db
+        .prepare('SELECT executable_lamports v FROM trajectory_marks WHERE trajectory_id = ? AND offset_ms = ?')
+        .get(m.t, m.o) as { v: string | null } | undefined;
       if (m.v === after?.v) {
         throw new Error(
           `SILENTLY DISCARDED: mark (${m.t.slice(0, 8)}, ${m.o}ms) kept ${m.v} against a second, different ` +
@@ -1454,21 +1533,77 @@ function sectionL(copyPath: string | null): void {
       }
     }),
     attempt('an unrelated qualifying simulation job attached to the trajectory', () => {
-      const n = count(db, "SELECT COUNT(*) c FROM simulation_jobs WHERE status = 'SIMULATED_OK'");
-      throw new Error(
-        `IMPOSSIBLE TO ATTACH OR DETECT: no column joins simulation_jobs to a trajectory. ${n} qualifying jobs exist and none is reachable from any trajectory`,
+      /**
+       * The audit found this IMPOSSIBLE TO ATTACH OR DETECT: no column joined
+       * `simulation_jobs` to a trajectory, so 176 qualifying jobs existed and
+       * none was reachable from any trajectory.
+       *
+       * `trajectory_evidence_links.entry_job_id` is that column now, and every
+       * identifier on that row is a FOREIGN KEY. So the attachment is ATTEMPTED
+       * rather than declared impossible: it must be refused by the constraint.
+       */
+      const unrelated = db
+        .prepare("SELECT job_id FROM simulation_jobs WHERE status = 'SIMULATED_OK' ORDER BY requested_utc_ms DESC LIMIT 1")
+        .get() as { job_id: string } | undefined;
+      if (unrelated === undefined) throw new Error('NOT ATTEMPTED: no qualifying simulation job exists to attach');
+      db.exec('SAVEPOINT jobprobe');
+      try {
+        db.prepare(
+          `INSERT INTO trajectory_evidence_links
+             (trajectory_id, evidence_context_id, reservation_id, snapshot_hash, capability_fingerprint,
+              account_plan_hash, entry_observation_id, entry_job_id, entry_step_index, entry_settlement_id,
+              linked_utc_ms)
+           VALUES (?, 'no-such-context', 'no-such-reservation', ?, ?, ?, 'obs-x', ?, 0, 'set-x', ?)`,
+        ).run(id, 'a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), unrelated.job_id, Date.now());
+      } finally {
+        db.exec('ROLLBACK TO jobprobe');
+        db.exec('RELEASE jobprobe');
+      }
+      throw new Error('ACCEPTED: an unrelated job was attached and nothing refused it');
+    }),
+    /**
+     * The zero-row and multi-row probes attack THE WRITERS, not raw SQL.
+     *
+     * Raw SQL will always let an unbounded UPDATE through — that is what SQL
+     * is, and refusing it there would mean refusing every migration. The
+     * invariant is that this repository's writers do not, because they are the
+     * only path a collector has.
+     */
+    attempt('zero-row update through the writer: economics for a trajectory that does not exist', () => {
+      persistTrajectoryEconomics(
+        db,
+        'no-such-trajectory',
+        {
+          entryCashOutLamports: 1n,
+          exitCashInLamports: 1n,
+          executionCostLamports: 0n,
+          netPnlLamports: 0n,
+          pnlBlockedReasons: [],
+          cashbackAccruedLamports: 0n,
+          cashbackClaimableLamports: 0n,
+          cashbackClaimedLamports: 0n,
+          cashbackClaimCostLamports: 0n,
+        } as never,
+        Date.now(),
       );
+      throw new Error('ACCEPTED: a zero-row update reported success');
     }),
-    attempt('zero-row update: settle a trajectory id that does not exist', () => {
-      const r = db.prepare("UPDATE development_trajectories SET state = 'SETTLED' WHERE trajectory_id = 'no-such-trajectory'").run();
-      if (Number(r.changes) === 0) throw new Error('zero rows changed and the statement reported success');
-    }),
-    attempt('multi-row update: settle every trajectory at once', () => {
+    attempt('multi-row close through the writer: close every open trajectory at once', () => {
       db.exec('SAVEPOINT probe');
-      const r = db.prepare("UPDATE development_trajectories SET state = 'SETTLED' WHERE state = 'AWAITING_FILL_OBSERVATION'").run();
-      db.exec('ROLLBACK TO probe');
-      db.exec('RELEASE probe');
-      if (Number(r.changes) > 1) throw new Error(`${r.changes} rows changed in one statement and nothing bounded it`);
+      try {
+        const openCount = (): number =>
+          Number(
+            (db.prepare("SELECT COUNT(*) c FROM development_trajectories WHERE state = 'AWAITING_FILL_OBSERVATION'").get() as { c: number }).c,
+          );
+        const openBefore = openCount();
+        closeTrajectory(db, id, Date.now());
+        const closed = openBefore - openCount();
+        if (closed > 1) throw new Error(`${closed} rows changed in one statement and nothing bounded it`);
+        throw new Error(`REFUSED_BY_KEY: the writer closed ${closed} row(s); it cannot address more than one`);
+      } finally {
+        db.exec('ROLLBACK TO probe');
+        db.exec('RELEASE probe');
+      }
     }),
   ];
 
@@ -1479,12 +1614,14 @@ function sectionL(copyPath: string | null): void {
     verdict: silentlyAccepted.length === 0 ? 'PASS' : 'FAIL',
     source: 'packages/storage/src/trajectory-repo.ts, packages/storage/src/mark-repo.ts, run against a VACUUM-consistent copy',
     mutation: outcomes.map((o) => o.name).join('; '),
-    result: outcomes.map((o) => `${o.name} -> ${o.outcome}`).join(' | '),
+    result:
+      `attacked ${id.slice(0, 12)} (${usedActiveContext ? 'active context' : 'PRE-REPAIR context — the active window has no rows yet'}): ` +
+      outcomes.map((o) => `${o.name} -> ${o.outcome}`).join(' | '),
     economicConsequence:
-      'insertTrajectory throws EvidenceReplaceRefused, which is correct. Every other writer uses INSERT OR IGNORE ' +
-      'and returns void, so a second and DIFFERENT settlement, policy outcome or mark is discarded with no signal ' +
-      'the caller can act on. With five collector daemons racing the same open trajectories, a discarded write and ' +
-      'a market fact are indistinguishable after the fact',
+      'every ambiguity must fail LOUDLY. `INSERT OR IGNORE` returning void meant a second and DIFFERENT settlement, ' +
+      'policy outcome or mark was discarded with no signal the caller could act on — and with several collector ' +
+      'daemons racing the same open trajectories, a discarded write and a market fact are indistinguishable after ' +
+      'the fact',
     rows: outcomes.map((o) => `${o.name} -> ${o.outcome}`),
   });
   db.close();

@@ -1654,7 +1654,15 @@ async function runMarkPass(
    * minutes, which is a different measurement wearing the right label.
    */
   const nowMs = Date.now();
-  const openRaw = openTrajectories(db, 100);
+  /**
+   * Scoped to the window this collector is collecting FOR.
+   *
+   * A collector running under a new contract must not spend its RPC budget and
+   * its mark deadlines finishing an invalidated window's paths — those rows are
+   * excluded from every report, so the work buys nothing and the deadlines it
+   * misses are real.
+   */
+  const openRaw = openTrajectories(db, 100, lanes?.evidenceContextId ?? null);
   let marksTaken = 0;
   let settled = 0;
   let missedHorizons = 0;

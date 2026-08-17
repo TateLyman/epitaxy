@@ -18,22 +18,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 287
+      "n": 292
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 287
+      "n": 292
     }
   ],
-  "pairedPaths": 287,
+  "pairedPaths": 292,
   "pathsWithDifferentTriggerOffsets": 47,
   "challengerExitedEarlier": 3,
   "verdict": "TREATMENTS_ARE_LABELS",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
     "treeDirty": true,
     "dirtyFiles": 17,
-    "writtenUtc": "2026-08-17T04:14:50.526Z"
+    "writtenUtc": "2026-08-17T04:49:36.572Z"
   }
 }

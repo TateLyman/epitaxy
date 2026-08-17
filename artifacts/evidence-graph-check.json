@@ -1,5 +1,8 @@
 {
-  "activeContexts": [],
+  "activeContexts": [
+    "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
+    "ctx-ed5dce59cb12-DEV_WINDOW_V1"
+  ],
   "trajectoriesInScope": 0,
   "checks": [
     {
@@ -87,9 +90,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
     "treeDirty": true,
-    "dirtyFiles": 15,
-    "writtenUtc": "2026-08-17T04:14:47.282Z"
+    "dirtyFiles": 17,
+    "writtenUtc": "2026-08-17T04:49:33.912Z"
   }
 }

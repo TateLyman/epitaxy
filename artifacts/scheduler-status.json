@@ -1,5 +1,5 @@
 {
-  "activeContext": null,
+  "activeContext": "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [],
   "corpusByHorizon": [
@@ -11,11 +11,25 @@
       "unclassified": 292
     },
     {
+      "offsetMs": 180000,
+      "total": 5,
+      "onTime": 0,
+      "missed": 5,
+      "unclassified": 0
+    },
+    {
       "offsetMs": 300000,
       "total": 292,
       "onTime": 0,
       "missed": 0,
       "unclassified": 292
+    },
+    {
+      "offsetMs": 600000,
+      "total": 5,
+      "onTime": 0,
+      "missed": 5,
+      "unclassified": 0
     },
     {
       "offsetMs": 900000,
@@ -47,9 +61,9 @@
   "verdict": "NO_MARKS_YET",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "f9108d456d71ed2bdb1375cffd84a2a620f52ada",
+    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
     "treeDirty": true,
-    "dirtyFiles": 21,
-    "writtenUtc": "2026-08-17T04:15:21.316Z"
+    "dirtyFiles": 17,
+    "writtenUtc": "2026-08-17T04:49:36.220Z"
   }
 }

@@ -19,16 +19,38 @@ export interface OpenTrajectoryForMarking {
 }
 
 /** Trajectories still awaiting marks, oldest first so no path starves. */
-export function openTrajectories(db: Db, limit = 50): OpenTrajectoryForMarking[] {
+export function openTrajectories(
+  db: Db,
+  limit = 50,
+  /**
+   * P0.4 — mark only the trajectories THIS window owns.
+   *
+   * Without it, a collector under a new contract spends its RPC budget and its
+   * mark deadlines finishing an INVALIDATED window's paths. Measured: the first
+   * repaired `--once` pass marked and settled five pre-repair trajectories,
+   * which are excluded from every report and therefore bought nothing.
+   *
+   * Null means every context, which is right for a status command reporting on
+   * the whole corpus and wrong for a collector.
+   */
+  evidenceContextId: string | null = null,
+): OpenTrajectoryForMarking[] {
+  const scope =
+    evidenceContextId === null
+      ? ''
+      : `AND EXISTS (SELECT 1 FROM trajectory_evidence_context c
+                      WHERE c.trajectory_id = development_trajectories.trajectory_id
+                        AND c.evidence_context_id = ?)`;
   const rows = db
     .prepare(
       `SELECT trajectory_id, mint, notional_lamports, opened_utc_ms, entry_policy_inputs
          FROM development_trajectories
         WHERE state = 'AWAITING_FILL_OBSERVATION'
+        ${scope}
         ORDER BY opened_utc_ms ASC
         LIMIT ?`,
     )
-    .all(limit) as {
+    .all(...(evidenceContextId === null ? [limit] : [evidenceContextId, limit])) as {
     trajectory_id: string;
     mint: string;
     notional_lamports: string;

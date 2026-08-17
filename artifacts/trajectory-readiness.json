@@ -1,0 +1,261 @@
+{
+  "artifact": "trajectory-readiness",
+  "directiveSection": "P12",
+  "gate": "EXACT_TRAJECTORY_CONTRACT",
+  "verdict": "NOT_READY",
+  "ready": false,
+  "contract": {
+    "contractId": "contract-d2b2bf4f5f83b0a1",
+    "contractHash": "d2b2bf4f5f83b0a16016fd7c3c177238d3b20b4d99a93c957e3f2bc3026a23e9",
+    "evidenceContextId": "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
+    "contextValidity": "DEVELOPMENT_EVIDENCE",
+    "frozenUtcMs": 1786940633848,
+    "sourceCommit": "faa8e69264f201a0c43f7e9c72faa68595572a6e",
+    "markSlaMs": 10000,
+    "counterfactualContract": "counterfactual-v1 (bounded impact cap 10 bps)",
+    "entryPolicies": [
+      "HARD_GATES_RANDOM",
+      "CORRECTED_CURRENT_QUALITY_SCORE",
+      "SURVIVOR_FLOW_CONTINUATION_V1"
+    ],
+    "exitPolicies": [
+      "FIXED_15M_CONTROL",
+      "FLOW_LIQUIDITY_DETERIORATION_V1"
+    ],
+    "claimedInvariants": [
+      "A-1",
+      "A-2",
+      "B-1",
+      "B-2",
+      "B-3",
+      "B-4",
+      "C-1",
+      "C-2",
+      "C-3",
+      "C-4",
+      "D-1",
+      "D-2",
+      "E-1",
+      "E-2",
+      "E-3",
+      "F-1",
+      "F-2",
+      "F-3",
+      "F-4",
+      "F-5",
+      "F-6",
+      "G-1",
+      "G-2",
+      "H-1",
+      "H-2",
+      "I-1",
+      "I-2",
+      "I-3",
+      "J-1",
+      "J-2",
+      "J-3",
+      "K-1",
+      "K-2",
+      "K-3",
+      "L-1",
+      "M-1",
+      "M-2",
+      "N-1",
+      "N-2",
+      "N-3",
+      "O-1",
+      "O-2",
+      "P-1",
+      "Q-1",
+      "Q-2",
+      "R-1",
+      "R-2",
+      "R-3",
+      "S-1",
+      "S-2",
+      "S-3",
+      "S-4"
+    ]
+  },
+  "sample": {
+    "settledInContract": 0,
+    "eligible": 0,
+    "withNetPnl": 0,
+    "distinctMints": 0,
+    "distinctUtcDays": 0,
+    "droppedNoEvidenceLinks": 0,
+    "droppedLateMark": 0,
+    "droppedNonZeroUnexplained": 0
+  },
+  "netPnlLamports": null,
+  "outcomesWithCounterfactualContract": 0,
+  "outcomesTotal": 0,
+  "entryPoliciesDecided": 0,
+  "thresholds": {
+    "minCompletedTrajectories": 200,
+    "minDistinctUtcDays": 21,
+    "minProfitFactor": 1.25,
+    "recentWindow": 50,
+    "dropTopN": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "dropBestMintsOrEntities": 5,
+    "costStressMultiple": 2
+  },
+  "gates": [
+    {
+      "name": "contract held",
+      "pass": false,
+      "detail": "the frozen contract does not hold"
+    },
+    {
+      "name": "completed trajectories",
+      "pass": false,
+      "detail": "0 of 200"
+    },
+    {
+      "name": "distinct UTC days",
+      "pass": false,
+      "detail": "0 of 21"
+    },
+    {
+      "name": "net PnL positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "expected log growth positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "robust lower bound positive",
+      "pass": false,
+      "detail": "unknown (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "profit factor",
+      "pass": false,
+      "detail": "unknown vs 1.25 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "drawdown bounded",
+      "pass": false,
+      "detail": "frozen drawdown bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "CVaR acceptable",
+      "pass": false,
+      "detail": "frozen CVaR bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "catastrophic incidence",
+      "pass": false,
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "blocked incidence",
+      "pass": false,
+      "detail": "frozen incidence bound (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "recent 50 positive",
+      "pass": false,
+      "detail": "last 50 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 1",
+      "pass": false,
+      "detail": "drop the 1 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 3",
+      "pass": false,
+      "detail": "drop the 3 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 5",
+      "pass": false,
+      "detail": "drop the 5 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without top 10",
+      "pass": false,
+      "detail": "drop the 10 best trajectories (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without best day",
+      "pass": false,
+      "detail": "drop the best UTC day (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive without best five mints or entities",
+      "pass": false,
+      "detail": "drop the best 5 (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive under 2x costs",
+      "pass": false,
+      "detail": "2x actual costs (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive under stress",
+      "pass": false,
+      "detail": "latency, failure, rent, cashback claim (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "positive exact canary-size shadow",
+      "pass": false,
+      "detail": "at the exact canary notional (UNKNOWN, which is a fail)"
+    },
+    {
+      "name": "zero replay divergence",
+      "pass": true,
+      "detail": "0 divergence(s)"
+    },
+    {
+      "name": "zero unresolved reconciliation",
+      "pass": true,
+      "detail": "0 unresolved"
+    },
+    {
+      "name": "fingerprints stable",
+      "pass": false,
+      "detail": "approved set unchanged over the window (UNKNOWN, which is a fail)"
+    }
+  ],
+  "blockers": [
+    "contract held",
+    "completed trajectories",
+    "distinct UTC days",
+    "net PnL positive",
+    "expected log growth positive",
+    "robust lower bound positive",
+    "profit factor",
+    "drawdown bounded",
+    "CVaR acceptable",
+    "catastrophic incidence",
+    "blocked incidence",
+    "recent 50 positive",
+    "positive without top 1",
+    "positive without top 3",
+    "positive without top 5",
+    "positive without top 10",
+    "positive without best day",
+    "positive without best five mints or entities",
+    "positive under 2x costs",
+    "positive under stress",
+    "positive exact canary-size shadow",
+    "fingerprints stable"
+  ],
+  "provenance": {
+    "writer": "trajectory-readiness.ts",
+    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
+    "treeDirty": true,
+    "dirtyFiles": 17,
+    "writtenUtc": "2026-08-17T04:49:37.856Z"
+  }
+}
