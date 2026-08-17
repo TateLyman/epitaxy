@@ -177,7 +177,12 @@ export interface OpenedTrajectory {
     readonly sellPost: readonly ObservedAccount[] | null;
     readonly sellUnobserved: readonly string[] | null;
     readonly buyTransactionBase64: string;
-    readonly snapshotManifest: readonly unknown[];
+    readonly snapshotManifest: readonly { pubkey: string; hash: string }[];
+    readonly snapshotSlot: number;
+    readonly snapshotClock: unknown;
+    readonly snapshotRent: unknown;
+    readonly snapshotEpochSchedule: unknown;
+    readonly programDataHashes: Readonly<Record<string, string>>;
     readonly workerIdentity: unknown;
   };
   readonly selfImpactLamports: bigint | null;
@@ -1756,7 +1761,18 @@ export async function openTrajectory(
         sellPost: trip.sell?.postAccounts ?? null,
         sellUnobserved: trip.sell?.unobserved ?? null,
         buyTransactionBase64: buyBytes,
+        /**
+         * The manifest the snapshot hash was computed OVER, plus the sysvars
+         * that are inside it. `persistEvidence` recomputes the hash from these
+         * with the SAME function, so a caller cannot store a manifest that does
+         * not produce the hash it claims.
+         */
         snapshotManifest: coherent.accounts,
+        snapshotSlot: coherent.captureSlotHigh,
+        snapshotClock: coherent.clock,
+        snapshotRent: coherent.rent,
+        snapshotEpochSchedule: coherent.epochSchedule,
+        programDataHashes: coherent.programDataHashes,
         workerIdentity: trip.runtimeIdentity,
       },
       selfImpactLamports: trip.selfImpactLamports,

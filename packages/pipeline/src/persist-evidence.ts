@@ -4,9 +4,8 @@ import {
   appendOnly,
   expectRows,
   recordTransition,
-  snapshotHashOf,
-  type AccountManifestEntry,
 } from '../../storage/src/evidence-repo.js';
+import { computeSnapshotHash } from '../../solana/src/coherent-snapshot.js';
 import type { ObservedAccount } from './leg-settlement.js';
 
 /**
@@ -158,7 +157,11 @@ export interface PersistEvidenceRequest {
     readonly capturedUtcMs: number;
     readonly mint: string;
     readonly pool: string;
-    readonly manifest: readonly AccountManifestEntry[];
+    /** The ordered (pubkey, hash) rows the snapshot hash was computed over. */
+    readonly manifest: readonly { pubkey: string; hash: string }[];
+    readonly clock: unknown;
+    readonly rent: unknown;
+    readonly epochSchedule: unknown;
     readonly feeConfigHash: string | null;
     readonly capabilityFingerprint: string;
     readonly programDataHashes: Readonly<Record<string, string>>;
@@ -217,9 +220,24 @@ export function persistEvidence(db: Db, store: EvidenceStore, req: PersistEviden
     }
   }
 
-  // The snapshot hash must be the hash OF THIS MANIFEST. Recomputed rather than
-  // trusted: a caller that passed a slot number would otherwise write it.
-  const recomputed = snapshotHashOf(req.snapshot.manifest, req.snapshot.slot);
+  /**
+   * The snapshot hash must be the hash OF THIS MANIFEST.
+   *
+   * Recomputed rather than trusted: a caller that passed a slot number would
+   * otherwise write it, which is exactly what 292 pre-repair rows did.
+   *
+   * With `computeSnapshotHash` — the SAME function that produced the value —
+   * not a parallel implementation. A verifier with its own definition of the
+   * hash verifies nothing except that two functions disagree, which is how the
+   * first real trajectory refused with a mismatch between two correct answers
+   * to different questions.
+   */
+  const recomputed = computeSnapshotHash(
+    req.snapshot.manifest,
+    req.snapshot.clock as never,
+    req.snapshot.rent as never,
+    req.snapshot.epochSchedule as never,
+  );
   if (recomputed !== req.snapshot.hash) {
     throw new EvidenceGraphIncomplete([
       `snapshot_hash ${req.snapshot.hash.slice(0, 16)} is not the hash of the manifest it names ` +

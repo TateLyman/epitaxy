@@ -1055,16 +1055,25 @@ async function runCycle(
         workerResponse: t.rawEvidence.workerIdentity,
         snapshot: {
           hash: t.snapshotHash,
-          slot: 0,
+          slot: t.rawEvidence.snapshotSlot,
           capturedUtcMs: t.openedUtcMs,
           mint: t.mint,
           pool: t.pool,
-          manifest: [],
+          // The REAL manifest and sysvars the hash was computed over.
+          // `persistEvidence` recomputes with the same function and refuses a
+          // mismatch, so a stub here cannot become a stored snapshot.
+          manifest: t.rawEvidence.snapshotManifest,
+          clock: t.rawEvidence.snapshotClock,
+          rent: t.rawEvidence.snapshotRent,
+          epochSchedule: t.rawEvidence.snapshotEpochSchedule,
           feeConfigHash: t.feeConfigHash,
           capabilityFingerprint: t.capabilityFingerprint,
-          programDataHashes: {},
+          programDataHashes: t.rawEvidence.programDataHashes,
           sdkVersions: SDK_VERSIONS,
-          workerBinaryHash: null,
+          workerBinaryHash:
+            typeof (t.rawEvidence.workerIdentity as { binarySha256?: unknown } | null)?.binarySha256 === 'string'
+              ? ((t.rawEvidence.workerIdentity as { binarySha256: string }).binarySha256)
+              : null,
         },
         accountPlanHash: t.entryPlan.fingerprint,
         selectedTier: t.selectedTier,
