@@ -372,15 +372,41 @@ const OUTPUT_ONLY = [/^artifacts\//];
 
 /** The source state this process is actually running, read from git, not asserted. */
 export function readTreeState(cwd?: string): TreeState {
-  const run = (args: string[]): string => {
+  const runRaw = (args: string[]): string => {
     try {
-      return execFileSync('git', args, { encoding: 'utf8', cwd, timeout: 30_000 }).trim();
+      return execFileSync('git', args, { encoding: 'utf8', cwd, timeout: 30_000 });
     } catch {
       return '';
     }
   };
-  const status = run(['status', '--porcelain']);
-  const all = status.length === 0 ? [] : status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+  const run = (args: string[]): string => runRaw(args).trim();
+  /**
+   * Parse the porcelain format properly, and do NOT trim the whole output.
+   *
+   * `git status --porcelain` emits `XY PATH`, where X is the index status and Y
+   * the worktree status. For a file modified but not staged, X is a SPACE:
+   *
+   *     " M artifacts/experiment-contract.json"
+   *
+   * Trimming the output before splitting removes that leading space, so a fixed
+   * `slice(3)` then eats the first character of the path and produces
+   * `rtifacts/...`. Every dirty file was being reported under a mangled name,
+   * and — worse — the `artifacts/` exemption could never match, so the gate
+   * refused runs it was meant to allow.
+   *
+   * A rename arrives as `R  old -> new`; the destination is what exists now.
+   */
+  const status = runRaw(['status', '--porcelain']);
+  const all = status
+    .split('\n')
+    .map((line) => {
+      const m = /^(..) (.+)$/.exec(line.replace(/\r$/, ''));
+      if (m === null) return null;
+      const path = m[2] as string;
+      const arrow = path.indexOf(' -> ');
+      return arrow === -1 ? path : path.slice(arrow + 4);
+    })
+    .filter((p): p is string => p !== null && p.length > 0);
   const dirtyArtifacts = all.filter((f) => OUTPUT_ONLY.some((r) => r.test(f)));
   const dirtyFiles = all.filter((f) => !OUTPUT_ONLY.some((r) => r.test(f)));
   return {

@@ -10,6 +10,7 @@ import {
   CollectorLockRefused,
   DirtyEvidenceCollection,
   evidenceContextValidity,
+  readTreeState,
   TRAJECTORY_COLLECTOR_LOCK,
   SCREENING_COLLECTOR_LOCK,
 } from '../../packages/storage/src/collector-lock.js';
@@ -231,6 +232,33 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('4a — the porcelain status is parsed so the PATH survives intact', () => {
+    /**
+     * `git status --porcelain` emits `XY PATH`, and for a file modified but not
+     * staged X is a SPACE. Trimming the whole output before splitting removes
+     * it, so a fixed slice(3) eats the first character of the path:
+     *
+     *     " M artifacts/x.json"  ->  "rtifacts/x.json"
+     *
+     * Every dirty file was reported under a mangled name, and the artifacts/
+     * exemption could never match — so the gate refused runs it was built to
+     * allow. Found by running it, not by reading it.
+     *
+     * Asserted against the real repository, whose HEAD is a real commit.
+     */
+    const t = readTreeState();
+    expect(t.commit).toMatch(/^[0-9a-f]{40}$/);
+    for (const f of [...t.dirtyFiles, ...t.dirtyArtifacts]) {
+      // A path that lost its first character starts mid-word. Every real path
+      // in this repository begins with a known top-level directory or is a
+      // bare filename with an extension.
+      expect(f).toMatch(/^(apps|packages|scripts|tests|docs|config|artifacts|data|offline-worker|ops)\/|^[\w.-]+$/);
+    }
+    // And artifacts are classified as outputs, never as source.
+    for (const f of t.dirtyArtifacts) expect(f.startsWith('artifacts/')).toBe(true);
+    for (const f of t.dirtyFiles) expect(f.startsWith('artifacts/')).toBe(false);
   });
 
   it('4 — a DIRTY tree cannot open an evidence context without saying so', () => {
