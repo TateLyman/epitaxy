@@ -72,24 +72,24 @@ const ITEMS: readonly Item[] = [
   { n: 42, what: 'two events in one transaction remain distinct', file: `${T}live-lane-p8-p13.test.ts`, needle: '42 — the same signature twice' },
   { n: 43, what: 'current live migration enters queue without history paging', file: `${T}live-lane-p8-p13.test.ts`, needle: '41/43' },
   { n: 44, what: 'every policy sees the same path', file: `${T}collector-wiring-29c7cc7.test.ts`, needle: 'every policy sees the SAME path' },
-  { n: 45, what: 'the three entry policies differ on counterexamples', file: `${T}treatments-p10.test.ts` },
+  { n: 45, what: 'the three entry policies differ on counterexamples', file: `${T}treatments-p10.test.ts`, needle: 'no policy can trade a candidate a hard gate rejected' },
   { n: 46, what: 'the two exit policies differ on a shared path', file: `${T}collector-wiring-29c7cc7.test.ts`, needle: 'exit policies DIFFER' },
-  { n: 47, what: 'later selected observation equals settled/booked observation', file: `${T}trigger-fill-p10.test.ts` },
-  { n: 48, what: 'bounded counterfactual has an error bound/haircut', file: `${T}p10-regressions.test.ts` },
-  { n: 49, what: 'full replay applies intervening events in order', file: null, why: 'FULL_EVENT_REPLAY_TRAJECTORY is not built. docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md states the ordering it must be built in, and that no bounded outcome may be called confirmatory until it exists.' },
+  { n: 47, what: 'later selected observation equals settled/booked observation', file: `${T}trigger-fill-p10.test.ts`, needle: 'fills at exactly the latency boundary' },
+  { n: 48, what: 'bounded counterfactual has an error bound/haircut', file: `${T}p10-regressions.test.ts`, needle: 'a quote-only order response is not buildable' },
+  { n: 49, what: 'full replay applies intervening events in order', file: 'tests/unit/round-trip-replay-49.test.ts', needle: 'commits each event and re-reads the pool before building the next' },
   { n: 50, what: 'Mayhem agent flow excluded from independent breadth', file: `${T}candidate-risk-p10.test.ts`, needle: '50 — Mayhem flow is not organic' },
   { n: 51, what: 'entity-adjusted concentration reaches entry policy', file: `${T}candidate-risk-p10.test.ts`, needle: '51 — concentration reaches the GATE' },
   { n: 52, what: 'vault WSS watches vaults, not the pool PDA', file: `${T}live-lane-p8-p13.test.ts`, needle: '52 — the vault subscription' },
   { n: 53, what: 'urgent queue is consumed', file: `${T}live-lane-p8-p13.test.ts`, needle: '53 — the urgent queue is drained' },
   { n: 54, what: 'restart resumes open trajectories', file: `${T}sampling-spread-p14.test.ts`, needle: 'EXCLUDES a mint that already has an open trajectory' },
-  { n: 55, what: 'exploration entitlement survives restart', file: null, why: 'pnpm exploration:status is still NOT_IMPLEMENTED and refuses with its prerequisite named: an entitlement ledger separate from cohort assignment does not exist.' },
+  { n: 55, what: 'exploration entitlement survives restart', file: 'tests/unit/exploration-entitlement-55.test.ts', needle: 'SURVIVES a restart' },
   { n: 56, what: 'active-time rate is not wall-time rate', file: `${T}live-lane-p8-p13.test.ts`, needle: '56 — the rate is per ACTIVE second' },
   { n: 57, what: 'placeholder command aliases fail', file: `${T}commands-mean-their-names-p12.test.ts`, needle: '57 — no command is a silent alias' },
-  { n: 58, what: 'stale/dirty/null-context artifact cannot authorize readiness', file: `${T}artifact-provenance-p18.test.ts` },
+  { n: 58, what: 'stale/dirty/null-context artifact cannot authorize readiness', file: `${T}artifact-provenance-p18.test.ts`, needle: 'REFUSES one produced from a dirty tree' },
   { n: 59, what: 'default readiness reads the exact trajectory contract', file: `${T}score-frozen.test.ts`, needle: 'timelyCompletePaths' },
-  { n: 60, what: '200 losing trajectories cannot pass', file: `${T}readiness.test.ts` },
+  { n: 60, what: '200 losing trajectories cannot pass', file: `${T}readiness.test.ts`, needle: 'FAILS on 200 consistently losing trades' },
   { n: 61, what: 'no private-key/signer/network-send path reachable from collector', file: `${T}sole-venue-p2.test.ts`, needle: '61 — no signing path is reachable' },
-  { n: 62, what: 'canary/live remain blocked', file: `${T}hook-guard.test.ts` },
+  { n: 62, what: 'canary/live remain blocked', file: `${T}hook-guard.test.ts`, needle: 'blocks any command that touches the live acknowledgement file' },
 ];
 
 describe('the directive 29c7cc7 required-test audit', () => {
@@ -120,10 +120,21 @@ describe('the directive 29c7cc7 required-test audit', () => {
 
   it('reports the uncovered items rather than hiding them', () => {
     const uncovered = ITEMS.filter((i) => i.file === null);
-    // Both are real, named gaps with a stated prerequisite. If this count ever
-    // DROPS, the rows must be updated rather than the number.
-    expect(uncovered.map((i) => i.n)).toEqual([49, 55]);
+    // Now empty. 55 and 49 were the last two, and both came off by being
+    // implemented and tested — the only way a row is allowed to leave this
+    // list. An uncovered row must carry a stated prerequisite, so if one ever
+    // returns it returns with a reason.
+    expect(uncovered.map((i) => i.n)).toEqual([]);
     for (const u of uncovered) expect(u.why, `item ${u.n} has no reason`).toBeTruthy();
+  });
+
+  it('every item cites a needle, so an empty uncovered list cannot be reached by deletion', () => {
+    // With nothing uncovered, the audit's only remaining failure mode is a row
+    // pointed at a file that no longer contains what it claims. `needle` is
+    // what makes that detectable, and a row without one is a filename that
+    // happens to exist.
+    const needleless = ITEMS.filter((i) => i.file !== null && i.needle === undefined).map((i) => i.n);
+    expect(needleless).toEqual([]);
   });
 
   it('every required output exists on disk', () => {

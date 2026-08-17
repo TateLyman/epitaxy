@@ -169,7 +169,7 @@ Last updated: 2026-08-16T19:05Z
 | | |
 |---|---|
 | mode | `paper`, engine LIVE; `observe` for the trajectory collector |
-| schema | **v43** |
+| schema | **v46** |
 | strategy version | `delayed-momentum-v0.6.0` |
 | positions with executable PnL | **0** |
 | development trajectories | **64**, of which 59 SETTLED and **8 TIMELY complete** |
@@ -177,6 +177,9 @@ Last updated: 2026-08-16T19:05Z
 | collector candidate lane | live migration socket primary; history paging is bounded recovery |
 | RPC | **daily quota exhausted** — the binding constraint, measured |
 | direct mint facts collected | yes, in every mode (was capital-only) |
+| exploration arm | **running**, entitlement is a ledger keyed by window; granted on rows OPENED, not selected |
+| full event replay | **built and run** (`pnpm replay:calibrate`); one live run, zero-event case only |
+| reject panel | **prospective**, rule frozen 2026-08-16; the 1,191,281 `reject_tracking` rows stay retrospective and separate |
 
 ### The collector's actual production path
 
@@ -1898,3 +1901,140 @@ unreachable for Pump while `S050` is open, so canary cannot be approached.
 - **P17** all three dead modules wired; `KNOWN_INERT` is empty.
 - **P18** retained candidate queues, so the other three cohort arms can exist.
 - **P19** an unquoted token is no longer automatically −100%.
+
+---
+
+## 2026-08-16 — the last three uncovered items, and two defects the runs found
+
+The 62-item directive audit now cites a test for **every** item.
+`tests/unit/directive-29c7cc7-coverage.test.ts` asserts the uncovered list is
+empty and, separately, that every row carries a `needle` — so the audit cannot
+reach zero by pointing at files that no longer contain what they claim.
+
+**1,817 tests, 124 files, 16 seconds.**
+
+### Item 55 — the exploration arm had never run
+
+`allocate()` existed, was tested, was pure, and no production caller invoked it.
+100% of the budget went to the ranking while `pnpm exploration:status` — an
+alias for `cohort:status`, which answers *which cells are under-filled* —
+printed a healthy-looking report about a different question.
+
+The entitlement is now a **ledger** (`exploration_entitlement`, migration 45),
+keyed by window and stratum, because the collector is a daemon that restarts and
+an in-memory entitlement turns a 25% fraction into "25% of whatever happened
+between crashes". `consumeExploration` returns false when a stratum is out of
+budget and the row is recorded as exploitation, so the recorded fraction
+describes what happened rather than what was intended.
+
+The ledger and the corpus are reported **apart**: `granted`/`consumed` is the
+budget, `explore`/`exploit` on the trajectory rows is the outcome, and they can
+disagree — a stratum can run out of candidates with entitlement unspent. Rows
+opened before the arm existed are counted `unassigned`, never folded into
+`exploit`, because "we did not record it" is not "it was exploitation".
+
+**A defect the first live cycle found.** Grants were made against *selections*.
+That cycle selected eight candidates, the depth gate refused all eight, and the
+ledger still recorded `granted 3, consumed 0`. Every cycle would have added
+budget for rows that never existed, so the fraction it exists to hold at 25%
+would have become unenforceable. Grants now happen after the open loop, against
+rows that were actually opened. The six phantom units were deleted — nothing had
+been consumed, so no history was lost — and the first window is therefore all
+exploitation, visibly, rather than by an accident nobody recorded.
+
+### Item 49 — `FULL_EVENT_REPLAY_TRAJECTORY`
+
+Built: `pnpm replay:calibrate --arm=<mint>` / `--settle=<file>`. Two phases
+because the trades a replay needs take a holding period to happen, and the
+collector does not persist entry snapshots — **a settled row already in the
+corpus cannot be replayed after the fact.**
+
+Events are read off the pool's two **vaults**, not off the swap instruction: a
+trade can arrive through a router, an aggregator, or an instruction version we
+have never decoded, and enumerating shapes means silently omitting whatever
+shape is new. Direction comes from the signs of the two deltas. The mainnet
+trader's **input** is replayed, never their output — their output came from
+mainnet's reserves, and forcing it would erase the displacement our entry caused.
+Any refusal kills the whole trajectory rather than one event.
+
+Seeding the replay actor does not inflate supply. The base tokens mainnet
+sellers sold already exist in the mint's `supply`, held by accounts the snapshot
+never fetched; giving them to one local actor models those holders. The mint is
+left untouched, because market cap is `quoteReserve × supply / baseReserve` and
+the fee tier is selected from market cap.
+
+One thing a shared actor gets wrong is **stated, not corrected**: PumpSwap keeps
+a per-user volume accumulator and cashback accrues against it, so cashback
+during the hold is not measurable from a replay.
+
+**A defect the first live run found.** The first version refused a real pool
+with `EVENT_LIST_INCOMPLETE` because the signature listing's newest slot was
+below the exit slot. That reasoning is wrong: the listing is queried
+newest-first with no cursor, so a newest slot below the exit is the *observation
+that nothing traded*. It was rejecting quiet pools — the one case where the
+replay is trivially exact. Only an empty listing is refused now.
+
+**Extent, exactly.** Two live runs, both class `FULL_EVENT_REPLAY_TRAJECTORY`
+and both degenerate: `3Ydh3BiTFP4h…` (1,132 slots, 0 events) and
+`38p2gd3pnTMT…` (1,806 slots, 0 replayable, **3 failed transactions excluded and
+counted** — that path exercised against mainnet rather than a fixture). The
+replay loop has not been exercised against a pool that traded *successfully*
+during the hold, and no calibration subset exists. Getting one is a sampling
+problem, not a code problem: every pool reachable from the current corpus is
+quiet, which is the depth-gate finding again. Building the instrument is not
+taking the measurement. `BOUNDED_COUNTERFACTUAL_TRAJECTORY` remains
+**uncalibrated** and may not be called confirmatory.
+
+### `reject:panel-v2` — a panel that is actually prospective
+
+It aliased `trajectory-status.ts`, which answers what the *opened* trajectories
+are doing — the opposite population.
+
+`reject_tracking` holds **1,191,281** rows and records *that* a token was
+rejected, not the *state* it was rejected on. A panel scored from state fetched
+later is a different experiment: the pool has traded and the reserves have
+moved. Those rows are reported as what they are and are **never back-admitted**,
+because a panel cannot be made prospective after the fact.
+
+Migration 46 adds three tables, deliberately separate:
+
+| | |
+|---|---|
+| `prospective_panels` | the RULE, frozen once, before any row |
+| `prospective_samples` | the SAMPLE, written at the instant of rejection, with **no outcome column** |
+| `prospective_sample_marks` | the OUTCOME, and only at a horizon the rule declared |
+
+Two properties are enforced by the repository rather than described in a
+document: `admitSample` refuses a row rejected before the rule was frozen, and
+`markSample` refuses an undeclared horizon — otherwise a metric can always be
+read off whichever window turned out well, which is threshold-shopping in a
+place no ledger covers. The declaration instant is a **literal** in source;
+`Date.now()` at startup would make "the rule was frozen before the rows"
+vacuously true.
+
+`REJECT_PANEL_V1` shares the trajectory mark offsets (1m/5m/15m/30m/60m), so a
+rejected token and an opened one are observed on the same schedule, and scores
+an executable quote rather than a USD price.
+
+**Ran.** One observe cycle admitted **198** samples with the snapshot attached:
+122 `stale_source`, 58 `insufficient_liquidity`, 8 `soft:high_round_trip`, 4
+`excessive_impact`, 4 `dev_holds_too_much`, 2 `soft:concentration_unknown`.
+
+**Not claimed, and the marker is deliberately absent.** An admitted sample is a
+row, not a result. The metric needs the atoms a development notional would have
+bought *at rejection time* — one RPC call per rejection, ~200 a cycle, against
+an endpoint already answering `429 max usage reached`. A marker that quoted at
+mark time instead would be cheap and would produce a number that looks like a
+result and is not one, so it is not built. The affordable design is a
+probability subsample using the `inclusion_probability` column that is already
+there; the fraction is a preregistered choice and has not been made, because
+picking it now would be choosing a sample size with the corpus in view.
+
+### Still not done
+
+- **`landed:parity-v2`** — needs one direct PumpSwap swap actually landed on
+  mainnet. Nothing here has ever signed or submitted, and a canary is a human
+  act this agent is forbidden to perform.
+- **PREWARMED comparability** — the SDK will not let us pin the fee recipient.
+- **A replay calibration subset** — the machinery exists; the measurement does
+  not.

@@ -2591,6 +2591,123 @@ CREATE TABLE IF NOT EXISTS trajectory_settlements (
 CREATE INDEX IF NOT EXISTS idx_tsettle_net ON trajectory_settlements(net_pnl);
 `,
   },
+  {
+    id: 45,
+    name: 'exploration_entitlement',
+    sql: `
+-- Item 55 -- how much exploration budget remains, and how much was spent.
+--
+-- pnpm exploration:status aliased cohort:status, which answers which CELLS
+-- ARE UNDER-FILLED. That is a different question from HOW MUCH EXPLORATION
+-- BUDGET REMAINS, and the alias meant nobody could tell that the exploration
+-- arm had never actually run: the allocator existed, was tested, was pure, and
+-- no production caller invoked it.
+--
+-- A gate evaluated only on the candidates it admitted is evaluated on its own
+-- output. The 25% draw exists so the corpus contains rows the ranking would
+-- never have bought, and an entitlement that is not tracked is an entitlement
+-- that silently goes unspent.
+--
+-- Keyed by window so a restart RESUMES rather than re-granting: the ledger is
+-- the state, and the process holds none of it.
+CREATE TABLE IF NOT EXISTS exploration_entitlement (
+  window_id        TEXT NOT NULL,
+  stratum          TEXT NOT NULL,
+  -- FROZEN before collection. Choosing it afterwards, having seen which arm did
+  -- better, is choosing an answer.
+  fraction         REAL NOT NULL,
+  granted          INTEGER NOT NULL DEFAULT 0,
+  consumed         INTEGER NOT NULL DEFAULT 0,
+  updated_utc_ms   INTEGER NOT NULL,
+  PRIMARY KEY (window_id, stratum)
+);
+
+-- Which arm each trajectory came from, and with what probability.
+--
+-- Without the probability the sample cannot be reweighted, and a biased sample
+-- whose bias is unrecorded is worse than no sample: it looks like evidence.
+ALTER TABLE development_trajectories ADD COLUMN exploration_arm TEXT;
+ALTER TABLE development_trajectories ADD COLUMN inclusion_probability REAL;
+ALTER TABLE development_trajectories ADD COLUMN exploration_window TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_traj_arm ON development_trajectories(exploration_arm);
+`,
+  },
+  {
+    id: 46,
+    name: 'prospective_samples',
+    sql: `
+-- reject:panel-v2 -- the panel that is PROSPECTIVE, because the sample and the
+-- scoring rule are fixed before any outcome exists.
+--
+-- reject_tracking records THAT a token was rejected: mint, reason, a price and
+-- a liquidity figure. It does not record the STATE the rejection was made on,
+-- and a panel scored from state fetched later is a different experiment -- the
+-- pool has traded, the reserves have moved, and the thing being scored is no
+-- longer the thing the filter saw.
+--
+-- Three tables because three things must not be written at the same time:
+--   the RULE      frozen once, before any row is admitted
+--   the SAMPLE    written at the instant of rejection, outcome-free
+--   the OUTCOME   written later, and only for horizons the rule declared
+CREATE TABLE IF NOT EXISTS prospective_panels (
+  panel_id            TEXT PRIMARY KEY,
+  -- Frozen BEFORE collection. Changing any of these is a new panel, never an
+  -- edit: a horizon added after seeing outcomes is a horizon chosen on them.
+  declared_utc_ms     INTEGER NOT NULL,
+  horizons_ms         TEXT NOT NULL,
+  metric              TEXT NOT NULL,
+  -- The commit the rule was frozen at, so a rule that moved is detectable.
+  source_commit       TEXT NOT NULL,
+  notes               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS prospective_samples (
+  sample_id           TEXT PRIMARY KEY,
+  panel_id            TEXT NOT NULL,
+  mint                TEXT NOT NULL,
+  -- The STATE, by reference. This is the column reject_tracking lacks and the
+  -- reason a v1 panel could never be prospective.
+  snapshot_id         TEXT NOT NULL,
+  rejected_utc_ms     INTEGER NOT NULL,
+  primary_reason      TEXT NOT NULL,
+  -- Every gate verdict, not just the first one to fire. A filter's cost cannot
+  -- be attributed when only the winning reason was kept.
+  gate_verdicts       TEXT NOT NULL,
+  -- How this row entered the panel. Without it the panel is a convenience
+  -- sample, and a biased sample whose bias is unrecorded looks like evidence.
+  inclusion_probability REAL,
+  stratum             TEXT,
+  -- Executable state AT REJECTION, in lamports as TEXT (SQLite INTEGER is
+  -- 64-bit SIGNED). Null means the provider did not answer, never zero.
+  pool_reserves_lamports TEXT,
+  executable_quote_lamports TEXT,
+  route_exists        INTEGER,
+  FOREIGN KEY (panel_id) REFERENCES prospective_panels(panel_id)
+);
+CREATE INDEX IF NOT EXISTS idx_psample_panel ON prospective_samples(panel_id, rejected_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_psample_mint ON prospective_samples(mint);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_psample_once ON prospective_samples(panel_id, mint, snapshot_id);
+
+-- Outcomes, keyed by a horizon the PANEL declared. A horizon not in
+-- horizons_ms has no row here, which is what stops a metric being read off a
+-- window picked once the answer was visible.
+CREATE TABLE IF NOT EXISTS prospective_sample_marks (
+  sample_id           TEXT NOT NULL,
+  horizon_ms          INTEGER NOT NULL,
+  observed_utc_ms     INTEGER NOT NULL,
+  -- How late the mark actually was. A horizon reached late carries the right
+  -- label and the wrong instant.
+  lateness_ms         INTEGER NOT NULL,
+  executable_lamports TEXT,
+  -- Why this mark carries no price. Never collapsed to "no route".
+  refusal             TEXT,
+  PRIMARY KEY (sample_id, horizon_ms),
+  FOREIGN KEY (sample_id) REFERENCES prospective_samples(sample_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pmark_due ON prospective_sample_marks(horizon_ms, observed_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

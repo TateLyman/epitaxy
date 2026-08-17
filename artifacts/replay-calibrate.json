@@ -1,0 +1,40 @@
+{
+  "artifact": "replay-calibrate",
+  "directiveSection": "item 49 / P9",
+  "generatedUtcMs": 1786925309305,
+  "sourceCommit": "4edb5f7810d6c90ba6b517271b23c52534bf8cd2",
+  "dirty": true,
+  "mint": "38p2gd3pnTMTAFSA9TsarVUMhvFEpP1Mk4xBDm9upump",
+  "pool": "UFJYs1STkiN6HiZR1VcgTeuuC6JLvsSHBdAHqjm3jYx",
+  "entrySlot": 439740732,
+  "exitSlot": 439742538,
+  "heldSlots": 1806,
+  "listing": {
+    "listedFromSlot": 439547560,
+    "listedToSlot": 439736661,
+    "truncated": false,
+    "failedExcluded": 3,
+    "unreadable": []
+  },
+  "plan": {
+    "steps": [],
+    "inert": 0,
+    "refusals": [],
+    "usable": true
+  },
+  "evidenceClass": {
+    "klass": "FULL_EVENT_REPLAY_TRAJECTORY",
+    "refusedBecause": []
+  },
+  "replay": {
+    "acquiredAtoms": "768772653426",
+    "selfImpactLamports": "-35643",
+    "quoteStateSurvived": true,
+    "caveat": null,
+    "boundedMark": {
+      "offsetMs": 300000,
+      "lamports": "19470529"
+    }
+  },
+  "notClaimed": "a replayed exit is exact for THIS trajectory. It does not calibrate the bounded class until a subset has been replayed and the bound and haircut frozen against it."
+}

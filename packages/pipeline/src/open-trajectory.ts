@@ -18,6 +18,8 @@ import { associatedTokenAddress, TOKEN_PROGRAM } from '../../solana/src/pda.js';
 import { buildCloseAccount } from '../../solana/src/closeaccount.js';
 import { compileMessage, encodeUnsignedTransaction } from '../../solana/src/encode.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from './sequential-round-trip.js';
+import type { ReplayStep } from './event-replay.js';
+import type { AccountBytesSource } from '../../solana/src/pumpswap-offline.js';
 import type { SequentialWorker } from '../../simulator/src/sequential-worker.js';
 import { observedTokenAtoms, RENT_EXEMPT_EPOCH } from '../../simulator/src/sequential-runtime.js';
 import {
@@ -228,6 +230,17 @@ const toRaw = (i: TransactionInstruction | RawInstruction): RawInstruction =>
         data: Buffer.from((i as TransactionInstruction).data).toString('base64'),
       };
 
+/**
+ * Exported for item 49's replay builder, which has to encode a transaction for
+ * the replay actor rather than for the taker.
+ *
+ * The SDK returns `TransactionInstruction`s and the compiler wants raw metas;
+ * `toRaw` is the conversion. A caller that reimplemented it would eventually
+ * differ in account ordering, and account order is the thing a frozen plan and
+ * a replay both depend on being identical.
+ */
+export const encodeForPayer = (ixs: unknown[], payer: string, bh: string): string => encode(ixs, payer, bh);
+
 const encode = (ixs: unknown[], taker: string, bh: string): string =>
   Buffer.from(
     encodeUnsignedTransaction(
@@ -270,6 +283,22 @@ export async function openTrajectory(
       unixTimestamp: number;
     }>;
     fundedWalletLamports?: bigint;
+    /**
+     * Item 49 — `FULL_EVENT_REPLAY_TRAJECTORY`.
+     *
+     * The intervening mainnet trades, pushed through the local post-entry pool
+     * before the exit is priced. Omitted — which is every routine cycle — the
+     * exit is priced immediately after the entry and the trip measures
+     * MECHANICS, not a holding period.
+     *
+     * Supplied, the exit is priced against a pool that contains both our entry
+     * and everything that happened after it. The seed accounts the actor needs
+     * come in through `captureSnapshot`, so nothing here modifies the capture.
+     */
+    intervening?: {
+      steps: readonly ReplayStep[];
+      build: (step: ReplayStep, state: AccountBytesSource) => Promise<string>;
+    };
   },
 ): Promise<OpenResult> {
   let pool: string;
@@ -606,6 +635,9 @@ export async function openTrajectory(
        */
       economicAccounts: [...priceBearing, takerAta, takerWsol],
       observe,
+      // Item 49 — absent on every routine cycle, which is why the trip's
+      // `replayed` field is null rather than empty there.
+      ...(p.intervening === undefined ? {} : { intervening: p.intervening }),
       buildSell: standardPumpSwapSell({
         preState: preSrc,
         pool,

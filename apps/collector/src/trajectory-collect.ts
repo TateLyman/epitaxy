@@ -34,6 +34,13 @@ import {
   markAndOutcomeCounts,
 } from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
+import { allocate, EXPLORATION_FRACTION } from '../../../packages/strategy/src/exploration.js';
+import {
+  grantExploration,
+  consumeExploration,
+  entitlements,
+  explorationRealised,
+} from '../../../packages/storage/src/exploration-repo.js';
 import { swapAccountRoles } from '../../../packages/solana/src/pumpswap-offline.js';
 import { decodeMint, type DecodedMint } from '../../../packages/solana/src/mint.js';
 import { TOKEN_2022_PROGRAM } from '../../../packages/solana/src/pda.js';
@@ -100,6 +107,14 @@ import {
 
 const MIGRATION_PROGRAMS = [PUMP_PROGRAM, PUMPSWAP_PROGRAM, AMM_PROGRAM_ID];
 
+/**
+ * A seed that is fixed within a cycle and varies between them.
+ *
+ * `Math.random()` would make a cycle unreplayable, and replay divergence is
+ * supposed to mean a defect rather than a coin flip.
+ */
+const nowSeed = (): number => Math.floor(Date.now() / 60_000);
+
 /** One account read, shaped for `accountSourceOf`. */
 async function readPoolRow(
   rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
@@ -156,6 +171,13 @@ interface Args {
    * dead chain rather than as an exhausted candidate set.
    */
   readonly maxPerMint: number;
+  /**
+   * Which window this run belongs to.
+   *
+   * Keys the exploration ledger, so a restart RESUMES an entitlement instead of
+   * re-granting it.
+   */
+  readonly windowId: string;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -176,6 +198,7 @@ function parseArgs(argv: readonly string[]): Args {
     // Opt-in. See the field comment: 219 messages/second, measured.
     liveLane: argv.includes('--live-lane'),
     maxPerMint: num('--max-per-mint', 3),
+    windowId: (argv.find((x) => x.startsWith('--window=')) ?? '--window=DEV_WINDOW_V1').slice(9),
   };
 }
 
@@ -667,6 +690,49 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   const worker = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
   const refusals: Record<string, number> = {};
   let opened = 0;
+
+  /**
+   * Item 55 - the EXPLORATION ARM, which had never run.
+   *
+   * `allocate()` existed, was tested, was pure, and no production caller
+   * invoked it, so 100% of the budget went to the ranking. A gate evaluated
+   * only on the candidates it admitted is evaluated on its own output; the
+   * random draw exists so the corpus contains rows the ranking would never
+   * have bought.
+   *
+   * The window id keys the ledger, so a restart RESUMES an entitlement rather
+   * than re-granting it. All the state is in the database, which is the same
+   * property the mark scheduler already relies on.
+   */
+  const windowId = args.windowId;
+  const armOf = new Map<string, { arm: 'exploit' | 'explore'; p: number }>();
+  {
+    const ranked = candidates.map((c, i) => ({
+      item: c.mint,
+      // Least-sampled-first is the exploit RANKING, so the arm split is a
+      // disagreement with that ranking rather than a reshuffle of it.
+      rank: -i,
+      stratum: mechanicsStratum({ canonicalPool: true, cashbackCoin: c.is_cashback_coin === 1 }),
+    }));
+    const selected = allocate(ranked, Math.min(args.maxOpen, ranked.length), Math.floor(nowSeed()), 0);
+    for (const sel of selected) armOf.set(sel.item, { arm: sel.arm, p: sel.inclusionProbability });
+  }
+  /**
+   * Grants happen at the END of the cycle, against rows that were actually
+   * OPENED. See `grantOpened` below.
+   *
+   * Granting against SELECTIONS was measured wrong: the first live cycle
+   * selected eight candidates, the depth gate refused all eight, and the ledger
+   * still recorded `granted 3, consumed 0`. Every cycle would add entitlement
+   * for rows that never existed, so the budget climbs forever and the fraction
+   * it is supposed to hold at 25% becomes unenforceable.
+   *
+   * Granting on opens makes the ledger track the corpus. A stratum earns
+   * exploration budget in proportion to the rows it actually contributed, and
+   * the arm spends it on the next cycle — so the first window is all
+   * exploitation, visibly, rather than by an accident nobody recorded.
+   */
+  const openedPerStratum = new Map<string, number>();
   /**
    * Endpoint exhaustion, without matching provider prose.
    *
@@ -788,6 +854,23 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
       // the market looked like. It does not say which fee recipient the SDK
       // picked or what the instruction's account order was, and those are the
       // things a replay has to reproduce exactly.
+      const arm = armOf.get(c.mint) ?? null;
+      /**
+       * An exploration selection SPENDS entitlement. When the stratum has none
+       * left the row is exploitation, whatever the draw said - a silent
+       * overspend would make the recorded fraction a description of intent
+       * rather than of what happened.
+       */
+      const stratumOfCandidate = mechanicsStratum({
+        canonicalPool: true,
+        cashbackCoin: c.is_cashback_coin === 1,
+      });
+      const spent =
+        arm?.arm === 'explore' ? consumeExploration(db, windowId, stratumOfCandidate, Date.now()) : false;
+      const effectiveArm: 'exploit' | 'explore' = spent ? 'explore' : 'exploit';
+      // This row exists, so its stratum earns entitlement for the next cycle.
+      openedPerStratum.set(stratumOfCandidate, (openedPerStratum.get(stratumOfCandidate) ?? 0) + 1);
+
       insertTrajectory(db, {
         identity: {
           trajectoryId: t.trajectoryId,
@@ -821,6 +904,12 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
         refusals: t.incompleteness,
         openedUtcMs: t.openedUtcMs,
       });
+
+      db.prepare(
+        `UPDATE development_trajectories
+            SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?
+          WHERE trajectory_id = ?`,
+      ).run(effectiveArm, arm?.p ?? null, windowId, t.trajectoryId);
 
       insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
       // P2/P7 — the exit's plan too. It is the plan the cashback tail was
@@ -880,6 +969,18 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
     }
   } finally {
     await worker.close();
+  }
+
+  /**
+   * Item 55 — the grant, against rows that EXIST.
+   *
+   * After the open loop, so a cycle that opened nothing grants nothing. The
+   * previous placement granted against selections and a cycle whose candidates
+   * were all refused by the depth gate still recorded entitlement, which makes
+   * the ledger a record of intent.
+   */
+  for (const [stratum, n] of openedPerStratum) {
+    grantExploration(db, windowId, stratum, EXPLORATION_FRACTION, n, Date.now());
   }
 
   console.log('');
@@ -1088,6 +1189,23 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
    * commits, so this line reports a quantity the system measured in full and
    * then discarded.
    */
+  const ent = entitlements(db, args.windowId);
+  const realised = explorationRealised(db);
+  console.log('');
+  console.log(
+    `exploration           : realised ${realised.explore} explore / ${realised.exploit} exploit` +
+      (realised.realisedFraction === null
+        ? ''
+        : ` (${(realised.realisedFraction * 100).toFixed(1)}% against a frozen ${(EXPLORATION_FRACTION * 100).toFixed(0)}%)`) +
+      (realised.unassigned > 0 ? `, ${realised.unassigned} opened before the arm was recorded` : ''),
+  );
+  for (const e of ent.slice(0, 4)) {
+    console.log(
+      `  ${e.stratum.padEnd(26)} granted ${String(e.granted).padStart(4)}  consumed ${String(e.consumed).padStart(4)}` +
+        `  remaining ${String(e.remaining).padStart(4)}`,
+    );
+  }
+
   const st = settlementTotals(db);
   console.log(
     `settlements           : ${st.settlements} (${st.withNetPnl} with net PnL) — ` +

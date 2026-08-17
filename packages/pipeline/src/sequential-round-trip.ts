@@ -1,8 +1,9 @@
 import { SequentialWorker, assertQuoteStateSurvived, type ObserveResult } from '../../simulator/src/sequential-worker.js';
 import type { FrozenRuntimeSnapshot, SequentialStepResult } from '../../simulator/src/sequential-runtime.js';
 import { observedBytes } from '../../simulator/src/sequential-runtime.js';
-import { accountSourceOf, overlaySource, buildSellFrom, quoteSellFrom } from '../../solana/src/pumpswap-offline.js';
+import { accountSourceOf, overlaySource, buildBuyFrom, buildSellFrom, quoteSellFrom } from '../../solana/src/pumpswap-offline.js';
 import type { AccountBytesSource } from '../../solana/src/pumpswap-offline.js';
+import type { ReplayStep } from './event-replay.js';
 
 /**
  * P3 — the one-pass round trip.
@@ -111,11 +112,39 @@ export interface RoundTripRequest {
      */
     observeExtra?: readonly string[];
   }>;
+  /**
+   * Item 49 — `FULL_EVENT_REPLAY_TRAJECTORY`.
+   *
+   * The intervening mainnet trades, replayed onto the local post-entry state
+   * before the sell is priced. Omitted, the sell is priced immediately after
+   * the buy, which is the round trip this module has always run and which
+   * measures MECHANICS, not a holding period.
+   *
+   * Supplied, the exit is priced against a pool that contains both our entry
+   * and everything that happened after it — the only construction that is
+   * exact, and the reference the bounded counterfactual class is calibrated
+   * against.
+   *
+   * `build` is injected for the same reason `buildSell` is: this module owns
+   * the ORDER, the caller owns pricing. Each event is built from the state as
+   * it stands at that point in the replay, because a swap's account plan and
+   * its amounts depend on reserves the previous event moved.
+   */
+  readonly intervening?: {
+    readonly steps: readonly ReplayStep[];
+    readonly build: (step: ReplayStep, state: AccountBytesSource) => Promise<string>;
+    /** Accounts to observe on each replayed step. Defaults to the price-bearing set. */
+    readonly observe?: readonly string[];
+  };
   readonly jobId: string;
 }
 
 export type RoundTripFailure =
   | 'BUY_FAILED'
+  /** An intervening event did not commit locally, so the reserves are wrong from there on. */
+  | 'REPLAY_EVENT_FAILED'
+  /** The state after a replayed event could not be read, so the next one cannot be built. */
+  | 'REPLAY_STATE_UNOBSERVED'
   | 'NO_MEASURED_CREDIT'
   | 'QUOTE_STATE_UNOBSERVED'
   | 'BUY_DID_NOT_MOVE_THE_SELL_POOL'
@@ -151,8 +180,26 @@ export interface RoundTripResult {
   readonly baseAtaClosedInSell: boolean | null;
   /** The exact instructions the sell executed, when the builder reported them. */
   readonly sellInstructions: readonly unknown[] | null;
+  /**
+   * Item 49 — the intervening events that were actually applied.
+   *
+   * `null` when no replay was requested, and that is NOT the same as an empty
+   * array. An empty array is a holding period in which the pool did not trade;
+   * null is a round trip that never asked. Collapsing the two would let a
+   * mechanics run present itself as a replayed holding period.
+   */
+  readonly replayed: readonly ReplayedEvent[] | null;
   readonly runtimeIdentity: unknown;
   readonly incompleteness: readonly string[];
+}
+
+/** One intervening trade, as it landed in the LOCAL pool. */
+export interface ReplayedEvent {
+  readonly signature: string;
+  readonly slot: number;
+  readonly kind: 'BUY' | 'SELL';
+  readonly inputAmount: bigint;
+  readonly status: string;
 }
 
 function fail(f: RoundTripFailure, detail: string, partial: Partial<RoundTripResult> = {}): RoundTripResult {
@@ -169,6 +216,7 @@ function fail(f: RoundTripFailure, detail: string, partial: Partial<RoundTripRes
     selfImpactLamports: null,
     baseAtaClosedInSell: null,
     sellInstructions: null,
+    replayed: null,
     runtimeIdentity: null,
     incompleteness: [],
     ...partial,
@@ -271,6 +319,48 @@ export function standardPumpSwapSell(p: {
   };
 }
 
+/**
+ * Item 49 — the standard builder for one intervening trade.
+ *
+ * Here for the same reason `standardPumpSwapSell` is: the round trip owns the
+ * ORDER of operations and the caller owns pricing, but nobody should have to
+ * re-derive PumpSwap's account plan to run a replay.
+ *
+ * The mainnet trader's INPUT is what is reproduced. Their output came from
+ * mainnet's reserves, and forcing it would erase the displacement our entry
+ * caused — which is the whole quantity the replay exists to measure. Slippage
+ * is set wide for the same reason: an intervening trade must LAND, because a
+ * refused one leaves the pool at reserves mainnet never had, and the honest
+ * response to "it would not have gone through at our prices" is a landed trade
+ * at our prices, not a missing one.
+ */
+export function standardReplayBuild(p: {
+  pool: string;
+  actor: string;
+  /** Wide on purpose. See above. */
+  slippagePct: number;
+  blockhash: string;
+  encode: (instructions: unknown[], blockhash: string) => string;
+}) {
+  return async (step: ReplayStep, state: AccountBytesSource): Promise<string> => {
+    const built =
+      step.kind === 'BUY'
+        ? await buildBuyFrom(state, {
+            poolKey: p.pool,
+            user: p.actor,
+            quoteLamports: step.inputAmount,
+            slippagePct: p.slippagePct,
+          })
+        : await buildSellFrom(state, {
+            poolKey: p.pool,
+            user: p.actor,
+            baseAtoms: step.inputAmount,
+            slippagePct: p.slippagePct,
+          });
+    return p.encode(built.instructions as unknown[], p.blockhash);
+  };
+}
+
 export async function sequentialRoundTrip(req: RoundTripRequest, worker?: SequentialWorker): Promise<RoundTripResult> {
   const w = worker ?? new SequentialWorker({ commandTimeoutMs: 240_000 });
   const ownsWorker = worker === undefined;
@@ -363,12 +453,113 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       ),
     );
 
+    /**
+     * Item 49 — THE INTERVENING TRADES, ONTO THE STATE THAT CONTAINS OUR ENTRY.
+     *
+     * Each event is built from the state as it stands at that point, then
+     * committed, then the state is re-read. Building them all up front would
+     * price every one of them against the post-buy reserves, which is the same
+     * substitution — a trade quoted against a pool that does not contain the
+     * trades before it — one level down.
+     *
+     * Any failure refuses the whole trajectory. A replay missing one trade is
+     * not a slightly worse replay; it is a pool at the wrong reserves for
+     * everything after it, presented as the exact reference the bounded class
+     * is calibrated against.
+     */
+    let pricingSrc: AccountBytesSource = postSrc;
+    /**
+     * The observation the sell is actually priced from, and the one
+     * `assertQuoteStateSurvived` must be given.
+     *
+     * Without a replay this IS the post-buy observation. With one, the replay
+     * moved the pool on purpose, so checking the sell against the post-buy
+     * state would report `QUOTE_STATE_MOVED` for the intended behaviour — and
+     * the fix must not be to weaken the assertion. It is to point it at the
+     * state the sell was genuinely built from.
+     */
+    let pricedFrom = quoted;
+    let replayed: ReplayedEvent[] | null = null;
+    if (req.intervening !== undefined) {
+      replayed = [];
+      const replayObserve = req.intervening.observe ?? req.priceBearingAccounts;
+      for (const ev of req.intervening.steps) {
+        let bytes: string;
+        try {
+          bytes = await req.intervening.build(ev, pricingSrc);
+        } catch (e) {
+          return fail('REPLAY_EVENT_FAILED', `building ${ev.signature}: ${(e as Error).message.slice(0, 160)}`, {
+            buy: buy.step,
+            acquiredAtoms: acquired,
+            quoted,
+            replayed,
+            runtimeIdentity: identity,
+            incompleteness,
+          });
+        }
+        const r = await w.step(
+          { label: `replay:${ev.slot}:${ev.signature.slice(0, 8)}`, transactionBase64: bytes, observe: [...replayObserve] },
+          economic,
+        );
+        replayed.push({
+          signature: ev.signature,
+          slot: ev.slot,
+          kind: ev.kind,
+          inputAmount: ev.inputAmount,
+          status: r.step.status,
+        });
+        if (r.step.status !== 'SIMULATED_OK') {
+          return fail('REPLAY_EVENT_FAILED', `${ev.signature} did not commit: ${r.step.transactionError ?? 'no error given'}`, {
+            buy: buy.step,
+            acquiredAtoms: acquired,
+            quoted,
+            replayed,
+            runtimeIdentity: identity,
+            incompleteness,
+          });
+        }
+
+        const after = await w.observe(req.priceBearingAccounts, economic);
+        const afterKeys = new Set(after.accounts.map((a) => a.pubkey));
+        const missing = req.priceBearingAccounts.filter((a) => !afterKeys.has(a));
+        // The same vacuity F1 found on the post-buy read. An empty observation
+        // here would silently leave `pricingSrc` at the state BEFORE this
+        // event, and every later event would compound the error.
+        if (after.accounts.length === 0 || missing.length > 0) {
+          return fail(
+            'REPLAY_STATE_UNOBSERVED',
+            `after ${ev.signature}: ${missing.length} price-bearing account(s) unobserved`,
+            {
+              buy: buy.step,
+              acquiredAtoms: acquired,
+              quoted,
+              replayed,
+              runtimeIdentity: identity,
+              incompleteness,
+            },
+          );
+        }
+        pricingSrc = overlaySource(
+          pricingSrc,
+          accountSourceOf(
+            after.accounts.map((a) => ({
+              pubkey: a.pubkey,
+              owner: a.owner,
+              dataBase64: a.dataBase64,
+              lamports: BigInt(a.lamports),
+            })) as never,
+          ),
+        );
+        pricedFrom = after;
+      }
+    }
+
     let selfImpactLamports: bigint | null = null;
     let sellBytes: string;
     let sellInstructions: readonly unknown[] | null = null;
     let sellObserveExtra: readonly string[] = [];
     try {
-      const built = await req.buildSell(postSrc, acquired);
+      const built = await req.buildSell(pricingSrc, acquired);
       sellBytes = built.transactionBase64;
       selfImpactLamports = built.selfImpactLamports;
       sellInstructions = built.instructions ?? null;
@@ -398,7 +589,7 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
     let quoteStateSurvived = true;
     let quoteDetail: string | null = null;
     try {
-      assertQuoteStateSurvived(quoted, sell.step);
+      assertQuoteStateSurvived(pricedFrom, sell.step);
     } catch (e) {
       quoteStateSurvived = false;
       quoteDetail = (e as Error).message;
@@ -485,11 +676,14 @@ export async function sequentialRoundTrip(req: RoundTripRequest, worker?: Sequen
       sell: sell.step,
       close: close?.step ?? null,
       acquiredAtoms: acquired,
-      quoted,
+      // The state the sell was PRICED FROM, which after a replay is the
+      // post-replay state and not the post-buy one.
+      quoted: pricedFrom,
       quoteStateSurvived: true,
       selfImpactLamports,
       baseAtaClosedInSell,
       sellInstructions,
+      replayed,
       runtimeIdentity: identity,
       incompleteness: [
         ...incompleteness,

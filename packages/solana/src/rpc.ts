@@ -61,7 +61,19 @@ const GetAccountInfoSchema = rpcEnvelope(
 const GetSlotSchema = rpcEnvelope(z.number());
 const GetEpochInfoSchema = rpcEnvelope(z.object({ epoch: z.number() }).passthrough());
 const GetSignaturesSchema = rpcEnvelope(
-  z.array(z.object({ signature: z.string(), blockTime: z.number().nullable().optional() }).passthrough()),
+  z.array(
+    z
+      .object({
+        signature: z.string(),
+        blockTime: z.number().nullable().optional(),
+        // Item 49 — a replay needs the SLOT to order events, and `err` to tell
+        // a trade that landed from one that only tried. Both were being thrown
+        // away by the mapping below.
+        slot: z.number().optional(),
+        err: z.unknown().nullable().optional(),
+      })
+      .passthrough(),
+  ),
 );
 const GetTransactionMetaSchema = rpcEnvelope(
   z
@@ -283,7 +295,7 @@ export class SolanaRpc {
     address: string,
     limit = 50,
     before?: string,
-  ): Promise<{ signature: string; blockTime: number | null }[]> {
+  ): Promise<{ signature: string; blockTime: number | null; slot: number | null; failed: boolean | null }[]> {
     assertPubkey(address, 'signatures address');
     const cfg: Record<string, unknown> = { limit, commitment: 'confirmed' };
     if (before !== undefined) cfg['before'] = before;
@@ -291,6 +303,10 @@ export class SolanaRpc {
     return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
       signature: r.signature,
       blockTime: r.blockTime ?? null,
+      slot: r.slot ?? null,
+      // A provider that omitted the field said nothing about success. Null, not
+      // false — "we were not told" is not "it landed".
+      failed: r.err === undefined ? null : r.err !== null,
     }));
   }
 
