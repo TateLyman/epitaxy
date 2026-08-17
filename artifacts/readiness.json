@@ -3,14 +3,14 @@
   "directiveSection": "P12/F21",
   "gate": "EXACT_TRAJECTORY_CONTRACT",
   "verdict": "NOT_READY",
-  "generatedUtcMs": 1786910362556,
-  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
+  "generatedUtcMs": 1786925660432,
+  "sourceCommit": "a78969b8585211965403795418466b63f70397d9",
   "dirty": true,
-  "settledTrajectories": 59,
-  "timelyCompletePaths": 8,
+  "settledTrajectories": 185,
+  "timelyCompletePaths": 11,
   "distinctUtcDays": 2,
-  "grossDeltaLamportsControl": "-498037551",
-  "grossOutcomeCount": 58,
+  "grossDeltaLamportsControl": "-1278607722",
+  "grossOutcomeCount": 184,
   "netPnlLamports": null,
   "netPnlUnknownBecause": "gross_delta_lamports is exit mark minus entry cash-out. It carries no unrecoverable rent, no failed attempt, no claim cost and no cashback. Net requires a canonical settlement per trajectory.",
   "thresholds": {
@@ -37,7 +37,7 @@
     {
       "name": "completed trajectories",
       "pass": false,
-      "detail": "8 of 200"
+      "detail": "11 of 200"
     },
     {
       "name": "distinct UTC days",
