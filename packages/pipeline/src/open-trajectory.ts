@@ -757,6 +757,22 @@ export async function openTrajectory(
    * off the frozen plan, which is the only place they exist.
    */
   const selectedTail = [...selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey))];
+
+  /**
+   * D-2 — where the entry's quote goes, other than the pool's quote vault.
+   *
+   * The protocol/buyback recipients the SDK SELECTED, the creator vault and the
+   * cashback accumulator. Derived from the FROZEN PLAN rather than re-derived,
+   * so an account the SDK picked and we did not predict is present here for the
+   * same reason it is present in the transaction.
+   *
+   * Hoisted above the round trip because these must be in its ECONOMIC set: the
+   * conservation check reads a token amount out of each, and a token amount
+   * lives in the account's data.
+   */
+  const feeDestinations = [
+    ...new Set([roles.coinCreatorVaultAta, roles.accumulatorWsolAta, ...selectedTail]),
+  ].filter((a): a is string => typeof a === 'string' && a.length > 0 && a !== addrs.poolQuoteTokenAccount);
   /**
    * EVERY account the built plan touches. The plan is authoritative.
    *
@@ -885,7 +901,33 @@ export async function openTrajectory(
        * prevent. What is required is that a SWAPPED clock is visible, and
        * observing it on both sides is what makes that true.
        */
-      economicAccounts: [...priceBearing, takerAta, takerWsol, CLOCK_SYSVAR],
+      /**
+       * Every account whose BYTES something downstream decodes.
+       *
+       * The four price-bearing accounts and the two token accounts, plus:
+       *
+       *   CLOCK_SYSVAR      G-1 — observed on both sides so a swap is visible.
+       *   the FEE FLOWS     D-2 — the quote-side conservation check reads token
+       *                     amounts out of the creator vault, the cashback
+       *                     accumulator and the SDK-selected fee recipients. A
+       *                     balance is not enough: these are token accounts and
+       *                     the amount is at offset 64 of their DATA.
+       *
+       * Naming them here is the whole reason the runtime can refuse by name.
+       * Without it `observedTokenAtoms` throws `ObservedBytesNotRequested` —
+       * which is the correct behaviour and exactly what it did, rather than
+       * reading an unobserved account as a zero balance and silently
+       * attributing a 20,000,000 lamport entry to a pool that received nothing.
+       */
+      economicAccounts: [
+        ...new Set([
+          ...priceBearing,
+          takerAta,
+          takerWsol,
+          CLOCK_SYSVAR,
+          ...feeDestinations,
+        ]),
+      ],
       observe,
       // Item 49 — absent on every routine cycle, which is why the trip's
       // `replayed` field is null rather than empty there.
@@ -1047,13 +1089,6 @@ export async function openTrajectory(
     const after = tokenAmountAt(buyStep.postAccounts.find((a) => a.pubkey === pubkey)) ?? 0n;
     return after > before ? after - before : 0n;
   };
-  const feeDestinations = [
-    ...new Set([
-      roles.coinCreatorVaultAta,
-      roles.accumulatorWsolAta,
-      ...selectedTail,
-    ]),
-  ].filter((a) => a !== null && a !== undefined && a !== addrs.poolQuoteTokenAccount) as string[];
   const feeFlows = feeDestinations.reduce((n, a) => n + wsolDelta(a), 0n);
 
   const attribution = attributeSoleVenue({
