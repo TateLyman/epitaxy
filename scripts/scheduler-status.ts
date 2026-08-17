@@ -21,17 +21,66 @@ function main(): void {
   const db = openDb({ path: process.env['DATABASE_PATH'] ?? './data/runtime.db', skipBackup: true });
 
   try {
-    const activeContexts = (
-      db
-        .prepare(`SELECT evidence_context_id FROM evidence_contexts WHERE validity = 'DEVELOPMENT_EVIDENCE'`)
-        .all() as { evidence_context_id: string }[]
-    ).map((r) => r.evidence_context_id);
-    const ctx = ctxArg === undefined ? (activeContexts[0] ?? null) : ctxArg.slice(10);
+    /**
+     * THE CONTEXT THE RUNNING COLLECTOR IS COLLECTING INTO.
+     *
+     * This took `activeContexts[0]` from an unordered SELECT, so with more than
+     * one active context it reported on whichever row SQLite happened to return
+     * first. Measured 2026-08-17: the repair froze a contract at each commit as
+     * the code changed, leaving two dozen active contexts, and this command
+     * printed `ctx-faa8e69264f2` — a window from a previous directive with no
+     * marks in it — while the live window was `ctx-15d6476bcbec`. It then
+     * reported "no marks yet", which was true of the window it named and false
+     * of the one that was running.
+     *
+     * A status command that answers about a different window than the one
+     * running is worse than one that refuses: it is confidently wrong, and
+     * nothing on the output says which window it meant.
+     *
+     * The rule is the audit's rule — the context belonging to the most recently
+     * FROZEN contract — because that is what "active" means everywhere else.
+     * The fallback is the most recently OPENED active context, and either way
+     * the choice is printed with its reason.
+     */
+    const fromContract = db
+      .prepare(
+        `SELECT c.evidence_context_id, c.contract_id
+           FROM experiment_contracts c
+           JOIN evidence_contexts e ON e.evidence_context_id = c.evidence_context_id
+          WHERE e.validity = 'DEVELOPMENT_EVIDENCE'
+          ORDER BY c.frozen_utc_ms DESC LIMIT 1`,
+      )
+      .get() as { evidence_context_id: string; contract_id: string } | undefined;
+    const newestOpen = db
+      .prepare(
+        `SELECT evidence_context_id FROM evidence_contexts
+          WHERE validity = 'DEVELOPMENT_EVIDENCE' ORDER BY opened_utc_ms DESC LIMIT 1`,
+      )
+      .get() as { evidence_context_id: string } | undefined;
+
+    let why: string;
+    let ctx: string | null;
+    if (ctxArg !== undefined) {
+      ctx = ctxArg.slice(10);
+      why = 'named on the command line';
+    } else if (fromContract !== undefined) {
+      ctx = fromContract.evidence_context_id;
+      why = `the context of the most recently frozen contract, ${fromContract.contract_id}`;
+    } else if (newestOpen !== undefined) {
+      ctx = newestOpen.evidence_context_id;
+      why = 'no frozen contract owns an active context; the most recently OPENED one';
+    } else {
+      ctx = null;
+      why = 'no active evidence context exists';
+    }
 
     const now = Date.now();
     const due = dueMarks(db, { nowMs: now, offsets: MARK_OFFSETS_MS, evidenceContextId: ctx });
     const overdue = due.filter((d) => now - d.dueUtcMs > MARK_SLA_MS);
-    const wake = nextWakeMs(db, { nowMs: now, offsets: MARK_OFFSETS_MS });
+    // Scoped, like everything else here. Unscoped it reports the next deadline
+    // of a window this command is not describing — and an invalidated window's
+    // horizons are all long past, so it would always say zero.
+    const wake = nextWakeMs(db, { nowMs: now, offsets: MARK_OFFSETS_MS, evidenceContextId: ctx });
 
     /**
      * With no ACTIVE context there is no active sample, and that is different
@@ -45,7 +94,8 @@ function main(): void {
     const active = ctx === null ? [] : slaReport(db, { evidenceContextId: ctx });
     const corpus = slaReport(db);
 
-    console.log(`active evidence context : ${ctx ?? '(none)'}\n`);
+    console.log(`active evidence context : ${ctx ?? '(none)'}`);
+    console.log(`  chosen because          ${why}\n`);
 
     console.log('ACTIVE CONTEXT — marks by horizon');
     if (active.length === 0) console.log('  (no marks yet)');

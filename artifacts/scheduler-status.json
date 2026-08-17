@@ -1,55 +1,55 @@
 {
-  "activeContext": "ctx-c3c2ef00d44c-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-15d6476bcbec-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 4,
-      "onTime": 3,
-      "missed": 1,
+      "total": 1,
+      "onTime": 1,
+      "missed": 0,
       "unclassified": 0
     },
     {
       "offsetMs": 180000,
-      "total": 3,
-      "onTime": 3,
-      "missed": 0,
+      "total": 1,
+      "onTime": 0,
+      "missed": 1,
       "unclassified": 0
     }
   ],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 296,
-      "onTime": 3,
+      "total": 304,
+      "onTime": 11,
       "missed": 1,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 8,
-      "onTime": 3,
-      "missed": 5,
+      "total": 17,
+      "onTime": 10,
+      "missed": 7,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 292,
-      "onTime": 0,
-      "missed": 0,
+      "total": 300,
+      "onTime": 6,
+      "missed": 2,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 5,
-      "onTime": 0,
-      "missed": 5,
+      "total": 13,
+      "onTime": 7,
+      "missed": 6,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 292,
-      "onTime": 0,
+      "total": 296,
+      "onTime": 4,
       "missed": 0,
       "unclassified": 292
     },
@@ -70,15 +70,15 @@
   ],
   "dueNow": 0,
   "overdue": 0,
-  "nextWakeMs": 1963,
-  "activeTotal": 7,
+  "nextWakeMs": 3000,
+  "activeTotal": 2,
   "activeMissedOrUnclassified": 1,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+    "sourceCommit": "15d6476bcbecb529474a319993b24856b93b042f",
     "treeDirty": true,
-    "dirtyFiles": 4,
-    "writtenUtc": "2026-08-17T12:58:19.045Z"
+    "dirtyFiles": 5,
+    "writtenUtc": "2026-08-17T19:48:41.816Z"
   }
 }

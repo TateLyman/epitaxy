@@ -26,6 +26,7 @@ import {
   nextWakeMs,
   classifyMark,
   discoveryAdmissible,
+  dueMarks,
 } from '../../../packages/pipeline/src/mark-scheduler.js';
 import { measureEntityTier, type EntityTierReading } from '../../../packages/pipeline/src/entity-tier.js';
 import {
@@ -741,7 +742,30 @@ interface LaneContext {
  */
 async function runCycle(
   lanes: LaneContext | null = null,
-  opts: { readonly marksOnly?: boolean } = {},
+  opts: {
+    readonly marksOnly?: boolean;
+    /**
+     * P7 — CALLED BETWEEN CANDIDATES, SO A LONG DISCOVERY PASS CANNOT STARVE
+     * THE MARK TICK.
+     *
+     * Discovery and marks were given separate CLOCKS and left on one THREAD.
+     * Backpressure stops discovery from STARTING while a mark is overdue, and
+     * then a cycle that has started runs to completion however long it takes:
+     * the entity walk alone is 6-13 seconds per admissible candidate.
+     *
+     * Measured 2026-08-17, the first mark the repaired window ever missed:
+     *
+     *   MISSED_HORIZON  428DdvZJ1r +3m late by 47s (SLA 10s)
+     *
+     * against an SLA of ten seconds, with nothing wrong except that discovery
+     * held the thread. That is B-4 in miniature — 697 of 1,448 pre-repair marks
+     * more than sixty seconds late — reappearing for a different reason after
+     * the clock was fixed.
+     *
+     * A mark is a measurement of an instant. It cannot wait for anything.
+     */
+    readonly yieldToMarks?: () => Promise<void>;
+  } = {},
 ): Promise<void> {
   const mode = modeFromArgv() ?? 'observe';
   if (mode === 'canary' || mode === 'live') {
@@ -924,6 +948,9 @@ async function runCycle(
   try {
     for (const c of candidates) {
       if (opened >= args.maxOpen) break;
+      // Before spending 6-13 seconds walking one candidate's holders, hand the
+      // thread back to any mark whose horizon has arrived. See `yieldToMarks`.
+      if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
 
       /**
        * P10 — THE RISK FACTS, BEFORE THE DECISION.
@@ -2349,7 +2376,28 @@ async function main(): Promise<void> {
         ranDiscovery = true;
         console.log(`\n===== discovery cycle ${cycle} @ ${new Date(started).toISOString()} =====`);
         try {
-          await runCycle(lanes);
+          await runCycle(lanes, {
+            /**
+             * The mark pass, run BETWEEN candidates rather than after them.
+             *
+             * Scoped to this window, like the brake and the sleep, so it takes
+             * the marks it is responsible for and no others.
+             */
+            yieldToMarks: async () => {
+              const due = dueMarks(telemetryDb, {
+                nowMs: Date.now(),
+                offsets: MARK_OFFSETS_MS,
+                evidenceContextId: lanes.evidenceContextId,
+              });
+              if (due.length === 0) return;
+              console.log(`  (yielding to ${due.length} due mark(s) mid-discovery)`);
+              try {
+                await runCycle(lanes, { marksOnly: true });
+              } catch (e) {
+                console.error(`mid-discovery mark pass failed: ${(e as Error).message.slice(0, 160)}`);
+              }
+            },
+          });
         } catch (e) {
           /**
            * A cycle that throws must not kill the daemon.

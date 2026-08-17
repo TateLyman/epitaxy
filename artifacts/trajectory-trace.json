@@ -4,21 +4,21 @@
   "failures": 0,
   "results": [
     {
-      "trajectoryId": "0e7ac867-f6f5-449d-86ac-40bc661283b9",
+      "trajectoryId": "59718ddb-6f37-4c80-bc23-c8a608b13f68",
       "traceable": true,
-      "manifestRows": 49,
+      "manifestRows": 50,
       "blobsRead": 94,
       "unreadableBlobs": [],
       "derived": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "19618575",
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "17496692",
         "unexplainedLamports": "0",
-        "netPnlLamports": "-4270104"
+        "netPnlLamports": "-8466067"
       },
       "stored": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "19618575",
-        "netPnlLamports": "-4270104"
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "17496692",
+        "netPnlLamports": "-8466067"
       },
       "mismatches": [],
       "recomputes": true
@@ -26,9 +26,9 @@
   ],
   "provenance": {
     "writer": "trajectory-trace.ts",
-    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+    "sourceCommit": "15d6476bcbecb529474a319993b24856b93b042f",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-17T12:54:19.940Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-17T19:45:31.270Z"
   }
 }

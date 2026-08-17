@@ -17,7 +17,13 @@
     "ctx-f658ec7ae88b-DEV_WINDOW_5D24E",
     "ctx-9a337af8144a-DEV_WINDOW_5D24E",
     "ctx-200761d0eecd-DEV_WINDOW_5D24E",
-    "ctx-c3c2ef00d44c-DEV_WINDOW_5D24E"
+    "ctx-909c7f986254-DEV_WINDOW_5D24E",
+    "ctx-9e259b406157-DEV_WINDOW_5D24E",
+    "ctx-9df406ef343a-DEV_WINDOW_5D24E",
+    "ctx-258888342920-DEV_WINDOW_5D24E",
+    "ctx-5f049a4795f6-DEV_WINDOW_5D24E",
+    "ctx-a50808d9fb2a-DEV_WINDOW_5D24E",
+    "ctx-15d6476bcbec-DEV_WINDOW_5D24E"
   ],
   "trajectoriesInScope": 1,
   "checks": [
@@ -102,13 +108,13 @@
   ],
   "failingChecks": [],
   "emptyGraph": false,
-  "strict": true,
+  "strict": false,
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+    "sourceCommit": "15d6476bcbecb529474a319993b24856b93b042f",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-17T12:54:10.244Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-17T19:45:41.645Z"
   }
 }
