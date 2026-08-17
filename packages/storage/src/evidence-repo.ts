@@ -118,7 +118,27 @@ export class EvidenceStore {
    * that the write returned.
    */
   putDurable(kind: string, value: unknown, nowMs: number): string {
-    const ref = this.blobs.put(value);
+    /**
+     * NORMALISE BEFORE HASHING.
+     *
+     * The worker's account states carry `bigint` lamports and rentEpoch, and
+     * `JSON.stringify` throws on a bigint — so the first real trajectory died
+     * at `BlobStore.put` with "Do not know how to serialize a BigInt", after
+     * passing every gate.
+     *
+     * `canonicalJson` renders a bigint as its exact decimal string, which is
+     * this repository's u64 discipline everywhere else, and sorts object keys
+     * so two logically identical states hash IDENTICALLY regardless of the
+     * order the worker happened to emit them in. Without that, a blob's content
+     * address depends on key order and the deduplication silently stops
+     * working.
+     *
+     * Done here rather than in `BlobStore`, because `BlobStore` is shared with
+     * `data/blobs` and changing its serialisation would re-key content that is
+     * already stored under a different hash.
+     */
+    const normalised = JSON.parse(canonicalJsonOf(value)) as unknown;
+    const ref = this.blobs.put(normalised);
     const relative = this.blobs.pathFor(ref.hash);
 
     const existing = this.db
