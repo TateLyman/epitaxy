@@ -1,41 +1,28 @@
 {
-  "generatedUtcMs": 1786680694604,
-  "sourceCommit": "b989b888c65b16033ce966a3fa215860e66e3577",
+  "generatedUtcMs": 1786929431428,
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
   "dirty": true,
-  "strategyVersion": "delayed-momentum-v0.4.0",
-  "schemaVersion": 29,
-  "windowSeconds": 173.037,
+  "strategyVersion": "delayed-momentum-v0.6.0",
+  "schemaVersion": 46,
+  "windowSeconds": 52603.494,
   "throughput": {
-    "receivedPerSecond": 1097.673,
-    "parsedFraction": 0.1663,
+    "receivedPerSecond": 0,
+    "parsedFraction": null,
     "droppedInWindow": 0,
-    "queueHighWater": 3251,
-    "bytesInPerSecond": 1615637.072
+    "queueHighWater": 0,
+    "bytesInPerSecond": 0
   },
   "storage": {
-    "eventRows": 1008,
-    "barRows": 1437,
-    "unknownSampleRows": 178,
-    "totalRowsPerDay": 1309738,
-    "databaseBytes": 6197293056
+    "eventRows": 0,
+    "barRows": 0,
+    "unknownSampleRows": 0,
+    "totalRowsPerDay": 0,
+    "databaseBytes": 7349755904
   },
   "yield": {
-    "byKind": [
-      {
-        "kind": "LAUNCH",
-        "n": 972
-      },
-      {
-        "kind": "CONFIG",
-        "n": 28
-      },
-      {
-        "kind": "MIGRATION",
-        "n": 8
-      }
-    ],
-    "tradesAggregatedIntoBars": 29224,
-    "compressionRatio": 20.3
+    "byKind": [],
+    "tradesAggregatedIntoBars": 0,
+    "compressionRatio": null
   },
   "replacedFirehose": {
     "rows": 7023666,

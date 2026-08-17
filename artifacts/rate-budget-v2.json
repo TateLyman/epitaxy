@@ -1,14 +1,14 @@
 {
   "artifact": "rate-budget-v2",
   "directiveSection": "P13",
-  "generatedUtcMs": 1786910096022,
-  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
+  "generatedUtcMs": 1786929416469,
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
   "dirty": true,
   "activeTime": {
-    "activeSeconds": 886.614,
-    "wallSeconds": 2271.743,
-    "sessions": 8,
-    "diedWithoutClosing": 0
+    "activeSeconds": 16562.487,
+    "wallSeconds": 21639.407,
+    "sessions": 30,
+    "diedWithoutClosing": 6
   },
   "limitsPerActiveSecond": {
     "jupiter_order": 1,
@@ -19,23 +19,23 @@
     "solana_rpc:getSignaturesForAddress": 10
   },
   "report": {
-    "activeSeconds": 886.614,
-    "wallSeconds": 2271.743,
-    "dutyCycle": 0.39027918210818746,
+    "activeSeconds": 16562.487,
+    "wallSeconds": 21639.407,
+    "dutyCycle": 0.7653854377802498,
     "perResourcePerActiveSecond": {
-      "wss_events:logs": 105.94802247652304,
-      "solana_rpc:getAccountInfo": 0.08120783114184978,
-      "mark_jobs": 0.06316164644366094,
-      "solana_rpc:getTokenLargestAccounts": 0.00451154617454721,
-      "solana_rpc:getTokenSupply": 0.00451154617454721
+      "wss_events:logs": 5.671551621444292,
+      "solana_rpc:getAccountInfo": 0.3722870846630702,
+      "solana_rpc:getTokenLargestAccounts": 0.10264158999792723,
+      "solana_rpc:getTokenSupply": 0.10264158999792723,
+      "mark_jobs": 0.07287552889852834
     },
     "rateLimitErrors": {
-      "solana_rpc:getAccountInfo": 1
+      "solana_rpc:getAccountInfo": 16
     },
-    "validTrajectoriesPerDay": 5749.514444842965,
-    "validTrajectoriesPerCandidate": 1.2553191489361701,
+    "validTrajectoriesPerDay": 1241.5526726149278,
+    "validTrajectoriesPerCandidate": 3.26027397260274,
     "canonicalPoolYield": 1,
-    "cashbackPoolYield": 0.5957446808510638,
+    "cashbackPoolYield": 0.4657534246575342,
     "apparatusFailureRate": 0,
     "duplicateObservationRate": 0,
     "workerUtilization": 0,
@@ -44,19 +44,18 @@
       "p95": null
     },
     "markLagMs": {
-      "p50": 750,
-      "p95": 1371
+      "p50": 749,
+      "p95": 1595
     },
     "triggerToFillMs": {
       "p50": null,
       "p95": null
     },
-    "bindingConstraint": "solana_rpc:getAccountInfo: the DAILY QUOTA is exhausted (1 observed), which no per-second headroom relieves",
+    "bindingConstraint": "solana_rpc:getAccountInfo: the DAILY QUOTA is exhausted (16 observed), which no per-second headroom relieves",
     "notes": [
-      "the busiest limited resource is at 0.8% of its limit, so per-second rate capacity is NOT the constraint — buying more requests per second would not produce more completed trajectories",
+      "the busiest limited resource is at 3.7% of its limit, so per-second rate capacity is NOT the constraint — buying more requests per second would not produce more completed trajectories",
       "a daily allowance was spent, not a per-second limit. Backing off does not help: every retry today fails, and the refusals it produces read as facts about the chain rather than about the account.",
-      "rate-limit or quota errors were observed on: solana_rpc:getAccountInfo",
-      "duty cycle 39.0%: the process was not running for most of the window. Throughput per calendar day is therefore a fact about downtime, not about capacity."
+      "rate-limit or quota errors were observed on: solana_rpc:getAccountInfo"
     ]
   },
   "counters": [
@@ -70,28 +69,28 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "count": 72,
+      "count": 6166,
       "errors_429": 0,
-      "quota_errors": 1
-    },
-    {
-      "kind": "mark_jobs",
-      "detail": "",
-      "count": 56,
-      "errors_429": 0,
-      "quota_errors": 0
+      "quota_errors": 16
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "count": 4,
+      "count": 1700,
       "errors_429": 0,
       "quota_errors": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "count": 4,
+      "count": 1700,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "mark_jobs",
+      "detail": "",
+      "count": 1207,
       "errors_429": 0,
       "quota_errors": 0
     }

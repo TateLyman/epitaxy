@@ -1,30 +1,42 @@
 {
-  "generatedUtcMs": 1786646822469,
+  "generatedUtcMs": 1786929410161,
   "shadows": {
     "byClass": [
       {
         "book": "alpha_shadow",
+        "evidence_class": "JIT_EFFECT_VALID",
+        "n": 28,
+        "closed": 23
+      },
+      {
+        "book": "alpha_shadow",
         "evidence_class": "STRUCTURAL_ONLY",
-        "n": 542,
-        "closed": 460
+        "n": 579,
+        "closed": 496
+      },
+      {
+        "book": "canary_shadow",
+        "evidence_class": "JIT_EFFECT_VALID",
+        "n": 28,
+        "closed": 23
       },
       {
         "book": "canary_shadow",
         "evidence_class": "STRUCTURAL_ONLY",
-        "n": 541,
-        "closed": 460
+        "n": 578,
+        "closed": 496
       }
     ],
     "marks": {
-      "n": 25429,
-      "routed": 2712,
-      "unpriced": 22717
+      "n": 41044,
+      "routed": 2894,
+      "unpriced": 38150
     },
-    "blockedShadows": 0,
+    "blockedShadows": 4,
     "portfolioRefusals": [
       {
         "reason": "weekly_loss_halt",
-        "n": 987
+        "n": 1117
       },
       {
         "reason": "daily_loss_halt",

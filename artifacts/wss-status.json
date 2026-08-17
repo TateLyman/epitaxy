@@ -1,13 +1,13 @@
 {
   "artifact": "wss-status",
   "directiveSection": "P11",
-  "generatedUtcMs": 1786910094088,
-  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1",
+  "generatedUtcMs": 1786929414561,
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
   "dirty": true,
   "coverage": {
-    "sessions": 8,
+    "sessions": 30,
     "openSubscriptions": 0,
-    "closedSubscriptions": 37,
+    "closedSubscriptions": 41,
     "byKind": [
       {
         "kind": "migration_logs",
@@ -25,23 +25,23 @@
         "events": 0
       }
     ],
-    "gaps": 8,
-    "openGaps": 8,
+    "gaps": 10,
+    "openGaps": 10,
     "addressesChangedWhileBlind": 0,
     "urgentQueued": 0,
     "urgentConsumed": 0,
     "urgentPending": 0
   },
   "activeTime": {
-    "activeSeconds": 886.614,
-    "wallSeconds": 2271.743,
-    "sessions": 8,
-    "diedWithoutClosing": 0
+    "activeSeconds": 16562.487,
+    "wallSeconds": 21639.407,
+    "sessions": 30,
+    "diedWithoutClosing": 6
   },
   "subscriptionsByKind": [
     {
       "kind": "migration_logs",
-      "total": 16,
+      "total": 20,
       "open": 0,
       "events": 0
     },
@@ -59,6 +59,24 @@
     }
   ],
   "gaps": [
+    {
+      "session_id": "050d4921-6b42-49fc-9f8b-bcbf594d52f6",
+      "gap_start_utc_ms": 1786911125242,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
+    {
+      "session_id": "faa06923-8767-4529-b174-c9c21b42c015",
+      "gap_start_utc_ms": 1786910929897,
+      "gap_end_utc_ms": null,
+      "reason": "migration logs: logs subscription lost (closed); 2 program(s) uncovered until reconnect",
+      "addresses_resynced": 0,
+      "addresses_changed": 0,
+      "still_unreadable": 0
+    },
     {
       "session_id": "3812a2c9-2031-4b3e-ace4-90777c6ac636",
       "gap_start_utc_ms": 1786909863415,
@@ -139,83 +157,103 @@
   },
   "sessions": [
     {
-      "session_id": "3812a2c9-2031-4b3e-ace4-90777c6ac636",
-      "started_utc_ms": 1786909863247,
-      "heartbeat_utc_ms": 1786909906765,
-      "ended_utc_ms": 1786909906765,
+      "session_id": "b548e7ab-efbf-45c1-a3cc-745ed1add8da",
+      "started_utc_ms": 1786926930010,
+      "heartbeat_utc_ms": 1786926971824,
+      "ended_utc_ms": 1786926971824,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+      "dirty": 0
+    },
+    {
+      "session_id": "1cd4f8b0-d85f-4818-9b87-e2c0349b40de",
+      "started_utc_ms": 1786921920993,
+      "heartbeat_utc_ms": 1786922535821,
+      "ended_utc_ms": null,
+      "cycles": 3,
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "4edb5f7810d6c90ba6b517271b23c52534bf8cd2",
       "dirty": 1
     },
     {
-      "session_id": "8e459bf2-d87e-485c-9b8d-48e96edfe873",
-      "started_utc_ms": 1786909668533,
-      "heartbeat_utc_ms": 1786909719325,
-      "ended_utc_ms": 1786909719325,
+      "session_id": "d66030ed-b7b8-48be-b343-1ef046eb777c",
+      "started_utc_ms": 1786920832842,
+      "heartbeat_utc_ms": 1786920846070,
+      "ended_utc_ms": 1786920846070,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "9b6062511910d8838d671cac7e272ce41451888c",
       "dirty": 1
     },
     {
-      "session_id": "c4b0822a-2998-45b7-a456-6ba8a649c465",
-      "started_utc_ms": 1786909398830,
-      "heartbeat_utc_ms": 1786909609991,
-      "ended_utc_ms": 1786909609991,
+      "session_id": "0f86c9dc-a36d-43ee-83f3-bea1ce092f14",
+      "started_utc_ms": 1786920105501,
+      "heartbeat_utc_ms": 1786929207298,
+      "ended_utc_ms": null,
+      "cycles": 31,
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "046b5e1c7866d0eff9d9e3c24b5f632fc62985dc",
+      "dirty": 0
+    },
+    {
+      "session_id": "332847f8-00b4-4e0f-8886-1b34fc77fb0a",
+      "started_utc_ms": 1786920015007,
+      "heartbeat_utc_ms": 1786920040076,
+      "ended_utc_ms": 1786920040076,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "fe628d47f2d05a9617e161a5e330e960f3b5f0e5",
       "dirty": 1
     },
     {
-      "session_id": "8e21abb8-0ee6-4670-b574-5b19f900466a",
-      "started_utc_ms": 1786909083949,
-      "heartbeat_utc_ms": 1786909333419,
-      "ended_utc_ms": 1786909333419,
+      "session_id": "403ce11d-60b2-4c86-b0ad-c8e0c290e6b0",
+      "started_utc_ms": 1786919931108,
+      "heartbeat_utc_ms": 1786919956302,
+      "ended_utc_ms": 1786919956302,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "fe628d47f2d05a9617e161a5e330e960f3b5f0e5",
       "dirty": 1
     },
     {
-      "session_id": "e1859c2e-fdef-4c13-b0bd-8b757501bc2e",
-      "started_utc_ms": 1786908717022,
-      "heartbeat_utc_ms": 1786908973064,
-      "ended_utc_ms": 1786908973064,
+      "session_id": "48a37a16-1671-4f69-aed5-d1c1d073f08e",
+      "started_utc_ms": 1786919414323,
+      "heartbeat_utc_ms": 1786929126713,
+      "ended_utc_ms": null,
+      "cycles": 33,
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "fe628d47f2d05a9617e161a5e330e960f3b5f0e5",
+      "dirty": 0
+    },
+    {
+      "session_id": "0426e6ea-8188-43f4-893c-420ea1e8bdf6",
+      "started_utc_ms": 1786919307113,
+      "heartbeat_utc_ms": 1786919324659,
+      "ended_utc_ms": 1786919324659,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "29a9d96b7d2e00779641ddd0431e6921f35c79ba",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "3b1d573df197f1402c8016e9d548e7b7a2207fdd",
       "dirty": 1
     },
     {
-      "session_id": "30e13ce1-9ec6-41d6-906f-336cc52fd850",
-      "started_utc_ms": 1786908016484,
-      "heartbeat_utc_ms": 1786908035134,
-      "ended_utc_ms": 1786908035134,
-      "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
-      "dirty": 1
+      "session_id": "4be56ac4-5fd6-4c06-b199-175d2e94e11c",
+      "started_utc_ms": 1786918811894,
+      "heartbeat_utc_ms": 1786929126931,
+      "ended_utc_ms": null,
+      "cycles": 35,
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "3b1d573df197f1402c8016e9d548e7b7a2207fdd",
+      "dirty": 0
     },
     {
-      "session_id": "c2b493de-6284-466a-b255-b1088d067b7c",
-      "started_utc_ms": 1786907704335,
-      "heartbeat_utc_ms": 1786907732750,
-      "ended_utc_ms": 1786907732750,
+      "session_id": "832ed2e2-2392-4cf7-9aa6-01760a5915a8",
+      "started_utc_ms": 1786918572525,
+      "heartbeat_utc_ms": 1786918586988,
+      "ended_utc_ms": 1786918586988,
       "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
-      "dirty": 1
-    },
-    {
-      "session_id": "0262b031-85d0-4b10-8c77-2501cfd06c9a",
-      "started_utc_ms": 1786907635022,
-      "heartbeat_utc_ms": 1786907663588,
-      "ended_utc_ms": 1786907663588,
-      "cycles": 0,
-      "endpoint": "magical-silent-cloud.solana-mainnet.quiknode.pro",
-      "source_commit": "d461884c2656155f9d2ce995c903d3694edd7a04",
+      "endpoint": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro",
+      "source_commit": "405e234b884eba025e5723628b2a903ab35a6c39",
       "dirty": 1
     }
   ],

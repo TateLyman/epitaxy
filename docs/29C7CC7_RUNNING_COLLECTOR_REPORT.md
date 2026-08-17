@@ -1,6 +1,26 @@
 # Running-collector directive `29c7cc7` — final report
 
-**Terminal state:** `VALID_TRAJECTORY_KERNEL_RUNNING`
+> **SUPERSEDED 2026-08-17 by `docs/RUNTIME_ADVERSARIAL_AUDIT_8F73CEF.md`.**
+>
+> Two claims in this document are FALSE against the database, and one is
+> self-contradictory. They are annotated in place rather than deleted.
+>
+> 1. **The terminal state below is withdrawn.** This header claims
+>    `VALID_TRAJECTORY_KERNEL_RUNNING` and section 25 of this same document closes
+>    at `MEASUREMENT_REPAIR_REQUIRED`. The re-audit finds the second correct:
+>    26 FAIL, 8 NOT TESTABLE.
+> 2. **Blocker 4 — "the payer identity reconciles to zero on both legs" — is
+>    false.** 51 of 52 settlements carry a non-zero `unexplained` remainder and 30
+>    of them publish a net PnL anyway, with zero identity violations recorded.
+>    `docs/STATUS.md` said the opposite of this blocker and was right.
+> 3. Section 15's row counts and the schema version (v43) are stale: the live
+>    schema is v46.
+>
+> Nothing else in this document is contradicted. The apparatus work it describes
+> — the exact worker, the frozen plans, the fail-closed cashback tail, the
+> resumable mark path — is real and the re-audit confirms it.
+
+**Terminal state:** `VALID_TRAJECTORY_KERNEL_RUNNING` — **WITHDRAWN, see the banner above**
 
 > **Updated 2026-08-16T21:20Z.** The original report below was written while both
 > RPC endpoints were exhausted and closed at `MEASUREMENT_REPAIR_REQUIRED`. A
@@ -286,8 +306,15 @@ edge — faster access to a losing strategy loses faster).
    `account-plan-proof.json` — not produced; all need live RPC.
 3. `created_accounts` and `leg_cashback` are empty; both were wired after the
    last trajectory opened.
-4. ~~Net PnL is UNKNOWN~~ — **closed.** Canonical settlement is wired and the
-   payer identity reconciles to zero on both legs.
+4. ~~Net PnL is UNKNOWN~~ — ~~**closed.** Canonical settlement is wired and the
+   payer identity reconciles to zero on both legs.~~
+   **REOPENED 2026-08-17. The second half of that sentence is false.** The
+   canonical settlement IS wired — that part holds. The payer identity does not
+   reconcile: 51 of 52 settlements carry a non-zero `unexplained` remainder, 30
+   of them publish a net PnL anyway, and `checkIdentities` records zero
+   violations because it never reads the field. `isPnlEligible()` lists
+   `unexplained == 0` as its fourth condition and `buildTrajectorySettlement`
+   does not check it. See `docs/RUNTIME_ADVERSARIAL_AUDIT_8F73CEF.md` section K.
 5. ~~Full event replay is not built~~ — **built, and run.** Still not
    calibrated: both live runs had zero replayable events. See section 18.
 6. `exploration:status` and `reject:panel-v2` — **closed.** Both now mean their

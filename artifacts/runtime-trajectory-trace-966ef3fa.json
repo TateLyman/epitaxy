@@ -1,0 +1,321 @@
+{
+  "trajectory": {
+    "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+    "entry_observation_id": "obs-0ada7a79-a7b9-40f1-b997-61f32a2d15a6",
+    "entry_simulation_job_id": "job-059e850e-e3e9-4374-bc88-bb8c269547df",
+    "entry_settlement_id": "set-88c1a360-ea34-479a-8b31-953992fde322",
+    "venue": "PUMPSWAP_DIRECT",
+    "pool": "Ag446B89ZvH6tKAiTcTmxMyJWZVJazMMfYFbou9tjyCD",
+    "capability_fingerprint": "439747637",
+    "snapshot_hash": "439747637",
+    "mint": "1HcJG7NgqcLKagUfA7XWzpJQtFQMquaHr4he2oRpump",
+    "cohort": "FIRST_HOUR",
+    "stratum": "CANONICAL_NONCASHBACK",
+    "migration_age_ms": null,
+    "notional_lamports": "20000000",
+    "entry_policy_inputs": "{\"soleVenueAttributed\":true,\"quoteStateSurvived\":true,\"baseVaultDeltaAtoms\":\"167130656931\",\"quoteVaultDeltaLamports\":\"19757035\"}",
+    "entry_policy": "HARD_GATES_RANDOM",
+    "exit_policy": "FIXED_15M_CONTROL",
+    "state": "SETTLED",
+    "evidence_grade": "SIMULATED_EXECUTION",
+    "max_attainable_grade": "SIMULATED_EXECUTION",
+    "quote_impact_ratio": 0.000437,
+    "base_impact_ratio": 0.000431,
+    "max_impact_ratio": 0.000437,
+    "haircut_bps": 9,
+    "within_small_impact": 1,
+    "entry_cash_out_lamports": null,
+    "exit_cash_in_lamports": null,
+    "haircut_exit_lamports": null,
+    "execution_cost_lamports": null,
+    "net_pnl_lamports": null,
+    "pnl_blocked_reasons": "[]",
+    "cashback_accrued": "0",
+    "cashback_claimable": "0",
+    "cashback_claimed": "0",
+    "cashback_claim_cost": "0",
+    "exit_observation_id": null,
+    "fill_latency_ms": null,
+    "opened_utc_ms": 1786927431384,
+    "settled_utc_ms": 1786931064848,
+    "refusals": "[\"unobserved on buy: Hkwr4BR2QEBnXf8w2qijrfKDXRTijGqCtZvBixqGXhRy\",\"unobserved on buy: 7wbyVkQz8czKccDE5GS7AL1h53dtdUmXihajjjC4roNi\",\"unobserved on buy: D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp\",\"unobserved on buy: AMjnYCyner9fCeESX735cv7znzWwDdAbtnjnHPhCcxo4\",\"unobserved on buy: 3UciUy1XAyV1jfiCNa2d7THzKtNyiQDHA6pFBu6bXawE\",\"unobserved on buy: 2CevAV1xvLYFZrsQM7cjr2zN4tkgkAj2jLpvhdNyq7n6\",\"unobserved on sell: AMjnYCyner9fCeESX735cv7znzWwDdAbtnjnHPhCcxo4\",\"unobserved on sell: 3UciUy1XAyV1jfiCNa2d7THzKtNyiQDHA6pFBu6bXawE\",\"unobserved on sell: 2CevAV1xvLYFZrsQM7cjr2zN4tkgkAj2jLpvhdNyq7n6\",\"plan account absent on chain, created by the leg: 7wbyVkQz8czKccDE5GS7AL1h53dtdUmXihajjjC4roNi\",\"plan account absent on chain, created by the leg: 11111111111111111111111111111111\",\"plan account absent on chain, created by the leg: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\",\"plan account absent on chain, created by the leg: Hkwr4BR2QEBnXf8w2qijrfKDXRTijGqCtZvBixqGXhRy\",\"plan account absent on chain, created by the leg: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\",\"plan account absent on chain, created by the leg: ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL\",\"plan account absent on chain, created by the leg: pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA\",\"plan account absent on chain, created by the leg: AMjnYCyner9fCeESX735cv7znzWwDdAbtnjnHPhCcxo4\",\"plan account absent on chain, created by the leg: D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp\",\"plan account absent on chain, created by the leg: pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ\",\"plan account absent on chain, created by the leg: 2CevAV1xvLYFZrsQM7cjr2zN4tkgkAj2jLpvhdNyq7n6\"]",
+    "exploration_arm": null,
+    "inclusion_probability": null,
+    "exploration_window": null
+  },
+  "links": [
+    {
+      "name": "candidate/migration",
+      "value": "1HcJG7NgqcLKagUfA7XWzpJQtFQMquaHr4he2oRpump",
+      "resolves": true
+    },
+    {
+      "name": "candidate risk facts",
+      "value": "1HcJG7NgqcLKagUfA7XWzpJQtFQMquaHr4he2oRpump",
+      "resolves": true
+    },
+    {
+      "name": "account-plan (buy)",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a/buy",
+      "resolves": true
+    },
+    {
+      "name": "account-plan (sell)",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a/sell",
+      "resolves": true
+    },
+    {
+      "name": "snapshot hash",
+      "value": "439747637",
+      "resolves": false
+    },
+    {
+      "name": "entry observation",
+      "value": "obs-0ada7a79-a7b9-40f1-b997-61f32a2d15a6",
+      "resolves": false
+    },
+    {
+      "name": "entry worker job/step",
+      "value": "job-059e850e-e3e9-4374-bc88-bb8c269547df",
+      "resolves": false
+    },
+    {
+      "name": "entry settlement id",
+      "value": "set-88c1a360-ea34-479a-8b31-953992fde322",
+      "resolves": true
+    },
+    {
+      "name": "immediate mechanics",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "resolves": true
+    },
+    {
+      "name": "marks",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "resolves": true
+    },
+    {
+      "name": "policy outcomes",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "resolves": true
+    },
+    {
+      "name": "created accounts",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "resolves": true
+    },
+    {
+      "name": "leg cashback",
+      "value": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "resolves": true
+    },
+    {
+      "name": "exit observation",
+      "value": null,
+      "resolves": false
+    },
+    {
+      "name": "exit worker job/step",
+      "value": null,
+      "resolves": false
+    }
+  ],
+  "settlement": {
+    "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+    "scope": "IMMEDIATE_MECHANICS",
+    "entry_cash_out": "23923479",
+    "exit_cash_in": "19535970",
+    "gross_exit_credit": "19749134",
+    "base_fees": "10000",
+    "priority_fees": "0",
+    "tips": "0",
+    "transfer_fees": "0",
+    "failed_attempt_fees": "0",
+    "rent_created": "3918480",
+    "rent_recovered": "2074080",
+    "rent_still_locked": "1844400",
+    "cashback_accrued": "0",
+    "cashback_claimable": "0",
+    "cashback_claimed": "0",
+    "cashback_claim_cost": "0",
+    "residual_token_atoms": "0",
+    "unexplained_lamports": "-2525208",
+    "execution_cost": "1854400",
+    "net_pnl": "-4387509",
+    "pnl_blocked_reasons": "[]",
+    "identity_violations": "[]",
+    "settled_utc_ms": 1786927431386
+  },
+  "marks": [
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "offset_ms": 60000,
+      "observed_utc_ms": 1786927528951,
+      "executable_lamports": "19765289",
+      "exit_capacity_lamports": "19765289",
+      "effective_quote_reserve": "46054425735",
+      "refusal": null,
+      "lateness_ms": 37567
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "offset_ms": 300000,
+      "observed_utc_ms": 1786927803100,
+      "executable_lamports": "18854469",
+      "exit_capacity_lamports": "18854469",
+      "effective_quote_reserve": "44981804399",
+      "refusal": null,
+      "lateness_ms": 71716
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "offset_ms": 900000,
+      "observed_utc_ms": 1786928341911,
+      "executable_lamports": "13797560",
+      "exit_capacity_lamports": "13797560",
+      "effective_quote_reserve": "38479627599",
+      "refusal": null,
+      "lateness_ms": 10527
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "offset_ms": 1800000,
+      "observed_utc_ms": 1786929266196,
+      "executable_lamports": null,
+      "exit_capacity_lamports": null,
+      "effective_quote_reserve": null,
+      "refusal": "no canonical PumpSwap pool",
+      "lateness_ms": 34812
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "offset_ms": 3600000,
+      "observed_utc_ms": 1786931070777,
+      "executable_lamports": null,
+      "exit_capacity_lamports": null,
+      "effective_quote_reserve": null,
+      "refusal": "no canonical PumpSwap pool",
+      "lateness_ms": 39393
+    }
+  ],
+  "policyOutcomes": [
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "exit_policy": "FIXED_15M_CONTROL",
+      "triggered_utc_ms": 1786928331384,
+      "triggered_offset_ms": 900000,
+      "reason": "the frozen 15 minute horizon",
+      "exit_mark_lamports": "13797560",
+      "entry_cash_out_lamports": "20000000",
+      "gross_delta_lamports": "-6202440",
+      "settled_utc_ms": 1786931064848
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
+      "triggered_utc_ms": 1786928331384,
+      "triggered_offset_ms": 900000,
+      "reason": "exit capacity fell 2682 bps over 600000ms since the last MEASURED mark, which is the liquidity deteriorating rather than the price moving",
+      "exit_mark_lamports": "13797560",
+      "entry_cash_out_lamports": "20000000",
+      "gross_delta_lamports": "-6202440",
+      "settled_utc_ms": 1786931064848
+    }
+  ],
+  "accountPlans": [
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "buy",
+      "fingerprint": "8edba269eca64ffe1ebc0685a021bff26d9d6e2083528229c55b04203328e7ce",
+      "instruction_count": 6,
+      "program_ids": "[\"ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL\",\"11111111111111111111111111111111\",\"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\",\"pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA\"]"
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "sell",
+      "fingerprint": "8a117cf135acb063436e1c15f02ba4e53ea5a44466e850870c02fe6c8d16da2a",
+      "instruction_count": 4,
+      "program_ids": "[\"ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL\",\"pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA\",\"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\",\"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\"]"
+    }
+  ],
+  "createdAccounts": [
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "buy",
+      "pubkey": "D1Eijw8vMeco5cJjCjSJyDFJL8oMemTwxSLEKgr6eHvp",
+      "owner": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+      "space": 137,
+      "rent_exempt_min": "1844400",
+      "excess_lamports": "0",
+      "economic_scope": "WALLET_GLOBAL",
+      "recoverability": "NOT_RECOVERABLE",
+      "shared_with_other": 0,
+      "recorded_utc_ms": 1786927431386
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "buy",
+      "pubkey": "Hkwr4BR2QEBnXf8w2qijrfKDXRTijGqCtZvBixqGXhRy",
+      "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "space": 170,
+      "rent_exempt_min": "2074080",
+      "excess_lamports": "0",
+      "economic_scope": "WALLET_TOKEN_MINT",
+      "recoverability": "RECOVERABLE_BY_US",
+      "shared_with_other": 0,
+      "recorded_utc_ms": 1786927431386
+    }
+  ],
+  "legCashback": [
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "buy",
+      "accumulator_wsol_delta": null,
+      "accumulator_delta": "0",
+      "creator_vault_delta": "59260",
+      "fee_recipient_delta": "91852",
+      "accrued_to_us": null,
+      "is_cashback_coin": 0,
+      "recorded_utc_ms": 1786927431386
+    },
+    {
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "leg": "sell",
+      "accumulator_wsol_delta": null,
+      "accumulator_delta": "0",
+      "creator_vault_delta": "59260",
+      "fee_recipient_delta": "91852",
+      "accrued_to_us": null,
+      "is_cashback_coin": 0,
+      "recorded_utc_ms": 1786927431386
+    }
+  ],
+  "riskFacts": [
+    {
+      "mint": "1HcJG7NgqcLKagUfA7XWzpJQtFQMquaHr4he2oRpump",
+      "pool": "Ag446B89ZvH6tKAiTcTmxMyJWZVJazMMfYFbou9tjyCD",
+      "collected_utc_ms": 1786927425236,
+      "trajectory_id": "966ef3fa-e9b6-4002-a683-6b5ea0338c6a",
+      "mint_overall": "SAFE",
+      "freeze_authority": "SAFE",
+      "mint_authority": "SAFE",
+      "permanent_delegate": "SAFE",
+      "transfer_hook": "SAFE",
+      "mint_decode_failure": null,
+      "transfer_fee_kind": "NOT_APPLICABLE",
+      "transfer_fee_bps": null,
+      "mayhem_enabled": 0,
+      "mayhem_source": "pumpswap_pool",
+      "breadth_usability": "ORGANIC",
+      "is_cashback_coin": 0,
+      "accumulator_wsol_ata": "9BUidpvuL3YsjcCgbHDg9eaFSR8n9djvsgMX9SxkNKWe",
+      "concentration_kind": "HISTORY_INCOMPLETE",
+      "entity_adjusted_share": null,
+      "canonical_pool": 1,
+      "requires_shared_setup": null,
+      "stratum": "CANONICAL/NONCASHBACK/NONMAYHEM/LEGACY_FEE/SETUP_UNKNOWN/CONCENTRATION_RAW_ONLY",
+      "admitted": 1,
+      "refusals": "[]"
+    }
+  ]
+}
