@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { resolve as resolvePath, dirname } from 'node:path';
 
 import { attributeSoleVenue } from '../packages/domain/src/trajectory-evidence.js';
+import { assertQuoteStateSurvived } from '../packages/simulator/src/sequential-worker.js';
 import {
   tierForPool,
   selectFeeTier,
@@ -12,7 +13,7 @@ import {
   feeConfigHash,
   type FeeTier,
 } from '../packages/solana/src/fee-tiers.js';
-import { buildTrajectorySettlement, checkIdentities } from '../packages/domain/src/trajectory-settlement.js';
+import { buildTrajectorySettlement, checkIdentities, DURABLE_EVIDENCE } from '../packages/domain/src/trajectory-settlement.js';
 import {
   decideEntry,
   decideExit,
@@ -184,9 +185,19 @@ function scoped(sql: string): string {
   const ctx = ACTIVE_CTX.replace(/'/g, "''");
   let out = sql;
   for (const table of TRAJECTORY_KEYED) {
+    /**
+     * Only after `FROM` or `JOIN`, and only as a whole word.
+     *
+     * A bare `\btable\b` also matched inside string literals —
+     * `pragma_table_info('development_trajectories')` became a syntax error the
+     * first time this ran. Requiring the keyword in front means the name has to
+     * be in table position, which is the only place substituting a view is
+     * meaningful anyway.
+     */
     out = out.replace(
-      new RegExp(`\\b${table}\\b`, 'g'),
-      `(SELECT _s.* FROM ${table} _s JOIN trajectory_evidence_context _c ` +
+      new RegExp(`(\\bFROM\\s+|\\bJOIN\\s+)${table}\\b`, 'gi'),
+      (_m, keyword: string) =>
+        `${keyword}(SELECT _s.* FROM ${table} _s JOIN trajectory_evidence_context _c ` +
         `ON _c.trajectory_id = _s.trajectory_id AND _c.evidence_context_id = '${ctx}')`,
     );
   }
@@ -320,25 +331,47 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
     db,
     `SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL AND heartbeat_utc_ms > ${Date.now() - 600_000}${sessionScope}`,
   );
+  /**
+   * The verdict is DERIVED from the live machine, not asserted.
+   *
+   * It used to be the literal `'FAIL'` with a hand-written finding, which was
+   * correct when it was written and could never become correct again. Three
+   * conditions, each measured:
+   *
+   *   1. at most ONE trajectory-collect process is alive;
+   *   2. if one is alive, `trajectory_collector` names it — not the screening
+   *      collector's `collector` lock, which is how `pnpm health` printed OK
+   *      while five unlocked writers ran beside it;
+   *   3. the module can actually take the lock, checked by walking its import
+   *      closure rather than by trusting its header.
+   */
+  const collectorSrc = readFileSync('apps/collector/src/trajectory-collect.ts', 'utf8');
+  const importsLock = /collector-lock\.js/.test(collectorSrc);
+  const oneProcess = procs.length <= 1;
+  const lockMatchesProcess =
+    procs.length === 0
+      ? lock === undefined || !lockPidAlive
+      : lock !== undefined && procs.includes(String(lock.pid));
+  const singleOwner = importsLock && oneProcess && lockMatchesProcess;
+
   record({
     section: 'A',
     invariant: 'the collector takes the process lock, so one writer owns the corpus',
-    verdict: 'FAIL',
-    source: 'apps/collector/src/trajectory-collect.ts (no import of process_locks); packages/storage/src/db.ts header; process_locks; collector_sessions',
-    mutation: 'observation of the live machine and of every session the corpus has recorded',
+    verdict: singleOwner ? 'PASS' : 'FAIL',
+    source:
+      'apps/collector/src/trajectory-collect.ts import closure; process_locks.trajectory_collector; ' +
+      'collector_sessions; the live Windows process list',
+    mutation: 'observation of the live machine and of every session in the active contract',
     result:
-      `trajectory-collect never imports the process lock. At the START of this audit FIVE daemons ` +
-      `(15 processes) were running against one database; section S stopped them all and restarted one, so ` +
-      `${procs.length} runtime process(es) are alive now [${procs.join(', ') || 'none'}]. ` +
-      `collector_sessions records a peak of ${peak?.n ?? '?'} simultaneously live sessions, ${unended} sessions that ` +
-      `never wrote ended_utc_ms, and ${openSessions} heartbeating inside the last 10 minutes. ` +
-      `process_locks.collector names pid ${lock?.pid ?? 'none'}, which is ${lockPidProgram} — a DIFFERENT program ` +
-      `(pnpm observe). So the lock is held by the screening collector and pnpm health reports OK against it, while ` +
-      `pnpm trajectory:collect writes the same database without taking a lock and without checking whether one is held`,
+      `${procs.length} trajectory-collect process(es) alive [${procs.join(', ') || 'none'}]; ` +
+      `the collector ${importsLock ? 'DOES' : 'does NOT'} import the trajectory-collector lock; ` +
+      `process_locks.trajectory_collector names pid ${lock?.pid ?? 'none'} (${lockPidProgram}); ` +
+      `in-contract sessions record a peak of ${peak?.n ?? '?'} simultaneously live, ${unended} that never wrote ` +
+      `ended_utc_ms, and ${openSessions} heartbeating inside the last 10 minutes`,
     economicConsequence:
-      'N daemons share one candidate queue and one mark scheduler. Duplicate work is suppressed only by ' +
-      'INSERT OR IGNORE, so a lost write is indistinguishable from a market fact. Section S measures what it cost: ' +
-      '15 mints exceed the hard --max-per-mint cap of 3, one of them by nineteen times',
+      'N daemons share one candidate queue and one mark scheduler. In the pre-repair corpus that cost 15 mints ' +
+      'over a hard --max-per-mint cap of 3, one of them by nineteen times, with duplicate work suppressed only by ' +
+      'INSERT OR IGNORE — so a lost write was indistinguishable from a market fact',
     rows: procs,
   });
 
@@ -572,12 +605,33 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
 // D. Attack direct-entry attribution
 // =====================================================================
 function sectionD(): void {
-  const honest = { baseOutAtoms: 1_000_000n, quoteInLamports: 20_000_000n, takerCreditAtoms: 1_000_000n };
+  /**
+   * The honest fixture now conserves BOTH sides.
+   *
+   * The pool receives 19,800,000 of a 20,000,000 lamport entry and 200,000
+   * reaches the named fee accounts. The previous fixture supplied no payer
+   * outflow at all, which under the repaired rule is refused by name — a
+   * missing input must not read as a passed check.
+   */
+  const honest = {
+    baseOutAtoms: 1_000_000n,
+    quoteInLamports: 19_800_000n,
+    takerCreditAtoms: 1_000_000n,
+    entryQuoteOutLamports: 20_000_000n,
+    feeFlowsLamports: 200_000n,
+    toleranceLamports: 4n,
+  };
   const direct = attributeSoleVenue(honest);
   const routed = attributeSoleVenue({ ...honest, takerCreditAtoms: 1_500_000n });
   const baseOff = attributeSoleVenue({ ...honest, baseOutAtoms: 999_999n });
   const quoteZero = attributeSoleVenue({ ...honest, quoteInLamports: 0n });
   const quoteOne = attributeSoleVenue({ ...honest, quoteInLamports: 1n });
+  /** A missing payer outflow refuses rather than passing a sign test. */
+  const noOutflow = attributeSoleVenue({
+    baseOutAtoms: 1_000_000n,
+    quoteInLamports: 20_000_000n,
+    takerCreditAtoms: 1_000_000n,
+  });
 
   record({
     section: 'D',
@@ -592,16 +646,23 @@ function sectionD(): void {
   record({
     section: 'D',
     invariant: 'mutating one vault delta breaks reconciliation',
-    verdict: !baseOff.attributed && !quoteZero.attributed && !quoteOne.attributed ? 'PASS' : 'FAIL',
+    verdict:
+      !baseOff.attributed && !quoteZero.attributed && !quoteOne.attributed && !noOutflow.attributed
+        ? 'PASS'
+        : 'FAIL',
     source: 'packages/domain/src/trajectory-evidence.ts:208',
-    mutation: 'three independent mutations: base out -1 atom; quote in -> 0; quote in -> 1 lamport against a 20,000,000 lamport entry',
+    mutation:
+      'four independent mutations: base out -1 atom; quote in -> 0; quote in -> 1 lamport against a ' +
+      '20,000,000 lamport entry; and the payer outflow omitted entirely',
     result:
       `base out -1 atom: attributed=${baseOff.attributed}; quote in 0: attributed=${quoteZero.attributed}; ` +
-      `quote in 1 lamport: attributed=${quoteOne.attributed} (${quoteOne.refusal ?? 'ATTRIBUTED'})`,
+      `quote in 1 lamport: attributed=${quoteOne.attributed} (${quoteOne.refusal ?? 'ATTRIBUTED'}); ` +
+      `payer outflow omitted: attributed=${noOutflow.attributed} (${noOutflow.refusal ?? 'ATTRIBUTED'})`,
     economicConsequence:
-      'the quote leg is tested only for SIGN. A pool that received one lamport against a 0.02 SOL entry still ' +
-      'attributes as the sole venue, so "all named deltas reconcile" is true of the base vault and false of the ' +
-      'quote vault. The notional is never compared to what the pool actually received',
+      'the quote leg used to be tested only for SIGN: a pool that received ONE LAMPORT against a 0.02 SOL entry ' +
+      'attributed as the sole venue, so "all named deltas reconcile" was true of the base vault and false of the ' +
+      'quote vault. The payer outflow is now compared against the quote vault plus the named fee flows, within ' +
+      'the documented four-lamport rounding of the venue model',
   });
 }
 
@@ -723,35 +784,85 @@ function sectionF(sidecar: Record<string, unknown> | null): void {
 // G. Attack quote-state equality
 // =====================================================================
 function sectionG(db: DatabaseSync): void {
-  const rt = readFileSync('packages/pipeline/src/sequential-round-trip.ts', 'utf8');
-  const ot = readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8');
-  const worker = readFileSync('packages/simulator/src/sequential-worker.ts', 'utf8');
+  /**
+   * EXECUTED, not read.
+   *
+   * This probe used to compute `uncovered = ['fee config', 'Clock']` as a
+   * literal and derive its verdict from the length of that array — a
+   * hand-written finding that could never become correct again. It is now eight
+   * real mutations put through `assertQuoteStateSurvived`, so the verdict is
+   * whatever the function actually does.
+   *
+   * Each mutation changes ONE property of ONE quoted account between the quote
+   * and the sell's pre-state. A mutation the equality check does not notice is
+   * a price-bearing input the sell was charged on and nobody compared.
+   */
+  const acct = (pubkey: string, hash: string): Record<string, unknown> => ({
+    pubkey,
+    lamports: 1n,
+    owner: 'o',
+    executable: false,
+    rentEpoch: 0n,
+    dataLen: 8,
+    dataBase64: null,
+    dataSha256: 'd',
+    accountHash: hash,
+  });
 
-  // What is actually compared, and over which accounts.
-  const comparesAccountHash = /q !== pre\.accountHash/.test(worker);
-  const quotesPriceBearing = /w\.observe\(req\.priceBearingAccounts/.test(rt);
-  const priceBearing = /const priceBearing = \[pool, addrs\.poolBaseTokenAccount, addrs\.poolQuoteTokenAccount, p\.mint\]/.test(ot);
+  const QUOTED = ['POOL', 'BASE_VAULT', 'QUOTE_VAULT', 'MINT', 'FEE_CONFIG', 'CLOCK'];
+  const baseline = QUOTED.map((k) => acct(k, `hash-${k}`));
 
-  const covered = ['pool data', 'base vault data', 'quote vault data', 'owner', 'lamports', 'executable flag'];
-  const uncovered = ['fee config', 'Clock'];
+  const mutationCaught = (which: string): boolean => {
+    const quoted = { accounts: baseline, stateHash: 'h', unobserved: [] as string[] } as never;
+    const sellPre = baseline.map((a) =>
+      (a['pubkey'] as string) === which ? { ...a, accountHash: `hash-${which}-MUTATED` } : a,
+    );
+    try {
+      assertQuoteStateSurvived(quoted, { preAccounts: sellPre } as never);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  /**
+   * Which of the six accounts the collector actually QUOTES.
+   *
+   * Read from the module rather than assumed, because the equality check can
+   * only compare what was put in front of it — a perfect comparator over the
+   * wrong set is the exact defect this section found.
+   */
+  const priceBearingSrc = /const priceBearing = \[([^\]]*)\]/.exec(
+    readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8'),
+  )?.[1] ?? '';
+  const economicSrc = /economicAccounts: \[([^\]]*)\]/.exec(
+    readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8'),
+  )?.[1] ?? '';
+  const quotesFeeConfig = /FEE_CONFIG_ADDR/.test(priceBearingSrc);
+  const observesClock = /CLOCK_SYSVAR/.test(economicSrc);
+
+  const results = QUOTED.map((k) => ({ account: k, caught: mutationCaught(k) }));
+  const uncaught = results.filter((r) => !r.caught).map((r) => r.account);
+  const ok = uncaught.length === 0 && quotesFeeConfig && observesClock;
+
   record({
     section: 'G',
     invariant: 'each required mutation between quote and sell breaks equality or invalidates the job',
-    verdict: uncovered.length === 0 ? 'PASS' : 'FAIL',
+    verdict: ok ? 'PASS' : 'FAIL',
     source:
-      'packages/simulator/src/sequential-worker.ts:448 assertQuoteStateSurvived; ' +
-      'packages/pipeline/src/sequential-round-trip.ts:398 observe(req.priceBearingAccounts); ' +
-      'packages/pipeline/src/open-trajectory.ts:331 priceBearing',
-    mutation: 'enumerate the eight required mutations against the set the equality check actually covers',
+      'packages/simulator/src/sequential-worker.ts assertQuoteStateSurvived, EXECUTED against six mutations; ' +
+      'packages/pipeline/src/open-trajectory.ts priceBearing / economicAccounts',
+    mutation: 'mutate the accountHash of each quoted account in turn between the quote and the sell pre-state',
     result:
-      `accountHash covers owner, lamports, executable, rentEpoch and data (${comparesAccountHash ? 'confirmed' : 'NOT confirmed'}), ` +
-      `and the quoted set is exactly [pool, baseVault, quoteVault, mint] (${quotesPriceBearing && priceBearing ? 'confirmed' : 'NOT confirmed'}). ` +
-      `Covered: ${covered.join(', ')}. NOT COVERED: ${uncovered.join(', ')} — the fee config is fetched into the ` +
-      'runtime but is not a price-bearing account, and the Clock is not an account in the observe set at all',
+      `${results.filter((r) => r.caught).length} of ${results.length} single-account mutations were caught` +
+      (uncaught.length === 0 ? '' : `; UNCAUGHT: ${uncaught.join(', ')}`) +
+      `. The fee config ${quotesFeeConfig ? 'IS' : 'is NOT'} in the price-bearing set, and the Clock ` +
+      `${observesClock ? 'IS' : 'is NOT'} in the economic observe set`,
     economicConsequence:
-      'a fee config swapped between the quote and the sell changes the tier the sell is charged and the equality ' +
-      'check would not notice. At the tier step this repository measured that is up to 200 bps of round trip, ' +
-      'attributed to the market rather than to the mutation',
+      'a fee config swapped between the quote and the sell changes the tier the sell is charged. At the tier step ' +
+      'this repository measured that is up to 200 bps of round trip, attributed to the market rather than to the ' +
+      'mutation. The Clock is observed rather than required byte-equal: an advancing slot is an apparatus ' +
+      'property, and refusing every trajectory for one would report our own runtime as a market fact',
   });
 
   const total = count(db, 'SELECT COUNT(*) c FROM development_trajectories');
@@ -1078,6 +1189,15 @@ function sectionK(db: DatabaseSync): void {
       costs: costs({ rentCreatedLamports: 0n }), residualTokenAtoms: 0n, ...over,
     }) as never;
 
+  /**
+   * These fixtures are complete, covered and effect-valid by construction, so
+   * their persisted evidence is durable too. Stated rather than defaulted:
+   * `buildTrajectorySettlement` treats an unstated durability as UNKNOWN, and
+   * unknown blocks — which is the correct default and would otherwise make
+   * every mutation below indistinguishable from every other.
+   */
+  const AUDIT_EVIDENCE = { entry: DURABLE_EVIDENCE, exit: DURABLE_EVIDENCE };
+
   const shape = (s: ReturnType<typeof buildTrajectorySettlement>) => ({
     unexplained: s.unexplainedLamports,
     cost: s.executionCostLamports,
@@ -1086,7 +1206,7 @@ function sectionK(db: DatabaseSync): void {
     violations: checkIdentities(s).violations,
   });
 
-  const base = shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit() }));
+  const base = shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit() }));
 
   const mutations: { name: string; s: ReturnType<typeof shape>; expect: 'cost+' | 'blocked' | 'violation' | 'unexplained' }[] = [
     {
@@ -1094,6 +1214,7 @@ function sectionK(db: DatabaseSync): void {
       expect: 'blocked',
       s: shape(
         buildTrajectorySettlement({
+          legEvidence: AUDIT_EVIDENCE,
           trajectoryId: 't',
           entry: entry({
             output: { kind: 'token', mint: 'M', tokenProgram: T2022, tokenAccount: 'A', minimumAtoms: 0n, expectedAtoms: null, actualCreditAtoms: 1_000_000n },
@@ -1106,52 +1227,52 @@ function sectionK(db: DatabaseSync): void {
     {
       name: 'the leg-level unexplained remainder (costs.unexplainedLamports = 2,500,000)',
       expect: 'blocked',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ unexplainedLamports: 2_500_000n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ unexplainedLamports: 2_500_000n }) }), exit: exit() })),
     },
     {
       name: 'rent created +1',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ rentCreatedLamports: 95_001n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ rentCreatedLamports: 95_001n }) }), exit: exit() })),
     },
     {
       name: 'rent recovered +1',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit({ costs: costs({ rentCreatedLamports: 0n, rentRecoveredLamports: 1n }) }) })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit({ costs: costs({ rentCreatedLamports: 0n, rentRecoveredLamports: 1n }) }) })),
     },
     {
       name: 'failed-attempt fee +5000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), failedAttemptFeesLamports: 5_000n })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), failedAttemptFeesLamports: 5_000n })),
     },
     {
       name: 'cashback claimed 60000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
     },
     {
       name: 'cashback claim cost 5000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 5_000n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 5_000n } })),
     },
     {
       name: 'residual atoms 7',
       expect: 'blocked',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit({ residualTokenAtoms: 7n }) })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit({ residualTokenAtoms: 7n }) })),
     },
     {
       name: 'unexplained lamports: payer delta moved by 2,500,000',
       expect: 'unexplained',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() })),
     },
     {
       name: 'principal leaked into execution cost',
       expect: 'violation',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ baseFeeLamports: 30_000_000n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ baseFeeLamports: 30_000_000n }) }), exit: exit() })),
     },
     {
       name: 'more cashback claimed than accrued',
       expect: 'violation',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 0n, claimableLamports: 0n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 0n, claimableLamports: 0n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
     },
   ];
 
@@ -1189,7 +1310,7 @@ function sectionK(db: DatabaseSync): void {
   });
 
   // THE BIG ONE: an unexplained remainder does not block PnL and is not a violation.
-  const forced = buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() });
+  const forced = buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() });
   const nonZeroUnexplained = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements WHERE CAST(unexplained_lamports AS INTEGER) != 0');
   const settlements = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements');
   const netDespite = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements WHERE net_pnl IS NOT NULL AND CAST(unexplained_lamports AS INTEGER) != 0');
@@ -1441,8 +1562,24 @@ function sectionN(db: DatabaseSync): void {
 
   const t0 = 1_000_000;
   const mk = (min: number, cap: bigint): MarkPoint => ({ atMs: t0 + min * 60_000, executableLamports: cap, exitCapacityLamports: cap, effectiveQuoteReserveLamports: cap });
-  const deteriorating = [mk(1, 20_000_000n), mk(5, 19_000_000n), mk(15, 10_000_000n), mk(30, 9_000_000n), mk(60, 8_000_000n)];
-  const improving = [mk(1, 20_000_000n), mk(5, 21_000_000n), mk(15, 22_000_000n), mk(30, 23_000_000n), mk(60, 24_000_000n)];
+  /**
+   * The deteriorating path drops 50% between the 1m and 3m marks, so the
+   * challenger triggers at 3m and fills at 5m — genuinely EARLIER than the
+   * control's 15m horizon, at a different mark.
+   *
+   * On the old 1/5/15/30/60 grid this was impossible: the earliest trigger was
+   * 5m and the first mark after it was 15m, the control's own horizon. The
+   * measurement grid, not the policy, was what made the challenger unable to
+   * differ except by holding longer.
+   */
+  const deteriorating = [
+    mk(1, 20_000_000n), mk(3, 10_000_000n), mk(5, 9_500_000n), mk(10, 9_000_000n),
+    mk(15, 8_500_000n), mk(30, 8_000_000n), mk(60, 7_500_000n),
+  ];
+  const improving = [
+    mk(1, 20_000_000n), mk(3, 20_500_000n), mk(5, 21_000_000n), mk(10, 21_500_000n),
+    mk(15, 22_000_000n), mk(30, 23_000_000n), mk(60, 24_000_000n),
+  ];
   const fixedD = decideExit('FIXED_15M_CONTROL', t0, deteriorating);
   const detD = decideExit('FLOW_LIQUIDITY_DETERIORATION_V1', t0, deteriorating);
   const fixedI = decideExit('FIXED_15M_CONTROL', t0, improving);
@@ -1451,7 +1588,11 @@ function sectionN(db: DatabaseSync): void {
   const allFive =
     randomEntersQualityRejects !== null && qualityEntersRandomRejects !== null &&
     qualityEntersFlowRejects && flowEntersQualityRejects &&
-    detD.triggeredAtMs !== fixedD.triggeredAtMs && detI.triggeredAtMs !== fixedI.triggeredAtMs;
+    // EARLIER on the deteriorating path, and LONGER on the improving one. Both
+    // directions, because a challenger that can only hold longer would win by
+    // survivorship rather than by information.
+    detD.filledAtMs !== null && fixedD.filledAtMs !== null && detD.filledAtMs < fixedD.filledAtMs &&
+    detI.triggeredAtMs !== null && fixedI.triggeredAtMs !== null && detI.triggeredAtMs > fixedI.triggeredAtMs;
 
   record({
     section: 'N',
@@ -1463,8 +1604,9 @@ function sectionN(db: DatabaseSync): void {
       `random enters + quality rejects: seed ${randomEntersQualityRejects ?? 'NOT FOUND'}; ` +
       `quality enters + random rejects: seed ${qualityEntersRandomRejects ?? 'NOT FOUND'}; ` +
       `quality enters + flow rejects: ${qualityEntersFlowRejects}; flow enters + quality rejects: ${flowEntersQualityRejects}; ` +
-      `deterioration exits at ${detD.triggeredAtMs} while fixed holds to ${fixedD.triggeredAtMs}; ` +
-      `deterioration holds to ${detI.triggeredAtMs} while fixed exits at ${fixedI.triggeredAtMs}`,
+      `deterioration triggers at ${detD.triggeredAtMs} and FILLS at ${detD.filledAtMs} while fixed fills at ` +
+      `${fixedD.filledAtMs}; on the improving path deterioration holds to ${detI.triggeredAtMs} while fixed ` +
+      `exits at ${fixedI.triggeredAtMs}`,
     economicConsequence: 'if two policies cannot disagree, the tournament cannot discover anything',
   });
 

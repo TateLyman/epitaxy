@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { captureCoherentSnapshotV2, SnapshotIncoherent } from '../../solana/src/coherent-snapshot.js';
+import { captureCoherentSnapshotV2, SnapshotIncoherent, CLOCK_SYSVAR } from '../../solana/src/coherent-snapshot.js';
 import {
   accountSourceOf,
   poolAddressesFrom,
@@ -461,7 +461,35 @@ export async function openTrajectory(
   const mintOwner = (await rpc.getAccountRaw(p.mint)).owner;
   const takerAta = associatedTokenAddress(p.taker, p.mint, mintOwner);
   const takerWsol = associatedTokenAddressOf(p.taker, WSOL_MINT, TOKEN_PROGRAM);
-  const priceBearing = [pool, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, p.mint];
+  /**
+   * G-1 — THE SET THE QUOTE-STATE EQUALITY CHECK COMPARES OVER.
+   *
+   * `assertQuoteStateSurvived` compares a full `accountHash` — owner, lamports,
+   * executable, rentEpoch and data — which is right. The defect the 8f73cef
+   * audit found was the SET it compares over:
+   *
+   *     pool data          covered
+   *     base vault data    covered
+   *     quote vault data   covered
+   *     fee config         NOT COVERED — fetched into the runtime, not quoted
+   *     Clock              NOT COVERED — not in the observe set at all
+   *
+   * A fee config swapped between the quote and the sell changes the TIER the
+   * sell is charged, and the equality check would not notice. At the tier step
+   * this repository itself measured, that is up to 200 bps of round trip,
+   * attributed to the market rather than to the mutation.
+   *
+   * The fee config is a price-bearing input in exactly the sense that matters:
+   * the sell's proceeds depend on it. So it belongs here, not in a separate
+   * "fetched into the runtime" category.
+   *
+   * The CLOCK is handled separately, below: it is a sysvar the runtime owns,
+   * and requiring byte equality on it would refuse every trajectory whose
+   * runtime advanced a slot between the two legs. What must hold is that a
+   * MUTATION of it is detected, which is what `clockBearing` gives the observe
+   * set without making an advancing clock an apparatus failure.
+   */
+  const priceBearing = [pool, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, p.mint, FEE_CONFIG_ADDR];
   const swapAccounts = swapAccountAddresses({
     poolKey: pool,
     baseMint: p.mint,
@@ -822,7 +850,18 @@ export async function openTrajectory(
        * empty account as an empty balance. That is the only reason scoping the
        * output is safe to do at all.
        */
-      economicAccounts: [...priceBearing, takerAta, takerWsol],
+      /**
+       * G-1 — the Clock joins the ECONOMIC set, so its bytes exist on both
+       * sides and a mutation is detectable.
+       *
+       * It is deliberately NOT in `priceBearingAccounts`. Byte equality on a
+       * sysvar the runtime owns would refuse every trajectory whose runtime
+       * advanced a slot between the two legs — an apparatus property reported
+       * as a market fact, which is the substitution this module exists to
+       * prevent. What is required is that a SWAPPED clock is visible, and
+       * observing it on both sides is what makes that true.
+       */
+      economicAccounts: [...priceBearing, takerAta, takerWsol, CLOCK_SYSVAR],
       observe,
       // Item 49 — absent on every routine cycle, which is why the trip's
       // `replayed` field is null rather than empty there.

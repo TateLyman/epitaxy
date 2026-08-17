@@ -65,20 +65,54 @@ export function subscriptionFor(trajectoryId: string, w: WatchSet, atMs: number)
 }
 
 export class UnwatchMismatch extends Error {
-  constructor(readonly leaked: readonly string[]) {
+  constructor(
+    readonly leaked: readonly string[],
+    readonly extra: readonly string[] = [],
+  ) {
     super(
-      `unwatch was asked for addresses that were never subscribed, leaving ${leaked.length} subscription(s) open. ` +
-        'Unwatch must use the stored subscription addresses, not a fresh derivation.',
+      [
+        leaked.length > 0
+          ? `unwatch omitted ${leaked.length} subscribed address(es), leaving them open: ${leaked.slice(0, 4).join(', ')}`
+          : null,
+        extra.length > 0
+          ? `unwatch was asked for ${extra.length} address(es) that were NEVER subscribed: ${extra.slice(0, 4).join(', ')}`
+          : null,
+      ]
+        .filter((x): x is string => x !== null)
+        .join('; ') + '. Unwatch must use the stored subscription addresses, not a fresh derivation.',
     );
     this.name = 'UnwatchMismatch';
   }
 }
 
+/**
+ * EXACTLY: the asked set and the stored set are the same set.
+ *
+ * The 8f73cef audit's P-1: this computed only `stored NOT IN asked` — a LEAK
+ * check — so unwatching an address that was never subscribed passed, even
+ * though `UnwatchMismatch`'s own message read "unwatch was asked for addresses
+ * that were never subscribed". The function was named "exactly", the
+ * implementation was a subset check, and the error text described the direction
+ * it did not test.
+ *
+ * Both directions are load-bearing and they fail differently:
+ *
+ *   stored NOT IN asked   a LEAK. The subscription stays open, and the socket
+ *                         keeps delivering for a trajectory that has closed.
+ *
+ *   asked NOT IN stored   an OVER-BROAD unwatch. One `LiveVaultWatch` is shared
+ *                         across every open trajectory, so cancelling an
+ *                         address this subscription never owned silently
+ *                         removes ANOTHER trajectory's vault coverage — and the
+ *                         resulting gap is then recorded against the chain
+ *                         rather than against us.
+ */
 export function assertUnwatchesExactly(sub: Subscription, unwatching: readonly string[]): void {
   const stored = new Set(sub.addresses);
   const asked = new Set(unwatching);
   const leaked = [...stored].filter((a) => !asked.has(a));
-  if (leaked.length > 0) throw new UnwatchMismatch(leaked);
+  const extra = [...asked].filter((a) => !stored.has(a));
+  if (leaked.length > 0 || extra.length > 0) throw new UnwatchMismatch(leaked, extra);
 }
 
 /**

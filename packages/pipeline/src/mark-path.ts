@@ -17,7 +17,34 @@ import { decideExit, type ExitPolicy, type MarkPoint } from '../../strategy/src/
  * reason.
  */
 
-export const MARK_OFFSETS_MS = [60_000, 300_000, 900_000, 1_800_000, 3_600_000] as const;
+/**
+ * The horizons a path is marked at.
+ *
+ * 3m and 10m are NEW, and the reason is structural rather than a preference.
+ *
+ * `FLOW_LIQUIDITY_DETERIORATION_V1` needs TWO measured marks to see a capacity
+ * drop, and P9.2 requires it to fill at the first LATER valid mark rather than
+ * at the one that revealed the deterioration. On the old 1/5/15/30/60 grid the
+ * earliest possible trigger was the 5m mark and the first mark after it was
+ * 15m — which is the control's own horizon. The challenger could therefore
+ * NEVER exit before the control, on any path, whatever the market did.
+ *
+ * That is exactly the 8f73cef audit's N-1: "there is no constructed path in
+ * this build where it exits EARLIER than the control at a different mark", and
+ * "the challenger can only differ by holding longer". The cause was not the
+ * policy; it was that the measurement grid could not express the hypothesis.
+ * With heavy-tailed returns, "exiting early is the error" is the half most
+ * worth testing, and the grid had made the other half untestable.
+ *
+ * With 3m and 10m, a drop between 1m and 3m triggers at 3m and fills at 5m —
+ * genuinely earlier than 15m, at a different mark, on a real path.
+ *
+ * Recorded in `docs/MULTIPLE_TESTING_LEDGER.csv` as an AVAILABILITY-driven
+ * change: it was made before any outcome existed under the current contract,
+ * because the design could not represent the comparison, not because the
+ * returns looked better one way.
+ */
+export const MARK_OFFSETS_MS = [60_000, 180_000, 300_000, 600_000, 900_000, 1_800_000, 3_600_000] as const;
 
 export interface CollectedMark {
   readonly atMs: number;
