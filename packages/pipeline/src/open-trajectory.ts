@@ -754,10 +754,28 @@ export async function openTrajectory(
       ];
       extraPrograms = extra.programs.filter((x) => !snapshot.programs.some((y) => y.programId === x.programId));
 
-      // Whatever is STILL missing does not exist on chain. That is a fact, not
-      // a failure: the transaction is about to create it, and an account the
-      // chain does not have cannot be captured from it.
-      stillAbsent.push(...planAccountsNotCaptured(buyPlan, [...planAccounts.map((a) => a.pubkey), p.taker]));
+      /**
+       * Whatever is STILL missing does not exist on chain. That is a fact, not
+       * a failure: the transaction is about to create it, and an account the
+       * chain does not have cannot be captured from it.
+       *
+       * PROGRAMS COUNT AS CAPTURED. An executable restored through
+       * `set_account` populates no program cache, so programs are returned in
+       * `extra.programs` and loaded through the program path instead of into
+       * `planAccounts`. Reading only `planAccounts` therefore reported the
+       * System Program, both token programs, the ATA program, the AMM and the
+       * Pump fee program as "absent on chain, created by the leg" on EVERY
+       * trajectory — 303 of 303 rows — which is false about all six and makes
+       * a genuinely absent ATA indistinguishable from a builtin.
+       */
+      const capturedPrograms = [...snapshot.programs, ...extraPrograms].map((x) => x.programId);
+      stillAbsent.push(
+        ...planAccountsNotCaptured(buyPlan, [
+          ...planAccounts.map((a) => a.pubkey),
+          ...capturedPrograms,
+          p.taker,
+        ]),
+      );
     } catch (e) {
       return {
         ok: false,
@@ -1875,7 +1893,30 @@ export async function openTrajectory(
       impact,
       requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),
       incompleteness: [
-        ...trip.incompleteness,
+        /**
+         * THE WORKER'S RAW LIST, FILTERED TO WHAT IS ACTUALLY A GAP.
+         *
+         * `trip.incompleteness` is everything the runtime was asked to read and
+         * could not find, which is three different things and only one of them
+         * is a defect: an account the leg CREATES (absent by definition), an
+         * account created and closed inside the same transaction, and a
+         * writable that existed all along and nobody looked at.
+         *
+         * `coverageGap` already draws that line and the LEG rows use it —
+         * every leg settlement in the corpus reports full_account_coverage = 1
+         * and unexplained_lamports = 0. The trajectory row carried the raw list
+         * instead, so `refusals LIKE '%unobserved%'` matched 303 of 303 rows
+         * and read as "100% of the corpus has an unmeasured lamport flow" when
+         * the settlements say the opposite.
+         *
+         * The benign entries are still recorded, under names that say what they
+         * are, so nothing is dropped — only stopped from wearing the wrong one.
+         */
+        ...buyGap.map((u) => `COVERAGE GAP on buy, a writable that existed and was not observed: ${u}`),
+        ...sellGap.map((u) => `COVERAGE GAP on sell, a writable that existed and was not observed: ${u}`),
+        ...trip.incompleteness
+          .filter((u) => !buyGap.some((g) => u.includes(g)) && !sellGap.some((g) => u.includes(g)))
+          .map((u) => `absent from the runtime, not a coverage gap: ${u}`),
         // Named rather than dropped. An account the chain does not have is
         // correctly absent from the runtime, and the transaction creating it is
         // exactly the cold-setup cost P6 is trying to measure.

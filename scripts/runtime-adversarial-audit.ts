@@ -2,7 +2,8 @@ import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { resolve as resolvePath, dirname } from 'node:path';
+import { resolve as resolvePath, dirname, join as joinPath } from 'node:path';
+import { createRequire } from 'node:module';
 
 import { attributeSoleVenue } from '../packages/domain/src/trajectory-evidence.js';
 import { assertQuoteStateSurvived } from '../packages/simulator/src/sequential-worker.js';
@@ -14,6 +15,8 @@ import {
   type FeeTier,
 } from '../packages/solana/src/fee-tiers.js';
 import { sdkFeeOracle, sdkFeeOracleUnavailableReason } from '../packages/solana/src/sdk-fee-oracle.js';
+import { SWAP_ACCOUNT_INDEX } from '../packages/solana/src/pumpswap-offline.js';
+import { pinnedVersionDrift } from '../packages/domain/src/sdk-versions.js';
 import { calibrate, admissibleForPnl } from '../packages/pipeline/src/counterfactual.js';
 import { buildTrajectorySettlement, checkIdentities, DURABLE_EVIDENCE } from '../packages/domain/src/trajectory-settlement.js';
 import {
@@ -738,20 +741,99 @@ function sectionE(): void {
       'Nothing would fail if a future edit inserted a rebuild between them',
   });
 
+  /**
+   * E-4 — was NOT TESTABLE for the question as posed, and the question as posed
+   * was the wrong one.
+   *
+   * The old reason: "the open path does not hardcode fee recipients at all, so
+   * there is no constant to compare against the docs, and confirming the SDK
+   * against docs.pump.fun needs network access this harness does not take."
+   *
+   * The first half is true and is the correct design. The second half assumed
+   * the only authority is a website. It is not: the Anchor IDL that ships
+   * INSIDE the installed package is what the SDK encodes against, it is on
+   * disk, and comparing to it needs no network at all.
+   *
+   * What became checkable is the ORDER — `SWAP_ACCOUNT_INDEX`, which exists
+   * only because D-2 forced it. The protocol fee recipient's TOKEN ACCOUNT sits
+   * at index 10 and was 46 bps of unattributed quote on every entry until it
+   * was named, so a future SDK moving that name by one position is worth
+   * exactly that much and would otherwise be silent.
+   */
+  const idl = (() => {
+    const req = createRequire(import.meta.url);
+    let dir: string;
+    try {
+      dir = dirname(req.resolve('@pump-fun/pump-swap-sdk'));
+    } catch (e) {
+      return { path: null, idl: null, why: (e as Error).message.slice(0, 90) };
+    }
+    for (let i = 0; i < 6; i++) {
+      const candidate = joinPath(dir, 'src', 'idl', 'pump_amm.json');
+      if (existsSync(candidate)) {
+        return {
+          path: candidate,
+          idl: JSON.parse(readFileSync(candidate, 'utf8')) as Record<string, unknown>,
+          why: '',
+        };
+      }
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return { path: null, idl: null, why: 'pump_amm.json is not inside the installed package' };
+  })();
+
+  const mismatches: string[] = [];
+  let checkedIndices = 0;
+  if (idl.idl !== null) {
+    const address = idl.idl['address'];
+    if (address !== 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA') {
+      mismatches.push(`the IDL names program ${String(address)}, not the AMM this tree encodes for`);
+    }
+    for (const leg of ['buy', 'sell'] as const) {
+      const ix = ((idl.idl['instructions'] as { name: string; accounts: { name: string }[] }[]) ?? []).find(
+        (i) => i.name === leg,
+      );
+      if (ix === undefined) {
+        mismatches.push(`the IDL has no ${leg} instruction`);
+        continue;
+      }
+      const names = ix.accounts.map((a) => a.name);
+      for (const [label, index] of Object.entries(SWAP_ACCOUNT_INDEX)) {
+        checkedIndices++;
+        const expected = label.toLowerCase();
+        if (names[index] !== expected) {
+          mismatches.push(`${leg}[${index}] is ${String(names[index])}, this tree encodes ${expected}`);
+        }
+      }
+    }
+  }
+  const drift = pinnedVersionDrift();
   record({
     section: 'E',
     invariant: 'the April 2026 fee-recipient accounts and account ordering match the installed SDK',
-    verdict: 'NOT TESTABLE',
-    source: 'node_modules/@pump-fun/pump-swap-sdk@1.19.0',
-    mutation: 'compare the hardcoded recipients and ordering against current official Pump docs',
+    verdict:
+      idl.idl === null
+        ? 'NOT TESTABLE'
+        : mismatches.length === 0 && drift.length === 0
+          ? 'PASS'
+          : 'FAIL',
+    source: `${idl.path ?? '@pump-fun/pump-swap-sdk'} (the Anchor IDL the SDK itself encodes against)`,
+    mutation:
+      idl.idl === null
+        ? `the IDL could not be read: ${idl.why}`
+        : 'check every index in SWAP_ACCOUNT_INDEX by NAME against the IDL, on both legs, and check the pinned versions',
     result:
-      'the open path does not hardcode fee recipients at all: it reads whatever the SDK selects off the frozen ' +
-      'plan (selectedTrailingAccounts). There is therefore no constant in this repository to compare against ' +
-      'the docs, and confirming the SDK itself against docs.pump.fun requires network access this harness does ' +
-      'not take',
+      idl.idl === null
+        ? idl.why
+        : `${checkedIndices} named indices checked across buy and sell; ` +
+          `${mismatches.length === 0 ? 'every one holds the account the IDL says it does' : mismatches.slice(0, 4).join('; ')}. ` +
+          `pinned version drift: ${drift.length === 0 ? 'none' : JSON.stringify(drift)}`,
     economicConsequence:
-      'if the SDK version pinned here selects a stale recipient list, every leg pays a recipient the program no ' +
-      'longer credits, and nothing in the corpus would show it',
+      'the open path reads recipients off the SDK-selected plan rather than a constant, which is correct — but a ' +
+      'layout change moves the account whose delta the quote-side conservation check reads. The protocol fee ' +
+      "recipient's token account at index 10 was 46 bps of unattributed quote on every entry until it was named",
   });
 }
 
@@ -871,19 +953,66 @@ function sectionG(db: DatabaseSync): void {
       'property, and refusing every trajectory for one would report our own runtime as a market fact',
   });
 
-  const total = count(db, 'SELECT COUNT(*) c FROM development_trajectories');
-  const withUnobserved = count(db, "SELECT COUNT(*) c FROM development_trajectories WHERE refusals LIKE '%unobserved%'");
-  const settledWithUnobserved = count(db, "SELECT COUNT(*) c FROM development_trajectories WHERE state = 'SETTLED' AND refusals LIKE '%unobserved%'");
+  /**
+   * G-2 — REWRITTEN onto the settled fact.
+   *
+   * It matched `development_trajectories.refusals LIKE '%unobserved%'` — a
+   * free-text column — and reported 303 of 303 rows, concluding that an
+   * unobserved writable "is exactly what the settlement then reports as an
+   * unexplained remainder, and 100% of the corpus carries one".
+   *
+   * The settlements say the opposite. Every leg row in the corpus carries
+   * `full_account_coverage = 1` and `unexplained_lamports = 0`. What the text
+   * column held was the runtime's RAW unobserved list: accounts the leg
+   * creates, accounts created and closed inside one transaction, and — through
+   * a separate defect — six builtin programs labelled "created by the leg"
+   * because programs are captured into the program path rather than into
+   * `planAccounts`.
+   *
+   * `coverageGap` already draws the line the invariant is about, and the leg
+   * settlement is where its answer is recorded. So this reads that, and a
+   * defect is now a leg whose coverage is incomplete or whose lamports do not
+   * reconcile — which is what "unobserved accounts" was always trying to say.
+   */
+  const legs = all<{ n: number; incomplete: number; unexplained: number }>(
+    db,
+    scoped(
+      `SELECT COUNT(*) n,
+              SUM(CASE WHEN l.full_account_coverage = 1 THEN 0 ELSE 1 END) incomplete,
+              SUM(CASE WHEN CAST(l.unexplained_lamports AS INTEGER) = 0 THEN 0 ELSE 1 END) unexplained
+         FROM leg_settlements l
+         JOIN development_trajectories t ON t.trajectory_id = l.trajectory_id`,
+    ),
+  );
+  const legRow = legs[0] ?? { n: 0, incomplete: 0, unexplained: 0 };
+  const total = count(db, scoped('SELECT COUNT(*) c FROM development_trajectories'));
+  const settledIncomplete = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM leg_settlements l
+         JOIN development_trajectories t ON t.trajectory_id = l.trajectory_id
+        WHERE t.state = 'SETTLED' AND l.full_account_coverage <> 1`,
+    ),
+  );
   record({
     section: 'G',
     invariant: 'no successful trajectory carries required incompleteness or unobserved accounts',
-    verdict: withUnobserved === 0 ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.refusals',
-    mutation: 'observation across the whole corpus',
-    result: `${withUnobserved} of ${total} trajectories carry at least one "unobserved on buy/sell/close" entry; ${settledWithUnobserved} of them are SETTLED`,
+    verdict:
+      Number(legRow.n) === 0
+        ? 'NOT TESTABLE'
+        : Number(legRow.incomplete) === 0 && Number(legRow.unexplained) === 0
+          ? 'PASS'
+          : 'FAIL',
+    source: 'leg_settlements.full_account_coverage / unexplained_lamports; packages/pipeline/src/leg-settlement.ts coverageGap',
+    mutation: 'read the coverage verdict the settlement itself recorded, per leg, rather than a free-text refusal column',
+    result:
+      `${Number(legRow.n)} leg settlement(s) over ${total} trajector(ies) in scope: ` +
+      `${Number(legRow.incomplete)} with incomplete account coverage, ` +
+      `${Number(legRow.unexplained)} with a non-zero unexplained remainder, ` +
+      `${settledIncomplete} of the incomplete ones on a SETTLED trajectory`,
     economicConsequence:
-      'an unobserved writable is a lamport flow nobody measured. It is exactly what the settlement then reports ' +
-      'as an unexplained remainder, and 100% of the corpus carries one',
+      'an unobserved writable is a lamport flow nobody measured, and the settlement refuses a net PnL when its ' +
+      'coverage is incomplete. An account the leg CREATES is absent by definition and is not that',
   });
 }
 
