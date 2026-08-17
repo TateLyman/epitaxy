@@ -48,6 +48,12 @@ export class ReservationRefused extends Error {
   }
 }
 
+/**
+ * How long an unresolved reservation must sit before a different session may
+ * reclaim it. Long enough that a slow-but-alive collector is never robbed.
+ */
+export const STALE_RESERVATION_MS = 15 * 60 * 1_000;
+
 export interface Reservation {
   readonly reservationId: string;
   readonly windowId: string;
@@ -95,6 +101,7 @@ export function reserveCandidate(
     readonly nowMs: number;
     /** Count trajectories already recorded for this mint outside the window. */
     readonly includeHistoric?: boolean;
+    readonly staleReservationMs?: number;
   },
 ): Reservation {
   const { windowId, mint, maxPerMint, ownerSessionId, nowMs } = opts;
@@ -114,14 +121,62 @@ export function reserveCandidate(
       throw new ReservationRefused(mint, 'ALREADY_OPEN', `${mint} already has ${open.c} open trajectory(ies)`);
     }
 
-    const heldOpen = db
+    /**
+     * An unresolved reservation from a DEAD session is not a reservation.
+     *
+     * A collector that crashes between reserving and opening leaves the row
+     * `RESERVED`, and the partial unique index then blocks that mint FOREVER.
+     * Measured during this window: three mints were permanently unreachable
+     * after runs that died on a serialisation error, a reserved word and a hash
+     * mismatch — none of which is a reason to retire a candidate.
+     *
+     * Reclaimed only when BOTH are true, which is the same rule the collector
+     * lock uses and for the same reason: a half-signal is not permission.
+     *
+     *   - the owning session has ENDED, or is not the session asking now;
+     *   - the reservation is older than the stale bound.
+     *
+     * Reclamation is an ABANDONMENT, so the row is preserved as history and the
+     * retry gets a fresh attempt id.
+     */
+    const held = db
       .prepare(
-        `SELECT COUNT(*) AS c FROM trajectory_reservations
-          WHERE window_id = ? AND mint = ? AND status = 'RESERVED'`,
+        `SELECT r.reservation_id, r.reserved_utc_ms, r.owner_session_id,
+                s.ended_utc_ms, s.heartbeat_utc_ms
+           FROM trajectory_reservations r
+           LEFT JOIN collector_sessions s ON s.session_id = r.owner_session_id
+          WHERE r.window_id = ? AND r.mint = ? AND r.status = 'RESERVED'`,
       )
-      .get(windowId, mint) as { c: number };
-    if (Number(heldOpen.c) > 0) {
-      throw new ReservationRefused(mint, 'ALREADY_OPEN', `${mint} already holds an unresolved reservation`);
+      .all(windowId, mint) as {
+      reservation_id: string;
+      reserved_utc_ms: number;
+      owner_session_id: string;
+      ended_utc_ms: number | null;
+      heartbeat_utc_ms: number | null;
+    }[];
+
+    for (const h of held) {
+      const ownerFinished = h.ended_utc_ms !== null;
+      const ownerSilent =
+        h.heartbeat_utc_ms === null || nowMs - h.heartbeat_utc_ms >= (opts.staleReservationMs ?? STALE_RESERVATION_MS);
+      const isOurs = h.owner_session_id === ownerSessionId;
+      const old = nowMs - h.reserved_utc_ms >= (opts.staleReservationMs ?? STALE_RESERVATION_MS);
+
+      if (!isOurs && (ownerFinished || ownerSilent) && old) {
+        db.prepare(
+          `UPDATE trajectory_reservations
+              SET status = 'ABANDONED', resolved_utc_ms = ?
+            WHERE reservation_id = ? AND status = 'RESERVED'`,
+        ).run(nowMs, h.reservation_id);
+        continue;
+      }
+      throw new ReservationRefused(
+        mint,
+        'ALREADY_OPEN',
+        `${mint} already holds an unresolved reservation from session ${h.owner_session_id.slice(0, 12)} ` +
+          `(${isOurs ? 'this session' : ownerFinished ? 'ended' : 'still heartbeating'}, ` +
+          `reserved ${Math.round((nowMs - h.reserved_utc_ms) / 1000)}s ago)`,
+      );
     }
 
     // 2 — the next ordinal, counted inside the same write transaction.

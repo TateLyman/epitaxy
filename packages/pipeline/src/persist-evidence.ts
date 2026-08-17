@@ -334,15 +334,16 @@ export function persistEvidence(db: Db, store: EvidenceStore, req: PersistEviden
         readExisting: () => {
           const r = db
             .prepare(
-              `SELECT mint, side, requested_amount AS requested, exact_transaction_blob AS transaction
+              `SELECT mint, side, requested_amount AS requested, exact_transaction_blob AS txblob
                  FROM execution_observations WHERE observation_id = ?`,
             )
             .get(leg.observationId) as
-            | { mint: string; side: string; requested: string; transaction: string | null }
+            | { mint: string; side: string; requested: string; txblob: string | null }
             | undefined;
+          // `transaction` is a RESERVED WORD in SQLite, so the alias is not it.
           return r === undefined
             ? null
-            : { mint: r.mint, side: r.side, requested: r.requested, transaction: r.transaction ?? '' };
+            : { mint: r.mint, side: r.side, requested: r.requested, transaction: r.txblob ?? '' };
         },
         insert: () =>
           Number(

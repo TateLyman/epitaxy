@@ -236,6 +236,79 @@ describe('P17 1–4 — one collector, one owner, one provenance', () => {
     }
   });
 
+  it('3d — an unresolved reservation from a DEAD session is reclaimable', () => {
+    /**
+     * A collector that crashes between reserving and opening leaves the row
+     * RESERVED, and the partial unique index then blocks that mint FOREVER.
+     * Measured during the first clean window: three mints became permanently
+     * unreachable after runs that died on a serialisation error, a reserved
+     * word and a hash mismatch — none of which is a reason to retire a
+     * candidate.
+     *
+     * Both conditions are required, the same rule the collector lock uses: a
+     * live owner keeps its reservation however old, and a dead owner's fresh
+     * reservation is left alone in case it is still shutting down.
+     */
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      const session = (id: string, ended: number | null, heartbeat: number): void => {
+        db.prepare(
+          `INSERT INTO collector_sessions
+             (session_id, started_utc_ms, heartbeat_utc_ms, ended_utc_ms, mode, source_commit, dirty, pid, endpoint)
+           VALUES (?, ?, ?, ?, 'observe', 'aaa', 0, 1, 'e')`,
+        ).run(id, NOW, heartbeat, ended);
+      };
+      session('dead', NOW, NOW);
+      session('alive', null, NOW);
+
+      const reserve = (owner: string, nowMs: number): string =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'M',
+          maxPerMint: 3,
+          ownerSessionId: owner,
+          nowMs,
+          staleReservationMs: 60_000,
+        }).reservationId;
+
+      /**
+       * A HEARTBEATING owner keeps its reservation.
+       *
+       * "Alive" is the heartbeat, not the absence of `ended_utc_ms`. A session
+       * with a null `ended_utc_ms` and a stale heartbeat is the KILLED case —
+       * seven pre-repair sessions were exactly that — so it must not count as
+       * alive here either.
+       */
+      reserve('alive', NOW);
+      db.prepare('UPDATE collector_sessions SET heartbeat_utc_ms = ? WHERE session_id = ?').run(NOW + 30_000, 'alive');
+      expect(() => reserve('other', NOW + 40_000)).toThrow(/already holds/);
+
+      // A dead owner's FRESH reservation is left alone: it may be shutting down.
+      db.exec("UPDATE trajectory_reservations SET owner_session_id = 'dead' WHERE mint = 'M'");
+      expect(() => reserve('other', NOW + 1_000)).toThrow(/already holds/);
+
+      // Dead AND stale: reclaimable, as an ABANDONMENT that preserves history.
+      const taken = reserve('other', NOW + 120_000);
+      expect(taken.length).toBeGreaterThan(0);
+      const abandoned = Number(
+        (
+          db.prepare("SELECT COUNT(*) c FROM trajectory_reservations WHERE status = 'ABANDONED'").get() as {
+            c: number;
+          }
+        ).c,
+      );
+      expect(abandoned).toBe(1);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
   it('3c — a candidate REFUSED once is retryable in the same window', () => {
     /**
      * `abandonReservation` frees the ordinal for COUNTING, but the abandoned
