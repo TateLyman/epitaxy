@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { openDb } from '../../packages/storage/src/db.js';
 import {
   TrajectoryCollectorLock,
+  pidStillOwns,
   CollectorLockRefused,
   DirtyEvidenceCollection,
   evidenceContextValidity,
@@ -1567,5 +1568,76 @@ describe('P17 40–42 — backpressure is scoped to the window it brakes', () =>
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('P17 43–45 — a recycled pid is not a live collector', () => {
+  /**
+   * MEASURED 2026-08-17. The collector at pid 15880 exited; Windows handed
+   * 15880 to a `sleep`; the lock then refused every new collector with "the
+   * trajectory collector lock is held by live pid 15880" and went on refusing,
+   * because the rule that a live pid may never be taken over is deliberately
+   * absolute and the stranger holding the number will never release a lock it
+   * does not know it has. The window could not be restarted at all.
+   *
+   * `pidIsAlive` answers "does a process with this number exist", which is not
+   * the question. The identity is the command line, which the lock already
+   * stores.
+   */
+  const seedLock = (db: ReturnType<typeof openDb>, pid: number, at: number, cmd: string): void => {
+    db.prepare(
+      `INSERT INTO process_locks (lock_name, pid, hostname, acquired_utc_ms, heartbeat_utc_ms, mode, source_commit, command_line)
+       VALUES (?, ?, 'h', ?, ?, 'observe', 'aaa', ?)
+       ON CONFLICT(lock_name) DO UPDATE SET pid=excluded.pid, heartbeat_utc_ms=excluded.heartbeat_utc_ms,
+         command_line=excluded.command_line`,
+    ).run(TRAJECTORY_COLLECTOR_LOCK, pid, at, at, cmd);
+  };
+  const lock = (
+    db: ReturnType<typeof openDb>,
+    nowMs: number,
+    stillOwns: boolean,
+  ): TrajectoryCollectorLock =>
+    new TrajectoryCollectorLock(db, {
+      mode: 'observe',
+      sourceCommit: 'bbb',
+      staleAfterMs: 90_000,
+      now: () => nowMs,
+      pidAlive: () => true,
+      pidStillOwns: () => stillOwns,
+    });
+
+  it('43 — a live pid running SOMETHING ELSE with a stale heartbeat may be taken over', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedLock(db, 999999, NOW, 'node tsx apps/collector/src/trajectory-collect.ts --mode=observe');
+      const taken = lock(db, NOW + 200_000, false).acquire();
+      expect(taken.pid).toBe(process.pid);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('44 — a live pid STILL running the collector is refused, stale heartbeat or not', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedLock(db, 999999, NOW, 'node tsx apps/collector/src/trajectory-collect.ts --mode=observe');
+      // Hung: the heartbeat is stale but the process is still this program.
+      expect(() => lock(db, NOW + 200_000, true).acquire()).toThrow(/ALIVE but its heartbeat/);
+      // Healthy: a fresh heartbeat is refused before identity is even asked.
+      expect(() => lock(db, NOW + 1_000, false).acquire()).toThrow(/held by live pid/);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('45 — an unreadable command line keeps the conservative reading', () => {
+    // `pidStillOwns` reports true when it cannot tell. A half signal is not
+    // permission, so the lock is refused rather than stolen.
+    expect(pidStillOwns(process.pid, '')).toBe(true);
+    expect(pidStillOwns(process.pid, 'some command with no recognisable marker')).toBe(true);
   });
 });

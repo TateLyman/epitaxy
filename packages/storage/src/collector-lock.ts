@@ -77,6 +77,72 @@ export function pidIsAlive(pid: number): boolean {
   }
 }
 
+/**
+ * The command line of a live pid, or null when it cannot be read.
+ *
+ * `pidIsAlive` answers "does a process with this number exist", which is NOT
+ * the question the lock asks. Measured 2026-08-17: the collector at pid 15880
+ * exited, Windows handed 15880 to a `sleep`, and the lock then refused every
+ * new collector with "the lock is held by live pid 15880" — forever, because a
+ * lock held by a stranger is never released and the rule that a live pid may
+ * not be taken over is deliberately absolute.
+ *
+ * PID reuse on Windows is minutes, not days. So the identity check is the
+ * COMMAND LINE, which the lock already stores. A genuinely hung collector still
+ * matches it and is still refused; a recycled pid does not and is treated as
+ * what it is, a dead owner.
+ *
+ * Null on any failure — no PowerShell, no permission, an unparseable answer.
+ * Null is not "recycled": the caller keeps the conservative reading and refuses,
+ * because an unreadable command line is not evidence that the owner is gone.
+ */
+export function commandLineOfPid(pid: number): string | null {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync(
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue).CommandLine`,
+        ],
+        { encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'ignore'] },
+      ).trim();
+      return out.length === 0 ? null : out;
+    }
+    const out = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return out.length === 0 ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is the process at `pid` still the one that took this lock?
+ *
+ * "Unknown" is reported as `true`. The lock's whole posture is that a half
+ * signal is not permission, and an unreadable command line is a half signal.
+ */
+export function pidStillOwns(pid: number, recordedCommandLine: string): boolean {
+  if (recordedCommandLine.trim().length === 0) return true;
+  const live = commandLineOfPid(pid);
+  if (live === null) return true;
+  // The recorded line is this repository's own argv, truncated to 500 chars,
+  // and the live one comes from the OS with its own quoting. Compare on the
+  // script path, which is the part that identifies the program.
+  const marker = /trajectory-collect/.test(recordedCommandLine)
+    ? 'trajectory-collect'
+    : /collector[\\/]src[\\/]main/.test(recordedCommandLine)
+      ? 'main.ts'
+      : null;
+  if (marker === null) return true;
+  return live.includes(marker);
+}
+
 function currentCommandLine(): string {
   return [process.argv0, ...process.argv.slice(1)].join(' ').slice(0, 500);
 }
@@ -114,6 +180,8 @@ export class TrajectoryCollectorLock {
       readonly lockFilePath?: string | null;
       readonly now?: () => number;
       readonly pidAlive?: (pid: number) => boolean;
+      /** Injected so a test can express PID reuse without one. */
+      readonly pidStillOwns?: (pid: number, recordedCommandLine: string) => boolean;
     },
   ) {}
 
@@ -123,6 +191,12 @@ export class TrajectoryCollectorLock {
 
   private alive(pid: number): boolean {
     return this.opts.pidAlive ? this.opts.pidAlive(pid) : pidIsAlive(pid);
+  }
+
+  private stillOwns(pid: number, recordedCommandLine: string): boolean {
+    return this.opts.pidStillOwns
+      ? this.opts.pidStillOwns(pid, recordedCommandLine)
+      : pidStillOwns(pid, recordedCommandLine);
   }
 
   /** Current owner, or null. Read-only; safe from any process. */
@@ -158,6 +232,7 @@ export class TrajectoryCollectorLock {
     const staleAfter = this.opts.staleAfterMs ?? STALE_AFTER_MS;
     const now = this.now();
     const me = process.pid;
+    let takeoverNote: string | null = null;
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -178,14 +253,32 @@ export class TrajectoryCollectorLock {
           );
         }
         if (ownerAlive) {
-          throw new CollectorLockRefused(
-            existing.pid,
-            age,
-            true,
-            `pid ${existing.pid} is ALIVE but its heartbeat is ${Math.round(age / 1000)}s stale. ` +
-              'A stale heartbeat from a live process is a hung collector, not an abandoned lock. ' +
-              'Stop it explicitly (`pnpm collector:stop-all`) rather than taking the lock from under it.',
-          );
+          /**
+           * A live pid with a STALE heartbeat is one of two things, and they
+           * need opposite answers.
+           *
+           * A hung collector still runs `trajectory-collect` and must not be
+           * taken from under; that is the rule and it stands. A RECYCLED pid is
+           * a stranger holding a number, and refusing for it wedges the
+           * apparatus permanently — the stranger will never release a lock it
+           * does not know it has.
+           *
+           * The command line separates them. Unreadable counts as the hung
+           * case, because a half signal is not permission.
+           */
+          if (this.stillOwns(existing.pid, existing.commandLine)) {
+            throw new CollectorLockRefused(
+              existing.pid,
+              age,
+              true,
+              `pid ${existing.pid} is ALIVE but its heartbeat is ${Math.round(age / 1000)}s stale. ` +
+                'A stale heartbeat from a live process is a hung collector, not an abandoned lock. ' +
+                'Stop it explicitly (`pnpm collector:stop-all`) rather than taking the lock from under it.',
+            );
+          }
+          takeoverNote =
+            `pid ${existing.pid} exists but is no longer this collector — the pid was reused after the owner ` +
+            `exited, and its heartbeat is ${Math.round(age / 1000)}s stale`;
         }
         if (!heartbeatStale) {
           throw new CollectorLockRefused(
@@ -196,7 +289,9 @@ export class TrajectoryCollectorLock {
               `(stale after ${Math.round(staleAfter / 1000)}s). It may still be shutting down; refusing to race it.`,
           );
         }
-        // Dead pid AND stale heartbeat: the only takeover this lock permits.
+        // Dead pid AND stale heartbeat, or a stale heartbeat on a pid that is
+        // demonstrably no longer this program. The only takeovers permitted.
+        if (takeoverNote !== null) console.log(`taking over the trajectory collector lock: ${takeoverNote}`);
       }
 
       this.db
