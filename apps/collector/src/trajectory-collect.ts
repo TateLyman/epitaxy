@@ -1939,16 +1939,52 @@ async function main(): Promise<void> {
    * the collector's schedule rather than the chain's.
    */
   /**
-   * P0.4 — the evidence context this run's rows belong to.
+   * P0.4 / P12.2 — the evidence context this run's rows belong to.
    *
-   * Opened before the first cycle and named by the source commit, so a run from
-   * a different commit is a different context by construction rather than by
-   * anyone remembering to say so. A dirty run's context is created with
-   * `INSTRUMENT_DEVELOPMENT_INVALID` and can never be promoted.
+   * Named by the source commit, so a run from a different commit is a different
+   * context BY CONSTRUCTION rather than by anyone remembering to say so. A dirty
+   * run's context is created `INSTRUMENT_DEVELOPMENT_INVALID` and can never be
+   * promoted.
+   *
+   * WHEN A CONTRACT IS NAMED, IT OWNS THE CONTEXT.
+   *
+   * A frozen `experiment_contracts` row already names one, and `pnpm readiness`
+   * loads exactly that contract and the rows belonging to its context. If the
+   * collector derived its own instead, the window would collect into a context
+   * the gate does not read — every row real, every report empty, and nothing
+   * saying why. Found before the first clean window rather than after it.
+   *
+   * The contract's source commit must ALSO be the commit that is running. A
+   * window collected at a different commit than its contract froze is not the
+   * experiment that was declared, which is the whole point of freezing one.
    */
-  const evidenceContextId = `ctx-${commit.slice(0, 12)}-${args.windowId}${
+  let evidenceContextId = `ctx-${commit.slice(0, 12)}-${args.windowId}${
     contextValidity === 'INSTRUMENT_DEVELOPMENT_INVALID' ? '-dirty' : ''
   }`;
+  if (args.contractId !== null) {
+    const contract = telemetryDb
+      .prepare('SELECT evidence_context_id, source_commit FROM experiment_contracts WHERE contract_id = ?')
+      .get(args.contractId) as { evidence_context_id: string; source_commit: string } | undefined;
+    if (contract === undefined) {
+      console.error(`\nREFUSED: no frozen contract ${args.contractId}. Freeze one with \`pnpm contract:freeze\`.\n`);
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    if (contract.source_commit !== commit) {
+      console.error(
+        `\nREFUSED: contract ${args.contractId} was frozen at ${contract.source_commit.slice(0, 12)} and this ` +
+          `process is running ${commit.slice(0, 12)}.\n\n` +
+          'A window collected at a different commit than its contract froze is not the experiment that was\n' +
+          'declared. Re-freeze at this commit, or check out the one the contract names.\n',
+      );
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    evidenceContextId = contract.evidence_context_id;
+    console.log(`collecting under contract ${args.contractId} into context ${evidenceContextId}`);
+  }
   telemetryDb
     .prepare(
       `INSERT INTO evidence_contexts
