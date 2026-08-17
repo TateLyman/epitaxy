@@ -1,9 +1,25 @@
 {
   "activeContexts": [
     "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
-    "ctx-ed5dce59cb12-DEV_WINDOW_V1"
+    "ctx-ed5dce59cb12-DEV_WINDOW_V1",
+    "ctx-562a10d1b860-DEV_WINDOW_5D24E",
+    "ctx-f5e55195b761-DEV_WINDOW_5D24E",
+    "ctx-21ae8237ef32-DEV_WINDOW_5D24E",
+    "ctx-4bab77603471-DEV_WINDOW_5D24E",
+    "ctx-e384181e4015-DEV_WINDOW_5D24E",
+    "ctx-f98c4ec0d5de-DEV_WINDOW_5D24E",
+    "ctx-2c2aca3446a8-DEV_WINDOW_5D24E",
+    "ctx-9693933388d4-DEV_WINDOW_5D24E",
+    "ctx-6906d738b650-DEV_WINDOW_5D24E",
+    "ctx-ce93e9253f91-DEV_WINDOW_5D24E",
+    "ctx-f63529977056-DEV_WINDOW_5D24E",
+    "ctx-7fa94a1b8ed2-DEV_WINDOW_5D24E",
+    "ctx-f658ec7ae88b-DEV_WINDOW_5D24E",
+    "ctx-9a337af8144a-DEV_WINDOW_5D24E",
+    "ctx-200761d0eecd-DEV_WINDOW_5D24E",
+    "ctx-c3c2ef00d44c-DEV_WINDOW_5D24E"
   ],
-  "trajectoriesInScope": 0,
+  "trajectoriesInScope": 1,
   "checks": [
     {
       "name": "LINK_ROW_EXISTS",
@@ -85,14 +101,14 @@
     }
   ],
   "failingChecks": [],
-  "emptyGraph": true,
-  "strict": false,
+  "emptyGraph": false,
+  "strict": true,
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
     "treeDirty": true,
-    "dirtyFiles": 2,
-    "writtenUtc": "2026-08-17T05:00:07.639Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-17T12:54:10.244Z"
   }
 }

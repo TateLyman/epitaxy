@@ -1,11 +1,34 @@
 {
-  "status": "NOT_RUN",
-  "reason": "no trajectory carries an evidence-link row",
+  "traced": 1,
+  "recomputed": 1,
+  "failures": 0,
+  "results": [
+    {
+      "trajectoryId": "0e7ac867-f6f5-449d-86ac-40bc661283b9",
+      "traceable": true,
+      "manifestRows": 49,
+      "blobsRead": 94,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19618575",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-4270104"
+      },
+      "stored": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19618575",
+        "netPnlLamports": "-4270104"
+      },
+      "mismatches": [],
+      "recomputes": true
+    }
+  ],
   "provenance": {
     "writer": "trajectory-trace.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
-    "treeDirty": false,
-    "dirtyFiles": 0,
-    "writtenUtc": "2026-08-17T04:58:36.964Z"
+    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+    "treeDirty": true,
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-17T12:54:19.940Z"
   }
 }

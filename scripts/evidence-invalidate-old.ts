@@ -169,8 +169,76 @@ function measureReasons(db: ReturnType<typeof openDb>): Reason[] {
   ];
 }
 
+/**
+ * DEMOTE one named context, with a reason.
+ *
+ * The ledger is append-only in the direction that matters: a context can be
+ * DEMOTED to `INSTRUMENT_DEVELOPMENT_INVALID` and never promoted back. That
+ * asymmetry is the whole protection — invalidation is a one-way door, so
+ * "append-only" forbids un-invalidating rather than forbidding invalidating.
+ *
+ * Used when a window turns out to have been collecting under a defect that was
+ * only visible later. Its rows are preserved and excluded, exactly like the
+ * pre-repair corpus.
+ */
+function demote(contextId: string, reasons: readonly string[], apply: boolean): void {
+  const db = openDb({ path: process.env['DATABASE_PATH'] ?? './data/runtime.db' });
+  try {
+    const row = db
+      .prepare('SELECT validity, reasons FROM evidence_contexts WHERE evidence_context_id = ?')
+      .get(contextId) as { validity: string; reasons: string } | undefined;
+    if (row === undefined) {
+      console.error(`no such evidence context: ${contextId}`);
+      process.exit(1);
+    }
+    const affected = count(
+      db,
+      `SELECT COUNT(*) AS c FROM trajectory_evidence_context WHERE evidence_context_id = '${contextId.replace(/'/g, "''")}'`,
+    );
+    console.log(`context   ${contextId}`);
+    console.log(`validity  ${row.validity}  ->  INSTRUMENT_DEVELOPMENT_INVALID`);
+    console.log(`affects   ${affected} trajector(ies), none deleted`);
+    for (const r of reasons) console.log(`  reason   ${r}`);
+
+    if (row.validity === 'INSTRUMENT_DEVELOPMENT_INVALID') {
+      console.log('\nalready invalid; nothing to do');
+      return;
+    }
+    if (!apply) {
+      console.log('\n(dry run — pass --apply)');
+      return;
+    }
+    const existing = JSON.parse(row.reasons) as unknown[];
+    const r = db
+      .prepare(
+        `UPDATE evidence_contexts
+            SET validity = 'INSTRUMENT_DEVELOPMENT_INVALID', reasons = ?, closed_utc_ms = ?
+          WHERE evidence_context_id = ? AND validity = 'DEVELOPMENT_EVIDENCE'`,
+      )
+      .run(
+        JSON.stringify([...existing, ...reasons.map((x) => ({ code: 'DEMOTED', statement: x }))]),
+        Date.now(),
+        contextId,
+      );
+    if (Number(r.changes) !== 1) throw new Error(`demoting ${contextId} changed ${r.changes} rows, expected 1`);
+    console.log('\nDEMOTED.');
+  } finally {
+    db.close();
+  }
+}
+
 function main(): void {
   const apply = process.argv.includes('--apply');
+  const ctxArg = process.argv.find((a) => a.startsWith('--context='));
+  if (ctxArg !== undefined) {
+    const reasons = process.argv.filter((a) => a.startsWith('--reason=')).map((a) => a.slice(9));
+    if (reasons.length === 0) {
+      console.error('--context requires at least one --reason=');
+      process.exit(2);
+    }
+    demote(ctxArg.slice(10), reasons, apply);
+    return;
+  }
   const db = openDb({ path: process.env['DATABASE_PATH'] ?? './data/runtime.db' });
 
   try {

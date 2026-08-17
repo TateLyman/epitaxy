@@ -1,4 +1,6 @@
 import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /**
  * P6.3 — the Pump SDK versions this process is ACTUALLY running.
@@ -21,13 +23,47 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The version ACTUALLY installed, read from the package's own manifest.
+ *
+ * `require('<pkg>/package.json')` is the obvious way and it does not work: both
+ * Pump packages publish an `exports` map that does not include `./package.json`,
+ * so the subpath is not resolvable and this returned `'unknown'` for BOTH — on a
+ * tree where 1.36.0 and 1.19.0 were correctly installed.
+ *
+ * That is not a cosmetic miss. The capability fingerprint COMMITS to these
+ * versions, so every fingerprint computed before this fix recorded
+ * `{"@pump-fun/pump-sdk":"unknown","@pump-fun/pump-swap-sdk":"unknown"}` — a
+ * fingerprint that cannot distinguish two builds is the one thing a fingerprint
+ * exists to do, and `assertPinnedVersions` could never have fired either.
+ *
+ * So: resolve the package ENTRY POINT, which `exports` does publish, and walk up
+ * to the directory holding its manifest. Returns `'unknown'` only when it
+ * genuinely cannot be read, and `pinnedVersionDrift` treats that as drift.
+ */
 function installedVersion(pkg: string): string {
+  let dir: string;
   try {
-    const manifest = require(`${pkg}/package.json`) as { version?: unknown };
-    return typeof manifest.version === 'string' ? manifest.version : 'unknown';
+    dir = dirname(require.resolve(pkg));
   } catch {
     return 'unknown';
   }
+  for (let i = 0; i < 8; i++) {
+    const candidate = join(dir, 'package.json');
+    if (existsSync(candidate)) {
+      try {
+        const manifest = JSON.parse(readFileSync(candidate, 'utf8')) as { name?: unknown; version?: unknown };
+        // Walk past a nested manifest that belongs to a different package.
+        if (manifest.name === pkg && typeof manifest.version === 'string') return manifest.version;
+      } catch {
+        /* an unreadable manifest is not this package's manifest */
+      }
+    }
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return 'unknown';
 }
 
 export const version = installedVersion('@pump-fun/pump-sdk');

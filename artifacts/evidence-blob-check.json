@@ -1,12 +1,42 @@
 {
-  "status": "NOT_RUN",
-  "reason": "no evidence blob has been written yet",
-  "registered": 0,
+  "registered": 104,
+  "neverReadBack": 0,
+  "byKind": [
+    {
+      "kind": "account_state",
+      "n": 88,
+      "bytes": 16339431
+    },
+    {
+      "kind": "exact_transaction",
+      "n": 5,
+      "bytes": 6818
+    },
+    {
+      "kind": "worker_request",
+      "n": 5,
+      "bytes": 1804
+    },
+    {
+      "kind": "snapshot_manifest",
+      "n": 4,
+      "bytes": 32746
+    },
+    {
+      "kind": "worker_response",
+      "n": 2,
+      "bytes": 718
+    }
+  ],
+  "checked": 104,
+  "missing": [],
+  "corrupt": [],
+  "verdict": "ALL_DURABLE",
   "provenance": {
     "writer": "evidence-blob-check.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-17T05:00:07.978Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-17T12:54:17.821Z"
   }
 }
