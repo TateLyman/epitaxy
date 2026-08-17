@@ -1,8 +1,37 @@
 {
   "activeContexts": [
-    "ctx-24ca08aeedb4-DEV_WINDOW_5D24E"
+    "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
+    "ctx-ed5dce59cb12-DEV_WINDOW_V1",
+    "ctx-562a10d1b860-DEV_WINDOW_5D24E",
+    "ctx-f5e55195b761-DEV_WINDOW_5D24E",
+    "ctx-21ae8237ef32-DEV_WINDOW_5D24E",
+    "ctx-4bab77603471-DEV_WINDOW_5D24E",
+    "ctx-e384181e4015-DEV_WINDOW_5D24E",
+    "ctx-f98c4ec0d5de-DEV_WINDOW_5D24E",
+    "ctx-2c2aca3446a8-DEV_WINDOW_5D24E",
+    "ctx-9693933388d4-DEV_WINDOW_5D24E",
+    "ctx-6906d738b650-DEV_WINDOW_5D24E",
+    "ctx-ce93e9253f91-DEV_WINDOW_5D24E",
+    "ctx-f63529977056-DEV_WINDOW_5D24E",
+    "ctx-7fa94a1b8ed2-DEV_WINDOW_5D24E",
+    "ctx-f658ec7ae88b-DEV_WINDOW_5D24E",
+    "ctx-9a337af8144a-DEV_WINDOW_5D24E",
+    "ctx-200761d0eecd-DEV_WINDOW_5D24E",
+    "ctx-909c7f986254-DEV_WINDOW_5D24E",
+    "ctx-9e259b406157-DEV_WINDOW_5D24E",
+    "ctx-9df406ef343a-DEV_WINDOW_5D24E",
+    "ctx-258888342920-DEV_WINDOW_5D24E",
+    "ctx-5f049a4795f6-DEV_WINDOW_5D24E",
+    "ctx-a50808d9fb2a-DEV_WINDOW_5D24E",
+    "ctx-15d6476bcbec-DEV_WINDOW_5D24E",
+    "ctx-69552f9208ae-DEV_WINDOW_5D24E",
+    "ctx-455e0e284ff1-DEV_WINDOW_5D24E",
+    "ctx-67035f4975ab-DEV_WINDOW_5D24E",
+    "ctx-b66a3f43d117-DEV_WINDOW_5D24E",
+    "ctx-24ca08aeedb4-DEV_WINDOW_5D24E",
+    "ctx-0293583cdca9-DEV_WINDOW_5D24E"
   ],
-  "trajectoriesInScope": 11,
+  "trajectoriesInScope": 31,
   "checks": [
     {
       "name": "LINK_ROW_EXISTS",
@@ -89,9 +118,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "24ca08aeedb478331c351f754434875c35b0c6fa",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-17T21:01:21.909Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-17T21:31:33.606Z"
   }
 }

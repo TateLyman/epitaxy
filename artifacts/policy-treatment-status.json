@@ -4,12 +4,33 @@
     "CORRECTED_CURRENT_QUALITY_SCORE",
     "SURVIVOR_FLOW_CONTINUATION_V1"
   ],
-  "trajectories": 292,
-  "decisionRows": 0,
-  "trajectoriesWithAllPolicies": 0,
-  "trajectoriesWherePoliciesDisagree": 0,
-  "decisionsByPolicy": [],
-  "riskFactsApplied": 0,
+  "trajectories": 334,
+  "decisionRows": 126,
+  "trajectoriesWithAllPolicies": 42,
+  "trajectoriesWherePoliciesDisagree": 23,
+  "decisionsByPolicy": [
+    {
+      "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
+      "decision": "REJECT",
+      "n": 42
+    },
+    {
+      "entry_policy": "HARD_GATES_RANDOM",
+      "decision": "ENTER",
+      "n": 23
+    },
+    {
+      "entry_policy": "HARD_GATES_RANDOM",
+      "decision": "REJECT",
+      "n": 19
+    },
+    {
+      "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
+      "decision": "REJECT",
+      "n": 42
+    }
+  ],
+  "riskFactsApplied": 93,
   "riskFactsChangedADecision": 0,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -28,12 +49,12 @@
   "pairedPaths": 292,
   "pathsWithDifferentTriggerOffsets": 47,
   "challengerExitedEarlier": 3,
-  "verdict": "TREATMENTS_ARE_LABELS",
+  "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "treeDirty": true,
-    "dirtyFiles": 6,
-    "writtenUtc": "2026-08-17T05:00:10.304Z"
+    "dirtyFiles": 10,
+    "writtenUtc": "2026-08-17T21:31:37.795Z"
   }
 }

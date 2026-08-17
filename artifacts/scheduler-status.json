@@ -1,70 +1,77 @@
 {
-  "activeContext": "ctx-24ca08aeedb4-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-0293583cdca9-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 6,
-      "onTime": 6,
-      "missed": 0,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 180000,
-      "total": 6,
-      "onTime": 6,
-      "missed": 0,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 300000,
-      "total": 3,
-      "onTime": 2,
+      "total": 9,
+      "onTime": 8,
       "missed": 1,
       "unclassified": 0
     },
     {
+      "offsetMs": 180000,
+      "total": 9,
+      "onTime": 7,
+      "missed": 2,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 300000,
+      "total": 7,
+      "onTime": 5,
+      "missed": 2,
+      "unclassified": 0
+    },
+    {
       "offsetMs": 600000,
-      "total": 1,
-      "onTime": 1,
-      "missed": 0,
+      "total": 6,
+      "onTime": 4,
+      "missed": 2,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 900000,
+      "total": 5,
+      "onTime": 3,
+      "missed": 2,
       "unclassified": 0
     }
   ],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 317,
-      "onTime": 22,
-      "missed": 3,
+      "total": 333,
+      "onTime": 35,
+      "missed": 6,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 30,
-      "onTime": 22,
-      "missed": 8,
+      "total": 46,
+      "onTime": 34,
+      "missed": 12,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 305,
-      "onTime": 10,
-      "missed": 3,
+      "total": 318,
+      "onTime": 17,
+      "missed": 9,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 14,
-      "onTime": 8,
-      "missed": 6,
+      "total": 27,
+      "onTime": 17,
+      "missed": 10,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 296,
-      "onTime": 4,
-      "missed": 0,
+      "total": 307,
+      "onTime": 12,
+      "missed": 3,
       "unclassified": 292
     },
     {
@@ -82,17 +89,17 @@
       "unclassified": 292
     }
   ],
-  "dueNow": 2,
-  "overdue": 1,
+  "dueNow": 4,
+  "overdue": 4,
   "nextWakeMs": 0,
-  "activeTotal": 16,
-  "activeMissedOrUnclassified": 1,
+  "activeTotal": 36,
+  "activeMissedOrUnclassified": 9,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "24ca08aeedb478331c351f754434875c35b0c6fa",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-17T20:53:49.064Z"
+    "dirtyFiles": 9,
+    "writtenUtc": "2026-08-17T21:31:37.377Z"
   }
 }

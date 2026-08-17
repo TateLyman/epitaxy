@@ -1,0 +1,61 @@
+{
+  "offsetMs": 300000,
+  "contextId": "ctx-0293583cdca9-DEV_WINDOW_5D24E",
+  "replayed": [
+    {
+      "trajectoryId": "73ccb1e0-5dfa-4e6c-b87c-d535199fd8f8",
+      "mint": "G2vGDeXFLyEWmd3MFYcPB7pmSRtAvEzBVYCQ9BCXpump",
+      "offsetMs": 300000,
+      "eventsApplied": 0,
+      "signaturesScanned": 1,
+      "unresolved": 0,
+      "replayExitLamports": "19753088",
+      "boundedExitLamports": null,
+      "conservative": null,
+      "errorBps": null
+    },
+    {
+      "trajectoryId": "89c2208a-c125-4103-bf6e-d4616ed9eb5f",
+      "mint": "8hqTdweJBKL7H7k4vZj6pZTpSkKmJ9Q6ik53Zx92pump",
+      "offsetMs": 300000,
+      "eventsApplied": 0,
+      "signaturesScanned": 2,
+      "unresolved": 0,
+      "replayExitLamports": "19753087",
+      "boundedExitLamports": "19654608",
+      "conservative": true,
+      "errorBps": -49
+    },
+    {
+      "trajectoryId": "7d21a173-fd43-44bc-9400-5f1deab2b958",
+      "mint": "BzBBj17uQnPh8YdntfZLN5iDrJjUsQomcAxjQQspump",
+      "offsetMs": 300000,
+      "eventsApplied": 9,
+      "signaturesScanned": 42,
+      "unresolved": 0,
+      "replayExitLamports": "16867606",
+      "boundedExitLamports": "16783487",
+      "conservative": true,
+      "errorBps": -49
+    },
+    {
+      "trajectoryId": "2c3cf8af-062b-4c78-832b-a74215f45146",
+      "mint": "2DLbVPRN4WLKtPGaz3P1KKH1UqySEh9i4ph94Y7BqJLm",
+      "offsetMs": 300000,
+      "eventsApplied": 3,
+      "signaturesScanned": 31,
+      "unresolved": 0,
+      "replayExitLamports": "19817992",
+      "boundedExitLamports": "19719167",
+      "conservative": true,
+      "errorBps": -49
+    }
+  ],
+  "provenance": {
+    "writer": "counterfactual-replay.ts",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
+    "treeDirty": true,
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-17T21:29:27.733Z"
+  }
+}

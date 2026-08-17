@@ -2,8 +2,8 @@
   "artifact": "position-readiness",
   "gate": "LEGACY_POSITION_CONTRACT",
   "note": "The paper/shadow POSITION book. A trajectory is not a position — see pnpm readiness.",
-  "generatedUtcMs": 1786942811990,
-  "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8+dirty",
+  "generatedUtcMs": 1787002299813,
+  "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603+dirty",
   "strategyVersion": "delayed-momentum-v0.6.0",
   "confirmatoryTrades": 0,
   "validDevelopmentTrades": 0,
@@ -202,9 +202,9 @@
   },
   "provenance": {
     "writer": "readiness.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "treeDirty": true,
-    "dirtyFiles": 11,
-    "writtenUtc": "2026-08-17T05:00:12.058Z"
+    "dirtyFiles": 14,
+    "writtenUtc": "2026-08-17T21:31:39.908Z"
   }
 }

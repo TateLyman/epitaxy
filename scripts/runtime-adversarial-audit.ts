@@ -1676,14 +1676,48 @@ function sectionL(copyPath: string | null): void {
       }
     }),
     attempt('a different exit attached to the same trajectory', () => {
+      /**
+       * A SECOND exit, on a trajectory that already has one.
+       *
+       * This attacked whichever trajectory the probe was pointed at, which is
+       * the NEWEST one — opened seconds earlier and carrying no policy outcome
+       * at all. Inserting the first outcome for a path that has none is not an
+       * ambiguity, it is the ordinary write, and the probe recorded the success
+       * as "ACCEPTED — the ambiguity was written". `insertPolicyOutcome` does
+       * throw `PolicyOutcomeConflict` on a genuine second, different answer; it
+       * was never given one.
+       *
+       * The settlement attack immediately above already holds this discipline —
+       * "Nothing to replace. The probe must not report a pass it did not earn."
+       * — and this one did not.
+       */
+      const victim = db
+        .prepare(
+          `SELECT trajectory_id t, exit_policy p, exit_mark_lamports m
+             FROM trajectory_policy_outcomes ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get() as { t: string; p: string; m: string | null } | undefined;
+      if (victim === undefined) {
+        throw new Error(
+          'NOT ATTEMPTED: no trajectory carries a policy outcome, so there is no first answer to contradict',
+        );
+      }
       const outcomeCount = (): number =>
         Number(
-          (db.prepare('SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = ?').get(id) as { c: number }).c,
+          (
+            db
+              .prepare('SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = ?')
+              .get(victim.t) as { c: number }
+          ).c,
         );
       const before = outcomeCount();
-      insertPolicyOutcome(db, id, 1n, {
-        exitPolicy: 'FIXED_15M_CONTROL', triggeredAtMs: 1, triggeredOffsetMs: 900_000,
-        reason: 'a second, different answer', exitMarkLamports: 42n, grossDeltaLamports: 42n,
+      insertPolicyOutcome(db, victim.t, 1n, {
+        exitPolicy: victim.p,
+        triggeredAtMs: 1,
+        triggeredOffsetMs: 900_000,
+        reason: 'a second, different answer',
+        exitMarkLamports: 42n,
+        grossDeltaLamports: 42n,
       } as never, Date.now());
       const after = outcomeCount();
       if (before === after) throw new Error('SILENTLY DISCARDED: INSERT OR IGNORE, no signal to the caller');

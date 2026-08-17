@@ -5,12 +5,12 @@
   "verdict": "NOT_READY",
   "ready": false,
   "contract": {
-    "contractId": "contract-d2b2bf4f5f83b0a1",
-    "contractHash": "d2b2bf4f5f83b0a16016fd7c3c177238d3b20b4d99a93c957e3f2bc3026a23e9",
-    "evidenceContextId": "ctx-faa8e69264f2-DEV_WINDOW_5D24E",
+    "contractId": "contract-d383a315439e500c",
+    "contractHash": "d383a315439e500cb79534168cabad04faac6bd1b9b41a56deea482dea915b77",
+    "evidenceContextId": "ctx-0293583cdca9-DEV_WINDOW_5D24E",
     "contextValidity": "DEVELOPMENT_EVIDENCE",
-    "frozenUtcMs": 1786940633848,
-    "sourceCommit": "faa8e69264f201a0c43f7e9c72faa68595572a6e",
+    "frozenUtcMs": 1787000742349,
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "markSlaMs": 10000,
     "counterfactualContract": "counterfactual-v1 (bounded impact cap 10 bps)",
     "entryPolicies": [
@@ -38,6 +38,7 @@
       "E-1",
       "E-2",
       "E-3",
+      "E-4",
       "F-1",
       "F-2",
       "F-3",
@@ -54,6 +55,7 @@
       "J-1",
       "J-2",
       "J-3",
+      "J-4",
       "K-1",
       "K-2",
       "K-3",
@@ -253,9 +255,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "sourceCommit": "0293583cdca9c136752b6405383c8db938e35603",
     "treeDirty": true,
-    "dirtyFiles": 10,
-    "writtenUtc": "2026-08-17T05:00:11.626Z"
+    "dirtyFiles": 13,
+    "writtenUtc": "2026-08-17T21:31:39.342Z"
   }
 }

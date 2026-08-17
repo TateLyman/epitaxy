@@ -28,6 +28,49 @@ import { writeArtifact, writeNotRun } from './_artifact.js';
 function main(): void {
   const db = openDb({ path: process.env['DATABASE_PATH'] ?? './data/runtime.db', skipBackup: true });
   try {
+    /**
+     * SCOPED TO THE ACTIVE WINDOW.
+     *
+     * This paired across the WHOLE corpus, so rows from a superseded window
+     * were compared against rows from the repaired one and the verdict was a
+     * mixture of two apparatus versions. Measured 2026-08-17: the two pairs
+     * carrying the old reserve convention reported OPTIMISTIC by 4,878 and
+     * 18,260 bps while the three from the corrected window were conservative
+     * within 49 bps, and the summary read "THE BOUND IS NOT CONSERVATIVE" on
+     * the strength of the former.
+     *
+     * The directive is explicit that invalid rows are kept and never pooled
+     * with the repaired experiment. A calibration that pools them is measuring
+     * the history of the instrument rather than the instrument.
+     *
+     * `--all` restores the corpus-wide view for someone who wants it, and says
+     * so in the output rather than being the silent default.
+     */
+    const activeCtx =
+      process.argv.includes('--all')
+        ? null
+        : ((
+            db
+              .prepare(
+                `SELECT c.evidence_context_id id FROM experiment_contracts c
+                   JOIN evidence_contexts e ON e.evidence_context_id = c.evidence_context_id
+                  WHERE e.validity = 'DEVELOPMENT_EVIDENCE'
+                  ORDER BY c.frozen_utc_ms DESC LIMIT 1`,
+              )
+              .get() as { id: string } | undefined
+          )?.id ?? null);
+    const scope =
+      activeCtx === null
+        ? ''
+        : `AND EXISTS (SELECT 1 FROM trajectory_evidence_context x
+                        WHERE x.trajectory_id = b.trajectory_id AND x.evidence_context_id = ?)`;
+    console.log(
+      activeCtx === null
+        ? 'scope: the WHOLE corpus, including superseded windows (--all)'
+        : `scope: ${activeCtx}, the window of the active contract`,
+    );
+    console.log('');
+
     const pairs = db
       .prepare(
         `SELECT b.trajectory_id, b.offset_ms,
@@ -39,9 +82,15 @@ function main(): void {
             AND r.evidence_class = 'RESERVE_DELTA_REPLAY_V1'
           WHERE b.evidence_class = 'BOUNDED_COUNTERFACTUAL_V1'
             AND b.counterfactual_exit_lamports IS NOT NULL
-            AND r.counterfactual_exit_lamports IS NOT NULL`,
+            AND r.counterfactual_exit_lamports IS NOT NULL
+            ${scope}`,
       )
-      .all() as { trajectory_id: string; offset_ms: number; bounded: string; replayed: string }[];
+      .all(...(activeCtx === null ? [] : [activeCtx])) as {
+      trajectory_id: string;
+      offset_ms: number;
+      bounded: string;
+      replayed: string;
+    }[];
 
     const boundedRows = Number(
       (
