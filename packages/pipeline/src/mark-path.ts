@@ -101,8 +101,16 @@ export async function takeMark(
 
 export interface PolicyOutcome {
   readonly exitPolicy: ExitPolicy;
+  /** When the rule FIRED. */
   readonly triggeredAtMs: number | null;
   readonly triggeredOffsetMs: number | null;
+  /**
+   * P9.2 — when it could actually have TRADED, which is what it is priced at.
+   * Null means the rule fired and no later mark carried a tradable price: a
+   * blocked exit, not a fill at the trigger.
+   */
+  readonly filledAtMs: number | null;
+  readonly filledOffsetMs: number | null;
   readonly reason: string;
   /** The mark the policy actually exits at. Null when it never triggered. */
   readonly exitMarkLamports: bigint | null;
@@ -137,18 +145,37 @@ export function evaluateExitPolicies(
 
   return p.policies.map((policy) => {
     const d = decideExit(policy, p.openedAtMs, marks);
-    const at = d.triggeredAtMs;
-    const mark = at === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === at) ?? null);
+    /**
+     * P9.2 — the exit is priced at the FILL, not at the trigger.
+     *
+     * This read `triggeredAtMs` for both. On the control they are the same
+     * instant, because a preregistered horizon is a clock the strategy can
+     * stand ready at. On the challenger they are NOT: the deterioration is
+     * detected BY a mark, so pricing the exit at that mark books it at the one
+     * observation the strategy demonstrably could not have traded at — it did
+     * not know until the mark existed.
+     *
+     * That difference flatters the challenger by exactly the move that
+     * triggered it, which is the move most likely to be adverse. Using the fill
+     * removes it.
+     */
+    const triggeredAt = d.triggeredAtMs;
+    const filledAt = d.filledAtMs;
+    const triggerMark =
+      triggeredAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === triggeredAt) ?? null);
+    const fillMark = filledAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === filledAt) ?? null);
     return {
       exitPolicy: policy,
-      triggeredAtMs: at,
-      triggeredOffsetMs: mark?.offsetMs ?? null,
+      triggeredAtMs: triggeredAt,
+      triggeredOffsetMs: triggerMark?.offsetMs ?? null,
+      filledAtMs: filledAt,
+      filledOffsetMs: fillMark?.offsetMs ?? null,
       reason: d.reason,
-      exitMarkLamports: mark?.executableLamports ?? null,
+      exitMarkLamports: fillMark?.executableLamports ?? null,
       grossDeltaLamports:
-        mark?.executableLamports === null || mark?.executableLamports === undefined
+        fillMark?.executableLamports === null || fillMark?.executableLamports === undefined
           ? null
-          : mark.executableLamports - p.entryCashOutLamports,
+          : fillMark.executableLamports - p.entryCashOutLamports,
     };
   });
 }

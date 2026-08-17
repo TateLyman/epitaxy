@@ -61,22 +61,106 @@ export function recordedOffsets(db: Db, trajectoryId: string): Set<number> {
   return new Set(rows.map((r) => r.offset_ms));
 }
 
-export function insertMark(db: Db, trajectoryId: string, m: CollectedMark): void {
-  db.prepare(
-    `INSERT OR IGNORE INTO trajectory_marks
-       (trajectory_id, offset_ms, observed_utc_ms, executable_lamports,
-        exit_capacity_lamports, effective_quote_reserve, refusal, lateness_ms)
-     VALUES (?,?,?,?,?,?,?,?)`,
-  ).run(
-    trajectoryId,
-    m.offsetMs,
-    m.atMs,
-    m.executableLamports === null ? null : m.executableLamports.toString(),
-    m.exitCapacityLamports === null ? null : m.exitCapacityLamports.toString(),
-    m.effectiveQuoteReserveLamports === null ? null : m.effectiveQuoteReserveLamports.toString(),
-    m.refusal,
-    m.latenessMs,
-  );
+/**
+ * P5 / P7.2 — a mark, written LOUDLY, carrying its own SLA verdict.
+ *
+ * Two defects at once:
+ *
+ * L-1: this was a bare `INSERT OR IGNORE` returning `void`. The audit wrote a
+ * second, DIFFERENT price at a recorded offset — mark `(30f0a674, 1800000ms)`
+ * kept `18678909` against an offered `123456789` — and the writer reported
+ * success. With several daemons racing the same open trajectories, a discarded
+ * write and a market fact were indistinguishable afterwards.
+ *
+ * P7.2: a mark carried `lateness_ms` and no verdict, so 697 of 1,448 marks more
+ * than 60 s late sat in the corpus wearing the right offset label. A late mark
+ * is `MISSED_HORIZON`. It is not interpolated, not backfilled, and not given a
+ * horizon's name on a different instant.
+ *
+ * Same key + identical content is still idempotent — a restart re-marking a
+ * recorded offset is normal and must not throw.
+ */
+export function insertMark(
+  db: Db,
+  trajectoryId: string,
+  m: CollectedMark,
+  sla: { dueUtcMs: number; status: 'ON_TIME' | 'MISSED_HORIZON'; boundMs: number } | null = null,
+): void {
+  const existing = db
+    .prepare(
+      `SELECT observed_utc_ms, executable_lamports, exit_capacity_lamports, effective_quote_reserve, refusal
+         FROM trajectory_marks WHERE trajectory_id = ? AND offset_ms = ?`,
+    )
+    .get(trajectoryId, m.offsetMs) as
+    | {
+        observed_utc_ms: number;
+        executable_lamports: string | null;
+        exit_capacity_lamports: string | null;
+        effective_quote_reserve: string | null;
+        refusal: string | null;
+      }
+    | undefined;
+
+  const offered = {
+    executable: m.executableLamports === null ? null : m.executableLamports.toString(),
+    capacity: m.exitCapacityLamports === null ? null : m.exitCapacityLamports.toString(),
+    reserve: m.effectiveQuoteReserveLamports === null ? null : m.effectiveQuoteReserveLamports.toString(),
+    refusal: m.refusal,
+  };
+
+  if (existing !== undefined) {
+    const same =
+      existing.executable_lamports === offered.executable &&
+      existing.exit_capacity_lamports === offered.capacity &&
+      existing.effective_quote_reserve === offered.reserve &&
+      existing.refusal === offered.refusal;
+    if (same) return;
+    throw new MarkConflict(trajectoryId, m.offsetMs, existing.executable_lamports, offered.executable);
+  }
+
+  const r = db
+    .prepare(
+      `INSERT INTO trajectory_marks
+         (trajectory_id, offset_ms, observed_utc_ms, executable_lamports,
+          exit_capacity_lamports, effective_quote_reserve, refusal, lateness_ms,
+          sla_status, due_utc_ms, sla_bound_ms)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+    .run(
+      trajectoryId,
+      m.offsetMs,
+      m.atMs,
+      offered.executable,
+      offered.capacity,
+      offered.reserve,
+      offered.refusal,
+      m.latenessMs,
+      sla?.status ?? null,
+      sla?.dueUtcMs ?? null,
+      sla?.boundMs ?? null,
+    );
+  if (Number(r.changes) !== 1) {
+    throw new Error(
+      `inserting mark (${trajectoryId.slice(0, 12)}, ${m.offsetMs}) changed ${r.changes} row(s), expected 1`,
+    );
+  }
+}
+
+export class MarkConflict extends Error {
+  constructor(
+    readonly trajectoryId: string,
+    readonly offsetMs: number,
+    readonly stored: string | null,
+    readonly offered: string | null,
+  ) {
+    super(
+      `a DIFFERENT mark already exists at (${trajectoryId.slice(0, 12)}, ${offsetMs}ms): ` +
+        `stored ${stored ?? 'null'}, offered ${offered ?? 'null'}. ` +
+        'One horizon has one price. A second, different answer is refused rather than discarded, because ' +
+        'a discarded write and a market fact are indistinguishable afterwards.',
+    );
+    this.name = 'MarkConflict';
+  }
 }
 
 export function marksFor(db: Db, trajectoryId: string): CollectedMark[] {
@@ -106,37 +190,117 @@ export function marksFor(db: Db, trajectoryId: string): CollectedMark[] {
   }));
 }
 
+/**
+ * P5 — a policy outcome, written LOUDLY.
+ *
+ * `INSERT OR IGNORE` here meant a second, DIFFERENT outcome for the same
+ * (trajectory, policy) was silently discarded. With several daemons racing the
+ * same open trajectories that is indistinguishable from the first answer having
+ * been right, and this row is a strategy result.
+ *
+ * Same key + identical content stays idempotent: re-running a settled path must
+ * not throw.
+ */
 export function insertPolicyOutcome(
   db: Db,
   trajectoryId: string,
   entryCashOutLamports: bigint,
   o: PolicyOutcome,
   settledUtcMs: number,
+  extra: { entryPolicy?: string | null; entryDecision?: string | null; evidenceClass?: string | null } = {},
 ): void {
-  db.prepare(
-    `INSERT OR IGNORE INTO trajectory_policy_outcomes
-       (trajectory_id, exit_policy, triggered_utc_ms, triggered_offset_ms, reason,
-        exit_mark_lamports, entry_cash_out_lamports, gross_delta_lamports, settled_utc_ms)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    trajectoryId,
-    o.exitPolicy,
-    o.triggeredAtMs,
-    o.triggeredOffsetMs,
-    o.reason,
-    o.exitMarkLamports === null ? null : o.exitMarkLamports.toString(),
-    entryCashOutLamports.toString(),
-    o.grossDeltaLamports === null ? null : o.grossDeltaLamports.toString(),
-    settledUtcMs,
-  );
+  const existing = db
+    .prepare(
+      `SELECT triggered_offset_ms, exit_mark_lamports, gross_delta_lamports
+         FROM trajectory_policy_outcomes WHERE trajectory_id = ? AND exit_policy = ?`,
+    )
+    .get(trajectoryId, o.exitPolicy) as
+    | { triggered_offset_ms: number | null; exit_mark_lamports: string | null; gross_delta_lamports: string | null }
+    | undefined;
+
+  const offeredMark = o.exitMarkLamports === null ? null : o.exitMarkLamports.toString();
+  const offeredDelta = o.grossDeltaLamports === null ? null : o.grossDeltaLamports.toString();
+
+  if (existing !== undefined) {
+    const same =
+      existing.triggered_offset_ms === o.triggeredOffsetMs &&
+      existing.exit_mark_lamports === offeredMark &&
+      existing.gross_delta_lamports === offeredDelta;
+    if (same) return;
+    throw new PolicyOutcomeConflict(trajectoryId, o.exitPolicy, existing.exit_mark_lamports, offeredMark);
+  }
+
+  const r = db
+    .prepare(
+      `INSERT INTO trajectory_policy_outcomes
+         (trajectory_id, exit_policy, triggered_utc_ms, triggered_offset_ms, reason,
+          exit_mark_lamports, entry_cash_out_lamports, gross_delta_lamports, settled_utc_ms,
+          entry_policy, entry_decision, evidence_class)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    )
+    .run(
+      trajectoryId,
+      o.exitPolicy,
+      o.triggeredAtMs,
+      o.triggeredOffsetMs,
+      o.reason,
+      offeredMark,
+      entryCashOutLamports.toString(),
+      offeredDelta,
+      settledUtcMs,
+      extra.entryPolicy ?? null,
+      extra.entryDecision ?? null,
+      extra.evidenceClass ?? null,
+    );
+  if (Number(r.changes) !== 1) {
+    throw new Error(
+      `inserting policy outcome (${trajectoryId.slice(0, 12)}, ${o.exitPolicy}) changed ${r.changes} row(s), expected 1`,
+    );
+  }
 }
 
-export function closeTrajectory(db: Db, trajectoryId: string, settledUtcMs: number): void {
-  db.prepare(
-    `UPDATE development_trajectories
-        SET state = 'SETTLED', settled_utc_ms = ?
-      WHERE trajectory_id = ? AND state = 'AWAITING_FILL_OBSERVATION'`,
-  ).run(settledUtcMs, trajectoryId);
+export class PolicyOutcomeConflict extends Error {
+  constructor(
+    readonly trajectoryId: string,
+    readonly exitPolicy: string,
+    readonly stored: string | null,
+    readonly offered: string | null,
+  ) {
+    super(
+      `a DIFFERENT outcome already exists for (${trajectoryId.slice(0, 12)}, ${exitPolicy}): ` +
+        `stored exit mark ${stored ?? 'null'}, offered ${offered ?? 'null'}. ` +
+        'A second different exit for one policy on one trajectory is refused, not discarded.',
+    );
+    this.name = 'PolicyOutcomeConflict';
+  }
+}
+
+/**
+ * P5 — close exactly one trajectory, or say why not.
+ *
+ * The audit's L-1 ran a single UPDATE that settled 64 open trajectories at
+ * once, with nothing bounding it, and a zero-row update that reported success.
+ * Both are silent, and both produce a corpus nobody can question afterwards.
+ *
+ * Zero rows is NOT an error here — a trajectory already SETTLED is closed, and
+ * a retry must be idempotent — but it is reported so the caller can tell the
+ * difference between closing something and closing nothing.
+ */
+export function closeTrajectory(db: Db, trajectoryId: string, settledUtcMs: number): { closed: boolean } {
+  const r = db
+    .prepare(
+      `UPDATE development_trajectories
+          SET state = 'SETTLED', settled_utc_ms = ?
+        WHERE trajectory_id = ? AND state = 'AWAITING_FILL_OBSERVATION'`,
+    )
+    .run(settledUtcMs, trajectoryId);
+  const changed = Number(r.changes);
+  if (changed > 1) {
+    throw new Error(
+      `closing ${trajectoryId.slice(0, 12)} changed ${changed} rows. The key did not identify one trajectory.`,
+    );
+  }
+  return { closed: changed === 1 };
 }
 
 export function markAndOutcomeCounts(db: Db): { marks: number; outcomes: number; settled: number } {

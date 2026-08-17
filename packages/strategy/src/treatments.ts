@@ -206,7 +206,22 @@ export interface MarkPoint {
 
 export interface ExitDecision {
   readonly policy: ExitPolicy;
+  /** When the rule FIRED. Not necessarily when it could have traded. */
   readonly triggeredAtMs: number | null;
+  /**
+   * P9.2 — the FIRST LATER VALID FILL, which is a different instant.
+   *
+   * A deterioration is detected BY a mark. Filling at that same mark's price
+   * books the exit at the observation that revealed the deterioration, which is
+   * the one price the strategy demonstrably could not have traded at: it did
+   * not know until the mark existed. The directive states the rule as
+   *
+   *     first deterioration trigger -> first later valid fill
+   *
+   * Null when the rule fired and no later mark carries a valid price. That is a
+   * blocked exit, not a fill at the trigger.
+   */
+  readonly filledAtMs: number | null;
   readonly reason: string;
 }
 
@@ -218,11 +233,26 @@ export const REPORTED_HORIZONS_MS = [60_000, 300_000, 900_000, 1_800_000, 3_600_
 export function decideExit(policy: ExitPolicy, openedAtMs: number, marks: readonly MarkPoint[]): ExitDecision {
   const ordered = [...marks].sort((a, b) => a.atMs - b.atMs);
 
+  /**
+   * The first mark strictly AFTER `afterMs` that carries a tradable price.
+   *
+   * P9.2: a rule that fires on a mark cannot also fill on it. The control's
+   * horizon is a CLOCK rather than a signal — it is known in advance — so the
+   * control fills at its horizon mark; the challenger's trigger is information
+   * the mark itself supplied, so it fills later.
+   */
+  const firstValidFillAfter = (afterMs: number): MarkPoint | null =>
+    ordered.find((m) => m.atMs > afterMs && m.executableLamports > 0n) ?? null;
+
   if (policy === 'FIXED_15M_CONTROL') {
     const at = ordered.find((m) => m.atMs >= openedAtMs + FIXED_HORIZON_MS);
     return {
       policy,
       triggeredAtMs: at?.atMs ?? null,
+      // The horizon is a preregistered clock, so the control could stand ready
+      // at it. Its trigger and its fill are the same instant, and that is the
+      // asymmetry that makes the comparison fair rather than rigged.
+      filledAtMs: at?.atMs ?? null,
       reason: at ? 'the frozen 15 minute horizon' : 'no mark exists at or after 15 minutes',
     };
   }
@@ -256,12 +286,17 @@ export function decideExit(policy: ExitPolicy, openedAtMs: number, marks: readon
       const dropBps = Number(((lastKnown.capacity - cap) * 10_000n) / lastKnown.capacity);
       if (dropBps >= EXIT_CAPACITY_DROP_BPS) {
         const spanned = m.atMs - lastKnown.atMs;
+        const fill = firstValidFillAfter(m.atMs);
         return {
           policy,
           triggeredAtMs: m.atMs,
+          filledAtMs: fill?.atMs ?? null,
           reason:
             `exit capacity fell ${dropBps} bps over ${spanned}ms since the last MEASURED mark, ` +
-            'which is the liquidity deteriorating rather than the price moving',
+            'which is the liquidity deteriorating rather than the price moving' +
+            (fill === null
+              ? '; no later mark carries a tradable price, so the exit is BLOCKED rather than filled at the trigger'
+              : `; filled at the first later valid mark, +${fill.atMs - m.atMs}ms`),
         };
       }
       if (cap > lastKnown.capacity) improvedSinceOpen = true;
@@ -291,6 +326,8 @@ export function decideExit(policy: ExitPolicy, openedAtMs: number, marks: readon
       return {
         policy,
         triggeredAtMs: extended.atMs,
+        // A preregistered extension is a clock too, so trigger and fill coincide.
+        filledAtMs: extended.atMs,
         reason: `exit capacity improved and never deteriorated, so the hold extended by ${EXIT_EXTENSION_MS}ms`,
       };
     }
@@ -300,6 +337,7 @@ export function decideExit(policy: ExitPolicy, openedAtMs: number, marks: readon
   return {
     policy,
     triggeredAtMs: at?.atMs ?? null,
+    filledAtMs: at?.atMs ?? null,
     reason: at ? 'no deterioration; fell back to the frozen horizon' : 'no deterioration and no 15 minute mark',
   };
 }

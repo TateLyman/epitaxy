@@ -1,6 +1,7 @@
 import type { Db } from './db.js';
 import type { SettledTrajectory, TrajectoryIdentity, TrajectoryState } from '../../pipeline/src/trajectory-kernel.js';
 import type { EvidenceGrade } from '../../domain/src/trajectory-evidence.js';
+import type { TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
 import type { EntryImpactBound } from '../../domain/src/trajectory-evidence.js';
 import type { MigrationEventIdentity, ReversalStatus } from '../../solana/src/migration.js';
 
@@ -100,7 +101,7 @@ export function settleTrajectory(
   extra: { exitObservationId: string | null; fillLatencyMs: number | null; settledUtcMs: number },
 ): void {
   const s = t.settlement;
-  db.prepare(
+  const r = db.prepare(
     `UPDATE development_trajectories SET
        state = ?, evidence_grade = ?,
        entry_cash_out_lamports = ?, exit_cash_in_lamports = ?, haircut_exit_lamports = ?,
@@ -126,6 +127,72 @@ export function settleTrajectory(
     extra.settledUtcMs,
     t.identity.trajectoryId,
   );
+  // P4.5 — exactly one row, checked. The audit ran one UPDATE that settled 64
+  // open trajectories and nothing bounded it.
+  const changed = Number(r.changes);
+  if (changed !== 1) {
+    throw new Error(
+      `settling ${t.identity.trajectoryId} changed ${changed} row(s), expected exactly 1. ` +
+        (changed === 0
+          ? 'A zero-row update is a write that went nowhere and reported success.'
+          : 'A multi-row update means the key did not identify one trajectory.'),
+    );
+  }
+}
+
+/**
+ * K-3 / P4.5 — write the trajectory row's ECONOMICS, without touching state.
+ *
+ * `settleTrajectory` above also transitions the state, which is right at the
+ * end of a policy path and wrong at open: the immediate-mechanics settlement is
+ * a measurement of the round trip, not the close of the holding period.
+ *
+ * That distinction is why the economics columns were empty. The collector had
+ * no writer it could call at open without also closing the trajectory, so it
+ * called none, and every economics column on `development_trajectories` was
+ * permanently NULL — 0 of 292 — while `trajectory_settlements` held 31 net PnL
+ * figures. The trajectory row and the settlement row disagreed by construction.
+ *
+ * The affected row count is CHECKED. The audit's L-1 found a zero-row update
+ * reporting success and a single statement settling 64 open trajectories at
+ * once; both are silent, and both produce a corpus nobody can question.
+ */
+export function persistTrajectoryEconomics(
+  db: Db,
+  trajectoryId: string,
+  s: TrajectorySettlement,
+  nowMs: number,
+): void {
+  const r = db
+    .prepare(
+      `UPDATE development_trajectories SET
+         entry_cash_out_lamports = ?, exit_cash_in_lamports = ?,
+         execution_cost_lamports = ?, net_pnl_lamports = ?, pnl_blocked_reasons = ?,
+         cashback_accrued = ?, cashback_claimable = ?, cashback_claimed = ?, cashback_claim_cost = ?
+       WHERE trajectory_id = ?`,
+    )
+    .run(
+      s.entryCashOutLamports.toString(),
+      s.exitCashInLamports === null ? null : s.exitCashInLamports.toString(),
+      s.executionCostLamports.toString(),
+      s.netPnlLamports === null ? null : s.netPnlLamports.toString(),
+      JSON.stringify(s.pnlBlockedReasons),
+      s.cashbackAccruedLamports.toString(),
+      s.cashbackClaimableLamports.toString(),
+      s.cashbackClaimedLamports.toString(),
+      s.cashbackClaimCostLamports.toString(),
+      trajectoryId,
+    );
+  const changed = Number(r.changes);
+  if (changed !== 1) {
+    throw new Error(
+      `persisting economics for ${trajectoryId} changed ${changed} row(s), expected exactly 1. ` +
+        (changed === 0
+          ? 'A zero-row update is a write that went nowhere and reported success.'
+          : 'A multi-row update means the key did not identify one trajectory.'),
+    );
+  }
+  void nowMs;
 }
 
 export function trajectoryCounts(db: Db): Record<string, number> {
@@ -693,11 +760,30 @@ export function admissionTotals(db: Db): {
 /**
  * P5 - write the ONE canonical settlement for a trajectory.
  *
- * `INSERT OR IGNORE` on the trajectory id: a retry of the same settlement is
- * idempotent, and a second, DIFFERENT answer for the same trajectory is refused
- * rather than allowed to overwrite the first. An outcome that can be rewritten
- * is not evidence.
+ * The comment here used to say a second, different answer "is refused rather
+ * than allowed to overwrite the first". The audit demonstrated it is
+ * DISCARDED — `INSERT OR IGNORE` returning `void`, with the caller unable to
+ * tell — and discarded is not refused, because the caller cannot tell.
+ *
+ * Same key + identical economics stays idempotent; a retry of the same
+ * settlement must not throw. Same key + DIFFERENT economics throws, so the
+ * caller has to find out which of the two is wrong.
  */
+export class SettlementConflict extends Error {
+  constructor(
+    readonly trajectoryId: string,
+    readonly stored: string | null,
+    readonly offered: string | null,
+  ) {
+    super(
+      `a DIFFERENT settlement already exists for ${trajectoryId.slice(0, 12)}: ` +
+        `stored net PnL ${stored ?? 'null'}, offered ${offered ?? 'null'}. ` +
+        'A second different answer to the same question is refused, not discarded.',
+    );
+    this.name = 'SettlementConflict';
+  }
+}
+
 export function insertTrajectorySettlement(
   db: Db,
   trajectoryId: string,
@@ -727,8 +813,24 @@ export function insertTrajectorySettlement(
   identityViolations: readonly string[],
   settledUtcMs: number,
 ): void {
-  db.prepare(
-    `INSERT OR IGNORE INTO trajectory_settlements (
+  const existing = db
+    .prepare('SELECT net_pnl, entry_cash_out, exit_cash_in, unexplained_lamports FROM trajectory_settlements WHERE trajectory_id = ?')
+    .get(trajectoryId) as
+    | { net_pnl: string | null; entry_cash_out: string; exit_cash_in: string | null; unexplained_lamports: string }
+    | undefined;
+  if (existing !== undefined) {
+    const offeredNet = s.netPnlLamports === null ? null : s.netPnlLamports.toString();
+    const same =
+      existing.net_pnl === offeredNet &&
+      existing.entry_cash_out === s.entryCashOutLamports.toString() &&
+      existing.exit_cash_in === (s.exitCashInLamports === null ? null : s.exitCashInLamports.toString()) &&
+      existing.unexplained_lamports === s.unexplainedLamports.toString();
+    if (same) return;
+    throw new SettlementConflict(trajectoryId, existing.net_pnl, offeredNet);
+  }
+
+  const r = db.prepare(
+    `INSERT INTO trajectory_settlements (
        trajectory_id, scope, entry_cash_out, exit_cash_in, gross_exit_credit,
        base_fees, priority_fees, tips, transfer_fees, failed_attempt_fees,
        rent_created, rent_recovered, rent_still_locked,
@@ -762,6 +864,11 @@ export function insertTrajectorySettlement(
     JSON.stringify(identityViolations),
     settledUtcMs,
   );
+  if (Number(r.changes) !== 1) {
+    throw new Error(
+      `inserting the settlement for ${trajectoryId.slice(0, 12)} changed ${r.changes} row(s), expected 1`,
+    );
+  }
 }
 
 /** The corpus-level settlement picture. Net PnL exists or it does not. */
