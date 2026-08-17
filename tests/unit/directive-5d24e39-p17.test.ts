@@ -29,7 +29,6 @@ import {
   observationId,
   workerJobId,
   settlementIdFor,
-  snapshotHashOf,
   capabilityFingerprintOf,
   assertIsHash,
   NotAHash,
@@ -927,8 +926,8 @@ describe('P17 26–29 — the mark clock and the counterfactual contract', () =>
       postEntryBaseReserve: 1_000_000n,
       postEntryQuoteReserve: 100_000_000n,
       events: [
-        { signature: 'b', slot: 2, kind: 'SELL', baseVaultDelta: 500_000n, quoteVaultDelta: -40_000_000n },
-        { signature: 'a', slot: 1, kind: 'BUY', baseVaultDelta: -100_000n, quoteVaultDelta: 10_000_000n },
+        { signature: 'b', slot: 2, baseVaultDelta: 500_000n, quoteVaultDelta: -40_000_000n },
+        { signature: 'a', slot: 1, baseVaultDelta: -100_000n, quoteVaultDelta: 10_000_000n },
       ],
       tokensHeldAtoms: 1_000n,
     });

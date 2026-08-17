@@ -51,10 +51,16 @@ import { expectedRemainingTail, remainingTailRefusal } from '../packages/solana/
  *    live database READ ONLY and mutates only a copy under the system temp dir.
  */
 
-type Verdict = 'PASS' | 'FAIL' | 'NOT TESTABLE';
+type Verdict = 'PASS' | 'FAIL' | 'NOT TESTABLE' | 'OUT OF SCOPE';
 
 interface Finding {
   readonly section: string;
+  /** `A-1`, `K-2`, … derived from position, so it cannot drift from the docs. */
+  id?: string;
+  /** Whether the ACTIVE experiment contract claims this invariant. */
+  scope?: 'CLAIMED' | 'OUT_OF_SCOPE';
+  /** Why it is out of scope, from the contract. Never invented here. */
+  outOfScopeReason?: string;
   readonly invariant: string;
   readonly verdict: Verdict;
   /** Exactly what was read or run. A file path, a row id, a command. */
@@ -68,10 +74,54 @@ interface Finding {
 }
 
 const findings: Finding[] = [];
+
+/**
+ * P13 — THE ACTIVE EXPERIMENT CONTRACT DECIDES WHAT IS CLAIMED.
+ *
+ * The directive requires FAIL = 0 and NOT TESTABLE = 0 "for every invariant
+ * included in the active development contract", and adds: "If a subsystem is
+ * intentionally out of scope, remove it from the contract and stop claiming
+ * it — not `NOT TESTABLE but promoted anyway`."
+ *
+ * So an invariant the contract does not claim is `OUT OF SCOPE` here, carrying
+ * the contract's own recorded reason. It is NOT silently passed and NOT counted
+ * as testable. If no contract is frozen, EVERYTHING is claimed — the default has
+ * to be the strict one, because a missing contract must not be a way to escape
+ * a gate.
+ */
+let CLAIMED: ReadonlySet<string> | null = null;
+let OUT_OF_SCOPE_REASONS: Readonly<Record<string, string>> = {};
+let CONTRACT_ID: string | null = null;
+/** The active evidence context, or null. Corpus queries scope to it. */
+let ACTIVE_CTX: string | null = null;
+
+const perSection = new Map<string, number>();
+
 const record = (f: Finding): void => {
-  findings.push(f);
-  const tag = f.verdict === 'PASS' ? 'PASS' : f.verdict === 'FAIL' ? 'FAIL' : 'N/T ';
-  console.log(`${tag}  ${f.section}  ${f.invariant}`);
+  const n = (perSection.get(f.section) ?? 0) + 1;
+  perSection.set(f.section, n);
+  const id = `${f.section}-${n}`;
+  const claimed = CLAIMED === null || CLAIMED.has(id);
+  const stamped: Finding = {
+    ...f,
+    id,
+    scope: claimed ? 'CLAIMED' : 'OUT_OF_SCOPE',
+    ...(claimed ? {} : { outOfScopeReason: OUT_OF_SCOPE_REASONS[id] ?? 'not claimed by the active contract' }),
+    // An unclaimed invariant is not asserted either way. Overriding the verdict
+    // rather than dropping the row keeps the probe's result visible while
+    // removing it from the gate.
+    verdict: claimed ? f.verdict : 'OUT OF SCOPE',
+  };
+  findings.push(stamped);
+  const tag =
+    stamped.verdict === 'PASS'
+      ? 'PASS'
+      : stamped.verdict === 'FAIL'
+        ? 'FAIL'
+        : stamped.verdict === 'OUT OF SCOPE'
+          ? 'SKIP'
+          : 'N/T ';
+  console.log(`${tag}  ${id.padEnd(5)} ${f.invariant}`);
 };
 
 const sha256File = async (p: string): Promise<string> => {
@@ -98,10 +148,55 @@ const COPY_DB = process.env['AUDIT_COPY_DB'] ?? null;
 const SIDECAR = process.env['AUDIT_SIDECAR'] ?? null;
 
 const ro = (path: string): DatabaseSync => new DatabaseSync(path, { readOnly: true });
+
+/**
+ * SCOPE EVERY TRAJECTORY-KEYED QUERY TO THE ACTIVE EVIDENCE CONTEXT.
+ *
+ * This audit's own numbers are the reason it exists, so the numbers have to be
+ * about the right window. The 292 pre-repair trajectories are preserved and
+ * `INSTRUMENT_DEVELOPMENT_INVALID`; counting their dangling identifiers as
+ * failures of the ACTIVE contract would be the mirror image of the defect the
+ * invalidation ledger removes — reporting one window's evidence as another's.
+ *
+ * Done centrally rather than by editing thirty hand-written queries, because
+ * thirty edits is thirty chances to scope one of them wrongly and not notice.
+ * The rewrite is a whole-word table substitution into an inline view; the
+ * aliases that follow the table name still bind, because the view sits exactly
+ * where the table did.
+ *
+ * With NO active contract, nothing is rewritten and every query sees the whole
+ * corpus. That is the strict default: a missing contract must not be a way to
+ * shrink the sample a gate is evaluated over.
+ */
+const TRAJECTORY_KEYED = [
+  'development_trajectories',
+  'trajectory_marks',
+  'trajectory_settlements',
+  'trajectory_policy_outcomes',
+  'trajectory_policy_decisions',
+  'candidate_risk_facts',
+  'leg_cashback',
+  'created_accounts',
+] as const;
+
+function scoped(sql: string): string {
+  if (ACTIVE_CTX === null) return sql;
+  const ctx = ACTIVE_CTX.replace(/'/g, "''");
+  let out = sql;
+  for (const table of TRAJECTORY_KEYED) {
+    out = out.replace(
+      new RegExp(`\\b${table}\\b`, 'g'),
+      `(SELECT _s.* FROM ${table} _s JOIN trajectory_evidence_context _c ` +
+        `ON _c.trajectory_id = _s.trajectory_id AND _c.evidence_context_id = '${ctx}')`,
+    );
+  }
+  return out;
+}
+
 const all = <T>(db: DatabaseSync, sql: string, ...args: unknown[]): T[] =>
-  db.prepare(sql).all(...(args as never[])) as T[];
+  db.prepare(scoped(sql)).all(...(args as never[])) as T[];
 const one = <T>(db: DatabaseSync, sql: string, ...args: unknown[]): T | undefined =>
-  db.prepare(sql).get(...(args as never[])) as T | undefined;
+  db.prepare(scoped(sql)).get(...(args as never[])) as T | undefined;
 const count = (db: DatabaseSync, sql: string): number => Number((one<{ c: number }>(db, sql) ?? { c: 0 }).c);
 
 // =====================================================================
@@ -159,14 +254,26 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
 
   // A dirty tree makes nothing here reproducible, and the collector STAMPS that
   // fact on every session it opens. Read it back rather than trusting the flag.
-  const dirtySessions = count(db, "SELECT COUNT(*) c FROM collector_sessions WHERE dirty = 1");
+  /**
+   * Scoped to the ACTIVE contract's own commit.
+   *
+   * `collector_sessions` is not keyed by trajectory, so the central rewrite
+   * cannot reach it. 26 of 31 pre-repair sessions were dirty and they are
+   * preserved history; counting them as failures of the active window would be
+   * reporting one window's provenance as another's.
+   */
+  const sessionScope =
+    ACTIVE_CTX === null
+      ? ''
+      : ` AND source_commit = (SELECT source_commit FROM evidence_contexts WHERE evidence_context_id = '${ACTIVE_CTX.replace(/'/g, "''")}')`;
+  const dirtySessions = count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE dirty = 1${sessionScope}`);
   record({
     section: 'A',
     invariant: 'the running collector is reproducible from its stamped commit',
     verdict: dirtySessions === 0 ? 'PASS' : 'FAIL',
     source: 'collector_sessions.dirty',
     mutation: 'observation',
-    result: `${dirtySessions} of ${count(db, 'SELECT COUNT(*) c FROM collector_sessions')} sessions were opened from a DIRTY tree`,
+    result: `${dirtySessions} of ${count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE 1${sessionScope}`)} in-contract sessions were opened from a DIRTY tree`,
     economicConsequence:
       'a trajectory opened from an uncommitted tree cannot be re-derived from its commit, which is this ' +
       'repository\'s definition of not being evidence',
@@ -176,7 +283,17 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
    * ONE logical writer per database. This is a `db.ts` header claim and a
    * `process_locks` table, and `trajectory-collect.ts` imports neither.
    */
-  const lock = one<{ pid: number; heartbeat_utc_ms: number }>(db, "SELECT pid, heartbeat_utc_ms FROM process_locks WHERE lock_name = 'collector'");
+  /**
+   * The TRAJECTORY collector's own lock.
+   *
+   * This read `lock_name = 'collector'` and therefore reported on
+   * `apps/collector/src/main.ts` — a DIFFERENT program — which is exactly how
+   * `pnpm health` printed OK while five unlocked writers ran beside it.
+   */
+  const lock = one<{ pid: number; heartbeat_utc_ms: number }>(
+    db,
+    "SELECT pid, heartbeat_utc_ms FROM process_locks WHERE lock_name = 'trajectory_collector'",
+  );
   const lockPidCmd =
     lock === undefined
       ? ''
@@ -198,8 +315,11 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
                   AND COALESCE(o.ended_utc_ms, o.heartbeat_utc_ms) >= s.started_utc_ms) AS n
          FROM collector_sessions s)`,
   );
-  const unended = count(db, 'SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL');
-  const openSessions = count(db, 'SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL AND heartbeat_utc_ms > ' + (Date.now() - 600_000));
+  const unended = count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL${sessionScope}`);
+  const openSessions = count(
+    db,
+    `SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL AND heartbeat_utc_ms > ${Date.now() - 600_000}${sessionScope}`,
+  );
   record({
     section: 'A',
     invariant: 'the collector takes the process lock, so one writer owns the corpus',
@@ -1718,6 +1838,37 @@ async function main(): Promise<void> {
   const sidecar = SIDECAR !== null && existsSync(SIDECAR) ? (JSON.parse(readFileSync(SIDECAR, 'utf8')) as Record<string, unknown>) : null;
 
   const db = ro(LIVE_DB);
+
+  /**
+   * Load the contract BEFORE any probe runs, so every finding is stamped with
+   * whether it is claimed. Failing to find one is not an error and not an
+   * escape: with no contract, everything is claimed.
+   */
+  try {
+    const contract = one<{
+      contract_id: string;
+      evidence_context_id: string;
+      claimed_invariants: string;
+    }>(db, 'SELECT contract_id, evidence_context_id, claimed_invariants FROM experiment_contracts ORDER BY frozen_utc_ms DESC LIMIT 1');
+    if (contract !== undefined) {
+      CONTRACT_ID = contract.contract_id;
+      ACTIVE_CTX = contract.evidence_context_id;
+      CLAIMED = new Set(JSON.parse(contract.claimed_invariants) as string[]);
+      const artifact = 'artifacts/experiment-contract.json';
+      if (existsSync(artifact)) {
+        const j = JSON.parse(readFileSync(artifact, 'utf8')) as { outOfScope?: Record<string, string> };
+        OUT_OF_SCOPE_REASONS = j.outOfScope ?? {};
+      }
+      console.log(`active contract: ${CONTRACT_ID}`);
+      console.log(`active context : ${ACTIVE_CTX}`);
+      console.log(`claimed        : ${CLAIMED.size} invariant(s)\n`);
+    } else {
+      console.log('no frozen experiment contract: EVERY invariant is claimed.\n');
+    }
+  } catch {
+    console.log('experiment_contracts is unreadable: EVERY invariant is claimed.\n');
+  }
+
   const machine = await sectionA(db);
   sectionB(db, sidecar);
   const trace = sectionC(db);
@@ -1743,16 +1894,42 @@ async function main(): Promise<void> {
     PASS: findings.filter((f) => f.verdict === 'PASS').length,
     FAIL: findings.filter((f) => f.verdict === 'FAIL').length,
     'NOT TESTABLE': findings.filter((f) => f.verdict === 'NOT TESTABLE').length,
+    'OUT OF SCOPE': findings.filter((f) => f.verdict === 'OUT OF SCOPE').length,
   };
 
   /**
    * The terminal state is DERIVED, never chosen.
    *
-   * A `NOT TESTABLE` production invariant prevents promotion, and so does a
-   * FAIL. Only a clean sweep can move the state off the floor.
+   * A `NOT TESTABLE` CLAIMED invariant prevents promotion, and so does a FAIL.
+   * An OUT OF SCOPE invariant does neither — but only because the contract
+   * removed it explicitly and carries the reason, which is a recorded act
+   * rather than an omission.
+   *
+   * `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING` additionally requires that the
+   * active window actually produced trajectories whose economics recompute. A
+   * clean sweep over an EMPTY corpus is a clean sweep over nothing, and that is
+   * the specific way a gate lies while being technically correct.
    */
-  const state =
-    tally.FAIL > 0 || tally['NOT TESTABLE'] > 0 ? 'MEASUREMENT_REPAIR_REQUIRED' : 'VALID_TRAJECTORY_KERNEL_RUNNING';
+  const recomputed = existsSync('artifacts/trajectory-trace.json')
+    ? (() => {
+        try {
+          const j = JSON.parse(readFileSync('artifacts/trajectory-trace.json', 'utf8')) as {
+            recomputed?: number;
+            failures?: number;
+          };
+          return { recomputed: j.recomputed ?? 0, failures: j.failures ?? 1 };
+        } catch {
+          return { recomputed: 0, failures: 1 };
+        }
+      })()
+    : { recomputed: 0, failures: 1 };
+
+  const gateClean = tally.FAIL === 0 && tally['NOT TESTABLE'] === 0;
+  const state = !gateClean
+    ? 'MEASUREMENT_REPAIR_REQUIRED'
+    : recomputed.recomputed >= 10 && recomputed.failures === 0
+      ? 'VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING'
+      : 'MEASUREMENT_REPAIR_REQUIRED';
 
   mkdirSync('artifacts', { recursive: true });
   const out = {
@@ -1760,8 +1937,12 @@ async function main(): Promise<void> {
     auditedRemoteHead: '29c7cc7f086b9be5c21445fabd84f47794251857',
     head: sh('git rev-parse HEAD'),
     generatedUtcMs: Date.now(),
+    activeContractId: CONTRACT_ID,
+    activeEvidenceContextId: ACTIVE_CTX,
+    claimedInvariants: CLAIMED === null ? 'ALL' : [...CLAIMED],
     machine,
     tally,
+    recomputedTrajectories: recomputed,
     terminalState: state,
     findings,
   };
@@ -1773,7 +1954,20 @@ async function main(): Promise<void> {
   writeFileSync(tracePath, JSON.stringify(trace, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
 
   console.log('');
-  console.log(`PASS ${tally.PASS}   FAIL ${tally.FAIL}   NOT TESTABLE ${tally['NOT TESTABLE']}`);
+  console.log(
+    `PASS ${tally.PASS}   FAIL ${tally.FAIL}   NOT TESTABLE ${tally['NOT TESTABLE']}   ` +
+      `OUT OF SCOPE ${tally['OUT OF SCOPE']}`,
+  );
+  if (tally.FAIL > 0 || tally['NOT TESTABLE'] > 0) {
+    console.log('\nblocking, in the ACTIVE CONTRACT:');
+    for (const f of findings.filter((x) => x.verdict === 'FAIL' || x.verdict === 'NOT TESTABLE')) {
+      console.log(`  ${f.verdict === 'FAIL' ? 'FAIL' : 'N/T '}  ${f.id}  ${f.invariant}`);
+    }
+  }
+  console.log(
+    `\nindependently recomputed trajectories: ${recomputed.recomputed} ` +
+      `(${recomputed.failures} failure(s)) — 10 with zero failures are required`,
+  );
   console.log(`terminal state: ${state}`);
   console.log(`wrote ${path}`);
   console.log(`wrote ${tracePath}`);
