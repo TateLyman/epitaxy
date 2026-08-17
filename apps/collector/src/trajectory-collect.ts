@@ -1039,6 +1039,17 @@ async function runCycle(
           // already produced its allowance in an earlier window has produced
           // it, and the audit's 58-trajectory mint is what ignoring that costs.
           includeHistoric: true,
+          /**
+           * Scoped to THIS window.
+           *
+           * The rule is "no two concurrent trajectories on one pool", because
+           * they would share a mark path and duplicate each other exactly. That
+           * reason is about one experiment. Applied across every context ever
+           * opened it says something else: a mint opened in a window that was
+           * later abandoned is locked out forever, since an abandoned window's
+           * trajectories are never marked and never settle.
+           */
+          evidenceContextId: lanes?.evidenceContextId ?? null,
         });
       } catch (e) {
         if (e instanceof ReservationRefused) {

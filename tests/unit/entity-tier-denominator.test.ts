@@ -1,4 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openDb } from '../../packages/storage/src/db.js';
+import { reserveCandidate } from '../../packages/storage/src/reservation-repo.js';
+
+const NOW = 1_760_000_000_000;
+const HASH_A = 'a'.repeat(64);
+const HASH_B = 'b'.repeat(64);
+const tmp = (): string => mkdtempSync(join(tmpdir(), 'epitaxy-resv-'));
+const freshDb = (dir: string): ReturnType<typeof openDb> =>
+  openDb({ path: join(dir, 'resv.db'), skipBackup: true });
 import { measureEntityTier, oldestSignatureOf } from '../../packages/pipeline/src/entity-tier.js';
 import { entityAdjustedConcentration } from '../../packages/intelligence/src/risk-facts-order.js';
 
@@ -123,5 +135,116 @@ describe('MT047 — the entity tier reports a share of SUPPLY', () => {
         clusteredShare: 0.01,
       }).kind,
     ).toBe('HISTORY_INCOMPLETE');
+  });
+});
+
+describe('an abandoned window must not sterilise a mint forever', () => {
+  /**
+   * MEASURED 2026-08-17. This repair froze a contract at each commit as defects
+   * were found, and each abandoned window took its mints out of supply
+   * permanently: `reserveCandidate` refuses a mint with ANY open trajectory,
+   * and an abandoned window's trajectories are never marked and never settle.
+   *
+   * Seven mints — every deep pool the collector had reached — were removed that
+   * way, and the next window sat at zero opens for three cycles against a queue
+   * of drained pools.
+   *
+   * The rule itself is right: two concurrent trajectories on one pool share a
+   * mark path and duplicate each other exactly. That reason is about ONE
+   * experiment, and the scope has to match it.
+   */
+  const seed = (db: ReturnType<typeof openDb>, id: string, mint: string, ctx: string): void => {
+    // The context row first: trajectory_evidence_context has a foreign key to
+    // it, and without this the insert below fails rather than the reservation.
+    db.prepare(
+      `INSERT OR IGNORE INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms,
+          closed_utc_ms, validity, reasons, audit_artifact_hash, notes)
+       VALUES (?, ?, 'aaa', 0, ?, NULL, 'DEVELOPMENT_EVIDENCE', '[]', NULL, NULL)`,
+    ).run(ctx, HASH_A, NOW);
+    db.prepare(
+      `INSERT INTO development_trajectories
+         (trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
+          venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
+          migration_age_ms, notional_lamports, entry_policy_inputs, entry_policy, exit_policy,
+          state, evidence_grade, max_attainable_grade, opened_utc_ms, refusals)
+       VALUES (?, ?, ?, ?, 'PUMPSWAP_DIRECT', 'Pool1', ?, ?, ?, 'FIRST_HOUR', 'S',
+               NULL, '20000000', '{}', 'HARD_GATES_RANDOM', 'FIXED_15M_CONTROL',
+               'AWAITING_FILL_OBSERVATION', 'SIMULATED_EXECUTION', 'SIMULATED_EXECUTION', ?, '[]')`,
+    ).run(id, `obs-${id}`, `job-${id}`, `set-${id}`, HASH_B, HASH_A, mint, NOW);
+    db.prepare(
+      `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
+       VALUES (?, ?, ?)`,
+    ).run(id, ctx, NOW);
+  };
+
+  it('an open trajectory in ANOTHER context does not block a reservation', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seed(db, 't-abandoned', 'MintA', 'ctx-abandoned');
+
+      // Corpus-wide, which is what a caller with no context gets: refused.
+      expect(() =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'MintA',
+          maxPerMint: 3,
+          ownerSessionId: 's',
+          nowMs: NOW,
+        }),
+      ).toThrow(/already has 1 open trajectory/);
+
+      // Scoped to the live window, which holds nothing for this mint: allowed.
+      const r = reserveCandidate(db, {
+        windowId: 'W',
+        mint: 'MintA',
+        maxPerMint: 3,
+        ownerSessionId: 's',
+        nowMs: NOW,
+        evidenceContextId: 'ctx-live',
+      });
+      expect(r.mint).toBe('MintA');
+      db.close();
+    } finally {
+      // Windows keeps a handle on the SQLite file briefly after close, and an
+      // EPERM here MASKS the assertions above — that is how a real constraint
+      // violation once got reported as a cleanup error. The OS owns the temp
+      // directory after this.
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
+  it('an open trajectory in THIS context still blocks it', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seed(db, 't-live', 'MintB', 'ctx-live');
+      expect(() =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'MintB',
+          maxPerMint: 3,
+          ownerSessionId: 's',
+          nowMs: NOW,
+          evidenceContextId: 'ctx-live',
+        }),
+      ).toThrow(/already has 1 open trajectory\(ies\) in ctx-live/);
+      db.close();
+    } finally {
+      // Windows keeps a handle on the SQLite file briefly after close, and an
+      // EPERM here MASKS the assertions above — that is how a real constraint
+      // violation once got reported as a cleanup error. The OS owns the temp
+      // directory after this.
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
   });
 });

@@ -120,9 +120,30 @@ export function reserveCandidate(
     readonly includeHistoric?: boolean;
     readonly staleReservationMs?: number;
     readonly pidAlive?: (pid: number) => boolean;
+    /**
+     * The context whose open trajectories block this reservation.
+     *
+     * The rule is "no two concurrent trajectories on one pool", and the reason
+     * is that they would share a mark path and duplicate each other exactly.
+     * That reason is about ONE experiment. Applied across every context ever
+     * opened it says something else: a mint opened in a window that was later
+     * abandoned is locked out forever, because an abandoned window's
+     * trajectories are never marked and never settle.
+     *
+     * Measured 2026-08-17: this repair froze a contract at each commit as
+     * defects were found, and each abandoned window sterilised the mints it had
+     * opened. Seven mints — every deep pool the collector had reached — were
+     * permanently removed from supply that way, and the next window sat at zero
+     * opens for three cycles against a queue of drained pools.
+     *
+     * Null keeps the old corpus-wide behaviour, which is what a caller with no
+     * context should get.
+     */
+    readonly evidenceContextId?: string | null;
   },
 ): Reservation {
   const { windowId, mint, maxPerMint, ownerSessionId, nowMs } = opts;
+  const contextId = opts.evidenceContextId ?? null;
   if (maxPerMint < 1) throw new ReservationRefused(mint, 'CAP_REACHED', `maxPerMint is ${maxPerMint}`);
 
   db.exec('BEGIN IMMEDIATE');
@@ -131,12 +152,22 @@ export function reserveCandidate(
     //     pool share a mark path and duplicate each other exactly.
     const open = db
       .prepare(
-        `SELECT COUNT(*) AS c FROM development_trajectories
-          WHERE mint = ? AND state <> 'SETTLED'`,
+        `SELECT COUNT(*) AS c FROM development_trajectories t
+          WHERE t.mint = ? AND t.state <> 'SETTLED'
+          ${contextId === null
+            ? ''
+            : `AND EXISTS (SELECT 1 FROM trajectory_evidence_context c
+                            WHERE c.trajectory_id = t.trajectory_id
+                              AND c.evidence_context_id = ?)`}`,
       )
-      .get(mint) as { c: number };
+      .get(...(contextId === null ? [mint] : [mint, contextId])) as { c: number };
     if (Number(open.c) > 0) {
-      throw new ReservationRefused(mint, 'ALREADY_OPEN', `${mint} already has ${open.c} open trajectory(ies)`);
+      throw new ReservationRefused(
+        mint,
+        'ALREADY_OPEN',
+        `${mint} already has ${open.c} open trajectory(ies)` +
+          (contextId === null ? '' : ` in ${contextId}`),
+      );
     }
 
     /**
