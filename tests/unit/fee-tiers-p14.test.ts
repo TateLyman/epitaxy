@@ -14,6 +14,7 @@ import {
   poolMarketCapLamports,
   feeConfigHash,
 } from '../../packages/solana/src/fee-tiers.js';
+import { sdkFeeOracle, sdkFeeOracleUnavailableReason } from '../../packages/solana/src/sdk-fee-oracle.js';
 
 /**
  * P14 — the dynamic fee boundaries, which the parity matrix never straddled.
@@ -242,5 +243,92 @@ describe('40 — the tier comes from market cap, and the SDK decides the edges',
       ],
     });
     expect(feeConfigHash(moved, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100, totalBps: 125 })).not.toBe(a);
+  });
+});
+
+/**
+ * J-4 — the replication is checked against the SDK'S OWN FUNCTION.
+ *
+ * The audit carried J-4 as OUT OF SCOPE because `@pump-fun/pump-swap-sdk` does
+ * not export `calculateFeeTier`. It does ship it; the package's `exports` map
+ * simply does not publish the subpath. Resolving the entry point and importing
+ * `dist/esm/sdk/fees.js` by file URL reaches it — which is a thing a test may
+ * do and a trading path may not (see `sdk-fee-oracle.ts`).
+ *
+ * So `selectFeeTier` is no longer "verified by reading the source on a date".
+ * It is differentially tested against the function it replicates, on the real
+ * decoded table and on the boundaries either side of every threshold.
+ */
+const oracle = await sdkFeeOracle();
+
+describe('J-4 — selectFeeTier agrees with the SDK it replicates', () => {
+
+  it.skipIf(oracle === null)('is reachable at all', () => {
+    expect(oracle, sdkFeeOracleUnavailableReason()).not.toBeNull();
+    expect(oracle?.modulePath).toContain('fees.js');
+  });
+
+  const table = [
+    { marketCapLamportsThreshold: 0n, fees: { lpFeeBps: 2, protocolFeeBps: 93, creatorFeeBps: 30, totalBps: 125 }, roundTripBps: 250 },
+    { marketCapLamportsThreshold: 420n * SOL, fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 95, totalBps: 120 }, roundTripBps: 240 },
+    { marketCapLamportsThreshold: 1470n * SOL, fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 90, totalBps: 115 }, roundTripBps: 230 },
+  ];
+
+  const agree = (tiers: typeof table, cap: bigint): void => {
+    const mine = selectFeeTier(tiers, cap);
+    const theirs = oracle?.feesFor(tiers, cap);
+    expect(mine, `no tier for cap ${cap}`).not.toBeNull();
+    expect(
+      {
+        lp: mine?.fees.lpFeeBps,
+        protocol: mine?.fees.protocolFeeBps,
+        creator: mine?.fees.creatorFeeBps,
+      },
+      `market cap ${cap}`,
+    ).toEqual({ lp: theirs?.lpFeeBps, protocol: theirs?.protocolFeeBps, creator: theirs?.creatorFeeBps });
+  };
+
+  it.skipIf(oracle === null)('agrees on every threshold and on both sides of it', () => {
+    for (const t of table) {
+      for (const d of [-1n, 0n, 1n]) {
+        const cap = t.marketCapLamportsThreshold + d;
+        if (cap < 0n) continue;
+        agree(table, cap);
+      }
+    }
+  });
+
+  it.skipIf(oracle === null)('agrees BELOW the first threshold, which is where they could differ', () => {
+    // The one branch a naive reading gets wrong: `tierFor` returns null under
+    // the first threshold, `calculateFeeTier` returns the first tier's fees.
+    // Every freshly migrated pool this system samples lands here.
+    const aboveFirst = table.slice(1);
+    for (const cap of [0n, 1n, 419n * SOL, 420n * SOL - 1n]) agree(aboveFirst, cap);
+    expect(selectFeeTier(aboveFirst, 1n)?.fees.creatorFeeBps).toBe(oracle?.feesFor(aboveFirst, 1n).creatorFeeBps);
+  });
+
+  it.skipIf(oracle === null || !existsSync(FIXTURE))('agrees across the REAL decoded table, swept', () => {
+    const real = feeTiersOf(realFeeConfig());
+    expect(real.length).toBeGreaterThan(1);
+    const caps = new Set<bigint>([0n, 1n]);
+    for (const t of real) {
+      for (const d of [-1n, 0n, 1n]) {
+        const c = t.marketCapLamportsThreshold + d;
+        if (c >= 0n) caps.add(c);
+      }
+      caps.add(t.marketCapLamportsThreshold * 2n + 7n);
+    }
+    for (const cap of caps) agree(real as typeof table, cap);
+    expect(caps.size).toBeGreaterThanOrEqual(real.length * 3);
+  });
+
+  it.skipIf(oracle === null)('would CATCH a wrong replication, so the agreement is not vacuous', () => {
+    // A plausible mistake: taking the first tier whose threshold is exceeded
+    // rather than the last. On an ascending table that is the bottom tier
+    // forever.
+    const wrong = (tiers: typeof table, cap: bigint) =>
+      tiers.find((t) => cap >= t.marketCapLamportsThreshold) ?? tiers[0];
+    const cap = 5000n * SOL;
+    expect(wrong(table, cap)?.fees.creatorFeeBps).not.toBe(oracle?.feesFor(table, cap).creatorFeeBps);
   });
 });

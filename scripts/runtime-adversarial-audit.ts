@@ -13,6 +13,7 @@ import {
   feeConfigHash,
   type FeeTier,
 } from '../packages/solana/src/fee-tiers.js';
+import { sdkFeeOracle, sdkFeeOracleUnavailableReason } from '../packages/solana/src/sdk-fee-oracle.js';
 import { buildTrajectorySettlement, checkIdentities, DURABLE_EVIDENCE } from '../packages/domain/src/trajectory-settlement.js';
 import {
   decideEntry,
@@ -1065,7 +1066,7 @@ function sectionI(db: DatabaseSync): void {
 // =====================================================================
 // J. Attack fee-tier classification
 // =====================================================================
-function sectionJ(db: DatabaseSync): void {
+async function sectionJ(db: DatabaseSync): Promise<void> {
   const tiers = [
     { marketCapLamportsThreshold: 0n, fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 }, roundTripBps: 110 },
     { marketCapLamportsThreshold: 1_000_000_000_000n, fees: { lpFeeBps: 15, protocolFeeBps: 4, creatorFeeBps: 5 }, roundTripBps: 48 },
@@ -1133,15 +1134,64 @@ function sectionJ(db: DatabaseSync): void {
       'against cannot distinguish "the tier changed" from "Pump republished the table", so no historical row survives a fee change',
   });
 
-  record({
-    section: 'J',
-    invariant: 'the selected tier matches the official SDK/program fee result',
-    verdict: 'NOT TESTABLE',
-    source: 'packages/solana/src/fee-tiers.ts:207 comment citing src/sdk/fees.ts:calculateFeeTier at 1.19.0',
-    mutation: 'not run: the SDK does not export calculateFeeTier, so the replication cannot be differentially tested against it in-process',
-    result: `feeConfigHash over the probe table = ${feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 } as never).slice(0, 16)}`,
-    economicConsequence: 'the replication is asserted against a code comment. A divergence would be worth the full tier step, up to 200 bps of round trip',
-  });
+  // J-4. The replication versus the function it replicates.
+  //
+  // This was NOT TESTABLE on the grounds that the SDK does not export
+  // `calculateFeeTier`. It ships it — `dist/esm/sdk/fees.js` exports it and the
+  // package's `exports` map simply does not publish the subpath. The oracle
+  // resolves the entry point and imports the sibling bundle by file URL, which
+  // is a thing an audit may do and a trading path may not.
+  const oracle = await sdkFeeOracle();
+  if (oracle === null) {
+    record({
+      section: 'J',
+      invariant: 'the selected tier matches the official SDK fee result',
+      verdict: 'NOT TESTABLE',
+      source: 'packages/solana/src/sdk-fee-oracle.ts',
+      mutation: `tried to import the SDK's own calculateFeeTier and could not: ${sdkFeeOracleUnavailableReason()}`,
+      result: 'the differential did not run',
+      economicConsequence:
+        'without it the replication is asserted against a code comment, and a divergence is worth the full tier step — up to 200 bps of round trip',
+    });
+  } else {
+    const probes: bigint[] = [0n, 1n];
+    for (const t of tiers) {
+      for (const d of [-1n, 0n, 1n]) {
+        const c = t.marketCapLamportsThreshold + d;
+        if (c >= 0n) probes.push(c);
+      }
+      probes.push(t.marketCapLamportsThreshold * 2n + 7n);
+    }
+    const disagreements: string[] = [];
+    for (const cap of probes) {
+      const mine = selectFeeTier(tiers, cap);
+      const theirs = oracle.feesFor(tiers, cap);
+      if (
+        mine === null ||
+        mine.fees.lpFeeBps !== theirs.lpFeeBps ||
+        mine.fees.protocolFeeBps !== theirs.protocolFeeBps ||
+        mine.fees.creatorFeeBps !== theirs.creatorFeeBps
+      ) {
+        disagreements.push(
+          `cap ${cap}: ours ${mine === null ? 'null' : `${mine.fees.lpFeeBps}/${mine.fees.protocolFeeBps}/${mine.fees.creatorFeeBps}`} ` +
+            `vs SDK ${theirs.lpFeeBps}/${theirs.protocolFeeBps}/${theirs.creatorFeeBps}`,
+        );
+      }
+    }
+    record({
+      section: 'J',
+      invariant: 'the selected tier matches the official SDK fee result',
+      verdict: disagreements.length === 0 ? 'PASS' : 'FAIL',
+      source: `packages/solana/src/fee-tiers.ts:207 selectFeeTier vs ${oracle.modulePath}`,
+      mutation: `${probes.length} market caps: every threshold, one lamport either side of each, and a point well above each`,
+      result:
+        disagreements.length === 0
+          ? `${probes.length} caps, ${tiers.length} tiers, zero disagreements. feeConfigHash = ${feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 } as never).slice(0, 16)}`
+          : disagreements.slice(0, 5).join('; '),
+      economicConsequence:
+        'the replication is no longer asserted against a code comment. A divergence would be worth the full tier step, up to 200 bps of round trip',
+    });
+  }
 }
 
 // =====================================================================
@@ -2157,7 +2207,7 @@ async function main(): Promise<void> {
   sectionG(db);
   sectionH(db);
   sectionI(db);
-  sectionJ(db);
+  await sectionJ(db);
   sectionK(db);
   sectionL(COPY_DB);
   sectionM(db);

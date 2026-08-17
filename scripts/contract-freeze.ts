@@ -46,7 +46,7 @@ import { writeArtifact } from './_artifact.js';
  * Not claimed, and therefore not asserted anywhere: the live-websocket lane
  * (P-2 — off by default and never fired), the cold/warm refusal lane (H-3/H-4 —
  * no warm lane exists), cashback amortisation (I-4 — no claim has been made),
- * and the network-dependent confirmations (E-4, J-4, O-3). Each is listed in
+ * and O-3, for which no published value exists to check against. Each is listed in
  * `outOfScope` with the reason, so removing it from the claim is a recorded act
  * rather than an omission.
  */
@@ -60,7 +60,7 @@ const CLAIMED_INVARIANTS = [
   'G-1', 'G-2',
   'H-1', 'H-2',
   'I-1', 'I-2', 'I-3',
-  'J-1', 'J-2', 'J-3',
+  'J-1', 'J-2', 'J-3', 'J-4',
   'K-1', 'K-2', 'K-3',
   'L-1',
   'M-1', 'M-2',
@@ -77,8 +77,14 @@ const OUT_OF_SCOPE: Record<string, string> = {
   'H-3': 'cold / prewarmed / repeat runs for one snapshot need three full worker round trips per pool; not in this window',
   'H-4': 'a warm lane that could REFUSE shared account creation does not exist, so the guard cannot be exercised',
   'I-4': 'cashback amortisation changing allocated cost — no claim has ever been made, so there is nothing to check',
-  'J-4': 'the Pump SDK does not export `calculateFeeTier`, so `selectFeeTier` cannot be compared against the official result in-process',
-  'O-3': 'the currently disclosed Mayhem agent wallet needs the live disclosure; pinned by date in docs instead',
+  // Checked offline against the vendored pump-public-docs at the pinned commit
+  // 9c82f61cb711b044a17f770ab8ce9f9bdf78f333: there is no Mayhem agent wallet
+  // or agent program id anywhere in it. So this is not "needs network access" —
+  // there is no published value to compare a decoded one against. What the
+  // apparatus DOES read is the pool's own mayhem flag, which is decoded from
+  // the account and is in scope elsewhere.
+  'O-3':
+    'no official Pump disclosure of a Mayhem agent wallet or program id exists, so there is nothing to check a decoded one against',
   'P-2': 'the live websocket lane is OFF by default (219 messages/second, measured, exhausted both endpoints) and 0 urgent marks have ever fired',
 };
 
