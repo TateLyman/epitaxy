@@ -1,0 +1,11 @@
+{
+  "status": "NOT_RUN",
+  "reason": "no trajectory carries an evidence-link row",
+  "provenance": {
+    "writer": "trajectory-trace.ts",
+    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
+    "treeDirty": false,
+    "dirtyFiles": 0,
+    "writtenUtc": "2026-08-17T04:58:36.964Z"
+  }
+}

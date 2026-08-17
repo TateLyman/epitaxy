@@ -15,9 +15,9 @@
   "note": "accrued and claimable are NOT cash and do not enter PnL; only claimed does",
   "provenance": {
     "writer": "cashback-status.ts",
-    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
+    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
     "treeDirty": true,
-    "dirtyFiles": 17,
-    "writtenUtc": "2026-08-17T04:49:37.226Z"
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-17T05:00:10.971Z"
   }
 }

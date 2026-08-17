@@ -90,9 +90,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "ed5dce59cb12054bef1bcf879ed753fdea012e55",
+    "sourceCommit": "559799a535e42cf9dab6e86b18d35dd522a426b8",
     "treeDirty": true,
-    "dirtyFiles": 17,
-    "writtenUtc": "2026-08-17T04:49:33.912Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-17T05:00:07.639Z"
   }
 }
