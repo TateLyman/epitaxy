@@ -1163,316 +1163,370 @@ async function runCycle(
       });
       const identityViolations = checkIdentities(settlement).violations;
 
-      // P4 — the per-leg settlements, so the trajectory settlement is derived
-      // from measured legs rather than recomputed from aggregates handed to it.
-      for (const [leg, m, settlementId, stepIndex] of [
-        ['buy' as const, t.settlementInputs.entry, t.entrySettlementId, t.entryStepIndex],
-        ...(t.settlementInputs.exit === null || t.exitSettlementId === null
-          ? []
-          : [['sell' as const, t.settlementInputs.exit, t.exitSettlementId, t.exitStepIndex ?? 1] as const]),
-      ] as const) {
-        const eligible = isPnlEligible(m);
-        const fee = transferFeeOrUnknown(m);
-        insertLegSettlement(db, {
-          settlementId,
+      /**
+       * P2.5 — THE ATOMIC OPEN.
+       *
+       * One transaction. The trajectory row, its evidence links, its per-leg
+       * settlements, its policy decisions, its plans and its economics either
+       * ALL become durable or NONE of them do.
+       *
+       * Ordering inside it is forced by the foreign keys and that is the point:
+       * `leg_settlements` references `development_trajectories`, so the
+       * trajectory row must exist first — and the first real open failed here
+       * with `FOREIGN KEY constraint failed` because the writes were a sequence
+       * of independent statements rather than one act.
+       *
+       * That sequence is exactly how a half-open trajectory gets created: a row
+       * that exists, points at nothing, and is indistinguishable afterwards
+       * from one that was written correctly. 292 rows in this corpus are in
+       * that state, and the difference between them and this one is this
+       * transaction.
+       *
+       * `persistEvidence` above committed the blobs, the snapshot, the
+       * observations, the worker steps and the account manifests. None of them
+       * references the trajectory, so a rollback here leaves them orphaned
+       * rather than dangling — countable, harmless, and not a trajectory.
+       */
+      db.exec('BEGIN IMMEDIATE');
+      try {
+
+        insertTrajectory(db, {
+          identity: {
+            trajectoryId: t.trajectoryId,
+            entryObservationId: t.entryObservationId,
+            entrySimulationJobId: t.entrySimulationJobId,
+            entrySettlementId: t.entrySettlementId,
+            venue: 'PUMPSWAP_DIRECT',
+            pool: t.pool,
+            // C-3 — a DIFFERENT value from the snapshot hash, because it answers a
+            // different question. This argument was literally `t.snapshotHash`,
+            // which is how 292 of 292 rows came to carry identical values in the
+            // two columns meant to identify their inputs.
+            capabilityFingerprint: t.capabilityFingerprint,
+            snapshotHash: t.snapshotHash,
+            mint: t.mint,
+            cohort: 'FIRST_HOUR',
+            migrationAgeMs: null,
+            notionalLamports: t.notionalLamports,
+            entryPolicyInputs: {
+              soleVenueAttributed: t.soleVenueAttributed,
+              quoteStateSurvived: t.quoteStateSurvived,
+              baseVaultDeltaAtoms: t.baseVaultDeltaAtoms.toString(),
+              quoteVaultDeltaLamports: t.quoteVaultDeltaLamports.toString(),
+            },
+            stratum: t.stratum,
+          },
+          /**
+           * N-2 — the entry policy column records the CONTROL's identity, and the
+           * decisions themselves live in `trajectory_policy_decisions`.
+           *
+           * This used to be a string literal written on every row AFTER
+           * `admitCandidate` had already decided, so the corpus carried one
+           * distinct entry policy against three defined and `decideEntry` had
+           * zero production callers. The entry side of the tournament did not
+           * exist: the two challengers had a sample of zero and the label
+           * described nothing that happened.
+           *
+           * One column cannot hold three decisions, which is why the decisions
+           * are rows. This names which arm the trajectory's own exit path
+           * belongs to, and every policy's verdict is stored below.
+           */
+          entryPolicy: 'HARD_GATES_RANDOM',
+          exitPolicy: 'FIXED_15M_CONTROL',
+          state: 'AWAITING_FILL_OBSERVATION',
+          // The MEASURED bound, not zeros. These were hardcoded, and every row
+          // claimed a 0% impact inside a 50 bps bound while the first live
+          // surface found entries larger than the pool's whole quote reserve.
+          impact: t.impact,
+          maxAttainableGrade: 'SIMULATED_EXECUTION',
+          refusals: t.incompleteness,
+          openedUtcMs: t.openedUtcMs,
+        });
+
+        db.prepare(
+          `UPDATE development_trajectories
+              SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?,
+                  fee_config_hash = ?, selected_tier = ?, market_cap_lamports = ?,
+                  creator_fee_bps = ?, protocol_fee_bps = ?, lp_fee_bps = ?, cashback_flag = ?,
+                  exit_simulation_job_id = ?, exit_settlement_id = ?,
+                  entry_step_index = ?, exit_step_index = ?,
+                  concentration_raw = ?, concentration_entity_adjusted = ?, concentration_stratum = ?
+            WHERE trajectory_id = ?`,
+        ).run(
+          effectiveArm,
+          arm?.p ?? null,
+          windowId,
+          // J-3 — the fee table this trajectory was priced against. No column
+          // existed, so no historical row could survive a Pump fee change.
+          t.feeConfigHash,
+          t.selectedTier,
+          t.marketCapLamports?.toString() ?? null,
+          t.creatorFeeBps,
+          t.protocolFeeBps,
+          t.lpFeeBps,
+          t.cashbackVerified ? 1 : 0,
+          t.exitSimulationJobId,
+          t.exitSettlementId,
+          t.entryStepIndex,
+          t.exitStepIndex,
+          // O-2 — RAW and ENTITY-ADJUSTED, kept apart. 1,959 of 1,959 pre-repair
+          // risk-fact rows were stratified `CONCENTRATION_RAW_ONLY`, so the raw
+          // top-holder share decided every admission — and an incomplete history
+          // can only UNDERSTATE clustering, which makes the gate that fires the
+          // weaker of the two on every candidate.
+          facts.rawTopHolderShare,
+          facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
+          facts.concentration.kind === 'MEASURED' ? 'CONCENTRATION_ENTITY' : 'CONCENTRATION_RAW_ONLY',
+          t.trajectoryId,
+        );
+
+        /**
+         * P0.4 — the trajectory belongs to THIS evidence context.
+         *
+         * Written before the link row, because the link row's foreign key names
+         * the context and will refuse if it does not exist.
+         */
+        db.prepare(
+          `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
+           VALUES (?, ?, ?) ON CONFLICT(trajectory_id) DO NOTHING`,
+        ).run(t.trajectoryId, lanes?.evidenceContextId ?? 'unassigned', Date.now());
+
+        /**
+         * The per-leg settlements, AFTER the trajectory row exists.
+         *
+         * `leg_settlements.trajectory_id` is a foreign key, so this cannot
+         * run first — and it did, which is how the first real open failed
+         * with `FOREIGN KEY constraint failed` after clearing every gate.
+         * The ordering here is dictated by the constraints rather than by
+         * the order the values happened to be computed in.
+         */
+        // P4 — the per-leg settlements, so the trajectory settlement is derived
+        // from measured legs rather than recomputed from aggregates handed to it.
+        for (const [leg, m, settlementId, stepIndex] of [
+          ['buy' as const, t.settlementInputs.entry, t.entrySettlementId, t.entryStepIndex],
+          ...(t.settlementInputs.exit === null || t.exitSettlementId === null
+            ? []
+            : [['sell' as const, t.settlementInputs.exit, t.exitSettlementId, t.exitStepIndex ?? 1] as const]),
+        ] as const) {
+          const eligible = isPnlEligible(m);
+          const fee = transferFeeOrUnknown(m);
+          insertLegSettlement(db, {
+            settlementId,
+            trajectoryId: t.trajectoryId,
+            leg,
+            observationId: m.observationId,
+            jobId: t.entrySimulationJobId,
+            stepIndex,
+            settlementVersion: SETTLEMENT_VERSION,
+            cashOutLamports: leg === 'buy' ? -m.payerNativeDeltaLamports : null,
+            cashInLamports: leg === 'sell' ? m.payerNativeDeltaLamports : null,
+            grossCreditLamports: m.output.kind === 'native_sol' ? m.output.actualCreditLamports : null,
+            baseFeeLamports: m.costs.baseFeeLamports,
+            priorityFeeLamports: m.costs.priorityFeeLamports,
+            tipLamports: m.costs.tipLamports,
+            transferFeeLamports: fee ?? 0n,
+            failedAttemptFeeLamports: m.costs.failedAttemptCostLamports,
+            rentCreatedLamports: m.costs.rentCreatedLamports,
+            rentRecoveredLamports: m.costs.rentRecoveredLamports,
+            rentStillLockedLamports:
+              m.costs.rentCreatedLamports > m.costs.rentRecoveredLamports
+                ? m.costs.rentCreatedLamports - m.costs.rentRecoveredLamports
+                : 0n,
+            cashbackAccruedLamports: 0n,
+            cashbackClaimableLamports: t.settlementInputs.cashback.claimableLamports,
+            cashbackClaimedLamports: 0n,
+            cashbackClaimCostLamports: 0n,
+            residualTokenAtoms: m.residualTokenAtoms ?? 0n,
+            unexplainedLamports: m.costs.unexplainedLamports,
+            complete: m.complete,
+            effectValid: m.effectValid,
+            fullAccountCoverage: m.fullAccountCoverage,
+            residualSemanticsKnown: true,
+            // NOT_APPLICABLE and UNKNOWN are opposite facts that both arrive as an
+            // absent number, and only the second blocks PnL.
+            transferFeeStatus: fee === null ? 'UNKNOWN' : m.costs.transferFeeLamportsEquivalent === null ? 'NOT_APPLICABLE' : 'MEASURED',
+            rawStateDurable: persisted.rawStateDurable,
+            pnlEligible: eligible.ok,
+            ineligibilityReasons: eligible.reasons,
+            nowMs: Date.now(),
+          });
+        }
+
+        /**
+         * P2.3 — THE LINK ROW. Every arrow is a foreign key.
+         *
+         * If any identifier does not resolve, SQLite refuses this insert and the
+         * trajectory does not become a usable sample. The 292 pre-repair rows
+         * cannot be represented here at all, which is how "0 of 292 resolve"
+         * stops being a thing that can happen rather than a thing that was fixed.
+         */
+        linkTrajectoryEvidence(db, {
           trajectoryId: t.trajectoryId,
-          leg,
-          observationId: m.observationId,
-          jobId: t.entrySimulationJobId,
-          stepIndex,
-          settlementVersion: SETTLEMENT_VERSION,
-          cashOutLamports: leg === 'buy' ? -m.payerNativeDeltaLamports : null,
-          cashInLamports: leg === 'sell' ? m.payerNativeDeltaLamports : null,
-          grossCreditLamports: m.output.kind === 'native_sol' ? m.output.actualCreditLamports : null,
-          baseFeeLamports: m.costs.baseFeeLamports,
-          priorityFeeLamports: m.costs.priorityFeeLamports,
-          tipLamports: m.costs.tipLamports,
-          transferFeeLamports: fee ?? 0n,
-          failedAttemptFeeLamports: m.costs.failedAttemptCostLamports,
-          rentCreatedLamports: m.costs.rentCreatedLamports,
-          rentRecoveredLamports: m.costs.rentRecoveredLamports,
-          rentStillLockedLamports:
-            m.costs.rentCreatedLamports > m.costs.rentRecoveredLamports
-              ? m.costs.rentCreatedLamports - m.costs.rentRecoveredLamports
-              : 0n,
-          cashbackAccruedLamports: 0n,
-          cashbackClaimableLamports: t.settlementInputs.cashback.claimableLamports,
-          cashbackClaimedLamports: 0n,
-          cashbackClaimCostLamports: 0n,
-          residualTokenAtoms: m.residualTokenAtoms ?? 0n,
-          unexplainedLamports: m.costs.unexplainedLamports,
-          complete: m.complete,
-          effectValid: m.effectValid,
-          fullAccountCoverage: m.fullAccountCoverage,
-          residualSemanticsKnown: true,
-          // NOT_APPLICABLE and UNKNOWN are opposite facts that both arrive as an
-          // absent number, and only the second blocks PnL.
-          transferFeeStatus: fee === null ? 'UNKNOWN' : m.costs.transferFeeLamportsEquivalent === null ? 'NOT_APPLICABLE' : 'MEASURED',
-          rawStateDurable: persisted.rawStateDurable,
-          pnlEligible: eligible.ok,
-          ineligibilityReasons: eligible.reasons,
+          evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
+          reservationId: reservation.reservationId,
+          snapshotHash: t.snapshotHash,
+          capabilityFingerprint: t.capabilityFingerprint,
+          accountPlanHash: t.entryPlan.fingerprint,
+          feeConfigHash: t.feeConfigHash,
+          selectedTier: t.selectedTier,
+          entryObservationId: t.entryObservationId,
+          entryJobId: t.entrySimulationJobId,
+          entryStepIndex: t.entryStepIndex,
+          entrySettlementId: t.entrySettlementId,
+          exitObservationId: t.exitObservationId,
+          exitJobId: t.exitSimulationJobId,
+          exitStepIndex: t.exitStepIndex,
+          exitSettlementId: t.exitSettlementId,
           nowMs: Date.now(),
         });
-      }
 
-      insertTrajectory(db, {
-        identity: {
-          trajectoryId: t.trajectoryId,
-          entryObservationId: t.entryObservationId,
-          entrySimulationJobId: t.entrySimulationJobId,
-          entrySettlementId: t.entrySettlementId,
-          venue: 'PUMPSWAP_DIRECT',
-          pool: t.pool,
-          // C-3 — a DIFFERENT value from the snapshot hash, because it answers a
-          // different question. This argument was literally `t.snapshotHash`,
-          // which is how 292 of 292 rows came to carry identical values in the
-          // two columns meant to identify their inputs.
-          capabilityFingerprint: t.capabilityFingerprint,
-          snapshotHash: t.snapshotHash,
-          mint: t.mint,
-          cohort: 'FIRST_HOUR',
-          migrationAgeMs: null,
-          notionalLamports: t.notionalLamports,
-          entryPolicyInputs: {
-            soleVenueAttributed: t.soleVenueAttributed,
-            quoteStateSurvived: t.quoteStateSurvived,
-            baseVaultDeltaAtoms: t.baseVaultDeltaAtoms.toString(),
-            quoteVaultDeltaLamports: t.quoteVaultDeltaLamports.toString(),
-          },
-          stratum: t.stratum,
-        },
+        // The reservation produced this trajectory. Bound now, so the cap is
+        // enforced against rows that exist rather than against intentions.
+        resolveReservation(db, reservation.reservationId, t.trajectoryId, Date.now());
+
         /**
-         * N-2 — the entry policy column records the CONTROL's identity, and the
-         * decisions themselves live in `trajectory_policy_decisions`.
+         * P9.1 — ALL THREE ENTRY POLICIES DECIDE, over the SAME pre-entry data.
          *
-         * This used to be a string literal written on every row AFTER
-         * `admitCandidate` had already decided, so the corpus carried one
-         * distinct entry policy against three defined and `decideEntry` had
-         * zero production callers. The entry side of the tournament did not
-         * exist: the two challengers had a sample of zero and the label
-         * described nothing that happened.
+         * The research sample is selected independently of any entry policy — by
+         * mechanics viability and the hard safety gates — and then every policy
+         * is asked what IT would have done. That is a paired comparison: same
+         * token, same pool, same marks, same costs, different decision.
          *
-         * One column cannot hold three decisions, which is why the decisions
-         * are rows. This names which arm the trajectory's own exit path
-         * belongs to, and every policy's verdict is stored below.
+         * `decideEntry` had zero production callers. This is where it gets them.
          */
-        entryPolicy: 'HARD_GATES_RANDOM',
-        exitPolicy: 'FIXED_15M_CONTROL',
-        state: 'AWAITING_FILL_OBSERVATION',
-        // The MEASURED bound, not zeros. These were hardcoded, and every row
-        // claimed a 0% impact inside a 50 bps bound while the first live
-        // surface found entries larger than the pool's whole quote reserve.
-        impact: t.impact,
-        maxAttainableGrade: 'SIMULATED_EXECUTION',
-        refusals: t.incompleteness,
-        openedUtcMs: t.openedUtcMs,
-      });
-
-      db.prepare(
-        `UPDATE development_trajectories
-            SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?,
-                fee_config_hash = ?, selected_tier = ?, market_cap_lamports = ?,
-                creator_fee_bps = ?, protocol_fee_bps = ?, lp_fee_bps = ?, cashback_flag = ?,
-                exit_simulation_job_id = ?, exit_settlement_id = ?,
-                entry_step_index = ?, exit_step_index = ?,
-                concentration_raw = ?, concentration_entity_adjusted = ?, concentration_stratum = ?
-          WHERE trajectory_id = ?`,
-      ).run(
-        effectiveArm,
-        arm?.p ?? null,
-        windowId,
-        // J-3 — the fee table this trajectory was priced against. No column
-        // existed, so no historical row could survive a Pump fee change.
-        t.feeConfigHash,
-        t.selectedTier,
-        t.marketCapLamports?.toString() ?? null,
-        t.creatorFeeBps,
-        t.protocolFeeBps,
-        t.lpFeeBps,
-        t.cashbackVerified ? 1 : 0,
-        t.exitSimulationJobId,
-        t.exitSettlementId,
-        t.entryStepIndex,
-        t.exitStepIndex,
-        // O-2 — RAW and ENTITY-ADJUSTED, kept apart. 1,959 of 1,959 pre-repair
-        // risk-fact rows were stratified `CONCENTRATION_RAW_ONLY`, so the raw
-        // top-holder share decided every admission — and an incomplete history
-        // can only UNDERSTATE clustering, which makes the gate that fires the
-        // weaker of the two on every candidate.
-        facts.rawTopHolderShare,
-        facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
-        facts.concentration.kind === 'MEASURED' ? 'CONCENTRATION_ENTITY' : 'CONCENTRATION_RAW_ONLY',
-        t.trajectoryId,
-      );
-
-      /**
-       * P0.4 — the trajectory belongs to THIS evidence context.
-       *
-       * Written before the link row, because the link row's foreign key names
-       * the context and will refuse if it does not exist.
-       */
-      db.prepare(
-        `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
-         VALUES (?, ?, ?) ON CONFLICT(trajectory_id) DO NOTHING`,
-      ).run(t.trajectoryId, lanes?.evidenceContextId ?? 'unassigned', Date.now());
-
-      /**
-       * P2.3 — THE LINK ROW. Every arrow is a foreign key.
-       *
-       * If any identifier does not resolve, SQLite refuses this insert and the
-       * trajectory does not become a usable sample. The 292 pre-repair rows
-       * cannot be represented here at all, which is how "0 of 292 resolve"
-       * stops being a thing that can happen rather than a thing that was fixed.
-       */
-      linkTrajectoryEvidence(db, {
-        trajectoryId: t.trajectoryId,
-        evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
-        reservationId: reservation.reservationId,
-        snapshotHash: t.snapshotHash,
-        capabilityFingerprint: t.capabilityFingerprint,
-        accountPlanHash: t.entryPlan.fingerprint,
-        feeConfigHash: t.feeConfigHash,
-        selectedTier: t.selectedTier,
-        entryObservationId: t.entryObservationId,
-        entryJobId: t.entrySimulationJobId,
-        entryStepIndex: t.entryStepIndex,
-        entrySettlementId: t.entrySettlementId,
-        exitObservationId: t.exitObservationId,
-        exitJobId: t.exitSimulationJobId,
-        exitStepIndex: t.exitStepIndex,
-        exitSettlementId: t.exitSettlementId,
-        nowMs: Date.now(),
-      });
-
-      // The reservation produced this trajectory. Bound now, so the cap is
-      // enforced against rows that exist rather than against intentions.
-      resolveReservation(db, reservation.reservationId, t.trajectoryId, Date.now());
-
-      /**
-       * P9.1 — ALL THREE ENTRY POLICIES DECIDE, over the SAME pre-entry data.
-       *
-       * The research sample is selected independently of any entry policy — by
-       * mechanics viability and the hard safety gates — and then every policy
-       * is asked what IT would have done. That is a paired comparison: same
-       * token, same pool, same marks, same costs, different decision.
-       *
-       * `decideEntry` had zero production callers. This is where it gets them.
-       */
-      const preEntry: PreEntryFeatures = {
-        mint: c.mint,
-        hardGatesPass: admission.admit,
+        const preEntry: PreEntryFeatures = {
+          mint: c.mint,
+          hardGatesPass: admission.admit,
+          /**
+           * Flow features the collector does not yet measure are NULL, and null
+           * is never a pass: `survivorFlowContinuation` refuses on every unknown
+           * and records which one. That is the honest state of this build — the
+           * challenger will REJECT most candidates for want of a flow history,
+           * and that rejection is a real decision with a real reason, which is
+           * exactly what a sample of zero was not.
+           */
+          independentBuyerPersistence: null,
+          nonMayhemNetQuoteInflowLamports: null,
+          effectiveQuoteReserveTrend: null,
+          executableExitCapacityTrend: null,
+          continuationSlope: null,
+          creatorNetSellingLamports: null,
+          // O-2 — the ENTITY-ADJUSTED share when it was measured, and null when
+          // only balances were read. Never the raw share silently substituted:
+          // an incomplete history can only understate clustering.
+          entityConcentration:
+            facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
+          mintBehaviourSafe: facts.mint2022.freezeAuthority === null ? true : null,
+          mechanicsViable: true,
+          correctedQualityScore: null,
+          scoreCoverageOk: false,
+        };
         /**
-         * Flow features the collector does not yet measure are NULL, and null
-         * is never a pass: `survivorFlowContinuation` refuses on every unknown
-         * and records which one. That is the honest state of this build — the
-         * challenger will REJECT most candidates for want of a flow history,
-         * and that rejection is a real decision with a real reason, which is
-         * exactly what a sample of zero was not.
+         * P10.1 — did the entity-adjusted fact CHANGE the decision?
+         *
+         * Recorded per policy, by running the same policy twice: once with the
+         * entity-adjusted concentration and once with the raw share. A risk fact
+         * that never alters an outcome is not wired in, and the audit found
+         * `entity_concentration` holding 57 rows none of which was joined to a
+         * candidate decision.
          */
-        independentBuyerPersistence: null,
-        nonMayhemNetQuoteInflowLamports: null,
-        effectiveQuoteReserveTrend: null,
-        executableExitCapacityTrend: null,
-        continuationSlope: null,
-        creatorNetSellingLamports: null,
-        // O-2 — the ENTITY-ADJUSTED share when it was measured, and null when
-        // only balances were read. Never the raw share silently substituted:
-        // an incomplete history can only understate clustering.
-        entityConcentration:
-          facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
-        mintBehaviourSafe: facts.mint2022.freezeAuthority === null ? true : null,
-        mechanicsViable: true,
-        correctedQualityScore: null,
-        scoreCoverageOk: false,
-      };
-      /**
-       * P10.1 — did the entity-adjusted fact CHANGE the decision?
-       *
-       * Recorded per policy, by running the same policy twice: once with the
-       * entity-adjusted concentration and once with the raw share. A risk fact
-       * that never alters an outcome is not wired in, and the audit found
-       * `entity_concentration` holding 57 rows none of which was joined to a
-       * candidate decision.
-       */
-      const rawOnly: PreEntryFeatures = { ...preEntry, entityConcentration: facts.rawTopHolderShare };
-      for (const policy of ENTRY_POLICIES) {
-        const decision = decideEntry(policy, preEntry, { seed: `${windowId}:${policy}` });
-        const withoutRisk = decideEntry(policy, rawOnly, { seed: `${windowId}:${policy}` });
-        db.prepare(
-          `INSERT INTO trajectory_policy_decisions
-             (trajectory_id, entry_policy, policy_version, decision, reason, feature_snapshot,
-              feature_snapshot_hash, decided_utc_ms, risk_facts_applied, decision_without_risk_facts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(trajectory_id, entry_policy) DO NOTHING`,
-        ).run(
+        const rawOnly: PreEntryFeatures = { ...preEntry, entityConcentration: facts.rawTopHolderShare };
+        for (const policy of ENTRY_POLICIES) {
+          const decision = decideEntry(policy, preEntry, { seed: `${windowId}:${policy}` });
+          const withoutRisk = decideEntry(policy, rawOnly, { seed: `${windowId}:${policy}` });
+          db.prepare(
+            `INSERT INTO trajectory_policy_decisions
+               (trajectory_id, entry_policy, policy_version, decision, reason, feature_snapshot,
+                feature_snapshot_hash, decided_utc_ms, risk_facts_applied, decision_without_risk_facts)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(trajectory_id, entry_policy) DO NOTHING`,
+          ).run(
+            t.trajectoryId,
+            policy,
+            'treatments-v1',
+            decision.enter ? 'ENTER' : 'REJECT',
+            `${decision.reason}${decision.unknowns.length > 0 ? ` [unknown: ${decision.unknowns.join(',')}]` : ''}`,
+            JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+            createHash('sha256')
+              .update(JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)))
+              .digest('hex'),
+            Date.now(),
+            JSON.stringify(facts.concentration.kind === 'MEASURED' ? ['ENTITY_ADJUSTED_CONCENTRATION'] : []),
+            withoutRisk.enter ? 'ENTER' : 'REJECT',
+          );
+        }
+
+        insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
+        // P2/P7 — the exit's plan too. It is the plan the cashback tail was
+        // verified against, and until now only the entry's was stored, so a
+        // replay had nothing to compare the sell to.
+        if (t.exitPlan !== null) insertAccountPlan(db, t.trajectoryId, t.exitPlan, Date.now());
+
+        /**
+         * P7/F13 — both legs' cashback movement, stored per leg.
+         *
+         * The repository asserted that `sell` carries no volume accumulator. It
+         * carries two, as optional positional remaining accounts. These rows are
+         * what settles that empirically rather than by assertion: if `sell`
+         * accrual stays at zero while `buy` climbs, the old model was right.
+         */
+        insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
+
+        /**
+         * P5 - the ONE canonical settlement, written once.
+         *
+         * Scope is IMMEDIATE_MECHANICS: the legs that actually executed. The
+         * policy exit is a mark on a later path and stays a counterfactual, so it
+         * is deliberately not settled here.
+         */
+        insertTrajectorySettlement(
+          db,
           t.trajectoryId,
-          policy,
-          'treatments-v1',
-          decision.enter ? 'ENTER' : 'REJECT',
-          `${decision.reason}${decision.unknowns.length > 0 ? ` [unknown: ${decision.unknowns.join(',')}]` : ''}`,
-          JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
-          createHash('sha256')
-            .update(JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)))
-            .digest('hex'),
+          'IMMEDIATE_MECHANICS',
+          // The RE-DERIVED settlement, built after the raw evidence was written
+          // and read back — not the provisional one `openTrajectory` returned.
+          settlement,
+          identityViolations,
           Date.now(),
-          JSON.stringify(facts.concentration.kind === 'MEASURED' ? ['ENTITY_ADJUSTED_CONCENTRATION'] : []),
-          withoutRisk.enter ? 'ENTER' : 'REJECT',
         );
+
+        /**
+         * K-3 — `settleTrajectory()` IS CALLED.
+         *
+         * It was the only writer of the trajectory row's economics columns and
+         * the collector never called it: `closeTrajectory()` set `state` and
+         * `settled_utc_ms` and nothing else, so every economics column on
+         * `development_trajectories` was permanently NULL — 0 of 292 — while
+         * `trajectory_settlements` held 31 net PnL figures. Any consumer reading
+         * the trajectory row rather than the settlement row saw a corpus with no
+         * costs and no PnL at all.
+         *
+         * The affected row count is checked, because a zero-row update is a write
+         * that went nowhere and reported success.
+         */
+        persistTrajectoryEconomics(db, t.trajectoryId, settlement, Date.now());
+
+        // P6 — what the entry had to open, and who ends up owning it. Written
+        // per leg, so a later exit leg's creations do not merge into the entry's.
+        insertCreatedAccounts(db, t.trajectoryId, 'buy', t.createdAccounts, Date.now());
+      } catch (e) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          /* already unwound */
+        }
+        // A trajectory that could not be written WHOLE is not written at all,
+        // and the mint returns to the queue rather than being retired.
+        refusals['ATOMIC_OPEN_FAILED'] = (refusals['ATOMIC_OPEN_FAILED'] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  ATOMIC_OPEN_FAILED  ${(e as Error).message.slice(0, 160)}`);
+        try {
+          abandonReservation(db, reservation.reservationId, Date.now(), 'ATOMIC_OPEN_FAILED');
+        } catch {
+          /* the reservation is reclaimable by the stale rule regardless */
+        }
+        continue;
       }
-
-      insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
-      // P2/P7 — the exit's plan too. It is the plan the cashback tail was
-      // verified against, and until now only the entry's was stored, so a
-      // replay had nothing to compare the sell to.
-      if (t.exitPlan !== null) insertAccountPlan(db, t.trajectoryId, t.exitPlan, Date.now());
-
-      /**
-       * P7/F13 — both legs' cashback movement, stored per leg.
-       *
-       * The repository asserted that `sell` carries no volume accumulator. It
-       * carries two, as optional positional remaining accounts. These rows are
-       * what settles that empirically rather than by assertion: if `sell`
-       * accrual stays at zero while `buy` climbs, the old model was right.
-       */
-      insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
-
-      /**
-       * P5 - the ONE canonical settlement, written once.
-       *
-       * Scope is IMMEDIATE_MECHANICS: the legs that actually executed. The
-       * policy exit is a mark on a later path and stays a counterfactual, so it
-       * is deliberately not settled here.
-       */
-      insertTrajectorySettlement(
-        db,
-        t.trajectoryId,
-        'IMMEDIATE_MECHANICS',
-        // The RE-DERIVED settlement, built after the raw evidence was written
-        // and read back — not the provisional one `openTrajectory` returned.
-        settlement,
-        identityViolations,
-        Date.now(),
-      );
-
-      /**
-       * K-3 — `settleTrajectory()` IS CALLED.
-       *
-       * It was the only writer of the trajectory row's economics columns and
-       * the collector never called it: `closeTrajectory()` set `state` and
-       * `settled_utc_ms` and nothing else, so every economics column on
-       * `development_trajectories` was permanently NULL — 0 of 292 — while
-       * `trajectory_settlements` held 31 net PnL figures. Any consumer reading
-       * the trajectory row rather than the settlement row saw a corpus with no
-       * costs and no PnL at all.
-       *
-       * The affected row count is checked, because a zero-row update is a write
-       * that went nowhere and reported success.
-       */
-      persistTrajectoryEconomics(db, t.trajectoryId, settlement, Date.now());
-
-      // P6 — what the entry had to open, and who ends up owning it. Written
-      // per leg, so a later exit leg's creations do not merge into the entry's.
-      insertCreatedAccounts(db, t.trajectoryId, 'buy', t.createdAccounts, Date.now());
+      db.exec('COMMIT');
       if (t.requiresSharedSetup) {
         console.log(
           `              COLD_SETUP  paid ${t.setup.subsidyToOtherTradersLamports} lamports of rent ` +
