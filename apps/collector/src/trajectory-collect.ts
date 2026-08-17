@@ -1060,6 +1060,20 @@ async function runCycle(
         throw e;
       }
 
+      /**
+       * ONE MORE YIELD, INSIDE the candidate.
+       *
+       * Yielding between candidates left a single candidate's own processing
+       * unbroken, and that is 6-13 seconds of entity walk plus a worker round
+       * trip plus persistence. B-4 requires ZERO marks more than sixty seconds
+       * late and the previous window had five of forty-one, all from horizons
+       * that came due inside one candidate rather than between two.
+       *
+       * Here is the natural break: the risk facts are collected and the
+       * reservation is held, and the round trip has not started.
+       */
+      if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
+
       // A fresh runtime per candidate: the client's output bound is cumulative
       // over a worker's lifetime, and one long-lived worker turns a bound meant
       // to catch runaways into a cap on the study.
