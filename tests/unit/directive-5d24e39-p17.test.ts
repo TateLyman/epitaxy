@@ -1453,3 +1453,115 @@ describe('P17 34–39 — ownership, contracts, and the standing prohibitions', 
     expect(src).toContain("mode === 'canary'");
   });
 });
+
+describe('P17 40–42 — backpressure is scoped to the window it brakes', () => {
+  /**
+   * MEASURED 2026-08-17. The v1 window was demoted to
+   * INSTRUMENT_DEVELOPMENT_INVALID because every trajectory in it recorded a
+   * capability fingerprint of {unknown, unknown}. Seven of its trajectories
+   * were still AWAITING_FILL_OBSERVATION with horizons long past. A clean v2
+   * window was opened and the collector logged, every tick, for minutes:
+   *
+   *   discovery deferred: 3 mark(s) are already past the 10000ms SLA.
+   *
+   * and opened nothing. The mark pass IS scoped to the active context, so it
+   * correctly never took those marks; `discoveryAdmissible` was NOT, so it
+   * counted them forever. A brake applied by a wheel that is not turning is
+   * not backpressure, it is a permanent stop.
+   */
+  const seedTwoWindows = (db: ReturnType<typeof openDb>): void => {
+    for (const [ctx, validity] of [
+      ['ctx-dead', 'INSTRUMENT_DEVELOPMENT_INVALID'],
+      ['ctx-live', 'DEVELOPMENT_EVIDENCE'],
+    ] as const) {
+      db.prepare(
+        `INSERT INTO evidence_contexts (evidence_context_id, context_hash, source_commit, tree_dirty,
+           opened_utc_ms, closed_utc_ms, validity, reasons, audit_artifact_hash, notes)
+         VALUES (?, ?, 'aaa', 0, ?, NULL, ?, '[]', NULL, NULL)`,
+      ).run(ctx, ctx === 'ctx-dead' ? HASH_A : HASH_B, NOW, validity);
+    }
+    // An OLD trajectory in the demoted window whose 1m horizon is long gone.
+    insertTrajectory(db, trajectoryRow('t-dead', 'MintDead') as never);
+    db.prepare(
+      `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
+       VALUES ('t-dead', 'ctx-dead', ?)`,
+    ).run(NOW);
+  };
+
+  it('40 — an overdue mark in a DEMOTED window does not defer discovery in the live one', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedTwoWindows(db);
+      const offsets = [60_000];
+      const now = NOW + 3_600_000; // an hour past the dead window's horizon
+
+      // Unscoped, this is the deadlock the collector actually hit.
+      const unscoped = discoveryAdmissible(db, { nowMs: now, offsets, slaMs: 10_000 });
+      expect(unscoped.admissible).toBe(false);
+      expect(unscoped.overdue).toBe(1);
+
+      // Scoped to the window this collector is marking, there is nothing to
+      // catch up on, because there is nothing IN it.
+      const scoped = discoveryAdmissible(db, {
+        nowMs: now,
+        offsets,
+        slaMs: 10_000,
+        evidenceContextId: 'ctx-live',
+      });
+      expect(scoped.admissible).toBe(true);
+      expect(scoped.overdue).toBe(0);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('41 — the brake still engages for an overdue mark INSIDE the live window', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedTwoWindows(db);
+      insertTrajectory(db, trajectoryRow('t-live', 'MintLive') as never);
+      db.prepare(
+        `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
+         VALUES ('t-live', 'ctx-live', ?)`,
+      ).run(NOW);
+
+      const scoped = discoveryAdmissible(db, {
+        nowMs: NOW + 3_600_000,
+        offsets: [60_000],
+        slaMs: 10_000,
+        evidenceContextId: 'ctx-live',
+      });
+      expect(scoped.admissible).toBe(false);
+      expect(scoped.overdue).toBe(1);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('42 — nextWakeMs reads the SAME set the mark pass and the brake read', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedTwoWindows(db);
+      const offsets = [60_000];
+      const now = NOW + 3_600_000;
+
+      // A deadline that will never be taken must not pin the scheduler at a
+      // zero sleep, spinning the loop on work it has already excluded.
+      expect(nextWakeMs(db, { nowMs: now, offsets, maxTickMs: 3_000 })).toBe(0);
+      expect(
+        nextWakeMs(db, { nowMs: now, offsets, maxTickMs: 3_000, evidenceContextId: 'ctx-live' }),
+      ).toBe(3_000);
+      expect(
+        dueMarks(db, { nowMs: now, offsets, evidenceContextId: 'ctx-live' }).length,
+      ).toBe(0);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,9 +1,9 @@
 {
   "applied": true,
-  "contractId": "contract-de8b3b8877e84796",
-  "contractHash": "de8b3b8877e847968e790f2ae1d0c83e0e7586b719188ef6f12f5aaaf8e5cf66",
-  "evidenceContextId": "ctx-c3c2ef00d44c-DEV_WINDOW_5D24E",
-  "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+  "contractId": "contract-a923d4cf4646c913",
+  "contractHash": "a923d4cf4646c9136db11019bf35b0c4174f7b26abae6485bc0315eb424a1cdf",
+  "evidenceContextId": "ctx-2749b5067a01-DEV_WINDOW_5D24E",
+  "sourceCommit": "2749b5067a01a67ec24fded05306055e91f71dea",
   "cohort": "FIRST_HOUR",
   "notionalRule": "fixed 20000000 lamports per entry",
   "entryPolicies": [
@@ -33,8 +33,8 @@
     "maxPerMint": 3
   },
   "sdkVersions": {
-    "@pump-fun/pump-sdk": "unknown",
-    "@pump-fun/pump-swap-sdk": "unknown"
+    "@pump-fun/pump-sdk": "1.36.0",
+    "@pump-fun/pump-swap-sdk": "1.19.0"
   },
   "claimedInvariants": [
     "A-1",
@@ -52,6 +52,7 @@
     "E-1",
     "E-2",
     "E-3",
+    "E-4",
     "F-1",
     "F-2",
     "F-3",
@@ -91,7 +92,6 @@
     "S-4"
   ],
   "outOfScope": {
-    "E-4": "confirming SDK 1.19.0 against current official Pump docs needs network access this harness does not take; tracked in docs/SOURCE_MATRIX.csv instead of claimed here",
     "F-7": "a 0.04 SOL round trip under the output limit — this contract opens at 0.02 SOL, so no such job exists to inspect",
     "H-3": "cold / prewarmed / repeat runs for one snapshot need three full worker round trips per pool; not in this window",
     "H-4": "a warm lane that could REFUSE shared account creation does not exist, so the guard cannot be exercised",
@@ -102,9 +102,9 @@
   },
   "provenance": {
     "writer": "contract-freeze.ts",
-    "sourceCommit": "c3c2ef00d44c64db29bd8e10e272ea305f640422",
+    "sourceCommit": "2749b5067a01a67ec24fded05306055e91f71dea",
     "treeDirty": false,
     "dirtyFiles": 0,
-    "writtenUtc": "2026-08-17T12:53:48.752Z"
+    "writtenUtc": "2026-08-17T13:08:20.202Z"
   }
 }

@@ -168,12 +168,26 @@ export function dueMarks(
  */
 export function nextWakeMs(
   db: Db,
-  opts: { readonly nowMs: number; readonly offsets: readonly number[]; readonly maxTickMs?: number },
+  opts: {
+    readonly nowMs: number;
+    readonly offsets: readonly number[];
+    readonly maxTickMs?: number;
+    /** Same scope as the mark pass. See `discoveryAdmissible`. */
+    readonly evidenceContextId?: string | null;
+  },
 ): number {
   const maxTick = opts.maxTickMs ?? DEFAULT_MAX_TICK_MS;
+  const ctx = opts.evidenceContextId ?? null;
   const rows = db
-    .prepare(`SELECT trajectory_id, opened_utc_ms FROM development_trajectories WHERE state <> 'SETTLED'`)
-    .all() as { trajectory_id: string; opened_utc_ms: number }[];
+    .prepare(
+      `SELECT t.trajectory_id, t.opened_utc_ms FROM development_trajectories t
+        WHERE t.state <> 'SETTLED'
+          ${ctx === null
+            ? ''
+            : `AND EXISTS (SELECT 1 FROM trajectory_evidence_context c
+                            WHERE c.trajectory_id = t.trajectory_id AND c.evidence_context_id = ?)`}`,
+    )
+    .all(...(ctx === null ? [] : [ctx])) as { trajectory_id: string; opened_utc_ms: number }[];
   if (rows.length === 0) return maxTick;
 
   const recorded = new Set(
@@ -207,10 +221,33 @@ export function nextWakeMs(
  */
 export function discoveryAdmissible(
   db: Db,
-  opts: { readonly nowMs: number; readonly offsets: readonly number[]; readonly slaMs?: number },
+  opts: {
+    readonly nowMs: number;
+    readonly offsets: readonly number[];
+    readonly slaMs?: number;
+    /**
+     * SCOPED TO THE WINDOW THIS COLLECTOR IS MARKING.
+     *
+     * Backpressure about marks you are not taking is not backpressure; it is a
+     * permanent stop. Measured 2026-08-17: a window was restarted after its
+     * predecessor was demoted, and the predecessor's seven still-open
+     * trajectories had horizons long past. The mark pass IS scoped to the
+     * active context, so it correctly ignored them — and this function was NOT,
+     * so it saw three permanently-overdue marks and deferred discovery forever.
+     * The collector ticked for minutes and opened nothing.
+     *
+     * Both must read the same set, or the brake is applied by a wheel that is
+     * not turning.
+     */
+    readonly evidenceContextId?: string | null;
+  },
 ): { readonly admissible: boolean; readonly reason: string; readonly overdue: number } {
   const sla = opts.slaMs ?? MARK_SLA_MS;
-  const due = dueMarks(db, { nowMs: opts.nowMs, offsets: opts.offsets });
+  const due = dueMarks(db, {
+    nowMs: opts.nowMs,
+    offsets: opts.offsets,
+    evidenceContextId: opts.evidenceContextId ?? null,
+  });
   const overdue = due.filter((d) => opts.nowMs - d.dueUtcMs > sla).length;
   if (overdue > 0) {
     return {

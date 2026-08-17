@@ -2169,6 +2169,8 @@ async function main(): Promise<void> {
         nowMs: started,
         offsets: MARK_OFFSETS_MS,
         slaMs: args.markSlaMs,
+        // The SAME scope the mark pass uses. See `discoveryAdmissible`.
+        evidenceContextId: lanes.evidenceContextId,
       });
       if (!admissible.admissible) {
         // Backpressure, stated. An operator reading "discovery deferred" knows
@@ -2224,6 +2226,7 @@ async function main(): Promise<void> {
       nowMs: now,
       offsets: MARK_OFFSETS_MS,
       maxTickMs: args.maxTickMs,
+      evidenceContextId: lanes.evidenceContextId,
     });
     const untilDiscovery = Math.max(0, lastDiscoveryMs + args.intervalSeconds * 1_000 - now);
     const wait = Math.max(0, Math.min(untilMark, untilDiscovery, args.maxTickMs));
