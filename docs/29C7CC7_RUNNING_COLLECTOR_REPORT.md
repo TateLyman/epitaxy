@@ -7,6 +7,12 @@
 > working endpoint was supplied, the loop was run end to end, and the state is
 > upgraded on the evidence in "The loop, demonstrated" immediately below.
 > Section 1 of the original report is superseded; everything else stands.
+>
+> **Updated 2026-08-17T00:15Z.** The three remaining uncovered items — 49, 55
+> and `reject:panel-v2` — are built, tested and run. All 62 required tests now
+> cite one. Sections 18 and 23 are revised in place; the state is unchanged,
+> because nothing here produced a confirmatory outcome and two of the three
+> carry a named blocker that is not a coding task. See the revised section 23.
 
 ## The loop, demonstrated
 
@@ -228,9 +234,18 @@ is UNKNOWN.
 
 ## 18. Counterfactual class
 
-Everything collected is bounded-uncalibrated. Full replay has not been built, so
-no bounded outcome may be called confirmatory.
-See `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md`.
+Everything collected is bounded-uncalibrated, and **still** no bounded outcome
+may be called confirmatory.
+
+What changed: full event replay **is** now built and has run —
+`pnpm replay:calibrate --arm=<mint>` / `--settle=<file>`. What did not change:
+both live runs were the degenerate zero-event case, so no multi-event replay has
+been observed and no calibration subset exists. Building the instrument is not
+taking the measurement.
+
+See `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md` for the exact extent, including
+the defect the first run found — a forward-bound refusal that was rejecting
+quiet pools, the one case where the replay is trivially exact.
 
 ## 19. WSS and risk-fact coverage
 
@@ -271,13 +286,31 @@ edge — faster access to a losing strategy loses faster).
    `account-plan-proof.json` — not produced; all need live RPC.
 3. `created_accounts` and `leg_cashback` are empty; both were wired after the
    last trajectory opened.
-4. Net PnL is UNKNOWN — no canonical settlement per trajectory yet.
-5. Full event replay is not built, so no counterfactual is calibrated.
-6. `landed:parity-v2`, `reject:panel-v2`, `exploration:status` still refuse and
-   exit non-zero, with their exact prerequisites named. `landed:parity-v2`
-   cannot be built without a canary, which is a human act.
+4. ~~Net PnL is UNKNOWN~~ — **closed.** Canonical settlement is wired and the
+   payer identity reconciles to zero on both legs.
+5. ~~Full event replay is not built~~ — **built, and run.** Still not
+   calibrated: both live runs had zero replayable events. See section 18.
+6. `exploration:status` and `reject:panel-v2` — **closed.** Both now mean their
+   names and are in `GRADUATED`. `landed:parity-v2` still refuses with its
+   prerequisite named: one direct PumpSwap swap actually landed on mainnet.
+   Nothing here has ever signed or submitted, and a canary is a human act.
 7. Entity-adjusted concentration is not walked; the raw tier decides and every
    admitted candidate is stratified `CONCENTRATION_RAW_ONLY`.
+8. **The reject panel has no marker.** The sample is being admitted correctly
+   (198 rows in one cycle, with the snapshot attached), but the metric needs an
+   entry quote taken at rejection time — one RPC call per rejection, against an
+   endpoint answering `429`. A marker quoting at mark time would be cheap and
+   wrong. Blocked on a preregistered subsample fraction, not on design.
+9. **No multi-event replay has been observed.** Every pool reachable from the
+   current corpus is quiet, which is the depth-gate finding again. This is a
+   sampling problem, not a code problem.
+
+### Directive coverage
+
+All **62** required tests now cite a test that exists and contains the
+assertion. `tests/unit/directive-29c7cc7-coverage.test.ts` asserts the uncovered
+list is empty *and* that every row carries a `needle`, so it cannot reach zero
+by pointing at files that no longer contain what they claim.
 
 ## 24. Collection commands
 
