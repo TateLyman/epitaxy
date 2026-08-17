@@ -14,6 +14,21 @@
  * It never writes to the corpus. Every mutation probe runs against a
  * VACUUM-consistent copy under the system temp directory, and the live database
  * is opened read-only.
+ *
+ * ONE EXCEPTION, AND IT IS OPT-IN: `--with-live-run`.
+ *
+ * Sections B-2, B-3 and S-3 are about the collector actually collecting — a
+ * single `--once` pass that opens a trajectory and writes current rows, and a
+ * restart that resumes without duplicating them. Those cannot be observed from
+ * a copy, because the thing under test is the write. Without the flag the gate
+ * says so by name; with it, the gate runs the pass against the live corpus
+ * under the ACTIVE contract, which is the same act the collector performs every
+ * cycle and is not a special mode.
+ *
+ * The skip reason used to be a frozen sentence about both RPC endpoints being
+ * out of credits. That was true when it was written and stopped being true, and
+ * a hardcoded reason cannot notice. It is now derived: the lock holder, the
+ * missing contract, or the absent flag, whichever actually applies.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, statSync, readdirSync, copyFileSync } from 'node:fs';
@@ -211,6 +226,141 @@ function seedSweep(copyPath: string): { name: string; verdict: string; detail: s
   return results;
 }
 
+const WITH_LIVE_RUN = process.argv.includes('--with-live-run');
+
+const TSX = () => resolve('node_modules/tsx/dist/cli.mjs');
+
+/** One integer from the live corpus, read-only. */
+function liveCount(sql: string): number {
+  const db = new DatabaseSync(LIVE, { readOnly: true });
+  try {
+    return Number((db.prepare(sql).get() as { c: number }).c);
+  } finally {
+    db.close();
+  }
+}
+
+/** The active contract and its context, or null with the reason. */
+function activeContract(): { contractId: string; contextId: string } | null {
+  const db = new DatabaseSync(LIVE, { readOnly: true });
+  try {
+    const row = db
+      .prepare(
+        `SELECT contract_id, evidence_context_id FROM experiment_contracts
+          ORDER BY frozen_utc_ms DESC LIMIT 1`,
+      )
+      .get() as { contract_id: string; evidence_context_id: string } | undefined;
+    return row === undefined ? null : { contractId: row.contract_id, contextId: row.evidence_context_id };
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/** A number the collector printed about ITS OWN pass, not a database total. */
+const printed = (out: string, label: string): number => {
+  const m = new RegExp(`${label}\\s*:?\\s*(\\d+)`).exec(out);
+  return m === null ? 0 : Number(m[1]);
+};
+
+/**
+ * B-2 / B-3 / S-3 — the collector collecting, and then resuming.
+ *
+ * Two `--once` passes against the live corpus under the active contract. The
+ * first must OPEN and must MARK; the second must not duplicate what the first
+ * wrote, which is the whole content of "resumed correctly".
+ */
+function liveRun(): { B: Record<string, unknown> | null; S: Record<string, unknown> | null; why: string } {
+  if (!WITH_LIVE_RUN) {
+    return {
+      B: null,
+      S: null,
+      why:
+        'the live collector pass was not requested. It writes to the corpus, which this gate does not do by ' +
+        'default; pass --with-live-run to include B-2, B-3 and S-3.',
+    };
+  }
+  const active = activeContract();
+  if (active === null) {
+    return { B: null, S: null, why: 'no experiment contract is frozen, so there is no contract to collect under' };
+  }
+  const lock = run(process.execPath, [TSX(), 'scripts/collector-ops.ts', 'list'], { timeoutMs: 120_000 });
+  if (!/trajectory collectors: 0/.test(lock.out)) {
+    return {
+      B: null,
+      S: null,
+      why:
+        'a trajectory collector is already running, so a --once pass would be refused by the exclusive lock. ' +
+        'Stop it with `pnpm collector:stop-all` before running the gate with --with-live-run.',
+    };
+  }
+
+  const before = {
+    trajectories: liveCount('SELECT COUNT(*) c FROM development_trajectories'),
+    marks: liveCount('SELECT COUNT(*) c FROM trajectory_marks'),
+    refusals: liveCount('SELECT COUNT(*) c FROM candidate_risk_facts'),
+  };
+  const args = [
+    TSX(),
+    'apps/collector/src/trajectory-collect.ts',
+    '--mode=observe',
+    '--once',
+    `--contract=${active.contractId}`,
+    '--window=DEV_WINDOW_5D24E',
+    '--max-candidates=6',
+    '--max-open=2',
+    '--backfill-scan=6',
+  ];
+  const first = run(process.execPath, args, { timeoutMs: 900_000 });
+  const mid = {
+    trajectories: liveCount('SELECT COUNT(*) c FROM development_trajectories'),
+    marks: liveCount('SELECT COUNT(*) c FROM trajectory_marks'),
+    refusals: liveCount('SELECT COUNT(*) c FROM candidate_risk_facts'),
+  };
+
+  const B: Record<string, unknown> = {
+    opened: printed(first.out, 'opened trajectories'),
+    refusals: mid.refusals - before.refusals,
+    trajectoriesBefore: before.trajectories,
+    trajectoriesAfter: mid.trajectories,
+    marksTaken: printed(first.out, 'marks taken this run'),
+    settled: printed(first.out, 'settled this run'),
+    openSeen: printed(first.out, 'open trajectories seen'),
+    exit: first.exit,
+  };
+
+  /**
+   * The RESTART. A second pass over the same open trajectories.
+   *
+   * "Resumed correctly" is not "did not crash". It is: no (trajectory, offset)
+   * mark exists twice, no open trajectory was lost, and the second pass did not
+   * re-open a candidate the first one already reserved.
+   */
+  const openBefore = liveCount("SELECT COUNT(*) c FROM development_trajectories WHERE state <> 'SETTLED'");
+  const second = run(process.execPath, args, { timeoutMs: 900_000 });
+  const dupMarks = liveCount(
+    `SELECT COUNT(*) c FROM (SELECT trajectory_id, offset_ms FROM trajectory_marks
+       GROUP BY 1, 2 HAVING COUNT(*) > 1)`,
+  );
+  const openAfter = liveCount("SELECT COUNT(*) c FROM development_trajectories WHERE state <> 'SETTLED'");
+  const settledBetween = printed(second.out, 'settled this run');
+  const lost = openBefore - openAfter - settledBetween;
+  const resumed = dupMarks === 0 && lost <= 0 && second.exit === 0;
+
+  const S: Record<string, unknown> = {
+    verdict: resumed ? 'PASS' : 'FAIL',
+    mutation:
+      'two --once passes under the same contract, the second while trajectories opened by the first were still ' +
+      'open, then a scan for duplicated (trajectory, offset) marks and for open trajectories that vanished',
+    result:
+      `pass 1 opened ${String(B['opened'])} and took ${String(B['marksTaken'])} mark(s); pass 2 exited ` +
+      `${second.exit} and took ${printed(second.out, 'marks taken this run')}; ${dupMarks} duplicated mark(s); ` +
+      `open ${openBefore} -> ${openAfter} with ${settledBetween} settled in between`,
+  };
+  return { B, S, why: '' };
+}
+
 async function main(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'epitaxy-gate-'));
   const sidecar: Record<string, unknown> = {};
@@ -268,16 +418,25 @@ async function main(): Promise<void> {
      * with the harness's generic reason; naming the refusal here means the
      * report says WHY rather than "not supplied".
      */
-    skipped['B'] =
-      'a --once pass that OPENS a trajectory was not supplied. Opening requires a concentration read, and both ' +
-      'configured RPC endpoints are out of credits (QuickNode: daily request limit reached; Helius: max usage ' +
-      'reached). The public endpoint refuses getTokenLargestAccounts outright — 0 of 8 attempts at 5s spacing.';
-    skipped['S'] = skipped['B'];
+    console.log('5. the live collector pass (B-2, B-3, S-3) …');
+    const live = liveRun();
+    if (live.B === null) {
+      skipped['B'] = live.why;
+      skipped['S'] = live.why;
+      console.log(`   NOT SUPPLIED: ${live.why}\n`);
+    } else {
+      sidecar['B'] = live.B;
+      sidecar['S'] = live.S;
+      console.log(
+        `   opened ${String(live.B['opened'])}, marks ${String(live.B['marksTaken'])}, ` +
+          `settled ${String(live.B['settled'])}; restart ${String(live.S?.['verdict'])}\n`,
+      );
+    }
 
     // ---- 5. the ledger ----------------------------------------------------
     const sidecarPath = join(dir, 'sidecar.json');
     writeFileSync(sidecarPath, JSON.stringify({ ...sidecar, _skipped: skipped }, null, 2));
-    console.log('5. the ledger …\n');
+    console.log('6. the ledger …\n');
     const audit = run(
       process.execPath,
       [resolve('node_modules/tsx/dist/cli.mjs'), 'scripts/runtime-adversarial-audit.ts'],
