@@ -926,6 +926,23 @@ export async function openTrajectory(
           takerWsol,
           CLOCK_SYSVAR,
           ...feeDestinations,
+          /**
+           * D-2 — every account the FROZEN PLAN names.
+           *
+           * A quote-side conservation failure has to be able to say WHERE the
+           * money went, not only how much is missing. Measured 2026-08-17: the
+           * payer spent 20,000,000, the pool's quote vault plus the named fee
+           * flows accounted for 19,908,147, and 91,853 lamports (46 bps) landed
+           * somewhere the observe set could not see — so the refusal was
+           * correct and unactionable at the same time.
+           *
+           * Observing the plan's accounts costs worker output, which is
+           * job-scoped and bounded, and buys a refusal that names the account.
+           * The conservation SET is still the named fee destinations: summing
+           * every account that gained would make the check tautological, which
+           * is a different way of learning nothing.
+           */
+          ...planAccountKeys,
         ]),
       ],
       observe,
@@ -1110,7 +1127,43 @@ export async function openTrajectory(
   const soleVenue = attribution.attributed;
 
   if (!soleVenue) {
-    return { ok: false, refusal: 'ENTRY_NOT_SOLE_VENUE', detail: attribution.refusal ?? 'not sole venue' };
+    /**
+     * NAME THE ACCOUNT, not only the amount.
+     *
+     * A residue tells you the model is incomplete; it does not tell you which
+     * flow the model is missing. Every plan account's bytes are observed for
+     * exactly this, so the refusal can list the unnamed accounts that GAINED
+     * quote — which is the difference between "0.46% went somewhere" and "the
+     * protocol fee recipient's token account took 91,853".
+     */
+    const named = new Set([...feeDestinations, addrs.poolQuoteTokenAccount, takerAta, takerWsol]);
+    const gainers = [...new Set(planAccountKeys)]
+      .filter((a) => !named.has(a))
+      .map((a) => {
+        let delta = 0n;
+        try {
+          delta = wsolDelta(a);
+        } catch {
+          delta = -1n; // bytes absent: reported as unknown rather than as zero
+        }
+        return { account: a, delta };
+      })
+      .filter((x) => x.delta !== 0n)
+      .sort((a, b) => (b.delta > a.delta ? 1 : -1))
+      .slice(0, 4);
+
+    const where =
+      gainers.length === 0
+        ? ' No unnamed plan account gained quote, so the residue is not a fee flow this plan names.'
+        : ` Unnamed plan accounts that GAINED quote: ${gainers
+            .map((g) => `${g.account}=${g.delta === -1n ? 'bytes not observed' : g.delta.toString()}`)
+            .join(', ')}.`;
+
+    return {
+      ok: false,
+      refusal: 'ENTRY_NOT_SOLE_VENUE',
+      detail: `${attribution.refusal ?? 'not sole venue'}.${where}`,
+    };
   }
 
   /**

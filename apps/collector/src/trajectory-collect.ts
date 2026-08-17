@@ -957,7 +957,7 @@ async function runCycle(
 
       if (!res.ok) {
         refusals[res.refusal] = (refusals[res.refusal] ?? 0) + 1;
-        console.log(`  ${c.mint.slice(0, 10)}  ${res.refusal}  ${res.detail.slice(0, 220)}`);
+        console.log(`  ${c.mint.slice(0, 10)}  ${res.refusal}  ${res.detail.slice(0, 420)}`);
         // The reservation is released, so a refused candidate does not consume
         // its mint's allowance. A refusal is a fact about the venue or the
         // apparatus, not a sample.
