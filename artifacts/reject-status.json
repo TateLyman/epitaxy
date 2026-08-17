@@ -1,69 +1,69 @@
 {
-  "generatedUtcMs": 1786645658475,
+  "generatedUtcMs": 1786929407156,
   "rejects": {
     "byOutcome": [
       {
         "outcome": "(unclassified)",
-        "n": 785037
+        "n": 985675
       },
       {
         "outcome": "UNKNOWN",
-        "n": 20831
+        "n": 167410
       },
       {
         "outcome": "PROVIDER_MISSING",
-        "n": 6409
+        "n": 58210
       }
     ],
     "byReason": [
       {
         "primary_reason": "stale_source",
-        "n": 505074,
+        "n": 771199,
         "still_tradeable": 0
       },
       {
         "primary_reason": "insufficient_liquidity",
-        "n": 302894,
+        "n": 432853,
         "still_tradeable": 0
       },
       {
         "primary_reason": "excessive_impact",
-        "n": 1659,
-        "still_tradeable": 0
-      },
-      {
-        "primary_reason": "too_young",
-        "n": 609,
+        "n": 2424,
         "still_tradeable": 0
       },
       {
         "primary_reason": "dev_holds_too_much",
-        "n": 489,
+        "n": 770,
+        "still_tradeable": 0
+      },
+      {
+        "primary_reason": "too_young",
+        "n": 683,
         "still_tradeable": 0
       },
       {
         "primary_reason": "concentrated_ownership",
-        "n": 381,
-        "still_tradeable": 0
-      },
-      {
-        "primary_reason": "too_few_holders",
-        "n": 339,
+        "n": 505,
         "still_tradeable": 0
       },
       {
         "primary_reason": "mint_authority_live",
-        "n": 323,
+        "n": 504,
+        "still_tradeable": 0
+      },
+      {
+        "primary_reason": "too_few_holders",
+        "n": 439,
+        "still_tradeable": 0
+      },
+      {
+        "primary_reason": "too_old",
+        "n": 397,
         "still_tradeable": 0
       },
       {
         "primary_reason": "freeze_authority_live",
-        "n": 120,
-        "still_tradeable": 0
-      },
-      {
-        "primary_reason": "provider_flagged_suspicious",
-        "n": 114,
+        "n": 248,
         "still_tradeable": 0
       }
     ]

@@ -1,53 +1,53 @@
 {
-  "generatedUtcMs": 1786910102823,
-  "sourceCommit": "884df84dbac3762f4eed425d889880fae69437c1+dirty",
+  "generatedUtcMs": 1786929393638,
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f+dirty",
   "database": "./data/runtime.db",
   "what": "development trajectories as the DATABASE has them. No artifact is read.",
   "trajectories": {
-    "total": 64,
-    "settled": 59,
+    "total": 292,
+    "settled": 238,
     "byState": {
-      "AWAITING_FILL_OBSERVATION": 5,
-      "SETTLED": 59
+      "AWAITING_FILL_OBSERVATION": 54,
+      "SETTLED": 238
     }
   },
   "byStratum": {
-    "CANONICAL_CASHBACK": 19,
-    "CANONICAL_NONCASHBACK": 45
+    "CANONICAL_CASHBACK": 108,
+    "CANONICAL_NONCASHBACK": 184
   },
   "marksByOffsetMs": [
     {
       "offsetMs": 60000,
-      "marks": 64,
-      "backfilled": 51
+      "marks": 292,
+      "backfilled": 136
     },
     {
       "offsetMs": 300000,
-      "marks": 64,
-      "backfilled": 24
+      "marks": 292,
+      "backfilled": 50
     },
     {
       "offsetMs": 900000,
-      "marks": 64,
-      "backfilled": 40
+      "marks": 289,
+      "backfilled": 63
     },
     {
       "offsetMs": 1800000,
-      "marks": 64,
-      "backfilled": 39
+      "marks": 280,
+      "backfilled": 56
     },
     {
       "offsetMs": 3600000,
-      "marks": 64,
-      "backfilled": 47
+      "marks": 243,
+      "backfilled": 63
     }
   ],
   "policyOutcomes": {
-    "FIXED_15M_CONTROL": 59,
-    "FLOW_LIQUIDITY_DETERIORATION_V1": 59
+    "FIXED_15M_CONTROL": 238,
+    "FLOW_LIQUIDITY_DETERIORATION_V1": 238
   },
-  "frozenAccountPlans": 26,
-  "timelyCompletePaths": 8,
+  "frozenAccountPlans": 482,
+  "timelyCompletePaths": 101,
   "proofArtifactsCounted": 0,
   "proofArtifactNote": "live-one-pass-trajectory.json is instrument evidence, never a trajectory. This command cannot read it."
 }

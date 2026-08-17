@@ -1,27 +1,10 @@
 {
-  "generatedUtcMs": 1786730352931,
+  "generatedUtcMs": 1786929418524,
   "windowMs": 3600000,
-  "totalCalls": 134,
-  "callsPerSecond": 0.03722222222222222,
+  "totalCalls": 0,
+  "callsPerSecond": 0,
   "duplicateGroups": 0,
-  "byPurpose": [
-    {
-      "purpose": "canary_shadow_mark",
-      "n": 66
-    },
-    {
-      "purpose": "alpha_shadow_mark",
-      "n": 66
-    },
-    {
-      "purpose": "shadow_entry_roundtrip",
-      "n": 1
-    },
-    {
-      "purpose": "shadow_entry",
-      "n": 1
-    }
-  ],
+  "byPurpose": [],
   "markLagMs": {
     "p50": null,
     "p95": null,
@@ -29,10 +12,10 @@
     "samples": 0
   },
   "rateLimitEvents": 0,
-  "backlogWarnings": 33,
+  "backlogWarnings": 0,
   "admissionsRefused": 0,
-  "effectVerifiedLabels": 2,
-  "labelsPerDay": 48,
+  "effectVerifiedLabels": 0,
+  "labelsPerDay": 0,
   "triggerToFillMs": {
     "p50": null,
     "p95": null,
@@ -46,11 +29,11 @@
   },
   "offlineWorkerJobs": 0,
   "offlineWorkerJobsPerHour": 0,
-  "bottleneck": "mark_scheduler_below_rate_ceiling",
+  "bottleneck": "no_valid_labels_produced",
   "freeTierRps": 1,
   "atRateCeiling": false,
   "upgrade": {
-    "generatorCorrect": true,
+    "generatorCorrect": false,
     "duplicatesEliminated": true,
     "limitBinds": false,
     "justified": false

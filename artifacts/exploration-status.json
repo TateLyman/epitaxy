@@ -1,18 +1,33 @@
 {
   "artifact": "exploration-status",
   "directiveSection": "item 55",
-  "generatedUtcMs": 1786921660204,
-  "sourceCommit": "4edb5f7810d6c90ba6b517271b23c52534bf8cd2",
+  "generatedUtcMs": 1786929412393,
+  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
   "dirty": true,
   "frozenFraction": 0.25,
-  "ledger": [],
-  "byWindow": [],
+  "ledger": [
+    {
+      "windowId": "DEV_WINDOW_V1",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "fraction": 0.25,
+      "granted": 1,
+      "consumed": 0,
+      "remaining": 1
+    }
+  ],
+  "byWindow": [
+    {
+      "windowId": "DEV_WINDOW_V1",
+      "granted": 1,
+      "consumed": 0
+    }
+  ],
   "realised": {
-    "trajectories": 187,
+    "trajectories": 292,
     "explore": 0,
-    "exploit": 0,
-    "unassigned": 187,
-    "realisedFraction": null
+    "exploit": 1,
+    "unassigned": 291,
+    "realisedFraction": 0
   },
   "supersedes": "the cohort:status alias, which answers which cells are under-filled",
   "notClaimed": "an entitlement is a budget, not an outcome. A spent entitlement says the draw happened, not that the drawn rows were informative."

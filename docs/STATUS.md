@@ -1,7 +1,79 @@
 # STATUS
 
-> **2026-08-16 (latest) — running-collector directive from `29c7cc7`, executed.
-> State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
+> **2026-08-17 (LATEST) — independent runtime adversarial re-audit at `8f73cef`.
+> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+>
+> Full ledger: `docs/RUNTIME_ADVERSARIAL_AUDIT_8F73CEF.md`,
+> `artifacts/runtime-adversarial-audit-8f73cef.json`,
+> `artifacts/runtime-trajectory-trace-966ef3fa.json`. Re-runnable from
+> `scripts/runtime-adversarial-audit.ts` and `scripts/runtime-audit-worker-probe.ts`.
+>
+> ```
+> PASS 25    FAIL 26    NOT TESTABLE 8
+> ```
+>
+> **The state below is corrected downward, on evidence.** The entry above claims
+> `VALID_TRAJECTORY_KERNEL_RUNNING`; the re-audit does not support it and the
+> claim is withdrawn. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md` also contradicts
+> itself — its header claims that state and its section 25 closes at
+> `MEASUREMENT_REPAIR_REQUIRED`. The second is right.
+>
+> **What is proven, by running it, not by reading it.** The Rust worker is
+> bit-exact at `2^53±1`, `10^18`, u64 max lamports and u64-max `rentEpoch`, keeps
+> its counters job-scoped, changes instance id on re-init and never mis-pairs a
+> response under a forced timeout (6 probes, all PASS). The cashback tail is
+> fail-closed on both legs across eight positional fixtures, and `leg_cashback`
+> shows the **sell accruing as often as the buy** (88 buy / 89 sell of 228 legs
+> each) — the one-leg model is refuted by data. Sole-venue attribution refuses a
+> routed entry by name. Fee-tier selection is a function of market cap, both
+> directions constructed. A collector restarted after every prior process was
+> SIGKILLed **settled a trajectory opened by one of them**, both policies, no
+> duplicate mark. `pnpm readiness` refuses all eleven seeded corpora, including
+> two that clear both sample thresholds. The collector cannot sign: 59 modules in
+> its transitive import closure, none under `packages/execution`.
+>
+> **What is broken, and it is the accounting.**
+>
+> - **The payer identity does NOT reconcile to zero.** 51 of 52 settlements carry
+>   a non-zero `unexplained` remainder; **30 of them publish a net PnL anyway**;
+>   **zero** carry an identity violation. Worst row: net −6,426,787 lamports with
+>   −4,564,488 unexplained — 71% of the loss it reports. `isPnlEligible()` names
+>   `unexplained == 0` as its fourth condition and `buildTrajectorySettlement`
+>   never reads it. Commit `4edb5f7` and report blocker 4 are **false**; the
+>   paragraph below this one, which said the remainder is not yet zero, was right.
+> - **The trajectory identity columns are dangling.** 0/292 `entry_observation_id`
+>   and 0/292 `entry_simulation_job_id` resolve — the namespaces are disjoint by
+>   construction. `snapshot_hash` and `capability_fingerprint` are both the
+>   decimal slot number, 290 distinct over 292 rows.
+> - **No raw pre/post state is persisted against a trajectory,** so no economic
+>   amount is recomputable and no stored layer can be checked against another.
+> - **292/292 trajectories carry unobserved writable accounts**; 275 are SETTLED.
+> - **The entry tournament does not exist.** `decideEntry` has zero production
+>   callers; all 292 rows carry the literal `'HARD_GATES_RANDOM'`, written after
+>   `admitCandidate` already decided. The two challengers have a sample of zero.
+> - **`settleTrajectory()` is never called,** so every economics column on
+>   `development_trajectories` is permanently NULL while 31 settlements carry a
+>   net PnL.
+> - **`trajectory:collect` takes no process lock.** Five daemons were running
+>   against one database at audit start; 15 mints exceed the hard
+>   `--max-per-mint` cap of 3, the worst at 58. `pnpm health` reported OK against
+>   a lock held by a different program (`pnpm observe`).
+> - **`pnpm readiness` and `pnpm readiness:positions` write the same artifact**
+>   from two different scripts.
+>
+> **`pnpm check` is GREEN — 124 test files, 1,817 tests, 16.9s — while 26 of these
+> invariants fail.** No claim in this document rests on a test name.
+>
+> **Nothing was fixed.** The directive requires the failure ledger to land before
+> any repair. `DEVELOPMENT_EDGE_CANDIDATE`, `PUMP_CONFIRMATORY_COLLECTION_STARTED`
+> and `CANARY_READY` are not claimed. `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` is
+> not claimed either: the economics are not yet corrected, so killing the strategy
+> now would be killing it on an accounting defect.
+
+> **2026-08-16 — running-collector directive from `29c7cc7`, executed.
+> State claimed at the time: `VALID_TRAJECTORY_KERNEL_RUNNING` — **SUPERSEDED and
+> WITHDRAWN** by the 2026-08-17 re-audit above. Kept because the apparatus work it
+> describes is real and the reasoning is worth reading; the terminal claim is not.**
 >
 > A working RPC endpoint was supplied and the loop ran end to end. Window V2 is
 > collecting: six distinct deep-pool mints opened across two cycles, all

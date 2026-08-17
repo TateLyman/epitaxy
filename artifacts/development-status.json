@@ -1,7 +1,7 @@
 {
-  "generatedUtc": "2026-08-13T18:35:21.708Z",
+  "generatedUtc": "2026-08-17T01:16:39.673Z",
   "source": {
-    "commit": "2db97f71d12646df0fa103ba692ae16da4e76820+dirty",
+    "commit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f+dirty",
     "dirty": true,
     "branch": "master"
   },
@@ -13,10 +13,10 @@
     "reason": "branch protection not configured (operator action; the repository is not required to be private)"
   },
   "hashes": {
-    "strategyVersion": "delayed-momentum-v0.4.0",
-    "strategyConfigHash": "daa1607d9a43090fb09d51ee646a386d3156dfbee5266dc1771efcc826c25bd6",
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "strategyConfigHash": "385fb8c7886f048376032666d8aa51232cd3d0086bdedd3fe84c99ede64bfe3c",
     "riskPolicyHash": "ffc23e18a594a61ab5cd2ee8ed970514830f70172a0e3b6afcd7508e94ea67e2",
-    "dataRegimeId": "delayed-momentum-v0.4.0/10s/build/ddd8dc526bbf"
+    "dataRegimeId": "delayed-momentum-v0.6.0/10s/build/26cf0f963eae"
   },
   "executionFamily": "BUILD_CUSTOM",
   "simulator": {
@@ -27,18 +27,18 @@
     "accountSnapshotRegime": "none — no snapshot capture pipeline yet"
   },
   "observations": {
-    "total": 27163,
-    "policyValid": 4400,
-    "simulated": 56,
-    "withRawPayload": 4629,
+    "total": 43096,
+    "policyValid": 4716,
+    "simulated": 175,
+    "withRawPayload": 4945,
     "byPurpose": [
       {
         "purpose": "alpha_shadow_mark",
-        "n": 12636
+        "n": 20581
       },
       {
         "purpose": "canary_shadow_mark",
-        "n": 12605
+        "n": 20463
       },
       {
         "purpose": "canary_shadow_entry",
@@ -58,11 +58,11 @@
       },
       {
         "purpose": "shadow_entry_roundtrip",
-        "n": 59
+        "n": 124
       },
       {
         "purpose": "shadow_entry",
-        "n": 59
+        "n": 124
       },
       {
         "purpose": "verification",
@@ -72,30 +72,50 @@
     "byFamily": [
       {
         "family": "BUILD_CUSTOM",
-        "n": 27163
+        "n": 43096
       }
     ]
   },
   "shadowPositions": [
     {
       "book": "alpha_shadow",
+      "state": "AWAITING_FILL_OBSERVATION",
+      "n": 83
+    },
+    {
+      "book": "alpha_shadow",
+      "state": "EXIT_BLOCKED",
+      "n": 2
+    },
+    {
+      "book": "alpha_shadow",
       "state": "POSITION_CLOSED",
-      "n": 459
+      "n": 519
     },
     {
       "book": "alpha_shadow",
       "state": "POSITION_OPEN",
-      "n": 83
+      "n": 3
+    },
+    {
+      "book": "canary_shadow",
+      "state": "AWAITING_FILL_OBSERVATION",
+      "n": 82
+    },
+    {
+      "book": "canary_shadow",
+      "state": "EXIT_BLOCKED",
+      "n": 2
     },
     {
       "book": "canary_shadow",
       "state": "POSITION_CLOSED",
-      "n": 459
+      "n": 519
     },
     {
       "book": "canary_shadow",
       "state": "POSITION_OPEN",
-      "n": 82
+      "n": 3
     }
   ],
   "portfolioPositions": [
@@ -107,11 +127,11 @@
   "blockedPositions": 0,
   "unmanagedPositions": 0,
   "markCadence": {
-    "positionsWithMarks": 1079,
-    "intervalCount": 24162,
-    "medianGapMs": 10315,
-    "p95GapMs": 522576,
-    "maxGapMs": 2613011
+    "positionsWithMarks": 1207,
+    "intervalCount": 39837,
+    "medianGapMs": 15308,
+    "p95GapMs": 855286,
+    "maxGapMs": 7768745
   },
   "costModel": {
     "priorityFeeFormula": "ceil(unit_price_micro_lamports * chosen_limit / 1e6)",
@@ -186,6 +206,146 @@
       "context_hash": "87e797df6b64e302a2f32483f23c8a24cae1c900aeff92e73c2e03bcdaae51bf",
       "data_regime_id": "delayed-momentum-v0.4.0/10s/build/367b7daf7b13",
       "source_commit": "c11d76d51cd82d2cf552c0f9760a6079ab18962b"
+    },
+    {
+      "context_hash": "2b349f66e0787b62631bea936f981c767b4896e9dcfa6648c4c004f2781b6bfa",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/972f3ba2b58b",
+      "source_commit": "6bfdda89e66c0194e0158008206984c131f849c3"
+    },
+    {
+      "context_hash": "94145cd869e77c341e640c30497f434fbb7792f0e9165d70d5ff3713119608b1",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/fb0da0ea92ec",
+      "source_commit": "c69adf61942dbe08be4d8eefc157162b1df0a6b5+dirty"
+    },
+    {
+      "context_hash": "071436cc445e4dc9a66233a7bb966836555af5a5e340c9df9a5071c1c6081681",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/fb0da0ea92ec",
+      "source_commit": "60464b66132c323ed7feba576edbe7ca32ccc920"
+    },
+    {
+      "context_hash": "d9413b9565a7cddc28b98c92ca65b4b6fa26ed06511b045a6b97af952ba13a81",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/d8aed498c75b",
+      "source_commit": "02483ca45b2c40a98637f88c01d8bbef5e1c5496"
+    },
+    {
+      "context_hash": "224bdcfa42d2b56f75b91a273c22573203fd66663159f31fbf03d0959057f193",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/d8aed498c75b",
+      "source_commit": "a725afcf85c6878e21c57fd4a8ab32a43392dd0a"
+    },
+    {
+      "context_hash": "6518209f23fbbb708fe85b5476e4800c6e21f967af36f74f2fef458cd26a3322",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/d8aed498c75b",
+      "source_commit": "03e4539524e7e5eb32758096d7f32f511c0870cb"
+    },
+    {
+      "context_hash": "3cbab04cfa938a7f76e42971466339d11e34b08ae91b22e221119606fa19d847",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/d8aed498c75b",
+      "source_commit": "2a68706bf44fea6157c4a7122cf96dc840c8acbc+dirty"
+    },
+    {
+      "context_hash": "9fecf07d739fbeb2ca97a6cc97eaf57d043ab181879fe34d39c70d5b614e29ee",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/d8aed498c75b",
+      "source_commit": "62056c9aa905223aa7e6f7b55c89550791a133a8"
+    },
+    {
+      "context_hash": "8ebadf42207162c14071c3b9080db0cbbfc8c4faafae23b1e9d0b6fd83f2e58d",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/ebcaa74011be",
+      "source_commit": "5c35984d959659a662fa21da2cf8c82e18761527+dirty"
+    },
+    {
+      "context_hash": "490ee937462b74a023218f9604342722ab94f010b617883da49db6d4227acdfe",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/ebcaa74011be",
+      "source_commit": "16e9fea528a5e938cdcff60a10607bafc0b7d3b0+dirty"
+    },
+    {
+      "context_hash": "73b7b2a30b9da209b0694d31f8d6a0d8df7e9cedd3af87819c1aba685087f4f5",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/ebcaa74011be",
+      "source_commit": "b7dae95fda9186d9e15472870fee2ef8dc78ea1d"
+    },
+    {
+      "context_hash": "685617aae3aaa858e48dc9bf82dabff007b935135b7c0ac3b2ff393ce6b82b31",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/841826996f08",
+      "source_commit": "b7dae95fda9186d9e15472870fee2ef8dc78ea1d+dirty"
+    },
+    {
+      "context_hash": "26b2b2fcce58a8b8fed80ce4a39fab70426905ae1a1d820e7c08cb66c98c7250",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/841826996f08",
+      "source_commit": "e03f51142830b20a8c83444407347c1951401d1d"
+    },
+    {
+      "context_hash": "89611df037b4bb12de6e0b85be8565cfc5480c8b531ffeb56b635dadb2f33ae0",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/e740ec48551f",
+      "source_commit": "7ce50ea6f21fcf62ea0aad6dfe31594cd9cd05d3+dirty"
+    },
+    {
+      "context_hash": "251197d5ae2047dd95afa5ccf5d4789ba4071db34f449271ee94169f3cb590fd",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/e740ec48551f",
+      "source_commit": "0659a92c602794104976ae056d21ea66f00f44f2"
+    },
+    {
+      "context_hash": "f4e4f2cbe483b2d49b372bb8d7da822dd0fd6d45b53a9143e401cb2342d34604",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/e740ec48551f",
+      "source_commit": "3bc708d8ef6083989087efeb3158b34ea51ac799"
+    },
+    {
+      "context_hash": "388c737be2604c7c1e56d95fb0943313f0e2246c8fd206f405cec252e570cbec",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/e7c2bc1c4069",
+      "source_commit": "b989b888c65b16033ce966a3fa215860e66e3577+dirty"
+    },
+    {
+      "context_hash": "c173192a1af09dc7385a701f3b6ba885290990bb16072e697918b5e5b384115d",
+      "data_regime_id": "delayed-momentum-v0.4.0/10s/build/5a833bf8bb9d",
+      "source_commit": "b989b888c65b16033ce966a3fa215860e66e3577+dirty"
+    },
+    {
+      "context_hash": "0c718e6dded7f779ed97287bdb1dcdc463e0c6c63f894de66986e5b86e23d421",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/3e5ff6aa99b5",
+      "source_commit": "7d1fefca515ac1f935e7daaa909abeaea4df1cb1+dirty"
+    },
+    {
+      "context_hash": "62b42a33dbbaba53b14d439ed9c36b378bff56a99c522965af8dee18d7b0042d",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/defe4aa61969",
+      "source_commit": "3d62acdedd6753518c6d967edc2ee9cbf4988234+dirty"
+    },
+    {
+      "context_hash": "d6c8145d32a3ada1c8f741c713dc943204a45bb9a9dc17d87557e60b30f928df",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/6f6e022558b5",
+      "source_commit": "f3c745ecfe22b8d00a6ab6409d655067a6252a54+dirty"
+    },
+    {
+      "context_hash": "216a97a356a96c2de56b2d82cd2650b752f2d7e0059f51c4f71d6053c0574c82",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/0962ec4278d2",
+      "source_commit": "d3189a874ff6cc5dcbfed52dc7853783a67bf9a2+dirty"
+    },
+    {
+      "context_hash": "214fe17e29aae44af6e41095070baabae27f355c247131c92e5957254702b13d",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/c5cc711106a9",
+      "source_commit": "63c086f55bcff7eb38e7f5e576ced505bba183a6+dirty"
+    },
+    {
+      "context_hash": "c20b87c76f4020eb9de01a24c4c18d2a694ce4ab0a83c8e1d92e1ac404167765",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/848df749b056",
+      "source_commit": "e2cb4a01cb50859dc324db7199eed3ca27e68dbd+dirty"
+    },
+    {
+      "context_hash": "38454b160f31203d14a3fdd2d180c2c74d83ae7a7e6be1c17ca4c5ee6960ec24",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/848df749b056",
+      "source_commit": "cd009391864259d5ef7b66abb45dcabe78461a33+dirty"
+    },
+    {
+      "context_hash": "54e615b379da1578e38fd38945f116ce6646e67333e0c8d3303d3e7f8d7ff314",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/848df749b056",
+      "source_commit": "e5ea702e3de47712603790148b69438f13d25d9d"
+    },
+    {
+      "context_hash": "3f44de275b0945a0b5b2e7b792f034a9617c8c641002c83f94ba16612ffd7527",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/848df749b056",
+      "source_commit": "ae7a2227af1ce97432e0c2195fd2ecc54e73e5b4+dirty"
+    },
+    {
+      "context_hash": "3ce39b76103f0b4b230be3ad4d7d328e8108383663863ef1115a3732ae090680",
+      "data_regime_id": "delayed-momentum-v0.6.0/10s/build/848df749b056",
+      "source_commit": "d2b3fbfc0bb78abca0a24bb4f890fad3d5d46820+dirty"
     }
   ],
   "replay": {
@@ -194,15 +354,14 @@
     "divergences": 0,
     "run_utc_ms": 1786571844068
   },
-  "validDevelopmentTrades": 0,
-  "structuralOnlyClosedShadows": 918,
+  "validDevelopmentTrades": 46,
+  "structuralOnlyClosedShadows": 1038,
   "validConfirmatoryTrades": 0,
   "blockers": [
     "no local SVM on this platform: win32 has no prebuilt Surfpool binary; use WSL (Ubuntu) or Linux CI",
     "working tree does not match its commit; nothing produced here is reproducible",
     "no replay run has reproduced a snapshot at the current strategy version",
     "entry has never requested a linked same-family buy and sell",
-    "no effect-verified round trip exists yet (116 simulation job(s) are INSTRUMENT_DEVELOPMENT and are not evidence)",
     "no offline confirmatory run exists; reproducibility is unestablished",
     "965 shadow position(s) carry no cohort, so the age experiment has no control arm"
   ]

@@ -1,5 +1,5 @@
 {
-  "takenAtUtcMs": 1786641825562,
+  "takenAtUtcMs": 1786929842601,
   "split": [
     {
       "side": "buy",
@@ -7,7 +7,7 @@
       "mode": "DEVELOPMENT_JIT",
       "status": "SIMULATED_OK",
       "transaction_error": null,
-      "n": 40
+      "n": 117
     },
     {
       "side": "buy",
@@ -15,7 +15,23 @@
       "mode": "DEVELOPMENT_JIT",
       "status": "SIMULATION_FAILED",
       "transaction_error": "{\"InstructionError\":[5,{\"Custom\":6001}]}",
-      "n": 3
+      "n": 6
+    },
+    {
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "mode": "DEVELOPMENT_JIT",
+      "status": "SIMULATED_OK",
+      "transaction_error": null,
+      "n": 59
+    },
+    {
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "mode": "DEVELOPMENT_JIT",
+      "status": "SIMULATION_FAILED",
+      "transaction_error": "{\"InstructionError\":[2,{\"Custom\":6001}]}",
+      "n": 10
     },
     {
       "side": "sell",
@@ -23,26 +39,34 @@
       "mode": "DEVELOPMENT_JIT",
       "status": "SIMULATION_FAILED",
       "transaction_error": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
-      "n": 43
+      "n": 61
+    },
+    {
+      "side": "sell",
+      "purpose": "shadow_entry_roundtrip",
+      "mode": "DEVELOPMENT_JIT",
+      "status": "SIMULATION_UNKNOWN",
+      "transaction_error": null,
+      "n": 9
     }
   ],
   "bySide": [
     {
       "side": "buy",
-      "ok": 40,
-      "failed": 3,
-      "total": 43
+      "ok": 117,
+      "failed": 6,
+      "total": 123
     },
     {
       "side": "sell",
-      "ok": 0,
-      "failed": 43,
-      "total": 43
+      "ok": 59,
+      "failed": 71,
+      "total": 139
     }
   ],
   "classification": {
-    "ACTUAL_PROGRAM_REJECTION": 3,
-    "SELL_INPUT_NOT_PROVISIONED": 43
+    "ACTUAL_PROGRAM_REJECTION": 6,
+    "SELL_INPUT_NOT_PROVISIONED": 71
   },
   "failureSample": [
     {
@@ -84,6 +108,48 @@
       "requested_amount": "20000000",
       "route_labels": "Meteora DLMM",
       "serialized_transaction_hash": "04b02f29cba18bc217e5b673dd1430755effcef10a19a330a767a1cc82593ae3",
+      "instruction_policy": "PASS",
+      "transaction_policy": "PASS"
+    },
+    {
+      "job_id": "job-d48516134bde6aa6c07e72e144746b3e",
+      "transaction_error": "{\"InstructionError\":[5,{\"Custom\":6001}]}",
+      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 6 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=81ms resolveLookups=85ms readPre=353ms simulate=86ms fee=2ms exportSnapshot=294ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
+      "mode": "DEVELOPMENT_JIT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "mint": "2dFNRhBbeuQRSWbtAQ827YD5TXCMBZtJKnYAUPqfQfhS",
+      "requested_amount": "20000000",
+      "route_labels": "Pump.fun Amm",
+      "serialized_transaction_hash": "9658410223e1bd6b0ae97c7f7d4b48e23f0c748057db4c0ab773917003e0d330",
+      "instruction_policy": "PASS",
+      "transaction_policy": "PASS"
+    },
+    {
+      "job_id": "job-c036d68a7df5536ccdd30d0b890b1c0c",
+      "transaction_error": "{\"InstructionError\":[5,{\"Custom\":6001}]}",
+      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 4 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=87ms resolveLookups=90ms readPre=396ms simulate=90ms fee=2ms exportSnapshot=298ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
+      "mode": "DEVELOPMENT_JIT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "mint": "9WzhZRtMm73cA6v8JPNpobMa4o9TkqZPEUTkZbbPdydp",
+      "requested_amount": "20000000",
+      "route_labels": "Pump.fun Amm",
+      "serialized_transaction_hash": "40bbd7fc8a813df56742e61beb8b8cbf11172ec96ce727322e92b65f49cdb1f3",
+      "instruction_policy": "PASS",
+      "transaction_policy": "PASS"
+    },
+    {
+      "job_id": "job-f733a78ea4619584ff4635150a793042",
+      "transaction_error": "{\"InstructionError\":[5,{\"Custom\":6001}]}",
+      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 6 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=79ms resolveLookups=81ms readPre=349ms simulate=81ms fee=2ms exportSnapshot=254ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
+      "mode": "DEVELOPMENT_JIT",
+      "side": "buy",
+      "purpose": "shadow_entry",
+      "mint": "B4Nq6JGiri3QF3bB14bm5wSmQFc7tmb74RaMhGmMpump",
+      "requested_amount": "20000000",
+      "route_labels": "Pump.fun Amm",
+      "serialized_transaction_hash": "21e2a832131b098829728f45ab1c062e6d7dd5cbd1cfc5f3351575d65e136cf9",
       "instruction_policy": "PASS",
       "transaction_policy": "PASS"
     },
@@ -352,55 +418,13 @@
       "serialized_transaction_hash": "74428c50ae110af0bda139d0d9d1f4d39a58ab41caa60835267b539a4354f890",
       "instruction_policy": "PASS",
       "transaction_policy": "PASS"
-    },
-    {
-      "job_id": "job-b27ffe7dd37649ddec7795c00ca46c7e",
-      "transaction_error": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
-      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 5 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=193ms resolveLookups=191ms readPre=853ms simulate=200ms fee=2ms exportSnapshot=418ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
-      "mode": "DEVELOPMENT_JIT",
-      "side": "sell",
-      "purpose": "shadow_entry_roundtrip",
-      "mint": "3jGQCXrQM6oJWcwfPSTfqzFixewJ28ydavh5nmJ8W6xM",
-      "requested_amount": "25276435134",
-      "route_labels": "Pump.fun Amm",
-      "serialized_transaction_hash": "7b347537d77b942cbe79fe7cd4b582a6eeec737a74048d2e0e86662162bba34b",
-      "instruction_policy": "PASS",
-      "transaction_policy": "PASS"
-    },
-    {
-      "job_id": "job-ac28ca6098239ed29c320ae1f6c2538a",
-      "transaction_error": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
-      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 4 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=195ms resolveLookups=193ms readPre=926ms simulate=192ms fee=2ms exportSnapshot=336ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
-      "mode": "DEVELOPMENT_JIT",
-      "side": "sell",
-      "purpose": "shadow_entry_roundtrip",
-      "mint": "5HARiV9RyBHrmdCrUupj6NsqvPywEeakB2Ag9vMhGdeo",
-      "requested_amount": "141446012904",
-      "route_labels": "Pump.fun Amm",
-      "serialized_transaction_hash": "4ce702b7390c275627f23b01e85daab7603ec29036420753a22eb306531cecb4",
-      "instruction_policy": "PASS",
-      "transaction_policy": "PASS"
-    },
-    {
-      "job_id": "job-333d3238492555207d1fe47274d05a7c",
-      "transaction_error": "{\"InstructionError\":[2,{\"Custom\":6025}]}",
-      "detail": "DEVELOPMENT_JIT: mainnet was reachable during this run, so it is NOT reproducible and NOT confirmatory; 5 account(s) did not exist before the transaction and are frozen by absence; 2 builtin program(s) are provided by the runtime and not captured; no target slot was given, so this ran at the instance default slot; stage timing: probeExisting=0ms restoreAccounts=193ms resolveLookups=192ms readPre=676ms simulate=197ms fee=1ms exportSnapshot=280ms; transfer/withheld Token-2022 fees are not measured by this build and are reported as unknown, not zero; the transaction failed, so no post-state was applied: balances are carried from the pre-state and rent, created and closed accounts are not measured by this run",
-      "mode": "DEVELOPMENT_JIT",
-      "side": "sell",
-      "purpose": "shadow_entry_roundtrip",
-      "mint": "C9fSpgpaqZwWMGxvQxPJWHorDAapW8AyAyTuPD6dADPn",
-      "requested_amount": "2789222769",
-      "route_labels": "Pump.fun Amm",
-      "serialized_transaction_hash": "32f301d24acc513ba56605c015e6f9765064881c5fb24a26bc030b20e41c730c",
-      "instruction_policy": "PASS",
-      "transaction_policy": "PASS"
     }
   ],
   "hypothesis": {
     "statement": "every sell failed because simulateObservation never provisioned the token",
-    "everySellFailed": true,
+    "everySellFailed": false,
     "buysMostlyPassed": true,
     "codeSuppliesTokenInventory": false,
-    "confirmed": true
+    "confirmed": false
   }
 }

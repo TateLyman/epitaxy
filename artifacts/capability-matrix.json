@@ -1,5 +1,5 @@
 {
-  "generatedUtcMs": 1786643818242,
+  "generatedUtcMs": 1786929837582,
   "fingerprints": [
     {
       "fingerprint": "2c41adfbb6bc2a62",
@@ -7,7 +7,7 @@
       "topLevelPrograms": [],
       "tokenPrograms": [],
       "lookupTables": 0,
-      "observations": 21914,
+      "observations": 38151,
       "jitOk": 0,
       "jitFailed": 0,
       "offlineOk": 0,
@@ -61,36 +61,14 @@
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
       ],
       "lookupTables": 1,
-      "observations": 894,
+      "observations": 1107,
       "jitOk": 0,
       "jitFailed": 0,
       "offlineOk": 0,
       "offlineFailed": 0,
       "effectOk": 0,
       "supportedEvidenceClass": "STRUCTURAL_ONLY",
-      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
-    },
-    {
-      "fingerprint": "640d0958f8f16200",
-      "routeLabels": "Pump.fun Amm",
-      "topLevelPrograms": [
-        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
-        "ComputeBudget111111111111111111111111111111",
-        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-      ],
-      "tokenPrograms": [
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-      ],
-      "lookupTables": 1,
-      "observations": 54,
-      "jitOk": 0,
-      "jitFailed": 54,
-      "offlineOk": 0,
-      "offlineFailed": 0,
-      "effectOk": 0,
-      "supportedEvidenceClass": "STRUCTURAL_ONLY",
-      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+      "failureReason": "no run of this fingerprint has passed economic effect verification"
     },
     {
       "fingerprint": "8e6dd14c46f707b7",
@@ -106,14 +84,36 @@
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
       ],
       "lookupTables": 1,
-      "observations": 53,
-      "jitOk": 50,
-      "jitFailed": 3,
+      "observations": 121,
+      "jitOk": 116,
+      "jitFailed": 5,
       "offlineOk": 0,
       "offlineFailed": 0,
-      "effectOk": 0,
-      "supportedEvidenceClass": "STRUCTURAL_ONLY",
-      "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+      "effectOk": 31,
+      "supportedEvidenceClass": "JIT_EFFECT_VALID",
+      "failureReason": "effect-verified under JIT only; no offline replay has reproduced it"
+    },
+    {
+      "fingerprint": "640d0958f8f16200",
+      "routeLabels": "Pump.fun Amm",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 121,
+      "jitOk": 58,
+      "jitFailed": 71,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 49,
+      "supportedEvidenceClass": "JIT_EFFECT_VALID",
+      "failureReason": "effect-verified under JIT only; no offline replay has reproduced it"
     },
     {
       "fingerprint": "6caae21714d84171",
@@ -167,7 +167,7 @@
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
       ],
       "lookupTables": 2,
-      "observations": 3,
+      "observations": 5,
       "jitOk": 0,
       "jitFailed": 0,
       "offlineOk": 0,
@@ -265,6 +265,51 @@
       "effectOk": 0,
       "supportedEvidenceClass": "STRUCTURAL_ONLY",
       "failureReason": "every simulation of this fingerprint predates the leg-shaped request; those jobs measured the instrument"
+    },
+    {
+      "fingerprint": "7082f2de886fc730",
+      "routeLabels": "Pump.fun",
+      "topLevelPrograms": [
+        "11111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 1,
+      "jitOk": 1,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 1,
+      "supportedEvidenceClass": "JIT_EFFECT_VALID",
+      "failureReason": "effect-verified under JIT only; no offline replay has reproduced it"
+    },
+    {
+      "fingerprint": "acb957a276c9161b",
+      "routeLabels": "Pump.fun",
+      "topLevelPrograms": [
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ComputeBudget111111111111111111111111111111",
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "tokenPrograms": [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      ],
+      "lookupTables": 1,
+      "observations": 1,
+      "jitOk": 1,
+      "jitFailed": 0,
+      "offlineOk": 0,
+      "offlineFailed": 0,
+      "effectOk": 1,
+      "supportedEvidenceClass": "JIT_EFFECT_VALID",
+      "failureReason": "effect-verified under JIT only; no offline replay has reproduced it"
     }
   ]
 }
