@@ -43,20 +43,20 @@
     {
       "name": "solana_public_rpc",
       "bucket": "solana_rpc",
-      "requestsPerSecond": 6,
-      "burst": 3,
+      "requestsPerSecond": 4,
+      "burst": 2,
       "documented": "Solana Labs public RPC: 100 req/10s per IP, 40 req/10s per method, 40 concurrent connections.",
       "source": "https://solana.com/docs/references/clusters",
-      "measured": "2026-08-17, one process, the collector's real call mix (getAccountInfo, getTokenLargestAccounts, getTokenSupply, getMultipleAccounts) issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s came from CONCURRENCY, not from the steady rate - burst 10 explicitly permits ten in flight at once against an endpoint documenting 10 per second, and the coherent snapshot fires getMultipleAccounts batches in parallel. So burst is 3 and the rate is 6: strictly under, which is what the note at the top of this file says this file is for. Rate alone was never the breach and lowering it further would only slow collection."
+      "measured": "2026-08-17, the collector's real call mix issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s on ONE process, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s were never the steady rate. Two causes, both concurrency: burst 10 permitted ten requests in flight at once against an endpoint documenting 10 per second, and this bucket is PER PROCESS while the quota is per ENDPOINT - the trajectory collector and the screening collector run together and presented twice the configured budget. 6/burst-3 fixed the first and left the second, which returned as soon as both were running again. 4 req/s with a burst of 2 keeps the SUM of two collectors under the documented limit, which is what strictly-under has to mean when more than one process shares the endpoint. A per-endpoint budget shared across processes is the real fix and is not built."
     },
     {
       "name": "helius_rpc",
       "bucket": "solana_rpc",
-      "requestsPerSecond": 6,
-      "burst": 3,
+      "requestsPerSecond": 4,
+      "burst": 2,
       "documented": "Free plan 10 req/s RPC, 1M credits/month at 1 credit per standard RPC call. sendTransaction capped at 1/s on free. Auth is the ?api-key= query parameter, so the key is part of the URL.",
       "source": "https://www.helius.dev/docs/billing/rate-limits",
-      "measured": "2026-08-17, one process, the collector's real call mix (getAccountInfo, getTokenLargestAccounts, getTokenSupply, getMultipleAccounts) issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s came from CONCURRENCY, not from the steady rate - burst 10 explicitly permits ten in flight at once against an endpoint documenting 10 per second, and the coherent snapshot fires getMultipleAccounts batches in parallel. So burst is 3 and the rate is 6: strictly under, which is what the note at the top of this file says this file is for. Rate alone was never the breach and lowering it further would only slow collection."
+      "measured": "2026-08-17, the collector's real call mix issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s on ONE process, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s were never the steady rate. Two causes, both concurrency: burst 10 permitted ten requests in flight at once against an endpoint documenting 10 per second, and this bucket is PER PROCESS while the quota is per ENDPOINT - the trajectory collector and the screening collector run together and presented twice the configured budget. 6/burst-3 fixed the first and left the second, which returned as soon as both were running again. 4 req/s with a burst of 2 keeps the SUM of two collectors under the documented limit, which is what strictly-under has to mean when more than one process shares the endpoint. A per-endpoint budget shared across processes is the real fix and is not built."
     },
     {
       "name": "helius_das",
