@@ -43,6 +43,8 @@ import type { ConcentrationFacts, SolanaRpc } from '../../solana/src/rpc.js';
 import { finalizeScreen, screenCheap } from '../../strategy/src/screen.js';
 import type { ScreenResult } from '../../strategy/src/screen.js';
 import { primaryReason } from '../../strategy/src/score.js';
+import { declarePanel, admitSample } from '../../storage/src/prospective-repo.js';
+import { REJECT_PANEL_V1 } from '../../domain/src/reject-panel.js';
 import { parseUtc } from '../../intelligence/src/gates.js';
 import { logger, sanitizeExternal } from '../../observability/src/log.js';
 
@@ -138,6 +140,29 @@ const mintFactsCache = new MintFactsCache();
 export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
   const { db, jupiter, config, seen, cycleIndex } = deps;
   const stats = emptyStats();
+
+  /**
+   * `reject:panel-v2` — freeze the rule before the cycle admits anything.
+   *
+   * Idempotent: the definition is a literal at a fixed commit, so every run
+   * declares the same thing and `declarePanel` returns without writing.
+   * Declaring here rather than in a migration keeps the rule in source, where a
+   * change to it shows up in a diff, instead of in a schema step that ran once
+   * on a machine nobody still has.
+   */
+  try {
+    declarePanel(db, {
+      panelId: REJECT_PANEL_V1.panelId,
+      declaredUtcMs: REJECT_PANEL_V1.declaredUtcMs,
+      horizonsMs: [...REJECT_PANEL_V1.horizonsMs],
+      metric: REJECT_PANEL_V1.metric,
+      sourceCommit: 'frozen-in-source',
+      notes: REJECT_PANEL_V1.notes,
+    });
+  } catch {
+    // A missing table is a migration problem. A PanelViolation here means the
+    // frozen rule was edited in place, which `pnpm reject:panel-v2` reports.
+  }
 
   const { tokens, latencyMs, payloadHash } = await jupiter.recentTokens();
   recordSourceHealth(db, 'jupiter.tokens.recent', true, latencyMs, null);
@@ -786,6 +811,48 @@ async function persist(
       liquidityUsd: info.liquidity ?? null,
       routeExists: roundTrip === null ? null : roundTrip.exitExists,
     });
+
+    /**
+     * `reject:panel-v2` — the PROSPECTIVE sample, admitted here and nowhere else.
+     *
+     * `reject_tracking` above records THAT this token was rejected. It does not
+     * record the STATE the rejection was made on, and a panel scored from state
+     * fetched later is a different experiment: the pool has traded, the
+     * reserves have moved, and the thing being scored is no longer the thing
+     * the filter saw.
+     *
+     * The snapshot id is the whole point — it is the state, by reference, at
+     * the instant the decision was made. Admitting anywhere other than inside
+     * this branch would break that: a row added by a later pass would carry a
+     * snapshot the rejection did not happen on.
+     *
+     * Every gate verdict is stored, not just the one that fired first. A
+     * filter's cost cannot be attributed when only the winning reason was kept.
+     */
+    try {
+      admitSample(deps.db, {
+        sampleId: `${result.snapshot.snapshotId}:${info.id}`,
+        panelId: REJECT_PANEL_V1.panelId,
+        mint: info.id,
+        snapshotId: result.snapshot.snapshotId,
+        rejectedUtcMs: nowUtcMs,
+        primaryReason: primaryReason(result.outcome.gates),
+        gateVerdicts: result.outcome.gates.map((g) => ({
+          gate: g.gate,
+          passed: g.passed,
+          severity: g.severity,
+          reason: g.reason,
+          riskContribution: g.riskContribution,
+        })),
+        inclusionProbability: selection?.inclusionProbability ?? null,
+        stratum: selection?.stratum ?? null,
+        routeExists: roundTrip === null ? null : roundTrip.exitExists,
+      });
+    } catch {
+      // A missing table is a migration problem, and a panel violation is a
+      // rule problem. Neither is a reason to lose the screening row that was
+      // already written above.
+    }
   }
 }
 

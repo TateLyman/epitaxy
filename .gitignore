@@ -31,3 +31,13 @@ coverage/
 /vr.json
 data/backups/
 data/blobs/
+
+# Session scratch. Never part of the corpus.
+scratchC/
+
+# Item 49 — armed replay snapshots.
+# Each carries the pool's accounts AND the swap programs' full ELF, so one file
+# is tens of megabytes. It is working state for a two-phase run, not evidence:
+# the evidence is artifacts/replay-calibrate.json, which records what the replay
+# concluded and refuses to be produced without provenance.
+artifacts/replay-armed/

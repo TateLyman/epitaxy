@@ -2,7 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { PublicKey } from '@solana/web3.js';
 import { PumpAmmSdk, PUMP_AMM_FEE_CONFIG_PDA } from '@pump-fun/pump-swap-sdk';
-import { feeTiersOf, flatFeeOf, tierFor, boundaries, floorRange } from '../../packages/solana/src/fee-tiers.js';
+import BN from 'bn.js';
+import {
+  feeTiersOf,
+  flatFeeOf,
+  tierFor,
+  boundaries,
+  floorRange,
+  selectFeeTier,
+  tierForPool,
+  poolMarketCapLamports,
+  feeConfigHash,
+} from '../../packages/solana/src/fee-tiers.js';
 
 /**
  * P14 — the dynamic fee boundaries, which the parity matrix never straddled.
@@ -119,5 +130,117 @@ describe('P14 — tier selection', () => {
     );
     // And a round trip pays it twice.
     expect(t?.roundTripBps).toBe((t?.fees.totalBps ?? 0) * 2);
+  });
+});
+
+/**
+ * Directive item 40 — the fee tier matches the SDK's selection, not quote reserve.
+ *
+ * F15. Pump's fee documentation defines the canonical tier by
+ *
+ * ```
+ * current token price in SOL × 1,000,000,000 tokens
+ * ```
+ *
+ * and the SDK implements it as `quoteReserve × baseMintSupply / baseReserve`.
+ * Every classification call site in this repository was instead passing the raw
+ * quote reserve — one passed a hardcoded `0n` — to a parameter whose unit is a
+ * market cap.
+ */
+describe('40 — the tier comes from market cap, and the SDK decides the edges', () => {
+  const SOL = 1_000_000_000n;
+  const tiers = feeTiersOf({
+    feeTiers: [
+      { marketCapLamportsThreshold: new BN(0), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100 } },
+      { marketCapLamportsThreshold: new BN((100n * SOL).toString()), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 } },
+      { marketCapLamportsThreshold: new BN((420n * SOL).toString()), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 0 } },
+    ],
+  });
+
+  /** One billion tokens at six decimals, the canonical Pump supply. */
+  const SUPPLY = 1_000_000_000_000_000n;
+
+  it('computes the cap the way the SDK does', () => {
+    // quote × supply / base. 10 SOL of quote against a tenth of the supply is
+    // a hundred-SOL cap, which quote reserve alone would call ten.
+    expect(
+      poolMarketCapLamports({
+        quoteReserveLamports: 10n * SOL,
+        baseReserveAtoms: SUPPLY / 10n,
+        baseMintSupplyAtoms: SUPPLY,
+      }),
+    ).toBe(100n * SOL);
+  });
+
+  it('puts that pool in the MIDDLE tier, where quote reserve alone would say bottom', () => {
+    const byCap = tierForPool(tiers, {
+      quoteReserveLamports: 10n * SOL,
+      baseReserveAtoms: SUPPLY / 10n,
+      baseMintSupplyAtoms: SUPPLY,
+    });
+    expect(byCap.marketCapLamports).toBe(100n * SOL);
+    expect(byCap.tier?.fees.creatorFeeBps).toBe(30);
+
+    // The old reading: quote reserve straight into a market-cap parameter.
+    // 10 SOL is below the first threshold, so it reports the bottom tier and a
+    // round-trip floor 140 bps too high.
+    const byQuoteReserve = selectFeeTier(tiers, 10n * SOL);
+    expect(byQuoteReserve?.fees.creatorFeeBps).toBe(100);
+    expect(byQuoteReserve?.roundTripBps).not.toBe(byCap.tier?.roundTripBps);
+  });
+
+  it('applies the FIRST tier below its own threshold, as calculateFeeTier does', () => {
+    // `tierFor` returns null here, which reads as "no tier applies". The
+    // program charges the bottom tier, so null understates the floor for
+    // exactly the pools this system samples most — the ones that just migrated.
+    const withPositiveFloor = feeTiersOf({
+      feeTiers: [
+        { marketCapLamportsThreshold: new BN((50n * SOL).toString()), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100 } },
+        { marketCapLamportsThreshold: new BN((420n * SOL).toString()), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 0 } },
+      ],
+    });
+    expect(tierFor(withPositiveFloor, 1n * SOL)).toBeNull();
+    expect(selectFeeTier(withPositiveFloor, 1n * SOL)?.fees.creatorFeeBps).toBe(100);
+  });
+
+  it('selects the highest tier at or below the cap', () => {
+    expect(selectFeeTier(tiers, 500n * SOL)?.fees.creatorFeeBps).toBe(0);
+    expect(selectFeeTier(tiers, 419n * SOL)?.fees.creatorFeeBps).toBe(30);
+    // Exactly ON a threshold takes the higher tier, matching the SDK's `gte`.
+    expect(selectFeeTier(tiers, 420n * SOL)?.fees.creatorFeeBps).toBe(0);
+  });
+
+  it('REFUSES rather than defaulting when the supply was not read', () => {
+    // An unread supply is a fact about the capture. Substituting the canonical
+    // one billion would place a non-canonical token in the wrong tier silently.
+    const r = tierForPool(tiers, {
+      quoteReserveLamports: 10n * SOL,
+      baseReserveAtoms: SUPPLY / 10n,
+      baseMintSupplyAtoms: null,
+    });
+    expect(r.tier).toBeNull();
+    expect(r.refusal).toContain('supply was not read');
+  });
+
+  it('refuses a drained pool rather than dividing by zero', () => {
+    const r = tierForPool(tiers, {
+      quoteReserveLamports: 10n * SOL,
+      baseReserveAtoms: 0n,
+      baseMintSupplyAtoms: SUPPLY,
+    });
+    expect(r.tier).toBeNull();
+    expect(r.refusal).toContain('base reserve is zero');
+  });
+
+  it('hashes the table, so a stored tier survives Pump republishing it', () => {
+    const a = feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100, totalBps: 125 });
+    const b = feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100, totalBps: 125 });
+    expect(a).toBe(b);
+    const moved = feeTiersOf({
+      feeTiers: [
+        { marketCapLamportsThreshold: new BN(0), fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 90 } },
+      ],
+    });
+    expect(feeConfigHash(moved, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 100, totalBps: 125 })).not.toBe(a);
   });
 });

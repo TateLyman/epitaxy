@@ -1,12 +1,95 @@
 {
-  "panelVersion": "v2",
-  "legacyRejectTrackingByClassification": [],
-  "prospectiveSamples": 0,
-  "falseNegativeRate": {
-    "rate": null,
-    "answerable": 0,
-    "excluded": 0,
-    "reason": "no sampled rejection produced an answerable outcome"
+  "artifact": "reject-panel-v2",
+  "directiveSection": "P12 / reject:panel-v2",
+  "generatedUtcMs": 1786925213871,
+  "sourceCommit": "4edb5f7810d6c90ba6b517271b23c52534bf8cd2",
+  "dirty": true,
+  "panel": {
+    "panelId": "REJECT_PANEL_V1",
+    "declaredUtcMs": 1786838400000,
+    "horizonsMs": [
+      60000,
+      300000,
+      900000,
+      1800000,
+      3600000
+    ],
+    "metric": "EXECUTABLE_QUOTE_LAMPORTS_AT_DEVELOPMENT_NOTIONAL"
   },
-  "note": "the v2 panel samples AT REJECTION TIME and follows forward. No prospective sample has been collected yet, so the rate is null rather than zero. The legacy counts above are the retrospective panel this replaces and are NOT comparable: they were evaluated against current state rather than against the path."
+  "status": {
+    "panelId": "REJECT_PANEL_V1",
+    "declaredUtcMs": 1786838400000,
+    "horizonsMs": [
+      60000,
+      300000,
+      900000,
+      1800000,
+      3600000
+    ],
+    "metric": "EXECUTABLE_QUOTE_LAMPORTS_AT_DEVELOPMENT_NOTIONAL",
+    "samples": 198,
+    "marked": 0,
+    "outstanding": 990,
+    "byReason": [
+      {
+        "reason": "stale_source",
+        "n": 122
+      },
+      {
+        "reason": "insufficient_liquidity",
+        "n": 58
+      },
+      {
+        "reason": "soft:high_round_trip",
+        "n": 8
+      },
+      {
+        "reason": "excessive_impact",
+        "n": 4
+      },
+      {
+        "reason": "dev_holds_too_much",
+        "n": 4
+      },
+      {
+        "reason": "soft:concentration_unknown",
+        "n": 2
+      }
+    ]
+  },
+  "dueSample": [
+    {
+      "sampleId": "51e90db3-f1f7-401c-8156-97a02b3495ac:BV6TVQVaVzMGpAWy5HYfny7HW9wGhoDu84K79sBCpump",
+      "mint": "BV6TVQVaVzMGpAWy5HYfny7HW9wGhoDu84K79sBCpump",
+      "horizonMs": 60000,
+      "dueUtcMs": 1786925001208
+    },
+    {
+      "sampleId": "a7a1f78a-0fa8-4aa2-b2cd-4d4e107b2130:GMuaWfQusR1MpQBhKYEAKt1qf1hgdbwfPQEWqvejpump",
+      "mint": "GMuaWfQusR1MpQBhKYEAKt1qf1hgdbwfPQEWqvejpump",
+      "horizonMs": 60000,
+      "dueUtcMs": 1786925001208
+    },
+    {
+      "sampleId": "56e0f4fc-4101-442c-bb0e-78c81c56b20c:A2uDDKdCy5ZHLrtf64afzcergNfZytagCUdzsSJ6pump",
+      "mint": "A2uDDKdCy5ZHLrtf64afzcergNfZytagCUdzsSJ6pump",
+      "horizonMs": 60000,
+      "dueUtcMs": 1786925001208
+    },
+    {
+      "sampleId": "14d61349-d88a-49c8-8b10-1a2aa34f72b8:FEBbW1CvynntiRUXiA9HCK5TAXtQGVf9f9BqKaGtpump",
+      "mint": "FEBbW1CvynntiRUXiA9HCK5TAXtQGVf9f9BqKaGtpump",
+      "horizonMs": 60000,
+      "dueUtcMs": 1786925001208
+    },
+    {
+      "sampleId": "a062307c-6dee-4f88-b0db-12a296204982:81zCcfA42NX4AMPQLYXdxUYsK8f7AdTqL19LBJPopump",
+      "mint": "81zCcfA42NX4AMPQLYXdxUYsK8f7AdTqL19LBJPopump",
+      "horizonMs": 60000,
+      "dueUtcMs": 1786925001208
+    }
+  ],
+  "retrospectiveRejectTrackingRows": 1191617,
+  "supersedes": "the trajectory-status.ts alias, which answers what the OPENED trajectories are doing",
+  "notClaimed": "an admitted sample is a row, not a result. No filter cost is established until the declared horizons are marked and the metric computed over an adequate sample."
 }

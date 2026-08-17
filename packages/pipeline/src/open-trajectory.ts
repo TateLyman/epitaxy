@@ -8,6 +8,7 @@ import {
   swapAccountAddresses,
   associatedTokenAddressOf,
   canonicalPool,
+  swapAccountRoles,
   WSOL_MINT,
   FEE_CONFIG_ADDR,
   GLOBAL_CONFIG_ADDR,
@@ -17,12 +18,32 @@ import { associatedTokenAddress, TOKEN_PROGRAM } from '../../solana/src/pda.js';
 import { buildCloseAccount } from '../../solana/src/closeaccount.js';
 import { compileMessage, encodeUnsignedTransaction } from '../../solana/src/encode.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from './sequential-round-trip.js';
+import type { ReplayStep } from './event-replay.js';
+import type { AccountBytesSource } from '../../solana/src/pumpswap-offline.js';
 import type { SequentialWorker } from '../../simulator/src/sequential-worker.js';
 import { observedTokenAtoms, RENT_EXEMPT_EPOCH } from '../../simulator/src/sequential-runtime.js';
-import { mechanicsStratum } from '../../solana/src/cashback.js';
-import { boundEntryImpact } from '../../domain/src/trajectory-evidence.js';
+import {
+  mechanicsStratum,
+  expectedRemainingTail,
+  remainingTailRefusal,
+  legCashbackDeltas,
+  selectedTrailingAccounts,
+  type LegCashbackDeltas,
+} from '../../solana/src/cashback.js';
+import { AMM_PROGRAM_ID } from '../../solana/src/pumpswap-offline.js';
+import { boundEntryImpact, attributeSoleVenue } from '../../domain/src/trajectory-evidence.js';
 import type { RawInstruction } from '../../solana/src/instructionpolicy.js';
 import { freezeAccountPlan, planAccountsNotCaptured, type AccountPlan } from '../../solana/src/account-plan.js';
+import { frozenComputeLimit, type ComputeBudgetPlan } from '../../solana/src/cu-budget.js';
+import { legSettlementFromRuntime, coverageGap, type ObservedAccount } from './leg-settlement.js';
+import { buildTrajectorySettlement, checkIdentities, type TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
+import {
+  classifyCreatedAccount,
+  summariseSetup,
+  requiresSharedAccountCreation,
+  type CreatedAccount,
+  type SetupEconomics,
+} from '../../solana/src/created-accounts.js';
 import type { TransactionInstruction } from '@solana/web3.js';
 
 /**
@@ -56,6 +77,17 @@ export type OpenRefusal =
   | 'MECHANICS_FAILED'
   | 'ENTRY_NOT_SOLE_VENUE'
   /**
+   * P7/F14 — the pool is cashback-enabled and the built leg does not carry the
+   * remaining accounts in the exact positions the program reads.
+   *
+   * A refusal rather than a note, because the failure is SILENT: the
+   * transaction lands, the trade executes normally, and the creator fee simply
+   * goes to the creator. Nothing distinguishes it afterwards from a leg that
+   * claimed the cashback, and the difference at the bottom canonical tier is 30
+   * bps per leg.
+   */
+  | 'CASHBACK_ACCOUNTS_MISPLACED'
+  /**
    * P2 — the built instruction touches an account the snapshot never fetched.
    *
    * A refusal rather than a warning, because the runtime would execute against
@@ -78,6 +110,28 @@ export interface OpenedTrajectory {
   readonly entrySettlementId: string;
   readonly selfImpactLamports: bigint | null;
   readonly quoteStateSurvived: boolean;
+  /**
+   * P6 — the base token account was gone after the sell, so its rent came back
+   * inside the exit rather than costing a third signature and landing interval.
+   *
+   * Measured from the sell's post-state, never inferred from having appended
+   * the instruction.
+   */
+  readonly baseAtaClosedInSell: boolean | null;
+  /**
+   * P6 — what each leg actually consumed, and the limit a live leg should
+   * therefore request.
+   *
+   * Solana charges the priority fee against the REQUESTED limit, so a leg that
+   * omits `SetComputeUnitLimit` pays against the derived 200,000-per-instruction
+   * allocation rather than against what it used. Development legs run in an
+   * isolated runtime and pay no priority fee, which is exactly why the figure
+   * has to be measured here — there is nowhere else it can come from before a
+   * live path exists.
+   */
+  readonly buyComputeUnits: number | null;
+  readonly sellComputeUnits: number | null;
+  readonly computeBudget: ComputeBudgetPlan | null;
   /** The buy moved the canonical pool AND nothing else took the flow. */
   readonly soleVenueAttributed: boolean;
   readonly baseVaultDeltaAtoms: bigint;
@@ -91,6 +145,70 @@ export interface OpenedTrajectory {
    * rather than against what a rebuild would probably produce.
    */
   readonly entryPlan: AccountPlan;
+  /**
+   * P2/P7 — the exit's exact plan, frozen from the bytes the sell executed.
+   *
+   * Null only when the builder reported no instructions. The sell is built
+   * inside the runtime from post-buy state, so this is the only place its plan
+   * can come from — and it is the plan the cashback tail was verified against.
+   */
+  readonly exitPlan: AccountPlan | null;
+  /**
+   * P6 — every account the entry brought into existence, and who benefits.
+   *
+   * The size surface reported ZERO created-account rent on every row while
+   * total drag ran to 0.010–0.012 SOL, because the accounts the transaction
+   * created were not in anyone's observe list. An account nobody observed
+   * reports identically to one that cost nothing.
+   */
+  readonly createdAccounts: readonly CreatedAccount[];
+  readonly setup: SetupEconomics;
+  /**
+   * P7 — what each leg moved through the cashback accounts, kept per leg.
+   *
+   * BOTH legs accrue. The repository asserted for two commits that `sell`
+   * carries no volume accumulator, and modelling one leg instead of two
+   * understated the retained round trip by roughly half. One summed number
+   * cannot show whether the second leg accrued, so they are never summed here.
+   */
+  readonly cashbackLegs: readonly LegCashbackDeltas[];
+  /** The exact remaining-account tail the built legs were verified against. */
+  readonly cashbackVerified: boolean;
+  /**
+   * P5 — the ONE canonical settlement, for the IMMEDIATE MECHANICS.
+   *
+   * The buy and the sell that actually executed, in one runtime, against exact
+   * captured state. NOT the policy exit, which is a mark on a later path and
+   * therefore a counterfactual — conflating the two would let a hypothetical
+   * exit price wear the label of a measured one.
+   *
+   * `buildTrajectorySettlement` was correct and unreachable for several
+   * commits: its only caller was the trajectory kernel, which the collector
+   * never reaches, and no table existed to store a result. Net PnL was UNKNOWN
+   * BY CONSTRUCTION rather than for want of a sample.
+   */
+  readonly settlement: TrajectorySettlement;
+  /** Empty when the settlement's own identities hold. Never silently dropped. */
+  readonly identityViolations: readonly string[];
+  /**
+   * How much of the pool this entry actually is.
+   *
+   * `withinSmallImpactBound` false means the exit price is dominated by our own
+   * footprint, so the trajectory measures the instrument rather than the market.
+   * Recorded rather than refused: the sampling design is frozen, and a corpus
+   * that silently dropped its deepest-impact rows would misreport what the
+   * notional does to this population.
+   */
+  readonly impact: ReturnType<typeof boundEntryImpact>;
+  /**
+   * True when the entry had to open an account another trader's organic
+   * transaction would have opened anyway — or one we could not classify.
+   *
+   * P6's stratum boundary. A candidate like this is COLD and does not belong in
+   * the same average as a warm one, because most of its cost is a one-time
+   * payment on behalf of everyone who trades the pool afterwards.
+   */
+  readonly requiresSharedSetup: boolean;
   readonly incompleteness: readonly string[];
   readonly openedUtcMs: number;
 }
@@ -111,6 +229,17 @@ const toRaw = (i: TransactionInstruction | RawInstruction): RawInstruction =>
         })),
         data: Buffer.from((i as TransactionInstruction).data).toString('base64'),
       };
+
+/**
+ * Exported for item 49's replay builder, which has to encode a transaction for
+ * the replay actor rather than for the taker.
+ *
+ * The SDK returns `TransactionInstruction`s and the compiler wants raw metas;
+ * `toRaw` is the conversion. A caller that reimplemented it would eventually
+ * differ in account ordering, and account order is the thing a frozen plan and
+ * a replay both depend on being identical.
+ */
+export const encodeForPayer = (ixs: unknown[], payer: string, bh: string): string => encode(ixs, payer, bh);
 
 const encode = (ixs: unknown[], taker: string, bh: string): string =>
   Buffer.from(
@@ -154,6 +283,22 @@ export async function openTrajectory(
       unixTimestamp: number;
     }>;
     fundedWalletLamports?: bigint;
+    /**
+     * Item 49 — `FULL_EVENT_REPLAY_TRAJECTORY`.
+     *
+     * The intervening mainnet trades, pushed through the local post-entry pool
+     * before the exit is priced. Omitted — which is every routine cycle — the
+     * exit is priced immediately after the entry and the trip measures
+     * MECHANICS, not a holding period.
+     *
+     * Supplied, the exit is priced against a pool that contains both our entry
+     * and everything that happened after it. The seed accounts the actor needs
+     * come in through `captureSnapshot`, so nothing here modifies the capture.
+     */
+    intervening?: {
+      steps: readonly ReplayStep[];
+      build: (step: ReplayStep, state: AccountBytesSource) => Promise<string>;
+    };
   },
 ): Promise<OpenResult> {
   let pool: string;
@@ -189,6 +334,22 @@ export async function openTrajectory(
     baseMint: p.mint,
     user: p.taker,
     coinCreator: addrs.coinCreator,
+  });
+  /**
+   * P6/P7 — the same addresses, NAMED.
+   *
+   * `swapAccountAddresses` returns a bag, and a bag is what a classifier cannot
+   * use: every account the buy created came back `UNKNOWN`, which the warm gate
+   * treats as shared. Correct but uninformative — an entry that opened only its
+   * own recoverable ATAs was indistinguishable from one that paid a creator
+   * vault's rent, which is the exact distinction P6 exists to draw.
+   */
+  const roles = swapAccountRoles({
+    user: p.taker,
+    baseMint: p.mint,
+    coinCreator: addrs.coinCreator,
+    quoteMint: WSOL_MINT,
+    quoteTokenProgram: TOKEN_PROGRAM,
   });
 
   /**
@@ -267,6 +428,55 @@ export async function openTrajectory(
   }
 
   /**
+   * P7/F14 — does the built BUY actually carry the cashback account?
+   *
+   * `buildBuyFrom` calls the SDK, and the SDK appends the accumulator ATA
+   * whenever the decoded pool reports `isCashbackCoin`. So it probably works —
+   * and "probably works, and nothing checks" is the exact shape of defect this
+   * project keeps rediscovering. Here it is worth 30 bps per leg, and it fails
+   * SILENTLY: the transaction lands, the trade executes normally, and the
+   * creator fee goes to the creator.
+   *
+   * Checked against the FROZEN plan, so what is verified is what will run.
+   */
+  // `PublicKey.default` is how the pool says "no coin creator", and it is the
+  // same branch the SDK takes when deciding whether to append the pool-v2 PDA.
+  const hasCoinCreator = addrs.coinCreator !== '11111111111111111111111111111111';
+  /**
+   * The DECODED pool, not the caller's belief about it.
+   *
+   * The collector reads `is_cashback_coin` off a `confirmed_migrations` row
+   * that may be hours old, while the SDK appends the account based on what the
+   * pool says right now. Verifying against the stale value would check the
+   * builder against a different question than the one it answered.
+   */
+  const isCashback = addrs.isCashbackCoin ?? p.isCashbackCoin;
+  const buyTail = expectedRemainingTail({
+    leg: 'buy',
+    isCashbackCoin: isCashback,
+    hasCoinCreator,
+    accumulatorWsolAta: roles.accumulatorWsolAta,
+    userVolumeAccumulator: roles.userVolumeAccumulator,
+    poolV2: roles.poolV2,
+  });
+  const buySwap = buyPlan.instructions.find((i) => i.programId === AMM_PROGRAM_ID);
+  if (buySwap === undefined) {
+    return {
+      ok: false,
+      refusal: 'CASHBACK_ACCOUNTS_MISPLACED',
+      detail: 'the built buy contains no PumpSwap AMM instruction, so its remaining accounts cannot be located',
+    };
+  }
+  const buyTailRefusal = remainingTailRefusal({
+    leg: 'buy',
+    swapInstructionAccounts: buySwap.accounts.map((a) => a.pubkey),
+    expected: buyTail,
+  });
+  if (buyTailRefusal !== null) {
+    return { ok: false, refusal: 'CASHBACK_ACCOUNTS_MISPLACED', detail: buyTailRefusal.slice(0, 200) };
+  }
+
+  /**
    * P2 — every account the BUILT instruction touches is in the captured state.
    *
    * The snapshot was assembled from `swapAccountAddresses`, which RE-DERIVES
@@ -322,7 +532,53 @@ export async function openTrajectory(
     }
   }
 
-  const observe = [...new Set([...priceBearing, p.taker, takerAta, takerWsol, ...swapAccounts])];
+  /**
+   * P6/P7 — the accounts whose EXISTENCE and BALANCE the economics depend on.
+   *
+   * `swapAccounts` covers what the SDK names, but not the two the cashback path
+   * actually moves money through: the accumulator's WSOL ATA (where cashback
+   * lands) and the `pool-v2` PDA. An account absent from `observe` reports as
+   * neither created nor credited, which is how the size surface came to report
+   * zero created-account rent on every row.
+   */
+  const cashbackAccounts = [roles.accumulatorWsolAta, roles.poolV2, roles.userVolumeAccumulator].filter(
+    (a): a is string => a !== null,
+  );
+  /**
+   * The SDK-SELECTED buyback pair, observed because it cannot be derived.
+   *
+   * `swapAccountAddresses` cannot name these — the recipient comes from a list
+   * in the global config — so without adding them here their balance movement
+   * reports as null and the protocol's share of the fee is unattributed. Read
+   * off the frozen plan, which is the only place they exist.
+   */
+  const selectedTail = [...selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey))];
+  /**
+   * EVERY account the built plan touches. The plan is authoritative.
+   *
+   * The observe set was a DERIVED guess, and F12's whole lesson is that a
+   * derivation is not the transaction. It omits the protocol fee recipient and
+   * the buyback recipient — both SELECTED by the SDK from a list in the global
+   * config — and both receive lamports on every leg.
+   *
+   * The cost of the gap was not subtle: `fullAccountCoverage` was false on
+   * every leg, so `buildTrajectorySettlement` refused to produce a net PnL and
+   * named the unobserved writable. Capture already used the plan
+   * (`planAccountsNotCaptured`); observation did not. Same rule, both sides.
+   */
+  const planAccountKeys = buyPlan.instructions.flatMap((i) => i.accounts.map((a) => a.pubkey));
+  const observe = [
+    ...new Set([
+      ...priceBearing,
+      p.taker,
+      takerAta,
+      takerWsol,
+      ...swapAccounts,
+      ...cashbackAccounts,
+      ...selectedTail,
+      ...planAccountKeys,
+    ]),
+  ];
 
   const trip = await sequentialRoundTrip(
     {
@@ -379,6 +635,9 @@ export async function openTrajectory(
        */
       economicAccounts: [...priceBearing, takerAta, takerWsol],
       observe,
+      // Item 49 — absent on every routine cycle, which is why the trip's
+      // `replayed` field is null rather than empty there.
+      ...(p.intervening === undefined ? {} : { intervening: p.intervening }),
       buildSell: standardPumpSwapSell({
         preState: preSrc,
         pool,
@@ -386,24 +645,69 @@ export async function openTrajectory(
         slippagePct: p.slippagePct,
         blockhash,
         encode: (ixs, bh) => encode(ixs, p.taker, bh),
-      }),
-      // P6 — the close is appended rather than given its own signature and
-      // landing interval merely to recover the base ATA's rent.
-      buildCloseBase64: () =>
-        encode(
-          [
-            buildCloseAccount({
-              tokenAccount: takerAta,
-              destination: p.taker,
-              owner: p.taker,
-              tokenProgram: mintOwner,
-              residualAtoms: 0n,
-              withheldAtoms: 0n,
+        /**
+         * P6 — the close rides IN the sell, not after it.
+         *
+         * It used to be a third step with its own signature and its own landing
+         * interval, spent purely to recover the base ATA's ~2,039,280 lamports
+         * of rent. The lamports are worth the 5,000 lamport signature; the
+         * interval is the expensive part, and a separate transaction is one
+         * more thing that can fail once the position is already flat.
+         *
+         * The sell has just emptied the account, so `residualAtoms` is zero by
+         * construction — and if it is not, `buildCloseAccount` refuses here
+         * rather than producing an instruction the runtime rejects.
+         */
+        appendInstructions: () => [
+          buildCloseAccount({
+            tokenAccount: takerAta,
+            destination: p.taker,
+            owner: p.taker,
+            tokenProgram: mintOwner,
+            residualAtoms: 0n,
+            withheldAtoms: 0n,
+          }),
+        ],
+        /**
+         * P7/F13 — the SELL's tail, which is TWO accounts, not one.
+         *
+         * This is the correction. The repository asserted that `sell` carries
+         * no volume accumulator, because the IDL names it only on the
+         * instructions that manage it directly. It carries two of them as
+         * optional positional remaining accounts, and modelling one leg's
+         * creator-fee recovery instead of two understated the retained round
+         * trip by roughly half.
+         *
+         * Verified BEFORE the sell executes. A sell with the accounts missing
+         * lands and trades normally, so there is nothing to catch afterwards.
+         */
+        accountsOf: (ixs) =>
+          (ixs as (TransactionInstruction | RawInstruction)[])
+            .map(toRaw)
+            .flatMap((i) => (i.accounts ?? []).map((a) => a.pubkey)),
+        verify: (ixs) => {
+          const raw = (ixs as (TransactionInstruction | RawInstruction)[]).map(toRaw);
+          const swap = raw.find((i) => i.programId === AMM_PROGRAM_ID);
+          if (swap === undefined) {
+            return 'the built sell contains no PumpSwap AMM instruction, so its remaining accounts cannot be located';
+          }
+          return remainingTailRefusal({
+            leg: 'sell',
+            swapInstructionAccounts: (swap.accounts ?? []).map((a) => a.pubkey),
+            expected: expectedRemainingTail({
+              leg: 'sell',
+              isCashbackCoin: isCashback,
+              hasCoinCreator,
+              accumulatorWsolAta: roles.accumulatorWsolAta,
+              userVolumeAccumulator: roles.userVolumeAccumulator,
+              poolV2: roles.poolV2,
             }),
-          ],
-          p.taker,
-          blockhash,
-        ),
+          });
+        },
+      }),
+      // Checked against the sell's own post-state, so "appended a close" is
+      // never mistaken for "the account is gone".
+      takerBaseAtaToClose: takerAta,
       jobId: `collect-${p.mint.slice(0, 8)}`,
     },
     worker,
@@ -438,15 +742,281 @@ export async function openTrajectory(
   const baseOut = baseBefore > baseAfter ? baseBefore - baseAfter : 0n;
   const quoteIn = quoteAfter > quoteBefore ? quoteAfter - quoteBefore : 0n;
   const takerCredit = takerAfter > takerBefore ? takerAfter - takerBefore : 0n;
-  const soleVenue = baseOut > 0n && quoteIn > 0n && baseOut === takerCredit;
+  const attribution = attributeSoleVenue({
+    baseOutAtoms: baseOut,
+    quoteInLamports: quoteIn,
+    takerCreditAtoms: takerCredit,
+  });
+  const soleVenue = attribution.attributed;
 
   if (!soleVenue) {
-    return {
-      ok: false,
-      refusal: 'ENTRY_NOT_SOLE_VENUE',
-      detail: `pool base out ${baseOut} != taker credit ${takerCredit} (quote in ${quoteIn}); part of the flow went elsewhere`,
-    };
+    return { ok: false, refusal: 'ENTRY_NOT_SOLE_VENUE', detail: attribution.refusal ?? 'not sole venue' };
   }
+
+  /**
+   * P6 — classify what the buy actually created.
+   *
+   * Present-and-absent are read from the step's own pre/post observation, so
+   * this measures the transaction rather than re-deriving what it "should"
+   * have done. `dataLen` is reported even for accounts whose bytes were
+   * withheld, which is why scoping the worker output did not cost this.
+   */
+  const trajectoryIdValue = randomUUID();
+  const preByKey = new Map(trip.buy.preAccounts.map((a) => [a.pubkey, a]));
+  const createdAccounts: CreatedAccount[] = [];
+  for (const post of trip.buy.postAccounts) {
+    const prior = preByKey.get(post.pubkey);
+    const existed = prior !== undefined && (prior.lamports > 0n || prior.dataLen > 0);
+    if (existed || post.lamports <= 0n) continue;
+    createdAccounts.push(
+      classifyCreatedAccount(
+        { pubkey: post.pubkey, owner: post.owner, space: post.dataLen, lamports: post.lamports },
+        {
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          takerQuoteAta: takerWsol,
+          pool,
+          poolBaseVault: addrs.poolBaseTokenAccount,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          baseMint: p.mint,
+          quoteMint: WSOL_MINT,
+          coinCreator: addrs.coinCreator,
+          coinCreatorVaultAta: roles.coinCreatorVaultAta,
+          coinCreatorVaultAuthority: roles.coinCreatorVaultAuthority,
+          userVolumeAccumulator: roles.userVolumeAccumulator,
+          globalVolumeAccumulator: roles.globalVolumeAccumulator,
+          accumulatorWsolAta: roles.accumulatorWsolAta,
+          poolV2: roles.poolV2,
+        },
+      ),
+    );
+  }
+  /**
+   * What the SELL created, which nothing measured.
+   *
+   * `createdAccounts` covered the buy only, so a fee recipient the sell had to
+   * open contributed its rent to the payer's outflow and to nothing in the
+   * accounting. The sell selects its own recipients — F12 — so this is not a
+   * rare case.
+   */
+  const sellPreByKey = new Map((trip.sell?.preAccounts ?? []).map((a) => [a.pubkey, a]));
+  const sellCreatedAccounts: CreatedAccount[] = [];
+  for (const post of trip.sell?.postAccounts ?? []) {
+    const prior = sellPreByKey.get(post.pubkey);
+    const existed = prior !== undefined && (prior.lamports > 0n || prior.dataLen > 0);
+    if (existed || post.lamports <= 0n) continue;
+    sellCreatedAccounts.push(
+      classifyCreatedAccount(
+        { pubkey: post.pubkey, owner: post.owner, space: post.dataLen, lamports: post.lamports },
+        {
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          takerQuoteAta: takerWsol,
+          pool,
+          poolBaseVault: addrs.poolBaseTokenAccount,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          baseMint: p.mint,
+          quoteMint: WSOL_MINT,
+          coinCreator: addrs.coinCreator,
+          coinCreatorVaultAta: roles.coinCreatorVaultAta,
+          coinCreatorVaultAuthority: roles.coinCreatorVaultAuthority,
+          userVolumeAccumulator: roles.userVolumeAccumulator,
+          globalVolumeAccumulator: roles.globalVolumeAccumulator,
+          accumulatorWsolAta: roles.accumulatorWsolAta,
+          poolV2: roles.poolV2,
+          protocolFeeAccounts: selectedTail,
+        },
+      ),
+    );
+  }
+
+  const setup = summariseSetup([...createdAccounts, ...sellCreatedAccounts]);
+
+  /**
+   * P7/F14 — what each leg MOVED through the cashback accounts.
+   *
+   * Measured per leg and stored per leg. The whole F13 correction is that both
+   * legs accrue, so a model that reports one summed number cannot show whether
+   * the second one did — which is precisely the evidence the correction needs.
+   *
+   * `accruedToUs` is the discriminating fact: the creator fee goes either to the
+   * accumulator or to the creator's vault, never both. Both moving, or neither,
+   * means something other than the modelled path happened and the leg is not
+   * evidence for either.
+   */
+  const balanceIn = (accounts: readonly { pubkey: string; lamports: bigint }[]) => (key: string): bigint | null =>
+    accounts.find((a) => a.pubkey === key)?.lamports ?? null;
+
+  /**
+   * The buyback fee recipient the SDK SELECTED, read off the built instruction.
+   *
+   * PumpSwap appends `[buybackFeeRecipient, buybackFeeRecipientTokenAccount]`
+   * to every leg's remaining accounts, and the recipient comes from a list in
+   * the global config rather than from the pool — F12's exact concern. It is
+   * observed here, never derived, and its balance delta is what shows where the
+   * protocol's share of the fee actually went.
+   */
+  const buybackPair = selectedTrailingAccounts(buySwap.accounts.map((a) => a.pubkey));
+  const feeRecipient = buybackPair[1] ?? null;
+
+  /**
+   * What a leg's newly created account received beyond its rent.
+   *
+   * The buy CREATES the accumulator ATA on a wallet's first cashback trade, so
+   * without this the accrual that lands in it reports as unmeasured — the
+   * original F13 error reproduced by the instrument built to correct it.
+   */
+  const createdExcess = (pubkey: string): bigint | null =>
+    createdAccounts.find((a) => a.pubkey === pubkey)?.excessLamports ?? null;
+  const cashbackLegs: LegCashbackDeltas[] = [
+    legCashbackDeltas({
+      leg: 'buy',
+      before: balanceIn(trip.buy.preAccounts),
+      after: balanceIn(trip.buy.postAccounts),
+      accumulatorWsolAta: roles.accumulatorWsolAta,
+      userVolumeAccumulator: roles.userVolumeAccumulator,
+      coinCreatorVaultAta: roles.coinCreatorVaultAta,
+      feeRecipient,
+      createdExcess,
+    }),
+    ...(trip.sell === null
+      ? []
+      : [
+          legCashbackDeltas({
+            leg: 'sell',
+            before: balanceIn(trip.sell.preAccounts),
+            after: balanceIn(trip.sell.postAccounts),
+            accumulatorWsolAta: roles.accumulatorWsolAta,
+            userVolumeAccumulator: roles.userVolumeAccumulator,
+            coinCreatorVaultAta: roles.coinCreatorVaultAta,
+            feeRecipient,
+          }),
+        ]),
+  ];
+
+  /**
+   * P5 - settle the immediate mechanics, from the legs that actually ran.
+   *
+   * Both legs are turned into `MeasuredLegSettlement` from their own pre/post
+   * observations, then combined by the canonical builder. Every figure derives
+   * from the payer native delta, the one quantity that cannot disagree with
+   * itself, and `unexplained` is DERIVED rather than assumed zero.
+   */
+  const closedInSell = trip.baseAtaClosedInSell === true ? [takerAta] : [];
+  /**
+   * Accounts whose gain is NOT a cost to us: our own wrapped-SOL account, and
+   * the pool's base vault, which receives tokens rather than value we paid.
+   */
+  const notSkimAccounts = [takerWsol, addrs.poolBaseTokenAccount];
+
+  /**
+   * An account that DID NOT EXIST is not a coverage failure.
+   *
+   * The worker reports `unobserved` for anything it was asked to read and could
+   * not find. Once the observe set became the full frozen plan, that list began
+   * including every account the transaction was about to CREATE — which are
+   * unobservable before execution by definition.
+   *
+   * Treating those as missing coverage made `fullAccountCoverage` false on
+   * every leg, so `buildTrajectorySettlement` refused a net PnL for a run where
+   * nothing was actually unmeasured. Coverage is about writables that EXISTED
+   * and were not looked at; the ones the leg brought into existence are
+   * measured by `createdAccounts` and by `stillAbsent`.
+   */
+  /**
+   * A writable is a coverage gap only if it EXISTED and was not read.
+   *
+   * Three kinds of account end up in the worker's `unobserved` list once the
+   * observe set is the full frozen plan, and only one of them is a defect:
+   *
+   *   - accounts the leg CREATES, absent before execution by definition;
+   *   - accounts created AND CLOSED inside the same transaction — the SDK wraps
+   *     and unwraps the taker WSOL ATA on every leg, so it exists in neither
+   *     the pre nor the post observation;
+   *   - a writable that was there all along and nobody looked at. THIS one.
+   *
+   * The first two were making `fullAccountCoverage` false on every leg, so
+   * `buildTrajectorySettlement` refused a net PnL for runs where nothing was
+   * actually unmeasured. An account that did not exist cannot be observed, and
+   * calling that missing coverage confuses an impossibility with an omission.
+   */
+  const buyGap = coverageGap(trip.buy.unobserved, trip.buy.preAccounts);
+  const sellGap = trip.sell === null ? [] : coverageGap(trip.sell.unobserved, trip.sell.preAccounts);
+  const entryLeg = legSettlementFromRuntime({
+    observationId: `obs-buy-${p.mint.slice(0, 8)}`,
+    simulationJobId: `job-buy-${p.mint.slice(0, 8)}`,
+    side: 'buy',
+    capabilityFingerprint: buyPlan.fingerprint,
+    taker: p.taker,
+    takerBaseAta: takerAta,
+    mint: p.mint,
+    baseTokenProgram: mintOwner,
+    poolQuoteVault: addrs.poolQuoteTokenAccount,
+    requested: p.notionalLamports,
+    minimumOut: 0n,
+    pre: trip.buy.preAccounts as unknown as ObservedAccount[],
+    post: trip.buy.postAccounts as unknown as ObservedAccount[],
+    createdAccounts,
+    closedAccounts: [],
+    notSkimAccounts,
+    runtimeOk: trip.buy.status === 'SIMULATED_OK',
+    incompleteness: buyGap.map((u) => `unobserved on buy: ${u}`),
+    fullAccountCoverage: buyGap.length === 0,
+    snapshotManifestHash: null,
+  });
+
+  const exitLeg =
+    trip.sell === null
+      ? null
+      : legSettlementFromRuntime({
+          observationId: `obs-sell-${p.mint.slice(0, 8)}`,
+          simulationJobId: `job-sell-${p.mint.slice(0, 8)}`,
+          side: 'sell',
+          capabilityFingerprint: buyPlan.fingerprint,
+          taker: p.taker,
+          takerBaseAta: takerAta,
+          mint: p.mint,
+          baseTokenProgram: mintOwner,
+          poolQuoteVault: addrs.poolQuoteTokenAccount,
+          requested: trip.acquiredAtoms,
+          minimumOut: 0n,
+          pre: trip.sell.preAccounts as unknown as ObservedAccount[],
+          post: trip.sell.postAccounts as unknown as ObservedAccount[],
+          createdAccounts: sellCreatedAccounts,
+          closedAccounts: closedInSell,
+          // The base ATA was opened by the BUY. Without this the sell finds no
+          // source for the rent it recovered and reports zero.
+          rentSourceAccounts: createdAccounts,
+          notSkimAccounts,
+          runtimeOk: trip.sell.status === 'SIMULATED_OK',
+          incompleteness: sellGap.map((u) => `unobserved on sell: ${u}`),
+          fullAccountCoverage: sellGap.length === 0,
+          snapshotManifestHash: null,
+        });
+
+  // Rent on accounts we opened and did NOT close is still locked. Counting it
+  // as recovered is how an earlier version flattered every sell.
+  const stillLocked = setup.totalRentLamports - (trip.baseAtaClosedInSell === true ? setup.recoverableLamports : 0n);
+
+  const settlement = buildTrajectorySettlement({
+    trajectoryId: trajectoryIdValue,
+    entry: entryLeg,
+    exit: exitLeg,
+    cashback: {
+      // ACCRUED, not claimed. `claim_cashback` has never been called, so only
+      // the receivable exists and realized cashback PnL is zero.
+      accruedLamports: cashbackLegs.reduce(
+        (n, l) => n + (l.accumulatorWsolDeltaLamports !== null && l.accumulatorWsolDeltaLamports > 0n ? l.accumulatorWsolDeltaLamports : 0n),
+        0n,
+      ),
+      claimableLamports: 0n,
+      claimedLamports: 0n,
+      claimCostLamports: 0n,
+    },
+    rentStillLockedLamports: stillLocked < 0n ? 0n : stillLocked,
+    venueFeeDecompositionKnown: false,
+  });
+  const identity = checkIdentities(settlement);
 
   const facts = poolFactsFrom(preSrc, pool);
   const impact = boundEntryImpact({
@@ -455,12 +1025,24 @@ export async function openTrajectory(
     tokensAcquiredAtoms: trip.acquiredAtoms,
     baseReserveAtoms: facts.baseReserve,
   });
-  void impact;
+  /**
+   * NOT discarded. This was `void impact;` and the collector then wrote
+   * hardcoded zeros with `withinSmallImpactBound: true` into every row.
+   *
+   * Measured on the first live surface: pools with 0.018 SOL of quote reserve
+   * taking a 0.02 SOL entry — an impact ratio above 1.0, stored as 0. The rows
+   * asserted the entry was inside a 50 bps bound while it was over a hundred
+   * times outside it, which makes every counterfactual exit built on them a
+   * measurement of our own footprint.
+   *
+   * A computed value that reaches nothing is the defect class this whole
+   * directive is about, and it was sitting in the open path.
+   */
 
   return {
     ok: true,
     trajectory: {
-      trajectoryId: randomUUID(),
+      trajectoryId: trajectoryIdValue,
       mint: p.mint,
       pool,
       snapshotHash: `${snapshot.slot}`,
@@ -472,6 +1054,15 @@ export async function openTrajectory(
       entrySettlementId: `set-${randomUUID()}`,
       selfImpactLamports: trip.selfImpactLamports,
       quoteStateSurvived: trip.quoteStateSurvived,
+      baseAtaClosedInSell: trip.baseAtaClosedInSell,
+      buyComputeUnits: trip.buy.computeUnitsConsumed,
+      sellComputeUnits: trip.sell?.computeUnitsConsumed ?? null,
+      // The limit is set from the LARGER leg. One limit is requested per
+      // transaction, and sizing it to the buy would fail every sell that costs
+      // more — which the appended close makes likely, not hypothetical.
+      computeBudget: frozenComputeLimit(
+        Math.max(trip.buy.computeUnitsConsumed ?? 0, trip.sell?.computeUnitsConsumed ?? 0) || null,
+      ),
       soleVenueAttributed: soleVenue,
       baseVaultDeltaAtoms: baseOut,
       quoteVaultDeltaLamports: quoteIn,
@@ -479,12 +1070,39 @@ export async function openTrajectory(
       // P2 — the exact plan of the bytes that ran, not a description of what a
       // rebuild would probably produce.
       entryPlan: buyPlan,
+      // Frozen from the instructions the builder returned, not from a rebuild.
+      // A rebuilt sell would price against different state and could select a
+      // different fee recipient, which is the whole of F12.
+      exitPlan:
+        trip.sellInstructions === null
+          ? null
+          : freezeAccountPlan(
+              'sell',
+              (trip.sellInstructions as (TransactionInstruction | RawInstruction)[]).map(toRaw),
+            ),
+      createdAccounts,
+      setup,
+      cashbackLegs,
+      // Both tails were checked against the frozen plans before either leg ran.
+      // A trajectory that reached here on a cashback coin carries the accounts.
+      cashbackVerified: isCashback,
+      settlement,
+      identityViolations: identity.violations,
+      impact,
+      requiresSharedSetup: requiresSharedAccountCreation(createdAccounts),
       incompleteness: [
         ...trip.incompleteness,
         // Named rather than dropped. An account the chain does not have is
         // correctly absent from the runtime, and the transaction creating it is
         // exactly the cold-setup cost P6 is trying to measure.
         ...stillAbsent.map((a) => `plan account absent on chain, created by the leg: ${a}`),
+        // This SDK build has no `isCashbackCoin` field at all, which is a fact
+        // about the build and not about the pool. Named rather than read as
+        // "not a cashback coin", because the two produce different economics
+        // and only one of them is something the pool said.
+        ...(addrs.isCashbackCoin === null
+          ? ['the decoded pool carries no isCashbackCoin field, so the cashback regime is the caller-supplied belief']
+          : []),
       ],
       openedUtcMs: Date.now(),
     },

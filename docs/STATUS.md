@@ -1,28 +1,88 @@
 # STATUS
 
-> **2026-08-15 (latest) — running-collector directive from `29c7cc7`.
-> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> **2026-08-16 (latest) — running-collector directive from `29c7cc7`, executed.
+> State: `VALID_TRAJECTORY_KERNEL_RUNNING`.**
 >
-> **The `VALID_TRAJECTORY_KERNEL_RUNNING` claim below is WITHDRAWN.** It rested
-> on twenty round trips produced by a PROOF SCRIPT, not by the collector.
+> A working RPC endpoint was supplied and the loop ran end to end. Window V2 is
+> collecting: six distinct deep-pool mints opened across two cycles, all
+> `soleVenue=true quoteState=true`, no repeats, depth gate refusing drained
+> pools by name. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md`.
+>
+> **Net PnL now EXISTS.** P5's canonical settlement was correct and unreachable
+> for several commits — its only caller was the trajectory kernel, which the
+> collector never reaches, and no table existed. Net PnL was UNKNOWN *by
+> construction*, not for want of a sample. It is now wired: 23 settlements, 8
+> with a net PnL, **−53,453,576 lamports** across eight IMMEDIATE round trips at
+> 0.02 SOL.
+>
+> That figure is dominated by **unrecoverable setup rent**, 3.9–6.0M lamports per
+> cold trajectory, and is **NOT a strategy result**: it is the cost of being the
+> first trader through a cold pool, which is P6 measured rather than argued. The
+> venue itself takes about 7,899 lamports.
+>
+> **`DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed.** No edge has been measured;
+> the sample is far below 100 valid paths per policy-cohort, and every
+> settlement still carries a non-zero `unexplained` remainder — derived and
+> reported, as P5 requires, and not yet zero. Window V1 was INVALIDATED after ten minutes for
+> a sampler defect — see `docs/DEV_WINDOW_V1_INVALIDATION.md`.
+>
+> The entry below was written while both endpoints were exhausted and is kept
+> for the record.
+>
+> The loop the directive asks for now runs end to end in the actual collector,
+> and the honest state is still `MEASUREMENT_REPAIR_REQUIRED` — because the
+> sample is 8 timely complete paths against a threshold of 200, and because the
+> RPC **daily quota is exhausted**, so nothing can collect until it resets.
+>
 > Measured on the live database at this head:
 >
 > ```
-> development_trajectories rows      0
-> development_trajectories SETTLED   0
-> pnpm trajectory:collect        still prints NOT OPENING TRAJECTORIES
+> development_trajectories        64   (59 SETTLED)
+> TIMELY complete paths            8   of 200 required
+> distinct UTC days                2   of 21 required
+> trajectory_marks               320
+> trajectory_policy_outcomes     118   two policies on one shared path
+> frozen leg account plans        26
+> candidate_risk_facts            20 examined, 3 admitted
+> net PnL                    UNKNOWN   (gross is not net — see below)
+> pnpm readiness              NOT READY, 22 blockers
 > ```
 >
-> The twenty runs are reclassified `TRUE_IMMEDIATE_SEQUENTIAL_INSTRUMENT` — real,
-> useful, and **not** development trajectories or strategy outcomes. They must
-> not be counted in trajectory status, policy sample size, readiness, rate
-> throughput, profitability or confirmatory evidence. **A proof file is not the
-> database.**
+> **What changed.** `pnpm trajectory:collect` now runs: a live migration socket
+> as the primary candidate lane, risk gates that refuse before the decision,
+> exact frozen account plans on both legs with cashback placement verified
+> fail-closed, created-account economics per leg, an urgent queue drained ahead
+> of ordinary marks, and per-active-second telemetry the status commands read
+> out of the database.
 >
-> They are also IMMEDIATE round trips: no later market path was collected, so no
-> 15-minute or deterioration exit could be evaluated, and no policy was.
+> **Five defects were found by running it, not by reading it.** The websocket was
+> pointed at a different provider than HTTP and had never connected (closing 1006
+> on every attempt); the daily RPC quota was being reported as "this token has no
+> canonical pool"; an empty holder-history list reported *unmeasured* clustering
+> as `MEASURED share 0`; my own cashback tail model was wrong and the fail-closed
+> check refused every candidate on the chain rather than mis-measuring quietly;
+> and a checked-in call-graph artifact was stale, showing a green check over a
+> required edge that had been unreachable since before this session.
 >
-> `docs/29C7CC7_TRUTH_RESET.md` · `artifacts/baseline-29c7cc7.json`.
+> **Nothing here is a profitability claim.** No edge has been measured. The
+> gross figure the corpus carries is not net: it contains no unrecoverable rent,
+> no failed attempt, no claim cost and no cashback.
+>
+> `docs/DEVELOPMENT_WINDOW_V1.md` · `docs/CONFIRMATORY_TRAJECTORIES_V2.md` ·
+> `docs/EXACT_PUMPSWAP_ACCOUNT_PLAN.md` · `docs/PUMPSWAP_CASHBACK_V2.md` ·
+> `docs/COLD_WARM_SETUP_ECONOMICS.md` ·
+> `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md` ·
+> `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md` (the final report) ·
+> `docs/directives/DIRECTIVE_29C7CC7_RUNNING_COLLECTOR.md`
+
+> **BLOCKER — the RPC daily quota is spent.** The endpoint returns
+> `daily request limit reached - upgrade your account`. This is not a per-second
+> rate limit: backing off does not help, because every retry today fails.
+> `pnpm rate:budget-v2` names it as the binding constraint on OBSERVED evidence
+> (a quota error outranks a modelled ratio: the endpoint sat at 0.9% of its 10/s
+> limit while refusing every call) and, on that basis, marks the Helius upgrade
+> ALLOWED. Nothing is purchased from code. The development window in
+> `docs/DEVELOPMENT_WINDOW_V1.md` is preregistered and NOT STARTED.
 
 > **2026-08-15 — independent adversarial audit at head `74f839e`.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
@@ -102,17 +162,43 @@
 > (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
 > through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
 
-Last updated: 2026-08-14T00:10Z
+Last updated: 2026-08-16T19:05Z
 
 ## Operational right now
 
 | | |
 |---|---|
-| mode | `paper`, engine LIVE |
-| schema | v36 |
+| mode | `paper`, engine LIVE; `observe` for the trajectory collector |
+| schema | **v46** |
 | strategy version | `delayed-momentum-v0.6.0` |
 | positions with executable PnL | **0** |
+| development trajectories | **64**, of which 59 SETTLED and **8 TIMELY complete** |
+| default `pnpm readiness` gate | the exact **trajectory** contract (the position gate is `readiness:positions`) |
+| collector candidate lane | live migration socket primary; history paging is bounded recovery |
+| RPC | **daily quota exhausted** — the binding constraint, measured |
 | direct mint facts collected | yes, in every mode (was capital-only) |
+| exploration arm | **running**, entitlement is a ledger keyed by window; granted on rows OPENED, not selected |
+| full event replay | **built and run** (`pnpm replay:calibrate`); one live run, zero-event case only |
+| reject panel | **prospective**, rule frozen 2026-08-16; the 1,191,281 `reject_tracking` rows stay retrospective and separate |
+
+### The collector's actual production path
+
+```
+live create_pool log  →  fetch tx at confirmed  →  decode by discriminator
+  →  risk facts collected and STAMPED  →  admission gate (refusals stored)
+  →  coherent snapshot v2  →  exact direct PumpSwap buy, plan frozen
+  →  cashback tail verified fail-closed  →  ONE persistent runtime
+  →  buy  →  observe  →  sell built from the committed post-buy state
+  →  base ATA close appended to the sell  →  created accounts classified
+  →  append-only trajectory row + both leg plans + per-leg cashback
+  →  shared mark path 1m/5m/15m/30m/60m, urgent queue first
+  →  both exit policies on the SAME path  →  append-only outcomes  →  close
+```
+
+Asserted behaviourally in `tests/unit/collector-wiring-29c7cc7.test.ts`,
+`live-lane-p8-p13.test.ts`, `candidate-risk-p10.test.ts`,
+`cashback-both-legs-p7.test.ts`, `created-accounts-p6.test.ts` and
+`prewarm-cu-p6.test.ts` — not by grepping source.
 
 ## What is proven, and on what sample
 
@@ -1815,3 +1901,140 @@ unreachable for Pump while `S050` is open, so canary cannot be approached.
 - **P17** all three dead modules wired; `KNOWN_INERT` is empty.
 - **P18** retained candidate queues, so the other three cohort arms can exist.
 - **P19** an unquoted token is no longer automatically −100%.
+
+---
+
+## 2026-08-16 — the last three uncovered items, and two defects the runs found
+
+The 62-item directive audit now cites a test for **every** item.
+`tests/unit/directive-29c7cc7-coverage.test.ts` asserts the uncovered list is
+empty and, separately, that every row carries a `needle` — so the audit cannot
+reach zero by pointing at files that no longer contain what they claim.
+
+**1,817 tests, 124 files, 16 seconds.**
+
+### Item 55 — the exploration arm had never run
+
+`allocate()` existed, was tested, was pure, and no production caller invoked it.
+100% of the budget went to the ranking while `pnpm exploration:status` — an
+alias for `cohort:status`, which answers *which cells are under-filled* —
+printed a healthy-looking report about a different question.
+
+The entitlement is now a **ledger** (`exploration_entitlement`, migration 45),
+keyed by window and stratum, because the collector is a daemon that restarts and
+an in-memory entitlement turns a 25% fraction into "25% of whatever happened
+between crashes". `consumeExploration` returns false when a stratum is out of
+budget and the row is recorded as exploitation, so the recorded fraction
+describes what happened rather than what was intended.
+
+The ledger and the corpus are reported **apart**: `granted`/`consumed` is the
+budget, `explore`/`exploit` on the trajectory rows is the outcome, and they can
+disagree — a stratum can run out of candidates with entitlement unspent. Rows
+opened before the arm existed are counted `unassigned`, never folded into
+`exploit`, because "we did not record it" is not "it was exploitation".
+
+**A defect the first live cycle found.** Grants were made against *selections*.
+That cycle selected eight candidates, the depth gate refused all eight, and the
+ledger still recorded `granted 3, consumed 0`. Every cycle would have added
+budget for rows that never existed, so the fraction it exists to hold at 25%
+would have become unenforceable. Grants now happen after the open loop, against
+rows that were actually opened. The six phantom units were deleted — nothing had
+been consumed, so no history was lost — and the first window is therefore all
+exploitation, visibly, rather than by an accident nobody recorded.
+
+### Item 49 — `FULL_EVENT_REPLAY_TRAJECTORY`
+
+Built: `pnpm replay:calibrate --arm=<mint>` / `--settle=<file>`. Two phases
+because the trades a replay needs take a holding period to happen, and the
+collector does not persist entry snapshots — **a settled row already in the
+corpus cannot be replayed after the fact.**
+
+Events are read off the pool's two **vaults**, not off the swap instruction: a
+trade can arrive through a router, an aggregator, or an instruction version we
+have never decoded, and enumerating shapes means silently omitting whatever
+shape is new. Direction comes from the signs of the two deltas. The mainnet
+trader's **input** is replayed, never their output — their output came from
+mainnet's reserves, and forcing it would erase the displacement our entry caused.
+Any refusal kills the whole trajectory rather than one event.
+
+Seeding the replay actor does not inflate supply. The base tokens mainnet
+sellers sold already exist in the mint's `supply`, held by accounts the snapshot
+never fetched; giving them to one local actor models those holders. The mint is
+left untouched, because market cap is `quoteReserve × supply / baseReserve` and
+the fee tier is selected from market cap.
+
+One thing a shared actor gets wrong is **stated, not corrected**: PumpSwap keeps
+a per-user volume accumulator and cashback accrues against it, so cashback
+during the hold is not measurable from a replay.
+
+**A defect the first live run found.** The first version refused a real pool
+with `EVENT_LIST_INCOMPLETE` because the signature listing's newest slot was
+below the exit slot. That reasoning is wrong: the listing is queried
+newest-first with no cursor, so a newest slot below the exit is the *observation
+that nothing traded*. It was rejecting quiet pools — the one case where the
+replay is trivially exact. Only an empty listing is refused now.
+
+**Extent, exactly.** Two live runs, both class `FULL_EVENT_REPLAY_TRAJECTORY`
+and both degenerate: `3Ydh3BiTFP4h…` (1,132 slots, 0 events) and
+`38p2gd3pnTMT…` (1,806 slots, 0 replayable, **3 failed transactions excluded and
+counted** — that path exercised against mainnet rather than a fixture). The
+replay loop has not been exercised against a pool that traded *successfully*
+during the hold, and no calibration subset exists. Getting one is a sampling
+problem, not a code problem: every pool reachable from the current corpus is
+quiet, which is the depth-gate finding again. Building the instrument is not
+taking the measurement. `BOUNDED_COUNTERFACTUAL_TRAJECTORY` remains
+**uncalibrated** and may not be called confirmatory.
+
+### `reject:panel-v2` — a panel that is actually prospective
+
+It aliased `trajectory-status.ts`, which answers what the *opened* trajectories
+are doing — the opposite population.
+
+`reject_tracking` holds **1,191,281** rows and records *that* a token was
+rejected, not the *state* it was rejected on. A panel scored from state fetched
+later is a different experiment: the pool has traded and the reserves have
+moved. Those rows are reported as what they are and are **never back-admitted**,
+because a panel cannot be made prospective after the fact.
+
+Migration 46 adds three tables, deliberately separate:
+
+| | |
+|---|---|
+| `prospective_panels` | the RULE, frozen once, before any row |
+| `prospective_samples` | the SAMPLE, written at the instant of rejection, with **no outcome column** |
+| `prospective_sample_marks` | the OUTCOME, and only at a horizon the rule declared |
+
+Two properties are enforced by the repository rather than described in a
+document: `admitSample` refuses a row rejected before the rule was frozen, and
+`markSample` refuses an undeclared horizon — otherwise a metric can always be
+read off whichever window turned out well, which is threshold-shopping in a
+place no ledger covers. The declaration instant is a **literal** in source;
+`Date.now()` at startup would make "the rule was frozen before the rows"
+vacuously true.
+
+`REJECT_PANEL_V1` shares the trajectory mark offsets (1m/5m/15m/30m/60m), so a
+rejected token and an opened one are observed on the same schedule, and scores
+an executable quote rather than a USD price.
+
+**Ran.** One observe cycle admitted **198** samples with the snapshot attached:
+122 `stale_source`, 58 `insufficient_liquidity`, 8 `soft:high_round_trip`, 4
+`excessive_impact`, 4 `dev_holds_too_much`, 2 `soft:concentration_unknown`.
+
+**Not claimed, and the marker is deliberately absent.** An admitted sample is a
+row, not a result. The metric needs the atoms a development notional would have
+bought *at rejection time* — one RPC call per rejection, ~200 a cycle, against
+an endpoint already answering `429 max usage reached`. A marker that quoted at
+mark time instead would be cheap and would produce a number that looks like a
+result and is not one, so it is not built. The affordable design is a
+probability subsample using the `inclusion_probability` column that is already
+there; the fraction is a preregistered choice and has not been made, because
+picking it now would be choosing a sample size with the corpus in view.
+
+### Still not done
+
+- **`landed:parity-v2`** — needs one direct PumpSwap swap actually landed on
+  mainnet. Nothing here has ever signed or submitted, and a canary is a human
+  act this agent is forbidden to perform.
+- **PREWARMED comparability** — the SDK will not let us pin the fee recipient.
+- **A replay calibration subset** — the machinery exists; the measurement does
+  not.

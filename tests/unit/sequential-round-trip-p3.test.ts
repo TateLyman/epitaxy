@@ -59,6 +59,14 @@ function scriptedWorker(script: {
   sellPreSha?: string;
   sellStatus?: string;
   closeStatus?: string;
+  /**
+   * P6/33 — what the base ATA looks like AFTER the sell.
+   *
+   * `undefined` leaves it absent, which is what an appended close produces.
+   * A lamport balance means the account survived, i.e. the close did not take
+   * effect however the transaction was assembled.
+   */
+  sellPostAtaLamports?: bigint;
 }): { worker: SequentialWorker; calls: string[] } {
   const calls: string[] = [];
   const quotedSha = script.quotedSha ?? 'aaa';
@@ -92,7 +100,9 @@ function scriptedWorker(script: {
             'sell',
             script.sellStatus ?? 'SIMULATED_OK',
             [observed(POOL, tokenAccountBytes(0n), script.sellPreSha ?? quotedSha)],
-            [],
+            script.sellPostAtaLamports === undefined
+              ? []
+              : [{ ...observed(ATA, tokenAccountBytes(0n), 'ata'), lamports: script.sellPostAtaLamports }],
           ),
         };
       }
@@ -184,5 +194,62 @@ describe('P3 — the quote-state assertion gates the price', () => {
     // Only a market refusal is evidence. An apparatus failure must never be
     // recorded as a token that could not be sold.
     expect(r.failure).toBe('RUNTIME_UNAVAILABLE');
+  });
+});
+
+/**
+ * P6 item 33 — the base token account close rides IN the sell.
+ *
+ * It used to be a third step with its own signature and its own landing
+ * interval, spent purely to recover ~2,039,280 lamports of rent. The lamports
+ * are worth the 5,000 lamport signature; the interval is the expensive part,
+ * and a second transaction is one more thing that can fail once the position is
+ * already flat.
+ *
+ * The measurement is the account's ABSENCE after the sell, never the presence
+ * of an appended instruction. Those are different claims and only one is
+ * evidence.
+ */
+describe('33 — the close is in the sell, and it is checked rather than assumed', () => {
+  const appended = { ...(request as object), buildCloseBase64: undefined, takerBaseAtaToClose: ATA } as never;
+
+  it('takes no third step when nothing asks for a separate close', async () => {
+    const { worker, calls } = scriptedWorker({});
+    const r = await sequentialRoundTrip(appended, worker);
+    expect(calls).not.toContain('step:close');
+    expect(r.close).toBeNull();
+    // The sell is the last step, so its success is the trip's.
+    expect(r.ok).toBe(true);
+  });
+
+  it('reports the base account GONE after the sell', async () => {
+    const { worker } = scriptedWorker({});
+    const r = await sequentialRoundTrip(appended, worker);
+    expect(r.baseAtaClosedInSell).toBe(true);
+  });
+
+  it('catches a close that was appended and did NOT take effect', async () => {
+    // The rent it was supposed to recover is still locked. Calling it recovered
+    // because an instruction existed is the substitution this file exists to
+    // prevent.
+    const { worker } = scriptedWorker({ sellPostAtaLamports: 2_039_280n });
+    const r = await sequentialRoundTrip(appended, worker);
+    expect(r.baseAtaClosedInSell).toBe(false);
+    expect(r.incompleteness.join(' ')).toContain('was not recovered');
+  });
+
+  it('claims nothing when no account was named to check', async () => {
+    const { worker } = scriptedWorker({});
+    const r = await sequentialRoundTrip(request, worker);
+    // A separate close still ran here, and the trip says nothing about the ATA
+    // rather than reporting a `false` it did not measure.
+    expect(r.baseAtaClosedInSell).toBeNull();
+  });
+
+  it('still runs a separate close when one is supplied, and its failure counts', async () => {
+    const { worker, calls } = scriptedWorker({ closeStatus: 'SIMULATION_FAILED' });
+    const r = await sequentialRoundTrip(request, worker);
+    expect(calls).toContain('step:close');
+    expect(r.failure).toBe('CLOSE_FAILED');
   });
 });

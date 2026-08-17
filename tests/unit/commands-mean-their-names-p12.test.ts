@@ -50,7 +50,7 @@ describe('57 — no command is a silent alias for a different capability', () =>
     expect(missing).toEqual([]);
   });
 
-  it('the five known aliases now refuse instead of answering another question', () => {
+  it('every remaining alias refuses instead of answering another question', () => {
     for (const entry of NOT_IMPLEMENTED) {
       const script = pkg.scripts[entry.command];
       expect(script, `${entry.command} is not wired`).toBeDefined();
@@ -63,7 +63,7 @@ describe('57 — no command is a silent alias for a different capability', () =>
     let code: number | null = null;
     let stderr = '';
     try {
-      execFileSync('npx', ['tsx', 'scripts/not-implemented.ts', 'wss:status'], {
+      execFileSync('npx', ['tsx', 'scripts/not-implemented.ts', 'landed:parity-v2'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: process.platform === 'win32',
       });

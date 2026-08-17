@@ -2273,6 +2273,441 @@ CREATE TABLE IF NOT EXISTS leg_account_plans (
 CREATE INDEX IF NOT EXISTS idx_leg_plans_fingerprint ON leg_account_plans(fingerprint);
 `,
   },
+  {
+    id: 40,
+    name: 'created_accounts',
+    sql: `
+-- P6 -- every account a leg brought into existence, and who benefits from it.
+--
+-- The size surface reported ZERO created-account rent on every row while total
+-- drag ran to 0.010-0.012 SOL. The accounts the transaction created were simply
+-- not in anyone's observe list, and an account nobody observed reports
+-- identically to one that cost nothing.
+--
+-- The economically load-bearing columns are the last three. Rent on an account
+-- we hold close authority over is a FLOAT: it comes back. Rent on a shared
+-- protocol account we cannot close is a TRANSFER from us to whoever trades the
+-- pool next. Collapsing them into one "rent" number is what made a first
+-- trader's one-time cost look like a recurring mechanics floor, and then made a
+-- larger notional look like the fix.
+CREATE TABLE IF NOT EXISTS created_accounts (
+  trajectory_id     TEXT NOT NULL,
+  leg               TEXT NOT NULL,
+  pubkey            TEXT NOT NULL,
+  owner             TEXT NOT NULL,
+  space             INTEGER NOT NULL,
+  -- TEXT because SQLite INTEGER is 64-bit SIGNED and these are u64 lamports.
+  rent_exempt_min   TEXT NOT NULL,
+  -- Balance above the exemption. The coin-creator fee vault is opened AND paid
+  -- in one transaction, so its closing balance is rent plus a fee the pool sent
+  -- it; crediting the whole balance back to the payer flattered every sell.
+  excess_lamports   TEXT NOT NULL,
+  economic_scope    TEXT NOT NULL,
+  recoverability    TEXT NOT NULL,
+  shared_with_other INTEGER NOT NULL,
+  recorded_utc_ms   INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, leg, pubkey),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_created_scope ON created_accounts(economic_scope);
+CREATE INDEX IF NOT EXISTS idx_created_shared ON created_accounts(shared_with_other);
+`,
+  },
+  {
+    id: 41,
+    name: 'leg_cashback',
+    sql: `
+-- P7/F13 -- what each leg moved through the cashback accounts, PER LEG.
+--
+-- The repository asserted for two commits that \`sell\` carries no volume
+-- accumulator, because the IDL names it only on the instructions that manage it
+-- directly. It carries two of them as optional positional remaining accounts,
+-- and modelling one leg's creator-fee recovery instead of two understated the
+-- retained round trip by roughly half.
+--
+-- One row per leg, never summed before storage. A single summed figure cannot
+-- show whether the SECOND leg accrued, which is exactly the evidence the
+-- correction needs.
+--
+-- \`accrued_to_us\` is the discriminating fact: the creator fee goes either to
+-- the accumulator or to the creator's vault, never both. Both moving, or
+-- neither, means something other than the modelled path happened and the leg is
+-- not evidence for either -- so it is nullable, and null is not false.
+CREATE TABLE IF NOT EXISTS leg_cashback (
+  trajectory_id            TEXT NOT NULL,
+  leg                      TEXT NOT NULL,
+  -- TEXT because these are signed lamport deltas and SQLite INTEGER is 64-bit
+  -- SIGNED; the amounts fit, but every other amount column in this schema is
+  -- TEXT and a mixed convention is how a bigint becomes a float.
+  accumulator_wsol_delta   TEXT,
+  accumulator_delta        TEXT,
+  creator_vault_delta      TEXT,
+  fee_recipient_delta      TEXT,
+  -- NULL when it could not be determined. Never coerced to 0.
+  accrued_to_us            INTEGER,
+  -- Whether the pool was cashback-enabled AT BUILD TIME, decoded from the pool
+  -- rather than read off a possibly-hours-old migration row.
+  is_cashback_coin         INTEGER NOT NULL,
+  recorded_utc_ms          INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, leg),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leg_cashback_accrued ON leg_cashback(accrued_to_us);
+`,
+  },
+  {
+    id: 42,
+    name: 'collector_telemetry',
+    sql: `
+-- P11/P13 -- what the running collector actually did, in the DATABASE.
+--
+-- The status commands these tables serve must answer when no collector is
+-- attached. A \`wss:status\` that can only report on a live in-process watcher
+-- reports nothing the moment the process stops, which is exactly when an
+-- operator asks it what happened. So the process writes and the commands read,
+-- and neither has to be running for the other to work.
+--
+-- P13's arithmetic is the reason \`collector_sessions\` exists at all. The rate
+-- budget this replaces divided counts by ELAPSED WALL TIME, downtime included:
+-- a process that ran twenty minutes out of a day reported "48 requests/day
+-- against a 10,000/day quota" and concluded quota was not the constraint. That
+-- describes the downtime. Everything is per ACTIVE SECOND, and active seconds
+-- are the sum of these sessions.
+CREATE TABLE IF NOT EXISTS collector_sessions (
+  session_id       TEXT PRIMARY KEY,
+  started_utc_ms   INTEGER NOT NULL,
+  -- Advanced every cycle. A session whose heartbeat stopped is a session that
+  -- died, and the difference between it and one that exited cleanly is whether
+  -- ended_utc_ms was ever set.
+  heartbeat_utc_ms INTEGER NOT NULL,
+  ended_utc_ms     INTEGER,
+  mode             TEXT NOT NULL,
+  source_commit    TEXT NOT NULL,
+  dirty            INTEGER NOT NULL,
+  pid              INTEGER NOT NULL,
+  endpoint         TEXT NOT NULL,
+  cycles           INTEGER NOT NULL DEFAULT 0
+);
+
+-- Operational counters, not evidence. These are UPSERTED and accumulate within
+-- a session; nothing downstream treats a counter as a trade outcome, and a
+-- counter that could not be incremented would be a worse lie than one that can.
+CREATE TABLE IF NOT EXISTS collector_counters (
+  session_id    TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  -- For solana_rpc, the METHOD. Counting all RPC as one hides which call is the
+  -- one exhausting the quota, which is the only actionable part.
+  detail        TEXT NOT NULL DEFAULT '',
+  count         INTEGER NOT NULL DEFAULT 0,
+  errors_429    INTEGER NOT NULL DEFAULT 0,
+  quota_errors  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, kind, detail),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS collector_latency_samples (
+  session_id      TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  ms              INTEGER NOT NULL,
+  recorded_utc_ms INTEGER NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_latency_kind ON collector_latency_samples(kind);
+
+-- P11 -- the EXACT addresses that were subscribed.
+--
+-- Stored rather than re-derived, because unwatch must use these. Re-deriving at
+-- unwatch time means a derivation change silently leaks subscriptions instead
+-- of failing, and a leaked subscription looks identical to a quiet account.
+CREATE TABLE IF NOT EXISTS wss_subscriptions (
+  session_id           TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  address              TEXT NOT NULL,
+  trajectory_id        TEXT,
+  subscribed_utc_ms    INTEGER NOT NULL,
+  unsubscribed_utc_ms  INTEGER,
+  events               INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, kind, address),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+-- Socket coverage gaps. Per-ACCOUNT silence is deliberately NOT recorded: a
+-- quiet account across slots is a quiet account, and manufacturing a gap for
+-- every account that simply did not trade buries the one real gap, which is the
+-- interval where the socket was down and nothing could have been seen.
+CREATE TABLE IF NOT EXISTS wss_gaps (
+  session_id        TEXT NOT NULL,
+  gap_start_utc_ms  INTEGER NOT NULL,
+  gap_end_utc_ms    INTEGER,
+  reason            TEXT NOT NULL,
+  addresses_resynced INTEGER NOT NULL DEFAULT 0,
+  addresses_changed  INTEGER NOT NULL DEFAULT 0,
+  still_unreadable   INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wss_gaps_session ON wss_gaps(session_id);
+
+-- P11 -- the urgent queue, and proof it was actually consumed.
+--
+-- A vault that just moved 5% is the observation whose value decays fastest;
+-- serving it after a queue of routine marks is the same as not having detected
+-- it. \`consumed_utc_ms\` is what distinguishes a queue that works from one that
+-- only fills.
+CREATE TABLE IF NOT EXISTS urgent_marks (
+  session_id       TEXT NOT NULL,
+  trajectory_id    TEXT NOT NULL,
+  address          TEXT NOT NULL,
+  before_balance   TEXT,
+  after_balance    TEXT,
+  queued_utc_ms    INTEGER NOT NULL,
+  consumed_utc_ms  INTEGER,
+  PRIMARY KEY (session_id, trajectory_id, queued_utc_ms),
+  FOREIGN KEY (session_id) REFERENCES collector_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_urgent_unconsumed ON urgent_marks(consumed_utc_ms);
+`,
+  },
+  {
+    id: 43,
+    name: 'candidate_risk_facts',
+    sql: `
+-- P10 -- the risk facts, as they stood BEFORE the decision they informed.
+--
+-- Every module behind these columns existed and was tested, and none of them
+-- reached the trajectory collector. A candidate was admitted on mechanics
+-- alone: it had a canonical pool, the buy simulated, the sell simulated.
+-- Whether the mint could freeze our exit, whether the venue was in Mayhem mode,
+-- whether four of the top five holders were one wallet -- none of it was
+-- consulted, and none of it was stored against the trajectory that resulted.
+--
+-- \`collected_utc_ms\` is load-bearing rather than decorative. A gate reading a
+-- fact collected AFTER selection is a post-hoc annotation and the position was
+-- taken either way, so the row records when it was true and the admission
+-- refuses anything stamped later than the decision.
+--
+-- Every verdict column is nullable and UNKNOWN is stored as the string, never
+-- as NULL-meaning-fine. Absent-means-safe is the direction this system's errors
+-- have repeatedly travelled.
+CREATE TABLE IF NOT EXISTS candidate_risk_facts (
+  mint                  TEXT NOT NULL,
+  pool                  TEXT NOT NULL,
+  collected_utc_ms      INTEGER NOT NULL,
+  -- The trajectory this admitted, when one was opened. NULL for a refusal,
+  -- which is the majority and is the product.
+  trajectory_id         TEXT,
+  mint_overall          TEXT NOT NULL,
+  freeze_authority      TEXT NOT NULL,
+  mint_authority        TEXT NOT NULL,
+  permanent_delegate    TEXT NOT NULL,
+  transfer_hook         TEXT NOT NULL,
+  mint_decode_failure   TEXT,
+  transfer_fee_kind     TEXT NOT NULL,
+  transfer_fee_bps      INTEGER,
+  -- NULL means neither venue was read. NEVER false: a token whose pool and
+  -- bonding curve were both unavailable has not been shown to be non-Mayhem.
+  mayhem_enabled        INTEGER,
+  mayhem_source         TEXT NOT NULL,
+  -- ORGANIC | CONTAMINATED_UNQUANTIFIED | UNKNOWN. Mayhem flow is neither
+  -- organic nor zero; the agent share cannot be isolated without the program
+  -- layout, and subtracting an unmeasured quantity is a guess with a minus sign.
+  breadth_usability     TEXT NOT NULL,
+  is_cashback_coin      INTEGER,
+  accumulator_wsol_ata  TEXT,
+  concentration_kind    TEXT NOT NULL,
+  entity_adjusted_share REAL,
+  canonical_pool        INTEGER NOT NULL,
+  requires_shared_setup INTEGER,
+  stratum               TEXT NOT NULL,
+  admitted              INTEGER NOT NULL,
+  -- Every reason, as JSON. Not the first one: collapsing six facts into one
+  -- word is how 93% of a previous corpus became uninformative.
+  refusals              TEXT NOT NULL,
+  PRIMARY KEY (mint, collected_utc_ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_admitted ON candidate_risk_facts(admitted);
+CREATE INDEX IF NOT EXISTS idx_risk_stratum ON candidate_risk_facts(stratum);
+CREATE INDEX IF NOT EXISTS idx_risk_trajectory ON candidate_risk_facts(trajectory_id);
+`,
+  },
+  {
+    id: 44,
+    name: 'trajectory_settlements',
+    sql: `
+-- P5 -- ONE canonical settlement per trajectory, written once.
+--
+-- \`buildTrajectorySettlement\` was correct and unreachable for several commits:
+-- its only call site was the trajectory kernel, which the collector never
+-- reaches, and no table existed to put a result in. So every trajectory net PnL
+-- was UNKNOWN BY CONSTRUCTION rather than for want of a sample -- the collector
+-- measured a full round trip and then discarded the economics.
+--
+-- This settles the IMMEDIATE MECHANICS: the buy and the sell that actually
+-- executed, in one runtime, against exact captured state. It deliberately does
+-- NOT settle the policy exit, which is a mark on a later path and therefore a
+-- counterfactual; conflating the two would let a hypothetical exit price wear
+-- the label of a measured one.
+--
+-- Append-only on the trajectory id. An outcome that could be rewritten is not
+-- evidence, and INSERT OR IGNORE makes a retry idempotent while refusing a
+-- second, different answer for the same trajectory.
+CREATE TABLE IF NOT EXISTS trajectory_settlements (
+  trajectory_id            TEXT PRIMARY KEY,
+  scope                    TEXT NOT NULL,
+  -- TEXT because SQLite INTEGER is 64-bit SIGNED and these are lamport figures.
+  entry_cash_out           TEXT NOT NULL,
+  exit_cash_in             TEXT,
+  gross_exit_credit        TEXT,
+  base_fees                TEXT NOT NULL,
+  priority_fees            TEXT NOT NULL,
+  tips                     TEXT NOT NULL,
+  transfer_fees            TEXT NOT NULL,
+  failed_attempt_fees      TEXT NOT NULL,
+  rent_created             TEXT NOT NULL,
+  rent_recovered           TEXT NOT NULL,
+  rent_still_locked        TEXT NOT NULL,
+  cashback_accrued         TEXT NOT NULL,
+  cashback_claimable       TEXT NOT NULL,
+  cashback_claimed         TEXT NOT NULL,
+  cashback_claim_cost      TEXT NOT NULL,
+  residual_token_atoms     TEXT NOT NULL,
+  -- DERIVED from the payer identity, never assumed zero. A residue is a cost
+  -- the model does not know about.
+  unexplained_lamports     TEXT NOT NULL,
+  execution_cost           TEXT NOT NULL,
+  -- NULL with reasons whenever a component is unknown. Never a silent zero.
+  net_pnl                  TEXT,
+  pnl_blocked_reasons      TEXT NOT NULL,
+  identity_violations      TEXT NOT NULL,
+  settled_utc_ms           INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tsettle_net ON trajectory_settlements(net_pnl);
+`,
+  },
+  {
+    id: 45,
+    name: 'exploration_entitlement',
+    sql: `
+-- Item 55 -- how much exploration budget remains, and how much was spent.
+--
+-- pnpm exploration:status aliased cohort:status, which answers which CELLS
+-- ARE UNDER-FILLED. That is a different question from HOW MUCH EXPLORATION
+-- BUDGET REMAINS, and the alias meant nobody could tell that the exploration
+-- arm had never actually run: the allocator existed, was tested, was pure, and
+-- no production caller invoked it.
+--
+-- A gate evaluated only on the candidates it admitted is evaluated on its own
+-- output. The 25% draw exists so the corpus contains rows the ranking would
+-- never have bought, and an entitlement that is not tracked is an entitlement
+-- that silently goes unspent.
+--
+-- Keyed by window so a restart RESUMES rather than re-granting: the ledger is
+-- the state, and the process holds none of it.
+CREATE TABLE IF NOT EXISTS exploration_entitlement (
+  window_id        TEXT NOT NULL,
+  stratum          TEXT NOT NULL,
+  -- FROZEN before collection. Choosing it afterwards, having seen which arm did
+  -- better, is choosing an answer.
+  fraction         REAL NOT NULL,
+  granted          INTEGER NOT NULL DEFAULT 0,
+  consumed         INTEGER NOT NULL DEFAULT 0,
+  updated_utc_ms   INTEGER NOT NULL,
+  PRIMARY KEY (window_id, stratum)
+);
+
+-- Which arm each trajectory came from, and with what probability.
+--
+-- Without the probability the sample cannot be reweighted, and a biased sample
+-- whose bias is unrecorded is worse than no sample: it looks like evidence.
+ALTER TABLE development_trajectories ADD COLUMN exploration_arm TEXT;
+ALTER TABLE development_trajectories ADD COLUMN inclusion_probability REAL;
+ALTER TABLE development_trajectories ADD COLUMN exploration_window TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_traj_arm ON development_trajectories(exploration_arm);
+`,
+  },
+  {
+    id: 46,
+    name: 'prospective_samples',
+    sql: `
+-- reject:panel-v2 -- the panel that is PROSPECTIVE, because the sample and the
+-- scoring rule are fixed before any outcome exists.
+--
+-- reject_tracking records THAT a token was rejected: mint, reason, a price and
+-- a liquidity figure. It does not record the STATE the rejection was made on,
+-- and a panel scored from state fetched later is a different experiment -- the
+-- pool has traded, the reserves have moved, and the thing being scored is no
+-- longer the thing the filter saw.
+--
+-- Three tables because three things must not be written at the same time:
+--   the RULE      frozen once, before any row is admitted
+--   the SAMPLE    written at the instant of rejection, outcome-free
+--   the OUTCOME   written later, and only for horizons the rule declared
+CREATE TABLE IF NOT EXISTS prospective_panels (
+  panel_id            TEXT PRIMARY KEY,
+  -- Frozen BEFORE collection. Changing any of these is a new panel, never an
+  -- edit: a horizon added after seeing outcomes is a horizon chosen on them.
+  declared_utc_ms     INTEGER NOT NULL,
+  horizons_ms         TEXT NOT NULL,
+  metric              TEXT NOT NULL,
+  -- The commit the rule was frozen at, so a rule that moved is detectable.
+  source_commit       TEXT NOT NULL,
+  notes               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS prospective_samples (
+  sample_id           TEXT PRIMARY KEY,
+  panel_id            TEXT NOT NULL,
+  mint                TEXT NOT NULL,
+  -- The STATE, by reference. This is the column reject_tracking lacks and the
+  -- reason a v1 panel could never be prospective.
+  snapshot_id         TEXT NOT NULL,
+  rejected_utc_ms     INTEGER NOT NULL,
+  primary_reason      TEXT NOT NULL,
+  -- Every gate verdict, not just the first one to fire. A filter's cost cannot
+  -- be attributed when only the winning reason was kept.
+  gate_verdicts       TEXT NOT NULL,
+  -- How this row entered the panel. Without it the panel is a convenience
+  -- sample, and a biased sample whose bias is unrecorded looks like evidence.
+  inclusion_probability REAL,
+  stratum             TEXT,
+  -- Executable state AT REJECTION, in lamports as TEXT (SQLite INTEGER is
+  -- 64-bit SIGNED). Null means the provider did not answer, never zero.
+  pool_reserves_lamports TEXT,
+  executable_quote_lamports TEXT,
+  route_exists        INTEGER,
+  FOREIGN KEY (panel_id) REFERENCES prospective_panels(panel_id)
+);
+CREATE INDEX IF NOT EXISTS idx_psample_panel ON prospective_samples(panel_id, rejected_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_psample_mint ON prospective_samples(mint);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_psample_once ON prospective_samples(panel_id, mint, snapshot_id);
+
+-- Outcomes, keyed by a horizon the PANEL declared. A horizon not in
+-- horizons_ms has no row here, which is what stops a metric being read off a
+-- window picked once the answer was visible.
+CREATE TABLE IF NOT EXISTS prospective_sample_marks (
+  sample_id           TEXT NOT NULL,
+  horizon_ms          INTEGER NOT NULL,
+  observed_utc_ms     INTEGER NOT NULL,
+  -- How late the mark actually was. A horizon reached late carries the right
+  -- label and the wrong instant.
+  lateness_ms         INTEGER NOT NULL,
+  executable_lamports TEXT,
+  -- Why this mark carries no price. Never collapsed to "no route".
+  refusal             TEXT,
+  PRIMARY KEY (sample_id, horizon_ms),
+  FOREIGN KEY (sample_id) REFERENCES prospective_samples(sample_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pmark_due ON prospective_sample_marks(horizon_ms, observed_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {

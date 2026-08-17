@@ -6,7 +6,7 @@ import {
   canonicalPool,
   type OfflinePoolFacts,
 } from '../../solana/src/pumpswap-offline.js';
-import { feeTiersOf, tierFor, type FeeTier } from '../../solana/src/fee-tiers.js';
+import { feeTiersOf, tierForPool, type FeeTier } from '../../solana/src/fee-tiers.js';
 
 /**
  * P4/P7 — price the exit from the pool, not from a router.
@@ -135,7 +135,20 @@ export async function directSellMark(
         executable: false,
         rentEpoch: 0,
       });
-      feeTier = tierFor(feeTiersOf(decoded), facts.quoteReserveRaw + facts.virtualQuoteReserves);
+      /**
+       * F15 — the tier comes from MARKET CAP, not from quote reserve.
+       *
+       * This passed `quoteReserveRaw + virtualQuoteReserves` to a parameter
+       * whose unit is a market cap. Those are not proportional: a pool with a
+       * small quote reserve and a tiny base reserve is a HIGH cap, and reading
+       * it off the quote side alone puts it in the bottom tier and reports a
+       * 250 bps floor where the program charges 50.
+       */
+      feeTier = tierForPool(feeTiersOf(decoded), {
+        quoteReserveLamports: facts.quoteReserveRaw + facts.virtualQuoteReserves,
+        baseReserveAtoms: facts.baseReserve,
+        baseMintSupplyAtoms: facts.baseMintSupplyAtoms,
+      }).tier;
     } catch {
       feeTier = null;
     }

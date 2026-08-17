@@ -107,6 +107,24 @@ export function entityAdjustedConcentration(p: {
   histories: readonly EntityHistory[];
   clusteredShare: number;
 }): ConcentrationVerdict {
+  /**
+   * NO histories is not zero clustering.
+   *
+   * This function used to return `MEASURED` with whatever `clusteredShare` the
+   * caller passed when `histories` was empty — because the filter below finds
+   * nothing incomplete in an empty list. A caller that had examined no wallets
+   * at all therefore got `MEASURED share 0`, which passes the gate.
+   *
+   * That is the exact substitution this whole module exists to prevent: an
+   * unmeasured quantity reading identically to a measured safe one. Vacuous
+   * truth over an empty collection is how it gets in.
+   */
+  if (p.histories.length === 0) {
+    return {
+      kind: 'HISTORY_INCOMPLETE',
+      reason: 'no holder history was examined at all, so clustering is unmeasured rather than absent',
+    };
+  }
   const incomplete = p.histories.filter((h) => !h.reachedEarliestSignature).length;
   if (incomplete > 0) {
     return {

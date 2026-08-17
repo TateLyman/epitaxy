@@ -179,3 +179,52 @@ export function haircutExitValue(exitLamports: bigint, haircutBps: number): bigi
   const bps = BigInt(Math.max(0, Math.min(10_000, Math.ceil(haircutBps))));
   return (exitLamports * (10_000n - bps)) / 10_000n;
 }
+
+export interface SoleVenueAttribution {
+  readonly attributed: boolean;
+  readonly baseOutAtoms: bigint;
+  readonly quoteInLamports: bigint;
+  readonly takerCreditAtoms: bigint;
+  /** Why not, when not. Null when attributed. */
+  readonly refusal: string | null;
+}
+
+/**
+ * Did the CANONICAL POOL supply the entire entry?
+ *
+ * F4. Showing that the canonical base vault changed is not enough: a split or
+ * routed entry moves it too, and reporting "the vault moved" as direct evidence
+ * is how a routed fill becomes a claim about one venue's mechanics.
+ *
+ * The identity that has to hold is that the pool's base vault fell by EXACTLY
+ * what the taker gained, and that quote went in. If some other venue supplied
+ * part of the flow, the taker's credit exceeds what this pool gave up.
+ *
+ * Extracted from `openTrajectory` where it sat inline. It is the rule that makes
+ * every direct-mechanics number in this repository mean anything, and it had no
+ * test of its own — the audit in tests/unit/directive-29c7cc7-coverage.test.ts
+ * found that by refusing to accept a citation whose text was not in the file.
+ */
+export function attributeSoleVenue(p: {
+  baseOutAtoms: bigint;
+  quoteInLamports: bigint;
+  takerCreditAtoms: bigint;
+}): SoleVenueAttribution {
+  const base = { baseOutAtoms: p.baseOutAtoms, quoteInLamports: p.quoteInLamports, takerCreditAtoms: p.takerCreditAtoms };
+  if (p.baseOutAtoms <= 0n) {
+    return { ...base, attributed: false, refusal: 'the pool base vault did not fall, so this pool supplied nothing' };
+  }
+  if (p.quoteInLamports <= 0n) {
+    return { ...base, attributed: false, refusal: 'the pool quote vault did not rise, so nothing was paid to this pool' };
+  }
+  if (p.baseOutAtoms !== p.takerCreditAtoms) {
+    return {
+      ...base,
+      attributed: false,
+      refusal:
+        `pool base out ${p.baseOutAtoms} != taker credit ${p.takerCreditAtoms}; ` +
+        'part of the flow came from somewhere else, so this is not direct evidence about this venue',
+    };
+  }
+  return { ...base, attributed: true, refusal: null };
+}

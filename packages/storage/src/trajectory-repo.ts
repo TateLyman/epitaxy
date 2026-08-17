@@ -210,16 +210,72 @@ export function insertConfirmedMigration(
 export function migrationCandidates(
   db: Db,
   limit = 50,
+  /**
+   * How many trajectories one mint may ever contribute.
+   *
+   * A cap rather than a ban: the same pool at a different hour is a different
+   * market, so a repeat is informative. It is not INDEPENDENT, though, and a
+   * corpus dominated by one pool cannot support a claim about a population.
+   */
+  maxPerMint = 3,
 ): { mint: string; canonical_pool: string; slot: number; block_time: number | null; is_cashback_coin: number | null; is_mayhem_mode: number | null }[] {
+  /**
+   * Least-sampled first, and never a mint that is already open.
+   *
+   * This used to be `ORDER BY slot DESC LIMIT ?` with no reference to what had
+   * already been sampled, so every cycle returned the same newest migrations
+   * and opened a trajectory on each. Observed in the first ten minutes of the
+   * first window: cycles 1 and 2 opened the SAME three mints, and the corpus was
+   * filling with repeated measurements of three pools.
+   *
+   * That matters because the threshold is 100 valid paths per policy-cohort.
+   * A hundred paths across three pools is three outcomes with a hundred
+   * observations of them, and no amount of collection turns one into the other.
+   *
+   * Two rules:
+   *
+   * - a mint with an OPEN trajectory is excluded outright — two concurrent
+   *   trajectories on one pool share a mark path and duplicate each other
+   *   exactly;
+   * - the rest are ordered by how many trajectories they have already produced,
+   *   so coverage spreads before it deepens, with `slot DESC` breaking ties
+   *   toward the fresher migration.
+   */
   return db
     .prepare(
-      `SELECT mint, canonical_pool, slot, block_time, is_cashback_coin, is_mayhem_mode
-         FROM confirmed_migrations
-        WHERE reversal_status = 'CONFIRMED'
-        ORDER BY slot DESC
+      `SELECT m.mint, m.canonical_pool, m.slot, m.block_time, m.is_cashback_coin, m.is_mayhem_mode,
+              COALESCE(t.n, 0) AS sampled
+         FROM confirmed_migrations m
+         LEFT JOIN (
+           SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint
+         ) t ON t.mint = m.mint
+        WHERE m.reversal_status = 'CONFIRMED'
+          AND COALESCE(t.n, 0) < ?
+          AND m.mint NOT IN (
+            SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+          )
+        ORDER BY sampled ASC, m.slot DESC
         LIMIT ?`,
     )
-    .all(limit) as never;
+    .all(maxPerMint, limit) as never;
+}
+
+/** How concentrated the corpus is. A study of three pools is not a study. */
+export function samplingSpread(db: Db): {
+  trajectories: number;
+  distinctMints: number;
+  maxPerMint: number;
+  topMints: { mint: string; n: number }[];
+} {
+  const rows = db
+    .prepare('SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint ORDER BY n DESC')
+    .all() as { mint: string; n: number }[];
+  return {
+    trajectories: rows.reduce((a, r) => a + r.n, 0),
+    distinctMints: rows.length,
+    maxPerMint: rows[0]?.n ?? 0,
+    topMints: rows.slice(0, 5),
+  };
 }
 
 export function confirmedMigrationCounts(db: Db): Record<string, number> {
@@ -293,4 +349,456 @@ export function accountPlanFor(
 
 export function accountPlanCount(db: Db): number {
   return (db.prepare('SELECT COUNT(*) c FROM leg_account_plans').get() as { c: number }).c;
+}
+
+/**
+ * P6 — persist every account a leg created, with who benefits from it.
+ *
+ * Append-only via `INSERT OR IGNORE` on the (trajectory, leg, pubkey) key: a
+ * retry of the same observation is idempotent, and nothing can rewrite what a
+ * transaction was measured to have created. The alternative — an upsert — would
+ * let a later, differently-scoped classification silently redefine an earlier
+ * cost, which is the same class of defect as a rebuilt account plan.
+ */
+export function insertCreatedAccounts(
+  db: Db,
+  trajectoryId: string,
+  leg: string,
+  accounts: readonly {
+    pubkey: string;
+    owner: string;
+    space: number;
+    rentExemptMinimumLamports: bigint;
+    excessLamports: bigint;
+    scope: string;
+    recoverability: string;
+    sharedWithOtherTraders: boolean;
+  }[],
+  recordedUtcMs: number,
+): void {
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO created_accounts (
+       trajectory_id, leg, pubkey, owner, space,
+       rent_exempt_min, excess_lamports,
+       economic_scope, recoverability, shared_with_other, recorded_utc_ms
+     ) VALUES (?,?,?,?,?, ?,?, ?,?,?,?)`,
+  );
+  for (const a of accounts) {
+    stmt.run(
+      trajectoryId,
+      leg,
+      a.pubkey,
+      a.owner,
+      a.space,
+      a.rentExemptMinimumLamports.toString(),
+      a.excessLamports.toString(),
+      a.scope,
+      a.recoverability,
+      a.sharedWithOtherTraders ? 1 : 0,
+      recordedUtcMs,
+    );
+  }
+}
+
+export function createdAccountsFor(
+  db: Db,
+  trajectoryId: string,
+): {
+  leg: string;
+  pubkey: string;
+  owner: string;
+  space: number;
+  rent_exempt_min: string;
+  excess_lamports: string;
+  economic_scope: string;
+  recoverability: string;
+  shared_with_other: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT leg, pubkey, owner, space, rent_exempt_min, excess_lamports,
+              economic_scope, recoverability, shared_with_other
+         FROM created_accounts WHERE trajectory_id = ? ORDER BY leg, pubkey`,
+    )
+    .all(trajectoryId) as never;
+}
+
+/**
+ * The corpus-level cold/warm picture, in lamports rather than in adjectives.
+ *
+ * `subsidy` is the number the P6 hypothesis is about: rent this system paid to
+ * open accounts every later trader through the same pool gets for free.
+ */
+export function setupEconomicsTotals(db: Db): {
+  accounts: number;
+  trajectories: number;
+  totalRentLamports: string;
+  recoverableLamports: string;
+  subsidyLamports: string;
+  unknownScope: number;
+} {
+  const sum = (sql: string): bigint => {
+    const rows = db.prepare(sql).all() as { v: string }[];
+    let t = 0n;
+    for (const r of rows) t += BigInt(r.v);
+    return t;
+  };
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number }).c;
+
+  return {
+    accounts: one('SELECT COUNT(*) c FROM created_accounts'),
+    trajectories: one('SELECT COUNT(DISTINCT trajectory_id) c FROM created_accounts'),
+    totalRentLamports: sum('SELECT rent_exempt_min v FROM created_accounts').toString(),
+    recoverableLamports: sum(
+      "SELECT rent_exempt_min v FROM created_accounts WHERE recoverability = 'RECOVERABLE_BY_US'",
+    ).toString(),
+    subsidyLamports: sum(
+      'SELECT rent_exempt_min v FROM created_accounts WHERE shared_with_other = 1',
+    ).toString(),
+    unknownScope: one(
+      "SELECT COUNT(*) c FROM created_accounts WHERE economic_scope = 'UNKNOWN' OR recoverability = 'UNKNOWN'",
+    ),
+  };
+}
+
+/**
+ * P7 — persist what each leg moved through the cashback accounts.
+ *
+ * Append-only on (trajectory, leg), like every other evidence table here: a
+ * retry of the same observation is idempotent, and a later measurement cannot
+ * silently redefine an earlier one.
+ *
+ * Nothing is summed on the way in. One number across both legs is exactly what
+ * cannot answer the question the F13 correction raises — whether the SELL
+ * accrued — and a sum written here could never be taken apart again.
+ */
+export function insertLegCashback(
+  db: Db,
+  trajectoryId: string,
+  isCashbackCoin: boolean,
+  legs: readonly {
+    leg: string;
+    accumulatorWsolDeltaLamports: bigint | null;
+    accumulatorDeltaLamports: bigint | null;
+    creatorVaultDeltaLamports: bigint | null;
+    feeRecipientDeltaLamports: bigint | null;
+    accruedToUs: boolean | null;
+  }[],
+  recordedUtcMs: number,
+): void {
+  const stmt = db.prepare(
+    `INSERT OR IGNORE INTO leg_cashback (
+       trajectory_id, leg,
+       accumulator_wsol_delta, accumulator_delta, creator_vault_delta, fee_recipient_delta,
+       accrued_to_us, is_cashback_coin, recorded_utc_ms
+     ) VALUES (?,?, ?,?,?,?, ?,?,?)`,
+  );
+  // An unobserved account is NULL, never '0'. Zero is a measurement, and the
+  // whole class of defect this schema guards against is one standing in for the
+  // other.
+  const s = (v: bigint | null): string | null => (v === null ? null : v.toString());
+  for (const l of legs) {
+    stmt.run(
+      trajectoryId,
+      l.leg,
+      s(l.accumulatorWsolDeltaLamports),
+      s(l.accumulatorDeltaLamports),
+      s(l.creatorVaultDeltaLamports),
+      s(l.feeRecipientDeltaLamports),
+      l.accruedToUs === null ? null : l.accruedToUs ? 1 : 0,
+      isCashbackCoin ? 1 : 0,
+      recordedUtcMs,
+    );
+  }
+}
+
+export function legCashbackFor(
+  db: Db,
+  trajectoryId: string,
+): {
+  leg: string;
+  accumulator_wsol_delta: string | null;
+  accumulator_delta: string | null;
+  creator_vault_delta: string | null;
+  fee_recipient_delta: string | null;
+  accrued_to_us: number | null;
+  is_cashback_coin: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT leg, accumulator_wsol_delta, accumulator_delta, creator_vault_delta,
+              fee_recipient_delta, accrued_to_us, is_cashback_coin
+         FROM leg_cashback WHERE trajectory_id = ? ORDER BY leg DESC`,
+    )
+    .all(trajectoryId) as never;
+}
+
+/**
+ * Did BOTH legs accrue, across the corpus?
+ *
+ * The count that settles F13 empirically. If `sellAccrued` stays at zero while
+ * `buyAccrued` climbs, the old one-leg model was right after all and this
+ * correction is wrong — which is the point of measuring rather than asserting.
+ */
+export function cashbackLegTotals(db: Db): {
+  legs: number;
+  cashbackCoinLegs: number;
+  buyAccrued: number;
+  sellAccrued: number;
+  undetermined: number;
+  accumulatorGainLamports: string;
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number }).c;
+  const rows = db
+    .prepare("SELECT accumulator_wsol_delta v FROM leg_cashback WHERE accumulator_wsol_delta IS NOT NULL")
+    .all() as { v: string }[];
+  let gain = 0n;
+  for (const r of rows) {
+    const d = BigInt(r.v);
+    if (d > 0n) gain += d;
+  }
+  return {
+    legs: one('SELECT COUNT(*) c FROM leg_cashback'),
+    cashbackCoinLegs: one('SELECT COUNT(*) c FROM leg_cashback WHERE is_cashback_coin = 1'),
+    buyAccrued: one("SELECT COUNT(*) c FROM leg_cashback WHERE leg = 'buy' AND accrued_to_us = 1"),
+    sellAccrued: one("SELECT COUNT(*) c FROM leg_cashback WHERE leg = 'sell' AND accrued_to_us = 1"),
+    undetermined: one('SELECT COUNT(*) c FROM leg_cashback WHERE accrued_to_us IS NULL'),
+    accumulatorGainLamports: gain.toString(),
+  };
+}
+
+/**
+ * P10 — persist the risk facts, admitted or refused.
+ *
+ * The refusals are the larger half and the more useful one. A screening row is
+ * written for every token screened; the same rule applies here, because a
+ * filter whose rejects are not stored can never be evaluated.
+ *
+ * Keyed on (mint, collected_utc_ms) so re-examining the same mint later is a
+ * new observation rather than an overwrite. The facts were true at a time, and
+ * a token whose freeze authority was renounced yesterday should not retroactively
+ * rewrite yesterday's refusal.
+ */
+export function insertCandidateRiskFacts(
+  db: Db,
+  f: {
+    mint: string;
+    pool: string;
+    collectedAtMs: number;
+    mint2022: {
+      overall: string;
+      freezeAuthority: string;
+      mintAuthority: string;
+      permanentDelegate: string;
+      transferHook: string;
+      decodeFailure: string | null;
+      transferFeeBps: number | null;
+    };
+    transferFee: { kind: string };
+    mayhem: { enabled: boolean | null; source: string };
+    breadth: string;
+    isCashbackCoin: boolean | null;
+    accumulatorWsolAta: string | null;
+    concentration: { kind: string; entityAdjustedShare?: number };
+    canonicalPool: boolean;
+    requiresSharedSetup: boolean | null;
+  },
+  admission: { admit: boolean; refusals: readonly string[]; stratum: string },
+  trajectoryId: string | null,
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO candidate_risk_facts (
+       mint, pool, collected_utc_ms, trajectory_id,
+       mint_overall, freeze_authority, mint_authority, permanent_delegate, transfer_hook, mint_decode_failure,
+       transfer_fee_kind, transfer_fee_bps,
+       mayhem_enabled, mayhem_source, breadth_usability,
+       is_cashback_coin, accumulator_wsol_ata,
+       concentration_kind, entity_adjusted_share,
+       canonical_pool, requires_shared_setup, stratum, admitted, refusals
+     ) VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?, ?,?,?, ?,?, ?,?, ?,?,?,?,?)`,
+  ).run(
+    f.mint,
+    f.pool,
+    f.collectedAtMs,
+    trajectoryId,
+    f.mint2022.overall,
+    f.mint2022.freezeAuthority,
+    f.mint2022.mintAuthority,
+    f.mint2022.permanentDelegate,
+    f.mint2022.transferHook,
+    f.mint2022.decodeFailure,
+    f.transferFee.kind,
+    f.mint2022.transferFeeBps,
+    // NULL, not 0. A token neither venue could be read for has not been shown
+    // to be non-Mayhem; it has not been looked at.
+    f.mayhem.enabled === null ? null : f.mayhem.enabled ? 1 : 0,
+    f.mayhem.source,
+    f.breadth,
+    f.isCashbackCoin === null ? null : f.isCashbackCoin ? 1 : 0,
+    f.accumulatorWsolAta,
+    f.concentration.kind,
+    f.concentration.entityAdjustedShare ?? null,
+    f.canonicalPool ? 1 : 0,
+    f.requiresSharedSetup === null ? null : f.requiresSharedSetup ? 1 : 0,
+    admission.stratum,
+    admission.admit ? 1 : 0,
+    JSON.stringify(admission.refusals),
+  );
+}
+
+export function riskFactsFor(db: Db, mint: string): Record<string, unknown>[] {
+  return db
+    .prepare('SELECT * FROM candidate_risk_facts WHERE mint = ? ORDER BY collected_utc_ms DESC')
+    .all(mint) as never;
+}
+
+/** Admission counts by stratum, and the refusal histogram. Refusals are the product. */
+export function admissionTotals(db: Db): {
+  examined: number;
+  admitted: number;
+  byStratum: { stratum: string; n: number; admitted: number }[];
+  topRefusals: { reason: string; n: number }[];
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number } | undefined)?.c ?? 0;
+  const rows = db.prepare('SELECT refusals FROM candidate_risk_facts WHERE admitted = 0').all() as {
+    refusals: string;
+  }[];
+  const hist = new Map<string, number>();
+  for (const r of rows) {
+    let parsed: string[] = [];
+    try {
+      parsed = JSON.parse(r.refusals) as string[];
+    } catch {
+      parsed = ['(unparseable refusal row)'];
+    }
+    for (const reason of parsed) hist.set(reason, (hist.get(reason) ?? 0) + 1);
+  }
+  return {
+    examined: one('SELECT COUNT(*) c FROM candidate_risk_facts'),
+    admitted: one('SELECT COUNT(*) c FROM candidate_risk_facts WHERE admitted = 1'),
+    byStratum: db
+      .prepare(
+        `SELECT stratum, COUNT(*) n, SUM(admitted) admitted FROM candidate_risk_facts
+          GROUP BY stratum ORDER BY n DESC`,
+      )
+      .all() as never,
+    topRefusals: [...hist.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([reason, n]) => ({ reason, n })),
+  };
+}
+
+
+/**
+ * P5 - write the ONE canonical settlement for a trajectory.
+ *
+ * `INSERT OR IGNORE` on the trajectory id: a retry of the same settlement is
+ * idempotent, and a second, DIFFERENT answer for the same trajectory is refused
+ * rather than allowed to overwrite the first. An outcome that can be rewritten
+ * is not evidence.
+ */
+export function insertTrajectorySettlement(
+  db: Db,
+  trajectoryId: string,
+  scope: string,
+  s: {
+    entryCashOutLamports: bigint;
+    exitCashInLamports: bigint | null;
+    grossExitCreditLamports: bigint | null;
+    baseFeesLamports: bigint;
+    priorityFeesLamports: bigint;
+    tipsLamports: bigint;
+    transferFeesLamports: bigint;
+    failedAttemptFeesLamports: bigint;
+    rentCreatedLamports: bigint;
+    rentRecoveredLamports: bigint;
+    rentStillLockedLamports: bigint;
+    cashbackAccruedLamports: bigint;
+    cashbackClaimableLamports: bigint;
+    cashbackClaimedLamports: bigint;
+    cashbackClaimCostLamports: bigint;
+    residualTokenAtoms: bigint;
+    unexplainedLamports: bigint;
+    executionCostLamports: bigint;
+    netPnlLamports: bigint | null;
+    pnlBlockedReasons: readonly string[];
+  },
+  identityViolations: readonly string[],
+  settledUtcMs: number,
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO trajectory_settlements (
+       trajectory_id, scope, entry_cash_out, exit_cash_in, gross_exit_credit,
+       base_fees, priority_fees, tips, transfer_fees, failed_attempt_fees,
+       rent_created, rent_recovered, rent_still_locked,
+       cashback_accrued, cashback_claimable, cashback_claimed, cashback_claim_cost,
+       residual_token_atoms, unexplained_lamports, execution_cost, net_pnl,
+       pnl_blocked_reasons, identity_violations, settled_utc_ms
+     ) VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?)`,
+  ).run(
+    trajectoryId,
+    scope,
+    s.entryCashOutLamports.toString(),
+    s.exitCashInLamports === null ? null : s.exitCashInLamports.toString(),
+    s.grossExitCreditLamports === null ? null : s.grossExitCreditLamports.toString(),
+    s.baseFeesLamports.toString(),
+    s.priorityFeesLamports.toString(),
+    s.tipsLamports.toString(),
+    s.transferFeesLamports.toString(),
+    s.failedAttemptFeesLamports.toString(),
+    s.rentCreatedLamports.toString(),
+    s.rentRecoveredLamports.toString(),
+    s.rentStillLockedLamports.toString(),
+    s.cashbackAccruedLamports.toString(),
+    s.cashbackClaimableLamports.toString(),
+    s.cashbackClaimedLamports.toString(),
+    s.cashbackClaimCostLamports.toString(),
+    s.residualTokenAtoms.toString(),
+    s.unexplainedLamports.toString(),
+    s.executionCostLamports.toString(),
+    s.netPnlLamports === null ? null : s.netPnlLamports.toString(),
+    JSON.stringify(s.pnlBlockedReasons),
+    JSON.stringify(identityViolations),
+    settledUtcMs,
+  );
+}
+
+/** The corpus-level settlement picture. Net PnL exists or it does not. */
+export function settlementTotals(db: Db): {
+  settlements: number;
+  withNetPnl: number;
+  netPnlLamports: string;
+  nonZeroUnexplained: number;
+  withIdentityViolations: number;
+  topBlockers: { reason: string; n: number }[];
+} {
+  const one = (sql: string): number => (db.prepare(sql).get() as { c: number } | undefined)?.c ?? 0;
+  let net = 0n;
+  for (const r of db.prepare('SELECT net_pnl v FROM trajectory_settlements WHERE net_pnl IS NOT NULL').all() as {
+    v: string;
+  }[]) {
+    net += BigInt(r.v);
+  }
+  const hist = new Map<string, number>();
+  for (const r of db.prepare('SELECT pnl_blocked_reasons r FROM trajectory_settlements').all() as { r: string }[]) {
+    let parsed: string[] = [];
+    try {
+      parsed = JSON.parse(r.r) as string[];
+    } catch {
+      parsed = ['(unparseable)'];
+    }
+    for (const x of parsed) hist.set(x, (hist.get(x) ?? 0) + 1);
+  }
+  return {
+    settlements: one('SELECT COUNT(*) c FROM trajectory_settlements'),
+    withNetPnl: one('SELECT COUNT(*) c FROM trajectory_settlements WHERE net_pnl IS NOT NULL'),
+    netPnlLamports: net.toString(),
+    nonZeroUnexplained: one("SELECT COUNT(*) c FROM trajectory_settlements WHERE unexplained_lamports != '0'"),
+    withIdentityViolations: one("SELECT COUNT(*) c FROM trajectory_settlements WHERE identity_violations != '[]'"),
+    topBlockers: [...hist.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([reason, n]) => ({ reason, n })),
+  };
 }

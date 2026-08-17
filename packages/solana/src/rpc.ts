@@ -61,7 +61,19 @@ const GetAccountInfoSchema = rpcEnvelope(
 const GetSlotSchema = rpcEnvelope(z.number());
 const GetEpochInfoSchema = rpcEnvelope(z.object({ epoch: z.number() }).passthrough());
 const GetSignaturesSchema = rpcEnvelope(
-  z.array(z.object({ signature: z.string(), blockTime: z.number().nullable().optional() }).passthrough()),
+  z.array(
+    z
+      .object({
+        signature: z.string(),
+        blockTime: z.number().nullable().optional(),
+        // Item 49 — a replay needs the SLOT to order events, and `err` to tell
+        // a trade that landed from one that only tried. Both were being thrown
+        // away by the mapping below.
+        slot: z.number().optional(),
+        err: z.unknown().nullable().optional(),
+      })
+      .passthrough(),
+  ),
 );
 const GetTransactionMetaSchema = rpcEnvelope(
   z
@@ -283,7 +295,7 @@ export class SolanaRpc {
     address: string,
     limit = 50,
     before?: string,
-  ): Promise<{ signature: string; blockTime: number | null }[]> {
+  ): Promise<{ signature: string; blockTime: number | null; slot: number | null; failed: boolean | null }[]> {
     assertPubkey(address, 'signatures address');
     const cfg: Record<string, unknown> = { limit, commitment: 'confirmed' };
     if (before !== undefined) cfg['before'] = before;
@@ -291,6 +303,10 @@ export class SolanaRpc {
     return this.unwrap(env, 'getSignaturesForAddress').map((r) => ({
       signature: r.signature,
       blockTime: r.blockTime ?? null,
+      slot: r.slot ?? null,
+      // A provider that omitted the field said nothing about success. Null, not
+      // false — "we were not told" is not "it landed".
+      failed: r.err === undefined ? null : r.err !== null,
     }));
   }
 
@@ -818,3 +834,87 @@ export async function fetchConcentration(rpc: SolanaRpc, mint: string): Promise<
 }
 
 export { SPL_ACCOUNT_OWNER_OFFSET };
+
+/**
+ * Is this error a spent DAILY QUOTA rather than a per-second rate limit?
+ *
+ * Both arrive as HTTP 429 and they call for opposite responses. A rate limit is
+ * transient: back off and the next call succeeds. A spent daily quota is not:
+ * every retry today fails, backoff makes the cycle slower without making it
+ * more likely to work, and the resulting refusals read as facts about the
+ * tokens rather than about the account.
+ *
+ * Measured on 2026-08-16: the collector spent an entire cycle refusing every
+ * candidate with `APPARATUS: the pool could not be read (HTTP 429)`, and the
+ * body said `daily request limit reached - upgrade your account`. Nothing was
+ * wrong with the chain, the pools or the code. Everything was wrong with
+ * continuing to ask.
+ *
+ * Matched on the message body because the providers agree on the words and not
+ * on a code: QuickNode returns -32003 with "daily request limit reached",
+ * Helius and Triton phrase it as credits or a monthly cap.
+ */
+export function isQuotaExhausted(e: unknown): boolean {
+  const m = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
+  if (!m.includes('429') && !m.includes('rate_limited') && !m.includes('rate limited')) return false;
+  return (
+    m.includes('daily request limit') ||
+    m.includes('monthly') ||
+    m.includes('credits') ||
+    m.includes('upgrade your account') ||
+    m.includes('quota') ||
+    // Helius, verified 2026-08-16. Added after the phrase list missed it: the
+    // collector had a stop for exactly this condition and ground through six
+    // candidates anyway, because the provider chose different words.
+    m.includes('max usage')
+  );
+}
+
+/**
+ * A wording-independent circuit breaker for endpoint exhaustion.
+ *
+ * `isQuotaExhausted` matches provider prose, and prose is brittle. It was
+ * written against QuickNode's `daily request limit reached` and then missed
+ * Helius's `max usage reached` on the very next run — the stop it guarded did
+ * not fire, and the cycle produced six apparatus refusals instead of one honest
+ * line.
+ *
+ * This asks the question that actually matters and needs no vocabulary: are we
+ * being refused over and over? A transient per-second limit resolves within a
+ * few calls because the client backs off. A spent allowance does not resolve at
+ * all, so consecutive refusals accumulate and the only useful response is to
+ * stop asking.
+ *
+ * Consecutive rather than total: one 429 in the middle of a working cycle is
+ * ordinary rate limiting and must not end the pass.
+ */
+export class EndpointRefusalBreaker {
+  private consecutive = 0;
+
+  constructor(private readonly limit = 3) {}
+
+  /** Record an outcome. Returns true once the endpoint should be left alone. */
+  record(failure: unknown | null): boolean {
+    if (failure === null) {
+      this.consecutive = 0;
+      return false;
+    }
+    const m = failure instanceof Error ? failure.message : String(failure);
+    // Only rate-shaped refusals count. A pool that does not exist is a fact
+    // about the token and must never trip a breaker about the endpoint.
+    if (!m.includes('429') && !m.toLowerCase().includes('rate_limited')) {
+      this.consecutive = 0;
+      return false;
+    }
+    this.consecutive++;
+    return this.tripped;
+  }
+
+  get tripped(): boolean {
+    return this.consecutive >= this.limit;
+  }
+
+  get consecutiveRefusals(): number {
+    return this.consecutive;
+  }
+}

@@ -8,6 +8,7 @@ import { associatedTokenAddress, TOKEN_PROGRAM } from '../packages/solana/src/pd
 import {
   accountSourceOf,
   poolAddressesFrom,
+  poolFactsFrom,
   buildBuyFrom,
   swapAccountAddresses,
   associatedTokenAddressOf,
@@ -19,7 +20,7 @@ import { buildCloseAccount } from '../packages/solana/src/closeaccount.js';
 import { sequentialRoundTrip, standardPumpSwapSell } from '../packages/pipeline/src/sequential-round-trip.js';
 import { SequentialWorker } from '../packages/simulator/src/sequential-worker.js';
 import { createdAccountRentAcross, observedTokenAtoms } from '../packages/simulator/src/sequential-runtime.js';
-import { feeTiersOf, tierFor } from '../packages/solana/src/fee-tiers.js';
+import { feeTiersOf, tierForPool } from '../packages/solana/src/fee-tiers.js';
 import { mechanicsStratum } from '../packages/solana/src/cashback.js';
 import type { RawInstruction } from '../packages/solana/src/instructionpolicy.js';
 import type { TransactionInstruction } from '@solana/web3.js';
@@ -195,10 +196,20 @@ async function main(): Promise<void> {
       const preSrc = accountSourceOf(withWallet as never);
       const blockhash = '11111111111111111111111111111111';
 
-      const quoteTotal = tokenAmountAt(
-        withWallet.find((a) => a.pubkey === addrs.poolQuoteTokenAccount) as never,
-      );
-      const tier = tierFor(tiers, quoteTotal);
+      /**
+       * F15 - the tier is selected by MARKET CAP, not by quote reserve.
+       *
+       * This passed the raw quote vault balance to a parameter whose unit is a
+       * market cap, which put every pool in the bottom tier and reported a 250
+       * bps floor for pools the program charges 50.
+       */
+      const poolFacts = poolFactsFrom(preSrc, c.canonical_pool);
+      const selected = tierForPool(tiers, {
+        quoteReserveLamports: poolFacts.quoteReserveRaw + poolFacts.virtualQuoteReserves,
+        baseReserveAtoms: poolFacts.baseReserve,
+        baseMintSupplyAtoms: poolFacts.baseMintSupplyAtoms,
+      });
+      const tier = selected.tier;
       const stratum = mechanicsStratum({ canonicalPool: true, cashbackCoin: c.is_cashback_coin === 1 });
 
       /**

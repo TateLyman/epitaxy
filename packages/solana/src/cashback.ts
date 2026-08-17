@@ -3,30 +3,54 @@ import { base58Decode } from './base58.js';
 import { PUMPSWAP_PROGRAM } from './pump.js';
 
 /**
- * P6 — Pump cashback, decoded from the shipped IDL rather than described.
+ * P6/P7 — Pump cashback, decoded from the shipped SDK rather than described.
  *
- * Every fact below was read out of `@pump-fun/pump-swap-sdk`'s `pump_amm` IDL,
- * not transcribed from documentation prose. Two of them change the economics and
- * neither is obvious:
+ * ## The correction (F13)
  *
- * 1. **`sell` has no volume accumulator account at all.** Only `buy` carries
- *    `user_volume_accumulator`. Cashback therefore accrues on BUY volume, not on
- *    round-trip volume, and a model that credits both legs overstates it by
- *    roughly a factor of two.
+ * This file used to state, as its first substantive claim:
  *
- * 2. **The accumulator WSOL ATA is optional and positional.** The IDL's own
- *    words on `buy`: "For cashback coins, optionally pass
- *    user_volume_accumulator_wsol_ata as remaining_accounts[0]." Optional means
- *    a builder that omits it still produces a VALID transaction that lands and
- *    trades — it simply accrues no cashback, and the creator fee goes to the
- *    creator.
+ * > `sell` has no volume accumulator account at all. Only `buy` carries
+ * > `user_volume_accumulator`. Cashback therefore accrues on BUY volume, not on
+ * > round-trip volume.
  *
- * That second point is the whole reason this module fails closed. A cashback
- * coin whose builder omitted the account looks identical to one that claimed it,
- * right up until the PnL is wrong by the entire creator fee.
+ * **That is wrong, and it halved the modelled cashback.** The claim came from
+ * reading the IDL's NAMED accounts, where `user_volume_accumulator` really does
+ * appear only on the instructions that manage it directly. But the cashback
+ * accounts are not named on either leg — they are optional POSITIONAL remaining
+ * accounts, and `sell` takes two of them:
  *
- * The three quantities are kept apart everywhere, because collapsing them books
- * a receivable as revenue:
+ * ```
+ * BUY   remaining[0] = the UserVolumeAccumulator's WSOL ATA
+ * SELL  remaining[0] = the UserVolumeAccumulator's WSOL ATA
+ * SELL  remaining[1] = the UserVolumeAccumulator PDA
+ * ```
+ *
+ * Read on 2026-08-16 from the installed `@pump-fun/pump-swap-sdk` 1.19.0
+ * (`src/sdk/offlinePumpAmm.ts`: buy pushes one account, sell pushes two) and
+ * confirmed against `pump-fun/pump-public-docs/docs/PUMP_CASHBACK_README.md`.
+ * Both legs are then followed by the coin creator's `pool-v2` PDA when the pool
+ * names a creator, so the cashback accounts are the FIRST remaining accounts,
+ * not the last. See docs/PUMPSWAP_CASHBACK_V2.md.
+ *
+ * The absence of the accumulator from `sell`'s named accounts is exactly what
+ * the old claim mistook for its absence from `sell`.
+ *
+ * ## Why this module fails closed
+ *
+ * Optional means a builder that omits the accounts still produces a VALID
+ * transaction that lands and trades normally — it simply accrues no cashback,
+ * and the creator fee goes to the creator. There is no error. A cashback coin
+ * whose builder omitted the account is indistinguishable from one that claimed
+ * it, right up until the PnL is wrong by the entire creator fee, which at the
+ * bottom canonical tier is 30 bps per leg.
+ *
+ * Positional means presence is not enough. The program reads index 0 and index
+ * 1; an account that is present in the wrong place is a different account as far
+ * as the program is concerned, so the check is on the ORDERED tail.
+ *
+ * ## The three quantities
+ *
+ * Kept apart everywhere, because collapsing them books a receivable as revenue:
  *
  * ```
  * accrued    cashback_earned            what the program has credited
@@ -168,12 +192,17 @@ export function mechanicsStratum(p: { canonicalPool: boolean; cashbackCoin: bool
 /**
  * Whether a built buy will ACTUALLY accrue cashback.
  *
- * The IDL makes the accumulator WSOL ATA optional and positional on `buy`, so
- * omitting it produces a valid transaction that trades normally and accrues
- * nothing. Calling that "cashback" overstates PnL by the whole creator fee,
- * which at the bottom canonical tier is 30 bps per leg.
+ * The accumulator WSOL ATA is optional and positional, so omitting it produces a
+ * valid transaction that trades normally and accrues nothing. Calling that
+ * "cashback" overstates PnL by the whole creator fee, which at the bottom
+ * canonical tier is 30 bps per leg.
  *
  * Returns the reason it will not accrue, or null when it will.
+ *
+ * This checks index 0 only, which is complete for `buy` and INCOMPLETE for
+ * `sell` — the sell also needs the accumulator PDA at index 1. Prefer
+ * `remainingTailRefusal`, which knows the difference; this remains because a
+ * check on the buy's index 0 is exactly right for the buy.
  */
 export function cashbackAccrualRefusal(p: {
   isCashbackCoin: boolean;
@@ -190,6 +219,243 @@ export function cashbackAccrualRefusal(p: {
     return `remaining_accounts[0] is ${first.slice(0, 12)} but the accumulator WSOL ATA is ${p.expectedAccumulatorWsolAta.slice(0, 12)}`;
   }
   return null;
+}
+
+export type SwapLeg = 'buy' | 'sell';
+
+export interface RemainingTail {
+  /** The accounts the swap instruction must carry, in order. */
+  readonly accounts: readonly string[];
+  /** Why each one is there, for the refusal message. */
+  readonly roles: readonly string[];
+  /** Named derivations the caller could not supply. Never treated as "absent". */
+  readonly underivable: readonly string[];
+  /**
+   * How many accounts sit AFTER the verifiable ones, whose addresses the SDK
+   * SELECTS rather than derives.
+   *
+   * PumpSwap appends `[buybackFeeRecipient, buybackFeeRecipientTokenAccount]`
+   * to the remaining accounts of every buy and every sell, unconditionally and
+   * last. The recipient is chosen from a list in the global config, so it is
+   * not predictable from the pool — which is the whole of F12 and the reason
+   * the account plan is frozen from the built bytes.
+   *
+   * They are therefore OBSERVED, not predicted. Ignoring them instead would
+   * mean comparing the cashback accounts against the wrong two positions, which
+   * is exactly the failure this constant exists to record: the first version of
+   * this check compared a one-account tail against the final account and
+   * refused every candidate on the chain.
+   */
+  readonly trailingSelectedCount: number;
+}
+
+/** The count of trailing SDK-selected accounts on both legs. */
+export const TRAILING_SELECTED_ACCOUNTS = 2;
+
+/**
+ * The exact remaining-account tail the SDK appends, in order.
+ *
+ * Derived from the SDK's own branches rather than from a count:
+ *
+ * ```
+ * buy   [accumulatorWsolAta?]                        then [poolV2?]
+ * sell  [accumulatorWsolAta?, userVolumeAccumulator?] then [poolV2?]
+ * ```
+ *
+ * A TAIL rather than an index, because the number of NAMED accounts before it
+ * is the IDL's business and is free to change. Comparing the tail survives a
+ * named-account being added; comparing "account number 17" does not.
+ *
+ * An address the caller could not derive is reported in `underivable` and left
+ * OUT of the expected tail. It is not the same as an account the builder
+ * omitted, and merging the two would let a failed derivation read as a builder
+ * defect — or worse, let a builder defect read as a failed derivation.
+ */
+export function expectedRemainingTail(p: {
+  leg: SwapLeg;
+  isCashbackCoin: boolean;
+  hasCoinCreator: boolean;
+  accumulatorWsolAta: string | null;
+  userVolumeAccumulator: string | null;
+  poolV2: string | null;
+}): RemainingTail {
+  const accounts: string[] = [];
+  const roles: string[] = [];
+  const underivable: string[] = [];
+
+  const want = (addr: string | null, role: string): void => {
+    if (addr === null) {
+      underivable.push(role);
+      return;
+    }
+    accounts.push(addr);
+    roles.push(role);
+  };
+
+  if (p.isCashbackCoin) {
+    want(p.accumulatorWsolAta, 'the UserVolumeAccumulator WSOL ATA, where cashback lands');
+    // The sell needs the PDA itself as well. This is the account whose absence
+    // the repository asserted for two commits.
+    if (p.leg === 'sell') want(p.userVolumeAccumulator, 'the UserVolumeAccumulator PDA');
+  }
+  if (p.hasCoinCreator) want(p.poolV2, "the coin creator's pool-v2 PDA");
+
+  return { accounts, roles, underivable, trailingSelectedCount: TRAILING_SELECTED_ACCOUNTS };
+}
+
+/**
+ * Does the built instruction actually END with that tail?
+ *
+ * Fail closed. Returns the reason it does not, or null when it does.
+ *
+ * The comparison is positional and exact. A cashback account that is present
+ * somewhere else in the instruction is not cashback: the program reads index 0
+ * and index 1 of the remaining accounts, and anything else there is a different
+ * account as far as the program is concerned.
+ */
+export function remainingTailRefusal(p: {
+  leg: SwapLeg;
+  /** Every account meta of the SWAP instruction, in order. */
+  swapInstructionAccounts: readonly string[];
+  expected: RemainingTail;
+}): string | null {
+  if (p.expected.underivable.length > 0) {
+    return `${p.leg}: could not derive ${p.expected.underivable.join(' and ')}, so placement cannot be verified`;
+  }
+  const want = p.expected.accounts;
+  if (want.length === 0) return null;
+
+  /**
+   * Skip the trailing SELECTED accounts before comparing.
+   *
+   * The verifiable accounts do not sit at the very end: the SDK appends the
+   * buyback fee recipient and its token account after them, and their addresses
+   * come from a list in the global config rather than from the pool.
+   *
+   * The first version of this check compared the expected one-account tail
+   * against the LAST account and refused every candidate on the chain — which
+   * is the check doing its job on my own model rather than on the builder, and
+   * is why it refuses instead of warning.
+   */
+  const trailing = p.expected.trailingSelectedCount;
+  const end = p.swapInstructionAccounts.length - trailing;
+  const start = end - want.length;
+  if (start < 0) {
+    return (
+      `${p.leg}: the instruction has ${p.swapInstructionAccounts.length} accounts, fewer than the ` +
+      `${want.length + trailing} the tail requires`
+    );
+  }
+  const got = p.swapInstructionAccounts.slice(start, end);
+  for (const [i, w] of want.entries()) {
+    if (got[i] !== w) {
+      return (
+        `${p.leg}: remaining position ${i} is ${(got[i] ?? 'absent').slice(0, 12)} but must be ` +
+        `${w.slice(0, 12)} — ${p.expected.roles[i]}. ` +
+        'The transaction would land and trade normally, and the creator fee would go to the creator.'
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * The trailing accounts the SDK selected, read off the built instruction.
+ *
+ * Recorded rather than predicted. F12's rule: the plan describes the bytes that
+ * ran, and a recipient chosen from a list is exactly the kind of thing a rebuild
+ * is not guaranteed to reproduce.
+ */
+export function selectedTrailingAccounts(
+  swapInstructionAccounts: readonly string[],
+  count: number = TRAILING_SELECTED_ACCOUNTS,
+): readonly string[] {
+  return swapInstructionAccounts.slice(-count);
+}
+
+/**
+ * What one leg actually moved through the cashback accounts.
+ *
+ * Measured per leg and never summed into one figure before it is stored: the
+ * whole F13 correction is that BOTH legs accrue, so a model that reports one
+ * number cannot show whether the second one did.
+ */
+export interface LegCashbackDeltas {
+  readonly leg: SwapLeg;
+  /** Lamports the accumulator's WSOL ATA gained. Null when it was not observed. */
+  readonly accumulatorWsolDeltaLamports: bigint | null;
+  /** The accumulator PDA's own lamport change — rent on creation, then zero. */
+  readonly accumulatorDeltaLamports: bigint | null;
+  readonly creatorVaultDeltaLamports: bigint | null;
+  readonly feeRecipientDeltaLamports: bigint | null;
+  /**
+   * True when the accumulator ATA gained and the creator vault did not.
+   *
+   * The two are alternatives: the creator fee goes to one or the other. Both
+   * moving, or neither, means something other than the modelled path happened
+   * and the leg is not evidence for either.
+   */
+  readonly accruedToUs: boolean | null;
+}
+
+export function legCashbackDeltas(p: {
+  leg: SwapLeg;
+  before: (pubkey: string) => bigint | null;
+  after: (pubkey: string) => bigint | null;
+  accumulatorWsolAta: string | null;
+  userVolumeAccumulator: string | null;
+  coinCreatorVaultAta: string | null;
+  feeRecipient: string | null;
+  /**
+   * For an account this leg CREATED: its balance above the rent exemption.
+   *
+   * Null when the leg did not create it. Without this, every account a leg
+   * opens reports its accrual as unmeasured — see `delta` below.
+   */
+  createdExcess?: (pubkey: string) => bigint | null;
+}): LegCashbackDeltas {
+  const delta = (key: string | null): bigint | null => {
+    if (key === null) return null;
+    const a = p.after(key);
+    if (a === null) return null;
+    const b = p.before(key);
+
+    /**
+     * An account this leg CREATED has no "before", and that is not the same as
+     * an account nobody observed.
+     *
+     * Measured on 2026-08-16, first live cashback trajectory: the BUY created
+     * the accumulator WSOL ATA holding 2,039,280 rent plus 59,260 lamports of
+     * cashback, and this function returned `null` — reported as unmeasured
+     * while the very number it exists to capture sat in the account.
+     *
+     * That is the common case, not an edge: the first cashback trade any wallet
+     * makes opens its accumulator ATA. Reading it as unmeasured would have
+     * halved the observed accrual and left the sell leg looking like the only
+     * one that ever pays — which is the ORIGINAL F13 error, reproduced by the
+     * instrument built to correct it.
+     *
+     * The excess over the rent exemption is exactly the value received, so a
+     * created account's accrual is that excess and nothing else.
+     */
+    if (b === null) {
+      const created = p.createdExcess?.(key) ?? null;
+      return created;
+    }
+    return a - b;
+  };
+
+  const acc = delta(p.accumulatorWsolAta);
+  const creator = delta(p.coinCreatorVaultAta);
+
+  return {
+    leg: p.leg,
+    accumulatorWsolDeltaLamports: acc,
+    accumulatorDeltaLamports: delta(p.userVolumeAccumulator),
+    creatorVaultDeltaLamports: creator,
+    feeRecipientDeltaLamports: delta(p.feeRecipient),
+    accruedToUs: acc === null || creator === null ? null : acc > 0n && creator <= 0n,
+  };
 }
 
 export interface CashbackPosition {
@@ -249,27 +515,86 @@ export function cashbackPositionFrom(p: {
  * claim cost is an execution cost and why `claimed` is what enters PnL rather
  * than `accrued`.
  */
+export interface ClaimEconomics {
+  readonly worthwhile: boolean;
+  /** Whole-claim net: everything claimed, less the one transaction it costs. */
+  readonly netLamports: bigint;
+  /**
+   * The claim's cost charged to ONE trajectory.
+   *
+   * This is the number that belongs in a single trajectory's execution cost. It
+   * is the point of amortising at all: one claim releases cashback that many
+   * trajectories accrued, so charging the whole 5,000 lamports to whichever one
+   * happened to trigger it makes that trajectory look worse and every other one
+   * look better than either was.
+   */
+  readonly allocatedCostLamports: bigint;
+  /** Cashback allocated to one trajectory, on the same basis. */
+  readonly allocatedClaimableLamports: bigint;
+  readonly amortisedOverTrajectories: number;
+  readonly reason: string;
+}
+
+/**
+ * The economics of claiming, amortised — in the ALLOCATION, not in the prose.
+ *
+ * This function used to compute `n` and then use it only inside the reason
+ * string: "500 lamports net, amortised over 40 trajectories" described an
+ * amortisation that had not happened to any number a caller could read. Every
+ * caller therefore charged the full claim cost to one trajectory no matter what
+ * it passed.
+ *
+ * A claim is a transaction. Claiming 900 lamports for a 5,000 lamport fee is a
+ * loss, and a per-trajectory claim is almost always exactly that — which is why
+ * claim cost is an execution cost, why `claimed` rather than `accrued` enters
+ * PnL, and why the allocation has to be real.
+ *
+ * Division truncates, which under-charges by at most one lamport per
+ * trajectory. Deliberate and stated: the alternative rounds up and reports a
+ * total cost larger than the transaction actually paid.
+ */
 export function claimIsWorthwhile(p: {
   claimableLamports: bigint;
   claimCostLamports: bigint;
   /** Trajectories the claim would be amortised over. Never below 1. */
   amortisedOverTrajectories?: number;
-}): { worthwhile: boolean; netLamports: bigint; reason: string } {
-  const n = BigInt(Math.max(1, Math.floor(p.amortisedOverTrajectories ?? 1)));
+}): ClaimEconomics {
+  const count = Math.max(1, Math.floor(p.amortisedOverTrajectories ?? 1));
+  const n = BigInt(count);
   const net = p.claimableLamports - p.claimCostLamports;
+  const allocatedCost = p.claimCostLamports / n;
+  const allocatedClaimable = p.claimableLamports / n;
+
   if (p.claimableLamports === 0n) {
-    return { worthwhile: false, netLamports: 0n, reason: 'nothing is claimable' };
+    return {
+      worthwhile: false,
+      netLamports: 0n,
+      // Nothing to allocate, and the cost is not incurred because the claim is
+      // not made. Zero here is a decision, not a default.
+      allocatedCostLamports: 0n,
+      allocatedClaimableLamports: 0n,
+      amortisedOverTrajectories: count,
+      reason: 'nothing is claimable',
+    };
   }
   if (net <= 0n) {
     return {
       worthwhile: false,
       netLamports: net,
+      allocatedCostLamports: 0n,
+      allocatedClaimableLamports: 0n,
+      amortisedOverTrajectories: count,
       reason: `claiming ${p.claimableLamports} costs ${p.claimCostLamports}, which is a loss`,
     };
   }
   return {
     worthwhile: true,
     netLamports: net,
-    reason: `${net} lamports net, amortised over ${n} trajector${n === 1n ? 'y' : 'ies'}`,
+    allocatedCostLamports: allocatedCost,
+    allocatedClaimableLamports: allocatedClaimable,
+    amortisedOverTrajectories: count,
+    reason:
+      `${net} lamports net; each of ${count} trajector${count === 1 ? 'y' : 'ies'} carries ` +
+      `${allocatedCost} lamports of claim cost against ${allocatedClaimable} of cashback`,
   };
 }

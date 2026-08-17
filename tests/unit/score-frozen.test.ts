@@ -107,10 +107,25 @@ describe('P20 — no model may be promoted without labels', () => {
     // development round trips. This asserts the precondition is still unmet,
     // so a model appearing in the tree before then is a test failure rather
     // than a discovery.
+    /**
+     * The unit changed with the gate, and the invariant did not.
+     *
+     * `readiness.json` used to be the POSITION gate's output and carried
+     * `validDevelopmentTrades`. The default gate is now the exact trajectory
+     * contract, whose sample unit is a TIMELY complete path — one trajectory
+     * with every horizon observed on time, not one leg and not one backfilled
+     * label. That is the right unit for this precondition: the directive's 100
+     * is 100 independent outcomes.
+     *
+     * Read as a required field rather than defaulted, so a future rename fails
+     * here instead of passing on `undefined < 100`, which is how this assertion
+     * would have quietly stopped asserting anything.
+     */
     const artifact = JSON.parse(readFileSync('artifacts/readiness.json', 'utf8')) as {
-      validDevelopmentTrades: number;
+      timelyCompletePaths?: number;
     };
-    expect(artifact.validDevelopmentTrades).toBeLessThan(100);
+    expect(typeof artifact.timelyCompletePaths, 'readiness.json has no timelyCompletePaths').toBe('number');
+    expect(artifact.timelyCompletePaths).toBeLessThan(100);
   });
 
   it('no LLM sits in the trading loop', () => {

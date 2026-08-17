@@ -146,8 +146,32 @@ export function buildBottleneckReport(p: {
   }
   if (worstUtil >= 0 && worstUtil < 0.5) {
     notes.push(
-      `the busiest limited resource is at ${(worstUtil * 100).toFixed(1)}% of its limit, so rate capacity is NOT the constraint — ` +
-        'buying more of it would not produce more completed trajectories',
+      `the busiest limited resource is at ${(worstUtil * 100).toFixed(1)}% of its limit, so per-second rate capacity is NOT the constraint — ` +
+        'buying more requests per second would not produce more completed trajectories',
+    );
+  }
+
+  /**
+   * AN OBSERVED QUOTA ERROR OUTRANKS A MODELLED RATIO.
+   *
+   * A per-second limit and a daily allowance are different limits, and this
+   * report only models the first. Measured on 2026-08-16: the endpoint was at
+   * 0.9% of its 10/s limit and returned `daily request limit reached` on every
+   * call. The modelled ratio said rate capacity was not the constraint, which
+   * was true and useless — the account had no requests left for the day.
+   *
+   * A quota error is direct evidence rather than an inference from a rate, so
+   * it wins outright. It also names the resource, which is what the
+   * infrastructure decision needs.
+   */
+  const quotaHit = p.resources.filter((r) => r.quotaErrors > 0);
+  if (quotaHit.length > 0) {
+    const worst = quotaHit.reduce((a, b) => (b.quotaErrors > a.quotaErrors ? b : a));
+    const key = worst.detail === null ? worst.kind : `${worst.kind}:${worst.detail}`;
+    binding = `${key}: the DAILY QUOTA is exhausted (${worst.quotaErrors} observed), which no per-second headroom relieves`;
+    notes.push(
+      'a daily allowance was spent, not a per-second limit. Backing off does not help: every retry today ' +
+        'fails, and the refusals it produces read as facts about the chain rather than about the account.',
     );
   }
   if (Object.keys(rateErrors).length > 0) {

@@ -1,69 +1,26 @@
 {
-  "cells": [
+  "generatedUtcMs": 1786910097854,
+  "cohorts": [
     {
-      "key": "FIRST_DAY|CB|MH|250",
-      "completed": 0
+      "cohort": "(unassigned)",
+      "n": 965,
+      "closed": 810,
+      "min_age_ms": null,
+      "max_age_ms": null
     },
     {
-      "key": "FIRST_DAY|CB|NOMH|250",
-      "completed": 0
+      "cohort": "AGE_2M_60M",
+      "n": 242,
+      "closed": 226,
+      "min_age_ms": 125377,
+      "max_age_ms": 3557335
     },
     {
-      "key": "FIRST_DAY|NOCB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_DAY|NOCB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_HOUR|CB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_HOUR|CB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_HOUR|NOCB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_HOUR|NOCB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_WEEK|CB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_WEEK|CB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_WEEK|NOCB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "FIRST_WEEK|NOCB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "OLDER|CB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "OLDER|CB|NOMH|250",
-      "completed": 0
-    },
-    {
-      "key": "OLDER|NOCB|MH|250",
-      "completed": 0
-    },
-    {
-      "key": "OLDER|NOCB|NOMH|250",
-      "completed": 0
+      "cohort": "AGE_1H_5H",
+      "n": 6,
+      "closed": 2,
+      "min_age_ms": 3762183,
+      "max_age_ms": 17105031
     }
-  ],
-  "note": "allocation is ordered by LEAST complete; every cell is empty, so the order is the deterministic tiebreak"
+  ]
 }
