@@ -43,6 +43,7 @@ export interface SignatureReader {
   ): Promise<{ signature: string; blockTime: number | null; slot: number | null; failed: boolean | null }[]>;
   getTransactionFeePayer(signature: string): Promise<string | null>;
   getTokenLargestAccounts(mint: string): Promise<{ accounts: { address: string; amount: bigint }[] }>;
+  getTokenSupply(mint: string): Promise<{ amount: bigint; decimals: number }>;
   getTokenAccountOwners(
     tokenAccounts: readonly string[],
   ): Promise<Map<string, { owner: string; systemOwned: boolean; ownerProgram: string | null }>>;
@@ -132,9 +133,32 @@ export async function oldestSignatureOf(
 
 export interface EntityTierReading {
   readonly histories: readonly EntityHistory[];
-  /** Top-10-entity share as a fraction, comparable with the raw top-holder share. */
+  /**
+   * Top-10-entity share OF SUPPLY, so it means the same thing the limit does.
+   *
+   * `concentration()` reports every figure over the holders it was handed,
+   * because the number it exists to produce is the GAP between the entity and
+   * address readings and both need one denominator. `admitCandidate` compares
+   * against `maxEntityConcentration` and `maxRawTopHolderShare`, and the raw
+   * tier feeds it `held / supply.amount` — a share of SUPPLY.
+   *
+   * Handing the within-holders figure to that gate compares two different
+   * quantities. Measured 2026-08-17, before it was corrected: the raw share
+   * across the corpus runs 11.4% to 47.2% of supply and the within-holders
+   * entity figure came out at 71.0%, 74.9% and 97.3% on the three mints tried,
+   * so the entity gate refused every candidate on a number that was never a
+   * share of the token. The first deep pool the window ever saw — 28.4 SOL of
+   * quote reserve, every other gate passed — was refused at "entity-adjusted
+   * share 71.0% vs limit 50.0%".
+   *
+   * The limit is unchanged. Only the quantity compared against it is.
+   */
   readonly clusteredShare: number;
+  /** The same denominator, over raw addresses. The GAP is the interesting part. */
   readonly addressShare: number;
+  /** Both figures within the examined holders, which is what `concentration()` returns. */
+  readonly clusteredShareOfExamined: number;
+  readonly addressShareOfExamined: number;
   readonly entityCount: number;
   readonly addressCount: number;
   readonly trustworthy: boolean;
@@ -147,6 +171,8 @@ const REFUSED = (why: string): EntityTierReading => ({
   histories: [],
   clusteredShare: 0,
   addressShare: 0,
+  clusteredShareOfExamined: 0,
+  addressShareOfExamined: 0,
   entityCount: 0,
   addressCount: 0,
   trustworthy: false,
@@ -173,11 +199,19 @@ export async function measureEntityTier(
   },
 ): Promise<EntityTierReading> {
   let accounts: { address: string; amount: bigint }[];
+  let supplyAtoms: bigint;
   try {
-    const largest = await rpc.getTokenLargestAccounts(p.mint);
+    const [largest, supply] = await Promise.all([
+      rpc.getTokenLargestAccounts(p.mint),
+      rpc.getTokenSupply(p.mint),
+    ]);
     accounts = largest.accounts.filter((a) => a.address !== p.poolBaseVault && a.amount > 0n);
+    supplyAtoms = supply.amount;
   } catch (e) {
     return REFUSED(`the holder list could not be read: ${(e as Error).message.slice(0, 90)}`);
+  }
+  if (supplyAtoms <= 0n) {
+    return REFUSED('the mint reports zero supply, so no share of it can be computed');
   }
   if (accounts.length < 2) {
     return REFUSED(`only ${accounts.length} non-vault holder(s) were returned, so there is nothing to cluster`);
@@ -253,10 +287,28 @@ export async function measureEntityTier(
     };
   });
 
+  /**
+   * Rebase onto SUPPLY.
+   *
+   * `reading.topEntityBps[10]` is a share of the holders `concentration()` was
+   * handed — `linkable`, the plain wallets among the top accounts. Scaling by
+   * that set's own share of supply converts it without recomputing anything, and
+   * keeps the entity and address figures on one denominator so the gap between
+   * them is still the gap.
+   *
+   * Program-owned holders are outside the numerator because they belong to no
+   * wallet cluster. They are not lost: the RAW tier counts every top account
+   * against `maxRawTopHolderShare`, and both gates run.
+   */
+  const examinedAtoms = linkable.reduce((a, h) => a + h.amount, 0n);
+  const ofSupply = Number((examinedAtoms * 1_000_000n) / supplyAtoms) / 1_000_000;
+
   return {
     histories,
-    clusteredShare: reading.topEntityBps[10] / 10_000,
-    addressShare: reading.topAddressBps[10] / 10_000,
+    clusteredShare: (reading.topEntityBps[10] / 10_000) * ofSupply,
+    addressShare: (reading.topAddressBps[10] / 10_000) * ofSupply,
+    clusteredShareOfExamined: reading.topEntityBps[10] / 10_000,
+    addressShareOfExamined: reading.topAddressBps[10] / 10_000,
     entityCount: reading.entityCount,
     addressCount: reading.addressCount,
     trustworthy: reading.trustworthy,

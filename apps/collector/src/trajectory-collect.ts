@@ -546,6 +546,8 @@ async function candidateFacts(
         histories: [],
         clusteredShare: 0,
         addressShare: 0,
+        clusteredShareOfExamined: 0,
+        addressShareOfExamined: 0,
         entityCount: 0,
         addressCount: 0,
         trustworthy: false,
