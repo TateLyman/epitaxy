@@ -2,7 +2,7 @@
   "activeContexts": [
     "ctx-b71956b37104-DEV_WINDOW_5D24E"
   ],
-  "trajectoriesInScope": 45,
+  "trajectoriesInScope": 67,
   "checks": [
     {
       "name": "LINK_ROW_EXISTS",
@@ -89,9 +89,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "b71956b37104a9b6a315a2b6c23d7380a95f2dc6",
+    "sourceCommit": "fceb8e11e7c3c9726ac69e37e8462fd0b756297e",
     "treeDirty": true,
-    "dirtyFiles": 16,
-    "writtenUtc": "2026-08-18T02:05:54.290Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-18T03:05:24.658Z"
   }
 }

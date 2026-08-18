@@ -80,13 +80,13 @@
     ]
   },
   "sample": {
-    "settledInContract": 40,
+    "settledInContract": 45,
     "eligible": 7,
     "withNetPnl": 7,
     "distinctMints": 7,
     "distinctUtcDays": 1,
     "droppedNoEvidenceLinks": 0,
-    "droppedLateMark": 33,
+    "droppedLateMark": 38,
     "droppedNonZeroUnexplained": 0
   },
   "netPnlLamports": "-44987516",
@@ -254,9 +254,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "76766ae6f5d12a266e34b2d6afd094624d8a4167",
+    "sourceCommit": "fceb8e11e7c3c9726ac69e37e8462fd0b756297e",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-18T02:53:44.294Z"
+    "dirtyFiles": 10,
+    "writtenUtc": "2026-08-18T03:05:33.022Z"
   }
 }

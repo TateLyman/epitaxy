@@ -257,10 +257,41 @@ export function reserveCandidate(
     }
 
     // 2 — the next ordinal, counted inside the same write transaction.
+    /**
+     * A SAMPLE IS COUNTED ONCE, NOT ONCE PER ROW THAT MENTIONS IT.
+     *
+     * `historic` counts every trajectory for the mint. An OPENED reservation IS
+     * a trajectory — that is what OPENED means — so counting it here as well
+     * counts one sample twice, and the two counts are added.
+     *
+     * Measured 2026-08-18, with `includeHistoric` on:
+     *
+     *     6zz4T7Vb7Q6M   used = 2 (both OPENED)   historic = 2   ordinal = 5
+     *
+     * against a cap of 3, for a mint that had been sampled TWICE. The effective
+     * cap was therefore about half the configured one, and it tightened as
+     * history accumulated: 113 of the 160 confirmed migrations were refused
+     * CAP_REACHED, and a window that should have been filling reported
+     * "RESERVATION_CAP_REACHED" on 24 of 25 candidates while 124 mints were
+     * genuinely under the cap.
+     *
+     * What must be added to `historic` is only the reservations it CANNOT see:
+     * those still RESERVED, held by a live session and not yet opened. Once a
+     * reservation opens, the trajectory is the sample and `historic` has it.
+     *
+     * Without `includeHistoric` there is no trajectory count to collide with,
+     * so every non-abandoned row still counts — that path is unchanged.
+     *
+     * The cap VALUE is untouched. This is a counting defect, not a loosening:
+     * S092, and the ledger entry records that maxPerMint is still 3.
+     */
     const used = db
       .prepare(
-        `SELECT COUNT(*) AS c FROM trajectory_reservations
-          WHERE window_id = ? AND mint = ? AND status <> 'ABANDONED'`,
+        opts.includeHistoric === true
+          ? `SELECT COUNT(*) AS c FROM trajectory_reservations
+              WHERE window_id = ? AND mint = ? AND status = 'RESERVED'`
+          : `SELECT COUNT(*) AS c FROM trajectory_reservations
+              WHERE window_id = ? AND mint = ? AND status <> 'ABANDONED'`,
       )
       .get(windowId, mint) as { c: number };
     const historic = opts.includeHistoric

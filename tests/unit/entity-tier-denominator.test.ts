@@ -427,3 +427,119 @@ describe('S087 — a frozen contract states the window it owns', () => {
     }
   });
 });
+
+/**
+ * S092 — a sample is counted ONCE, not once per row that mentions it.
+ *
+ * `reserveCandidate` computes the next ordinal as
+ * `reservations + historic trajectories + 1`. An OPENED reservation IS a
+ * trajectory, so with `includeHistoric` on it was counted on both sides and the
+ * two counts added.
+ *
+ * Measured 2026-08-18: a mint sampled TWICE produced used=2, historic=2 and an
+ * ordinal of 5 against a cap of 3. 113 of 160 confirmed migrations were refused
+ * CAP_REACHED while 124 were genuinely under the cap, and a fresh window
+ * reported RESERVATION_CAP_REACHED on 24 of 25 candidates.
+ */
+describe('S092 — the per-mint cap counts samples, not rows', () => {
+  const seedTrajectory = (db: ReturnType<typeof openDb>, id: string, mint: string): void => {
+    db.prepare(
+      `INSERT INTO development_trajectories
+         (trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
+          venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
+          migration_age_ms, notional_lamports, entry_policy_inputs, entry_policy, exit_policy,
+          state, evidence_grade, max_attainable_grade, quote_impact_ratio, base_impact_ratio,
+          max_impact_ratio, haircut_bps, within_small_impact, opened_utc_ms, refusals)
+       VALUES (?,'o','j','s','PUMPSWAP_DIRECT','p','f','h',?,'FIRST_HOUR','S',
+               NULL,'1','{}','E','X','SETTLED','SIMULATED_EXECUTION','SIMULATED_EXECUTION',0,0,0,0,1,0,'[]')`,
+    ).run(id, mint);
+  };
+
+  const seedReservation = (
+    db: ReturnType<typeof openDb>,
+    id: string,
+    mint: string,
+    ordinal: number,
+    status: string,
+    trajectoryId: string | null,
+  ): void => {
+    db.prepare(
+      `INSERT INTO trajectory_reservations
+         (reservation_id, window_id, mint, reservation_ordinal, max_per_mint, trajectory_id,
+          status, reserved_utc_ms, owner_session_id)
+       VALUES (?, 'W', ?, ?, 3, ?, ?, ?, 'sess-old')`,
+    ).run(id, mint, ordinal, trajectoryId, status, NOW);
+  };
+
+  it('an OPENED reservation and the trajectory it produced are ONE sample', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      db.prepare(
+        `INSERT INTO collector_sessions
+           (session_id, started_utc_ms, heartbeat_utc_ms, mode, source_commit, dirty, pid, endpoint)
+         VALUES ('sess-new', ?, ?, 'observe', 'c', 0, 1, 'test')`,
+      ).run(NOW, NOW);
+      // Two samples already taken: two OPENED reservations, two trajectories.
+      seedTrajectory(db, 't-1', 'MINT');
+      seedTrajectory(db, 't-2', 'MINT');
+      seedReservation(db, 'r-1', 'MINT', 1, 'OPENED', 't-1');
+      seedReservation(db, 'r-2', 'MINT', 2, 'OPENED', 't-2');
+
+      // The third sample is the LAST allowed under a cap of 3, and must succeed.
+      const r = reserveCandidate(db, {
+        windowId: 'W',
+        mint: 'MINT',
+        maxPerMint: 3,
+        ownerSessionId: 'sess-new',
+        nowMs: NOW,
+        includeHistoric: true,
+        evidenceContextId: null,
+        pidAlive: () => false,
+      });
+      expect(r.ordinal).toBe(3);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
+  it('the cap of 3 still REFUSES a fourth sample', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      db.prepare(
+        `INSERT INTO collector_sessions
+           (session_id, started_utc_ms, heartbeat_utc_ms, mode, source_commit, dirty, pid, endpoint)
+         VALUES ('sess-new', ?, ?, 'observe', 'c', 0, 1, 'test')`,
+      ).run(NOW, NOW);
+      for (let i = 1; i <= 3; i++) {
+        seedTrajectory(db, `t-${i}`, 'MINT');
+        seedReservation(db, `r-${i}`, 'MINT', i, 'OPENED', `t-${i}`);
+      }
+      expect(() =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'MINT',
+          maxPerMint: 3,
+          ownerSessionId: 'sess-new',
+          nowMs: NOW,
+          includeHistoric: true,
+          evidenceContextId: null,
+          pidAlive: () => false,
+        }),
+      ).toThrow(/CAP_REACHED|sample 4/);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+});

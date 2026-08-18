@@ -1,5 +1,5 @@
 {
-  "boundedRows": 501,
+  "boundedRows": 701,
   "replayRows": 10,
   "pairedRows": 4,
   "toleranceBps": 200,
@@ -50,9 +50,9 @@
   "verdict": "BOUND_IS_CONSERVATIVE",
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "b71956b37104a9b6a315a2b6c23d7380a95f2dc6",
+    "sourceCommit": "fceb8e11e7c3c9726ac69e37e8462fd0b756297e",
     "treeDirty": true,
-    "dirtyFiles": 16,
-    "writtenUtc": "2026-08-18T02:06:01.037Z"
+    "dirtyFiles": 7,
+    "writtenUtc": "2026-08-18T03:05:31.775Z"
   }
 }
