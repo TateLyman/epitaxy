@@ -865,7 +865,14 @@ async function runCycle(
     return;
   }
 
-  const candidates = migrationCandidates(db, args.maxCandidates, args.maxPerMint);
+  // Scoped: a trajectory left open in a DEMOTED window is marked by nothing and
+  // must not exclude its mint from this one. See `migrationCandidates`.
+  const candidates = migrationCandidates(
+    db,
+    args.maxCandidates,
+    args.maxPerMint,
+    lanes?.evidenceContextId ?? null,
+  );
   console.log('');
   console.log(`candidate queue: ${candidates.length} confirmed migration(s)`);
 

@@ -94,3 +94,73 @@ describe('14 — the sampler spreads before it deepens', () => {
     d.close();
   });
 });
+
+/**
+ * S090 — a trajectory left open in a DEMOTED window must not sterilise its mint.
+ *
+ * The exclusion's reason is that two concurrent trajectories on one pool share a
+ * mark path and duplicate each other exactly. That holds WITHIN a window. Across
+ * windows it is false: the mark pass, the scheduler and the backpressure brake
+ * are all scoped to one evidence context, so a trajectory sitting open in a
+ * demoted context is marked by nothing, will never settle, and cannot duplicate
+ * anything.
+ *
+ * Measured 2026-08-18: 75 trajectories were open in contexts demoted to
+ * INSTRUMENT_DEVELOPMENT_INVALID and they excluded 70 of the 113 under-cap
+ * CONFIRMED migrations. The 43 survivors were exactly the ones the depth gate
+ * had already refused, so the queue returned the same 25 unusable mints every
+ * cycle — 24 of 25 repeated between cycle 1 and cycle 2 — and the window could
+ * not open a single trajectory.
+ *
+ * This is S078's defect in a second place: that fix scoped the RESERVATION
+ * table, and this query carries its own independent exclusion.
+ */
+describe('S090 — the open-trajectory exclusion is scoped to the window', () => {
+  const assign = (d: ReturnType<typeof db>, trajectoryId: string, ctx: string, validity: string): void => {
+    d.prepare(
+      `INSERT OR IGNORE INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms, validity, reasons)
+       VALUES (?, ?, ?, 0, 1, ?, '[]')`,
+    ).run(ctx, 'c'.repeat(64), 'd'.repeat(40), validity);
+    d.prepare(
+      'INSERT OR IGNORE INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms) VALUES (?,?,1)',
+    ).run(trajectoryId, ctx);
+  };
+
+  it('a mint left open in ANOTHER window is still a candidate for this one', () => {
+    const d = db();
+    openTrajectory(d, 't-old', 'mintA', 'AWAITING_FILL_OBSERVATION');
+    assign(d, 't-old', 'ctx-demoted', 'INSTRUMENT_DEVELOPMENT_INVALID');
+    // Unscoped — the old behaviour — mintA is excluded forever.
+    expect(migrationCandidates(d, 10, 3, null).map((c) => c.mint)).not.toContain('mintA');
+    // Scoped to the window actually being collected, it is available again.
+    expect(migrationCandidates(d, 10, 3, 'ctx-active').map((c) => c.mint)).toContain('mintA');
+    d.close();
+  });
+
+  it('a mint left open in THIS window is still excluded', () => {
+    const d = db();
+    openTrajectory(d, 't-live', 'mintA', 'AWAITING_FILL_OBSERVATION');
+    assign(d, 't-live', 'ctx-active', 'DEVELOPMENT_EVIDENCE');
+    expect(migrationCandidates(d, 10, 3, 'ctx-active').map((c) => c.mint)).not.toContain('mintA');
+    d.close();
+  });
+
+  it('a SETTLED trajectory in this window never excluded anything', () => {
+    const d = db();
+    openTrajectory(d, 't-done', 'mintA', 'SETTLED');
+    assign(d, 't-done', 'ctx-active', 'DEVELOPMENT_EVIDENCE');
+    expect(migrationCandidates(d, 10, 3, 'ctx-active').map((c) => c.mint)).toContain('mintA');
+    d.close();
+  });
+
+  it('the per-mint cap still counts every context, so sampling independence is unchanged', () => {
+    const d = db();
+    for (let i = 0; i < 3; i++) {
+      openTrajectory(d, `t-old-${i}`, 'mintA', 'SETTLED');
+      assign(d, `t-old-${i}`, 'ctx-demoted', 'INSTRUMENT_DEVELOPMENT_INVALID');
+    }
+    expect(migrationCandidates(d, 10, 3, 'ctx-active').map((c) => c.mint)).not.toContain('mintA');
+    d.close();
+  });
+});

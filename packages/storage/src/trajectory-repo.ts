@@ -312,6 +312,12 @@ export function migrationCandidates(
    * corpus dominated by one pool cannot support a claim about a population.
    */
   maxPerMint = 3,
+  /**
+   * The window whose open trajectories may exclude a mint.
+   *
+   * Null keeps the corpus-wide behaviour for callers that have no window.
+   */
+  evidenceContextId: string | null = null,
 ): { mint: string; canonical_pool: string; slot: number; block_time: number | null; is_cashback_coin: number | null; is_mayhem_mode: number | null }[] {
   /**
    * Least-sampled first, and never a mint that is already open.
@@ -380,14 +386,49 @@ export function migrationCandidates(
                ON x.mint = f.mint AND x.newest = f.collected_utc_ms
          ) d ON d.mint = m.mint
         WHERE m.reversal_status = 'CONFIRMED'
-          AND COALESCE(t.n, 0) < ?
-          AND m.mint NOT IN (
-            SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+          AND COALESCE(t.n, 0) < ?1
+          /**
+           * SCOPED TO THE WINDOW BEING COLLECTED.
+           *
+           * The exclusion's reason is that two concurrent trajectories on one
+           * pool share a mark path and duplicate each other exactly. That is
+           * true WITHIN a window and false across windows: the mark pass, the
+           * scheduler and the backpressure brake are all scoped to one evidence
+           * context, so a trajectory sitting open in a demoted context is not
+           * being marked by anything and cannot duplicate anything.
+           *
+           * Unscoped, it was permanent sterilisation. Measured 2026-08-18: 75
+           * trajectories were left open in contexts that had been demoted to
+           * INSTRUMENT_DEVELOPMENT_INVALID — nothing will ever mark them, so
+           * nothing will ever settle them — and they excluded 70 of the 113
+           * under-cap CONFIRMED migrations. The 43 that survived the filter
+           * were precisely the ones the depth gate had already refused, so the
+           * queue returned the same 25 unusable mints every cycle (24 of 25
+           * repeated between cycle 1 and cycle 2) and the window could not
+           * open a single trajectory. Scoping restores 114 eligible mints.
+           *
+           * This is S078's defect in a second place. That one scoped the
+           * RESERVATION table; this query carries its own independent
+           * exclusion, and fixing the first did not reach it.
+           */
+          AND (
+            ?2 IS NULL
+            OR m.mint NOT IN (
+              SELECT t2.mint FROM development_trajectories t2
+                JOIN trajectory_evidence_context x2 ON x2.trajectory_id = t2.trajectory_id
+               WHERE t2.state != 'SETTLED' AND x2.evidence_context_id = ?2
+            )
+          )
+          AND (
+            ?2 IS NOT NULL
+            OR m.mint NOT IN (
+              SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+            )
           )
         ORDER BY depth_refused ASC, sampled ASC, m.slot DESC
-        LIMIT ?`,
+        LIMIT ?3`,
     )
-    .all(maxPerMint, limit) as never;
+    .all(maxPerMint, evidenceContextId, limit) as never;
 }
 
 /** How concentrated the corpus is. A study of three pools is not a study. */
