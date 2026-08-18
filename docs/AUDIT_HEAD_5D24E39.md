@@ -222,3 +222,58 @@ execution cost dominated by locked rent, the challenger's total is a tail rather
 than a central tendency, the exits are priced by a counterfactual graded
 DEVELOPMENT, and no hold-out exists. Section 23 of the final report states each
 of those.
+
+---
+
+# Third pass — 2026-08-18, the tally re-earned at HEAD
+
+The second pass reported `PASS 53 / FAIL 0` at `b71956b`. Completing the
+directive review then required code changes — a missing P18 artifact, two missing
+P17 tests — and those commits moved HEAD past the frozen contract, so the gate's
+live probes refused (exit 4, the provenance rule) and the tally became stale.
+
+Re-earning it exposed two more defects, which had been masking each other:
+
+| | what it was | how it showed up |
+|---|---|---|
+| **S092** | the per-mint cap counted one sample twice | `used=2 historic=2` for a mint sampled TWICE gave ordinal 5 against a cap of 3; 113 of 160 migrations refused CAP_REACHED while 124 were genuinely under the cap |
+| **S093** | reservation slots keyed by a window NAME every contract reuses | once S092 stopped the double count, corrected ordinals collided with earlier windows' OPENED slots — 24 of 25 candidates reported RESERVATION_RACE_LOST in a window with one process and no race |
+
+The old double count had been overshooting the occupied slots, which is why the
+second defect was invisible until the first was fixed.
+
+**Final tally, at `47a91fa`, with the tree clean and the contract frozen at that
+commit:**
+
+```
+PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+live collector pass: opened 2, marks 16, settled 1; restart PASS
+independently recomputed trajectories: 10 (0 failures)
+terminal state: VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING
+```
+
+## The four scope defects, together
+
+Four of this directive's defects were the same mistake in four places: a scope
+that read as "per experiment" but was really "per corpus" or "per name, forever".
+
+```
+S078  reservations not scoped to the context      abandoned windows sterilised their mints
+S090  the candidate queue's open-trajectory check  70 of 113 migrations held hostage
+S092  the per-mint cap counted rows, not samples   effective cap halved
+S093  reservation slots keyed by window NAME       collisions across experiments
+```
+
+Every one presented as a fact about the market — a queue of drained pools, a gate
+refusing everything, a cap reached, a race lost. None of them were. That is the
+failure mode this repository exists to make impossible, and it survived four
+times in the code that enforces it.
+
+## What the window says about the strategy
+
+Nothing yet, and it says so with numbers. Over 15 settled paths both arms are
+negative gross — `FIXED_15M_CONTROL` -4,932,968 and
+`FLOW_LIQUIDITY_DETERIORATION_V1` -4,887,337, one positive path each. The
+superseded `b71956b` window read +1,229,949 and +14,591,951 on its own 15 paths.
+Two samples of the same size on the same venue differ by twenty million lamports
+and by sign, which is the scale of noise any future claim has to clear.

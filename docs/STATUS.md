@@ -8,7 +8,7 @@
 > with `pnpm gate --with-live-run`.
 >
 > ```
-> against contract-45d645af0e26ce9b at b71956b, which claims 54 invariants
+> against contract-159d6dc1129230a6 at 47a91fa, which claims 54 invariants
 > PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
 > independently recomputed trajectories: 10 (0 failures)
 > ```
@@ -16,16 +16,22 @@
 > against `PASS 37 / FAIL 7 / NOT TESTABLE 4` at the first pass, and
 > `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`.
 >
-> **NO EDGE IS CLAIMED.** The apparatus now produces two policy decisions over
-> one shared, durable, independently recomputable mark path, and they disagree
-> on 5 of 15 settled paths. That is a working measurement instrument, not a
-> result: n=15 against a threshold of 100, the figures are GROSS of an execution
-> cost dominated by locked rent, the challenger's total is a tail rather than a
-> central tendency, and the exits are priced by a counterfactual graded
-> DEVELOPMENT. Section 23 of the final report states all five reasons.
+> **NO EDGE IS CLAIMED, AND BOTH ARMS LOSE.** Over the 15 settled paths in the
+> active window, `FIXED_15M_CONTROL` totals **-4,932,968** gross and
+> `FLOW_LIQUIDITY_DETERIORATION_V1` totals **-4,887,337**, with one positive path
+> each and 4 of 15 disagreeing on the trigger offset. An earlier window of the
+> same size in this same directive read **+1,229,949** and **+14,591,951** — two
+> samples of fifteen, same venue, differing by twenty million lamports and by
+> sign. That is the scale of the noise any future claim has to clear, and it is
+> the most useful number here. n=15 against a threshold of 100; the figures are
+> GROSS of an execution cost dominated by locked rent; the exits are priced by a
+> counterfactual graded DEVELOPMENT. Section 23 states it in full.
 >
-> Five defects found and fixed during this pass, each with the measurement that
-> found it: **S086** a bounded-counterfactual refusal violated its own table's
+> Eight defects found and fixed during this pass, each with the measurement that
+> found it. Four of them — **S078**, **S090**, **S092**, **S093** — were
+> bookkeeping scopes that presented as market facts: a queue of drained pools, a
+> gate refusing everything, a cap reached, a race lost in a single-process
+> window. None of them were about the market. The others: **S086** a bounded-counterfactual refusal violated its own table's
 > CHECK and the exception killed the mark pass mid-run; **S087** the freeze and
 > the collector had different default window ids and nothing compared them;
 > **S088** the C-1 trace probe carried a link hardwired to `SELECT 0`, so the
@@ -33,8 +39,13 @@
 > `RPC_ENDPOINT`, so the two halves of one system could read two endpoints;
 > **S090** trajectories left open in DEMOTED windows excluded their mints from
 > every future candidate queue — 75 of them held 70 of 113 under-cap migrations
-> hostage, and the resulting refusal histogram read as a fact about the chain
-> when it was a fact about our own bookkeeping.
+> hostage; **S092** the per-mint cap counted each sample twice, so the effective
+> cap was half the configured one and 113 of 160 migrations were refused while
+> 124 were genuinely admissible; **S093** reservation slots were keyed by a
+> window NAME every contract reuses, so once S092 stopped the double count the
+> corrected ordinals collided with earlier windows' slots and 24 of 25 candidates
+> reported a race in a window with one process. The last two were masking each
+> other.
 >
 > ### What is now true, and how it is enforced
 >
@@ -115,22 +126,22 @@
 > (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
 > through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
 
-Last updated: 2026-08-18T02:15Z
+Last updated: 2026-08-18T05:55Z
 
 ## Operational right now
 
 | | |
 |---|---|
 | mode | `observe` for the trajectory collector; nothing capital-bearing is running |
-| schema | **v52** (`the_contract_owns_its_window`) |
+| schema | **v53** (`a_reservation_belongs_to_its_experiment`) |
 | strategy version | `delayed-momentum-v0.6.0` |
-| active contract | `contract-45d645af0e26ce9b`, context `ctx-b71956b37104-DEV_WINDOW_5D24E`, window `DEV_WINDOW_5D24E` |
+| active contract | `contract-159d6dc1129230a6`, context `ctx-47a91fa1a07b-DEV_WINDOW_5D24E`, window `DEV_WINDOW_5D24E` |
 | positions with executable PnL | **0** |
-| development trajectories, ACTIVE context | **49** across **47** distinct mints; 14 settled, 28 policy outcomes, 5 pairs disagreeing |
+| development trajectories, ACTIVE context | **52** across **52** distinct mints; 15 settled, 30 policy outcomes, 4 pairs disagreeing |
 | independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
-| mark timeliness, pre-gate | 25 of 237 `MISSED_HORIZON` (10.5%), worst 20.9 s against a 10 s SLA |
+| mark timeliness, the collector's own marks | 53 of 250 `MISSED_HORIZON` (21.2%), worst 20.1 s against a 10 s SLA, and **0 more than 60 s late** |
 | counterfactual calibration | `BOUND_IS_CONSERVATIVE`, 0 of 4 non-conservative |
-| evidence contexts | **41**, of which **40** are `INSTRUMENT_DEVELOPMENT_INVALID`; 427 trajectories preserved, none deleted |
+| evidence contexts | **44**, of which **43** are `INSTRUMENT_DEVELOPMENT_INVALID`; 500 trajectories preserved, none deleted |
 | trajectory collectors running | **1**, under the contract frozen at the commit it is running |
 | default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
 | tests | 1,867 passing across 125 files |

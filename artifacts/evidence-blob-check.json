@@ -1,26 +1,26 @@
 {
-  "registered": 2966,
+  "registered": 3881,
   "neverReadBack": 0,
   "byKind": [
     {
       "kind": "account_state",
-      "n": 2494,
-      "bytes": 17716495
+      "n": 3256,
+      "bytes": 18149850
     },
     {
       "kind": "exact_transaction",
-      "n": 157,
-      "bytes": 216778
+      "n": 208,
+      "bytes": 286700
     },
     {
       "kind": "worker_request",
-      "n": 157,
-      "bytes": 56659
+      "n": 208,
+      "bytes": 75063
     },
     {
       "kind": "snapshot_manifest",
-      "n": 156,
-      "bytes": 1707825
+      "n": 207,
+      "bytes": 2265349
     },
     {
       "kind": "worker_response",
@@ -28,15 +28,15 @@
       "bytes": 718
     }
   ],
-  "checked": 2966,
+  "checked": 3881,
   "missing": [],
   "corrupt": [],
   "verdict": "ALL_DURABLE",
   "provenance": {
     "writer": "evidence-blob-check.ts",
-    "sourceCommit": "fceb8e11e7c3c9726ac69e37e8462fd0b756297e",
+    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-18T03:05:28.025Z"
+    "dirtyFiles": 5,
+    "writtenUtc": "2026-08-18T05:42:51.823Z"
   }
 }

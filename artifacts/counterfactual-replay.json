@@ -1,61 +1,61 @@
 {
   "offsetMs": 900000,
-  "contextId": "ctx-b71956b37104-DEV_WINDOW_5D24E",
+  "contextId": "ctx-47a91fa1a07b-DEV_WINDOW_5D24E",
   "replayed": [
     {
-      "trajectoryId": "e0c49e7e-3f8d-46f8-9d57-f01c2022c360",
-      "mint": "9a2atVSjhAmFMLwUGqZukoSZQYYMb7p2MNxZUuCnJKZp",
+      "trajectoryId": "9249f1c3-5cd4-4f65-83a2-5c2e60ddba36",
+      "mint": "9rdR7HqqRvEdwuv2iyzeDtyBxPYnFigD8eX2ti76PAHM",
       "offsetMs": 900000,
-      "eventsApplied": 11,
-      "signaturesScanned": 14,
+      "eventsApplied": 0,
+      "signaturesScanned": 1,
       "unresolved": 0,
-      "replayExitLamports": "20786991",
-      "boundedExitLamports": "20683327",
+      "replayExitLamports": "19753085",
+      "boundedExitLamports": "19654584",
       "conservative": true,
       "errorBps": -49
     },
     {
-      "trajectoryId": "ec62f2b0-d000-4d89-a5e3-9623608446f7",
-      "mint": "CrBqvprEuNcNWYx8q6MqUhde2n5GeSjwoXVrH9p5i9Dp",
+      "trajectoryId": "ef501c7a-3167-41c8-98da-3a9a074f3f8a",
+      "mint": "5Y7AN1oi5c6rtRRGmEkhZTG5ohiFqoY9rJgKgGzBhs6y",
+      "offsetMs": 900000,
+      "eventsApplied": 21,
+      "signaturesScanned": 23,
+      "unresolved": 0,
+      "replayExitLamports": "18069025",
+      "boundedExitLamports": "17978917",
+      "conservative": true,
+      "errorBps": -49
+    },
+    {
+      "trajectoryId": "d2275075-1f72-49c3-a9a7-efc9ecc0a19e",
+      "mint": "8MBrU5U8ja7JRaePJupjNBxC8dqnPAZ9jqqEE1BmbBMQ",
       "offsetMs": 900000,
       "eventsApplied": 3,
-      "signaturesScanned": 10,
+      "signaturesScanned": 5,
       "unresolved": 0,
-      "replayExitLamports": "19776982",
-      "boundedExitLamports": "18107484",
-      "conservative": true,
-      "errorBps": -844
-    },
-    {
-      "trajectoryId": "c3b1c930-946a-4749-8f61-687a0285c385",
-      "mint": "DvhSqJQ25YMVeBZAEMDMMHSa9CrptdX6z5PQVRscpump",
-      "offsetMs": 900000,
-      "eventsApplied": 0,
-      "signaturesScanned": 1,
-      "unresolved": 0,
-      "replayExitLamports": "19753086",
-      "boundedExitLamports": "19654603",
+      "replayExitLamports": "19724794",
+      "boundedExitLamports": "19626439",
       "conservative": true,
       "errorBps": -49
     },
     {
-      "trajectoryId": "3f177c19-d353-4276-824c-bf5b896fb3e1",
-      "mint": "H1PfYmjRQf9ZhfXYnC9HdrvSnNCu65ak4LSvYth6j1WC",
+      "trajectoryId": "59ada35b-6fc1-4cf5-8cf6-e799f0489832",
+      "mint": "7Vk5dEgApb3sDB4rDtzEx3DXeFptiLPEYQmsqHZypump",
       "offsetMs": 900000,
-      "eventsApplied": 0,
-      "signaturesScanned": 1,
+      "eventsApplied": 23,
+      "signaturesScanned": 26,
       "unresolved": 0,
-      "replayExitLamports": "19753087",
-      "boundedExitLamports": "19654606",
+      "replayExitLamports": "18848286",
+      "boundedExitLamports": "18754293",
       "conservative": true,
       "errorBps": -49
     }
   ],
   "provenance": {
     "writer": "counterfactual-replay.ts",
-    "sourceCommit": "b71956b37104a9b6a315a2b6c23d7380a95f2dc6",
+    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
     "treeDirty": true,
-    "dirtyFiles": 8,
-    "writtenUtc": "2026-08-18T02:00:59.015Z"
+    "dirtyFiles": 18,
+    "writtenUtc": "2026-08-18T05:52:02.206Z"
   }
 }

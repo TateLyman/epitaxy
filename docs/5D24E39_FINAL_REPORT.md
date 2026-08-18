@@ -6,9 +6,9 @@
 VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING
 ```
 
-Measured 2026-08-18T02:13Z against `contract-45d645af0e26ce9b`, context
-`ctx-b71956b37104-DEV_WINDOW_5D24E`, at commit `b71956b`, with the collector
-running.
+Measured 2026-08-18T05:49Z against `contract-159d6dc1129230a6`, context
+`ctx-47a91fa1a07b-DEV_WINDOW_5D24E`, at commit `47a91fa`, with the gate's own
+live collector pass reporting `opened 2, marks 16, settled 1; restart PASS`.
 
 ```
 PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
@@ -27,14 +27,16 @@ they are not.
 
 ```
 starting   5d24e3973ced25b3b873c0223463895a25828e5a   (local == origin/master, CLEAN)
-ending     b71956b37104a9b6a315a2b6c23d7380a95f2dc6   branch master
-commits    50, none pushed
+ending     47a91fa1a07b50a7b0a0c3fae671742cdc5cec81   branch master
+commits    54, none pushed
 ```
 
-The docs commit that carries this report moves HEAD past `b71956b`. It touches
+The docs commit that carries this report moves HEAD past `47a91fa`. It touches
 `docs/` and `artifacts/` only — no file the collector imports — so the running
-apparatus is byte-identical to the commit its contract froze. A *restart* after
-this point still needs a re-freeze; see section 26.
+apparatus is byte-identical to the commit its contract froze, checkable with
+`git diff --stat 47a91fa..HEAD -- packages apps`. A *restart* after this point
+needs a re-freeze; Appendix A says why, and it cost this directive five frozen
+contracts to learn.
 
 ## 2. Local differences from the directive's premises
 
@@ -104,10 +106,10 @@ report reading "the active contexts" would have pooled eight apparatus versions
 and called the mixture evidence.
 
 ```
-evidence contexts                41
-INSTRUMENT_DEVELOPMENT_INVALID   40
+evidence contexts                44
+INSTRUMENT_DEVELOPMENT_INVALID   43
 DEVELOPMENT_EVIDENCE              1     the active window, and nothing else
-trajectories preserved          427     none deleted
+trajectories preserved          500     none deleted
 ```
 
 `5d24e-pre-repair` carries eleven reasons, each RE-MEASURED by
@@ -366,31 +368,46 @@ Discovery and marks are separate clocks. Marks wake at the next deadline bounded
 by a 3-second tick against a frozen 10-second SLA; discovery is **deferred**
 whenever a mark is past its SLA, and the deferral is printed rather than silent.
 
-**The collector's own record, measured immediately before the gate stopped it:**
+**The collector's own record, every mark it took before the gate stopped it:**
 
 ```
-+ 1m   45 marks   10 missed   worst lateness 20,902 ms
-+ 3m   45 marks    0 missed   worst lateness  1,026 ms
-+ 5m   42 marks    3 missed   worst lateness 12,697 ms
-+10m   40 marks    0 missed   worst lateness  2,084 ms
-+15m   35 marks    9 missed   worst lateness 20,562 ms
-+30m   25 marks    3 missed   worst lateness 17,763 ms
-+60m    5 marks    0 missed   worst lateness      25 ms
-                  ---------
-       237 marks  25 missed   10.5%
+250 marks   53 MISSED_HORIZON (21.2%)   0 more than 60 seconds late
 ```
 
-against a pre-repair baseline of **697 of 1,448 marks more than sixty seconds
-late**, with 1m marks 4% on time. The misses concentrate at +1m and +15m, the
-horizons most likely to fall due inside a discovery cycle.
+by horizon, over the marks taken while the collector owned the clock:
 
-**After the gate the same window reads 69 missed of 282, worst lateness
-453,882 ms**, and that difference is the gate itself: it stops the collector,
-takes a 7.65 GB VACUUM copy, runs the probes and only then spawns its `--once`
-passes, which backfill every horizon that came due in between. B-4 therefore
-reads the **pre-gate copy** — measuring the audit's own cleanup as the
-collector's lateness is the same substitution as reading an apparatus failure as
-a market fact (S085).
+```
++ 1m   12 missed of 41   avg lateness  6,178 ms   worst 19,244 ms
++ 3m    0 missed of 40   avg lateness     85 ms   worst  1,388 ms
++ 5m    6 missed of 40   avg lateness  4,079 ms   worst 19,405 ms
++10m    2 missed of 35   avg lateness  1,331 ms   worst 13,791 ms
++15m   14 missed of 32   avg lateness  8,786 ms   worst 20,078 ms
++30m    7 missed of 22   avg lateness  8,665 ms   worst 19,962 ms
+```
+
+**This is not "the SLA held", and the report will not say so.** One horizon in
+five is outside the frozen ten-second bound. What is true is narrower and worth
+stating exactly: every miss is a modest overrun — no mark exceeded 20.1 seconds,
+and the average lateness at every horizon is under nine seconds — and **not one
+mark taken by the collector was more than sixty seconds late**, which is the
+bound B-4 tests. The pre-repair baseline was 697 of 1,448 marks more than SIXTY
+seconds late, with 1m marks 4% on time.
+
+The misses concentrate at +1m, +15m and +30m: the horizons most likely to fall
+due inside a discovery cycle, where one candidate's entity walk plus worker round
+trip can exceed the ten-second margin on its own. `yieldToMarks` runs between
+candidates and inside them, which is what took the worst case from 47 seconds to
+20. Closing the rest needs a finer yield, and is recorded as an open limitation
+rather than chased here.
+
+**The whole window, measured after the gate, reads 88 missed of 286 with 30 marks
+more than sixty seconds late — and all 30 were taken DURING the gate**, by the
+`--once` passes backfilling horizons that came due while the collector was
+stopped for the VACUUM copy and the probes. That is why B-4 reads the pre-gate
+copy: measuring the audit's own cleanup as the collector's lateness is the same
+substitution as reading an apparatus failure as a market fact (S085). Both
+figures are given here so the reader can see the difference rather than take the
+flattering one.
 
 A late mark is recorded `MISSED_HORIZON` and excluded from the readiness sample
 rather than given the horizon's name on a different instant.
@@ -408,22 +425,24 @@ position. Calibration's gate is `conservative`, not `withinTolerance`: a bound
 *above* it overstates every exit built on it.
 
 ```
-scope: ctx-b71956b37104-DEV_WINDOW_5D24E, the window of the active contract
-  bounded rows  501     replay rows  10     paired  4
-  3f177c19  +15m  bounded 19,654,606  replay 19,753,087  -49 bps  conservative
-  c3b1c930  +15m  bounded 19,654,603  replay 19,753,086  -49 bps  conservative
-  e0c49e7e  +15m  bounded 20,683,327  replay 20,786,991  -49 bps  conservative
-  ec62f2b0  +15m  bounded 18,107,484  replay 19,776,982 -844 bps  conservative
-  non-conservative 0 of 4
+scope: ctx-47a91fa1a07b-DEV_WINDOW_5D24E, the window of the active contract
+  bounded rows  1005    replay rows  14    paired  4
+  9249f1c3  +15m  bounded 19,654,584  replay 19,753,085  -49 bps  conservative
+  d2275075  +15m  bounded 19,626,439  replay 19,724,794  -49 bps  conservative
+  ef501c7a  +15m  bounded 17,978,917  replay 18,069,025  -49 bps  conservative
+  59ada35b  +15m  bounded 18,754,293  replay 18,848,286  -49 bps  conservative
+  non-conservative 0 of 4     outside tolerance 0 (tolerance 200 bps)
 verdict: BOUND_IS_CONSERVATIVE
 ```
 
-The two pairs with no intervening pool event land at exactly −49 bps, which is
-the 25 bps haircut applied on both legs. That the arithmetic reproduces itself
-where nothing else moved is the check that the replay is doing what it claims.
+The replay is not trivially agreeing: two of those four applied **21 and 23**
+confirmed pool-touching transactions between entry and mark, in slot order, with
+zero unresolved. The remaining two had one scanned event and none to apply.
 
-One pair is outside the 200 bps tolerance, and on the pessimistic side. It is
-reported rather than dropped.
+All four land at exactly −49 bps, which is the 25 bps haircut applied on both
+legs. That the arithmetic reproduces itself across pools whose intervening flow
+differs by twenty transactions is the check that the bound is a haircut on the
+replayed value rather than a coincidence.
 
 A refusal is itself recorded. When an entry moves the pool past the frozen bound
 the row is written with the class, a **null** exit and the reason — because a
@@ -591,9 +610,9 @@ Stated plainly rather than quietly claiming a clean gate preceded collection.
 ## 21. Clean-window contract
 
 ```
-contract id      contract-45d645af0e26ce9b
-evidence context ctx-b71956b37104-DEV_WINDOW_5D24E    DEVELOPMENT_EVIDENCE
-source commit    b71956b37104a9b6a315a2b6c23d7380a95f2dc6
+contract id      contract-159d6dc1129230a6
+evidence context ctx-47a91fa1a07b-DEV_WINDOW_5D24E    DEVELOPMENT_EVIDENCE
+source commit    47a91fa1a07b50a7b0a0c3fae671742cdc5cec81
 window           DEV_WINDOW_5D24E   stated by the contract (migration 52)
 cohort           FIRST_HOUR         notional 20,000,000 lamports
 entry policies   HARD_GATES_RANDOM, CORRECTED_CURRENT_QUALITY_SCORE,
@@ -607,14 +626,14 @@ claimed          54 invariants;  out of scope 6
 ## 22. Valid trajectories and distinct mints
 
 ```
-49 trajectories across 47 distinct mints
-14 settled, 28 policy outcomes, 5 pairs disagreeing
+52 trajectories across 52 DISTINCT mints
+15 settled, 30 policy outcomes
 286 counterfactual rows
 ```
 
-Forty-seven mints for forty-nine trajectories. A hundred paths across three pools
-is three outcomes with a hundred observations of them, and no amount of
-collection turns one into the other.
+One mint per trajectory — the sampling spread is exact, not merely broad. A
+hundred paths across three pools is three outcomes with a hundred observations of
+them, and no amount of collection turns one into the other.
 
 ### What was blocking the window, and what the refusals actually meant
 
@@ -693,33 +712,51 @@ The control that makes this checkable: the one trajectory whose sell leg created
 a single account rather than two returns 19,501,171 of 20,000,000 — a 2.49% round
 trip, exactly twice the stated fee.
 
-### The policy figures, and why they are not an edge
+### The policy figures — both arms lose, and that is the finding
 
-Over the 15 settled paths carrying outcomes at the time of writing:
+Over the 15 settled paths in the active window:
 
 ```
-FIXED_15M_CONTROL                n=15  positive 5  total gross  +1,229,949
-FLOW_LIQUIDITY_DETERIORATION_V1  n=15  positive 4  total gross +14,591,951
+FIXED_15M_CONTROL                n=15  positive 1  total gross  -4,932,968
+FLOW_LIQUIDITY_DETERIORATION_V1  n=15  positive 1  total gross  -4,887,337
+in-window disagreements (different trigger offset): 4 of 15
 ```
 
-**This is not an edge and must not be reported as one.** Every one of the
-following is true of those numbers:
+**Both arms are negative before costs.** One path in fifteen closed positive
+under either policy, and the challenger's advantage over the control is 45,631
+lamports across the whole window — about 0.4% of one entry's notional, on a
+sample where a single path swings by more than that.
 
-- **n = 15.** The readiness threshold is 100 valid paths per policy-cohort.
-- **Gross, not net.** Execution cost — dominated by the locked rent above — is
-  not deducted. A gross figure is not a return.
-- **The challenger's total is a tail, not a central tendency.** It has FEWER
-  positive paths than the control and a larger total, which is the signature of
-  one or two large winners. A mean over 15 with that shape says almost nothing.
-- **The exits are priced by a counterfactual graded DEVELOPMENT.** It is
-  calibrated conservative against replay on 4 pairs — that is enough to say it
-  does not overstate, not enough to promote it.
-- **No hold-out exists**, and no threshold was tuned toward this result. If one
-  ever is, it goes in `docs/MULTIPLE_TESTING_LEDGER.csv` first, with the sample.
+An earlier window in this same directive, collected at `b71956b` and now demoted,
+read `+1,229,949` and `+14,591,951` on its own 15 paths. Two windows of the same
+size, on the same venue, days apart, differ by twenty million lamports and by
+sign. That is what a sample of fifteen is worth, and it is the most useful number
+in this report: it sets the scale of the noise any future claim has to clear.
 
-The correct reading is: the apparatus now produces two policy decisions over one
-shared, durable, independently recomputable mark path, and they disagree on 5 of
-15 paths. That is a working measurement instrument. It is not a result.
+**Neither figure is an edge, and neither kills the strategy.** Every one of the
+following is true:
+
+- **n = 15.** The readiness threshold is 100 valid paths per policy-cohort, and
+  `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` would need a preregistered kill rule
+  evaluated at 50, which does not exist yet and cannot be invented after seeing
+  this.
+- **Gross, not net.** Execution cost — dominated by the locked rent in the
+  section above — is not deducted. Deducting it makes both arms worse, not
+  better.
+- **The exits are priced by a counterfactual graded DEVELOPMENT.** Calibrated
+  conservative against exact replay on 4 pairs, all at -49 bps and all inside
+  tolerance — enough to say it does not overstate an exit, not enough to promote
+  it out of development evidence.
+- **No hold-out exists**, and no threshold was tuned toward this result. MT048,
+  the one sampling change made during this directive, is recorded as
+  availability-driven and was made because candidates were unavailable, not
+  because returns improved.
+
+The correct reading is: the apparatus produces two policy decisions over one
+shared, durable, independently recomputable mark path; they disagree on 4 of 15;
+and over this window both lose money before costs. That is a working measurement
+instrument reporting an unflattering measurement, which is the outcome this
+directive was built to make possible.
 
 ## 24. Active-time RPC usage and purchase recommendation
 
@@ -856,3 +893,118 @@ silently reused.
 The working order is: make every change, `pnpm check`, commit, **then**
 `pnpm contract:freeze --apply`, then start the collector and do not touch the
 tree until the window closes.
+
+---
+
+## Appendix B — clause-by-clause coverage of the directive
+
+Verified against the directive text rather than from memory, each with a concrete
+check rather than an assertion that it was done.
+
+| clause | requirement | evidence |
+|---|---|---|
+| P0.1 | establish local truth before changing code | section 2; SHAs, process trees, scheduled tasks, WSL worker sha256, RPC hosts recorded |
+| P0.2 | stop every trajectory collector | section 3; 6 processes stopped, 0 remain, no startup path |
+| P0.3 | `VACUUM INTO` backup, read back and verified | section 4; sha256, bytes, counts, integrity, foreign keys, exposure; ≥20 GB free enforced |
+| P0.4 | append-only invalidation ledger, nothing deleted | section 5; `evidence_contexts` carries all seven required columns; 40 of 41 contexts invalid; 427 trajectories preserved |
+| P1.1 | dedicated `trajectory_collector` lock, `BEGIN IMMEDIATE`, stale takeover rules | section 6; plus an OS-level lock file at `data/trajectory-collector.pid` as the second line of defence |
+| P1.2 | Task Scheduler `MultipleInstances = IgnoreNew` | `docs/COLLECTOR_SINGLE_OWNER.md` |
+| P1.3 | refuse dirty evidence collection | `evidenceContextValidity`; a modified ARTIFACT is correctly not a dirty tree |
+| P1.4 | atomic candidate reservation, unique constraints, ten-process race | section 6; P17 #3 |
+| P2.1–2.3 | the evidence graph, deterministic identities, schema | section 7; all twelve tables, all ten trajectory link columns |
+| P2.4 | persist before execution, named state progression | `persist-evidence.ts`: REQUESTED → RUNTIME_RETURNED → RAW_STATE_DURABLE → EFFECT_VERIFIED → SETTLEMENT_DERIVED → COMPLETE |
+| P2.5 | atomic trajectory open after blob readback | section 7 |
+| P3.1 | content-addressed blob store, read back before durable | section 9; 2,055 blobs re-hashed, 0 missing |
+| P3.2 | required accounts, ABSENT explicit on both sides | P17 #11; G-2 PASS |
+| P3.3 | real hashes | section 10; `fee_config_hash`, `capability_fingerprint`, `snapshot_hash`, `leg_account_plans.fingerprint` (the account-plan hash), `simulation_jobs.simulator_binary_hash` |
+| P3.4 | quote-state equality broken by any mutation | section 11; P17 #23/#24 now tested directly, G-1 PASS |
+| P4.1 | `isPnlEligible` for entry AND exit | `settlement.ts` calls it for buy and sell |
+| P4.2 | unexplained value blocks PnL | section 12; K-2 PASS |
+| P4.3 | exact cost components, once each | section 12; K-1 PASS over eleven mutations |
+| P4.4 | the single cash identity | K-3 PASS: trajectory, settlement, policy outcome and report agree exactly |
+| P4.5 | explicit economics persisted | on `trajectory_settlements` (`gross_exit_credit`, `residual_token_atoms`, `unexplained_lamports`) and the trajectory row |
+| P4.6 | independent recomputation command | section 8 and 23; `pnpm trajectory:trace` does not call the settlement writer it checks |
+| P5 | append-only means loud conflicts | section 13; eight probes, `ALL AMBIGUITIES ARE LOUD` |
+| P6.1 | sole-venue conservation on both sides | section 11 |
+| P6.2 | `assertPlanUnchanged` called in production | `open-trajectory.ts:1452` |
+| P6.3 | pinned Pump docs commit and SDK versions | `sdk-versions.ts`: docs `9c82f61c…`, pump-sdk 1.36.0, pump-swap-sdk 1.19.0; E-4 and J-4 PASS |
+| P6.4 | fee tier stored and fail-closed | section 17; J-1..J-4 PASS |
+| P7.1–7.3 | split schedulers, frozen SLA, backpressure | section 14 |
+| P7.4 | honest `--once` semantics | documented at the flag; the gate exercises it |
+| P8.1–8.3 | counterfactual classes, bounded mode, replay calibration | section 15; `BOUND_IS_CONSERVATIVE` |
+| P8.4 | no later mainnet quote without a contract | M-2 PASS; observed live as `FLOW_LIQUIDITY_DETERIORATION_V1=unpriced` |
+| P9.1–9.3 | all three entry policies, two exit policies, paired outcomes | section 16; N-1..N-3 PASS |
+| P10.1 | entity-adjusted concentration in the decision | section 16b — wired and applied 270 times, decisive ZERO times in `decideEntry`, stated rather than buried |
+| P10.2 | Mayhem verified against disclosure | O-1 PASS; O-3 OUT OF SCOPE with its reason |
+| P10.3 | Token-2022 canonical decoder | section 17 |
+| P11 | warm/cold, cashback, fee regimes | section 18; strata recorded. P11 defers optimisation until ten recomputable trajectories exist, so the separate runs are future work by the directive's own text |
+| P12.1–12.4 | one readiness owner, frozen contract, no old evidence, honest commands | section 19; Q-1 and R-1..R-3 PASS |
+| P13 | acceptance gate, FAIL 0 and NOT TESTABLE 0 | section 20, and the ordering caveat stated rather than glossed |
+| P14 | one clean window, ten trajectories, real-time horizons | section 22 |
+| P15 | profit search AFTER ten valid trajectories | not begun; section 23 gives the figures and five reasons they are not an edge |
+| P16 | instrument first, then decide infrastructure | section 24 |
+| P17 | 39 mutation and runtime tests | 60 tests in `directive-5d24e39-p17.test.ts`; #23 and #24 added during this review |
+| P18 | commands, docs and artifacts | all 17 commands, all 10 docs, all 8 artifacts — `settlement-identity-check.json` added during this review |
+| P19 | the final report, 27 numbered items | this document, sections 1–27, no gaps and no duplicates |
+
+---
+
+## Appendix C — what re-freezing mid-flight costs
+
+Re-freezing at a new commit does not merely start a new window; it **abandons the
+open trajectories in the old one**. The mark scheduler, the backpressure brake
+and the settle pass are all scoped to the active evidence context, so the moment
+a new contract becomes active every still-open trajectory in the previous window
+stops being marked. Those paths are truncated at whatever horizon they had
+reached, can never satisfy `pathIsComplete`, and therefore can never produce a
+policy outcome.
+
+This directive froze **five** contracts and superseded four of them, each time
+because a defect was found and fixed after the window had opened:
+
+```
+5f5a6dc   superseded   stray window (S087) — 1 trajectory
+602e86d   superseded   no trajectory opened
+5be9358   superseded   candidate queue sterilised by demoted windows (S090) — 1
+b71956b   superseded   16 settled, 10 recomputed, PASS 53 at its own commit — 67
+47a91fa   ACTIVE       the window this report measures — 52
+```
+
+The `b71956b` window is the expensive one: it was complete and audited clean at
+its own commit, and 22 of its trajectories were still open when it was
+superseded. Nothing is deleted and every recorded mark remains valid, but that
+collection time is not recoverable and those 22 paths will never settle.
+
+**500 trajectories exist; 52 are in the valid window.** A reader comparing those
+two numbers should know the gap is the cost of finding four defects, not a
+property of the market.
+
+The rule that causes this is correct — a window collected at a different commit
+than its contract froze is not the experiment that was declared — so the lesson
+is procedural, and it is the one in Appendix A: make every change, run
+`pnpm check`, commit, **then** freeze, then leave the tree alone until the window
+closes.
+
+## Appendix D — where a probe is broader than the window it reports on
+
+Two checks in this report are corpus-wide by construction, and a reader should
+know which:
+
+**N-3** — "the two exit policies are evaluated on the SAME path and can disagree
+on it" — counts disagreements across `trajectory_policy_outcomes` with no context
+scope. Its verdict would therefore be satisfied by disagreements recorded in
+windows that have since been demoted. In the active window it is independently
+true: **4 of 15 settled paths have different trigger offsets**, so the invariant
+does not rest on old evidence here. The probe should still be scoped, and that it
+is not is recorded rather than relied upon.
+
+**`pnpm policy:treatments-status`** reports 302 paired exit paths and 270 entry
+decisions carrying a risk fact. Those counts span every context including the
+invalidated ones. They are a statement about WIRING — that the code paths are
+called and can disagree — and not about this window's evidence. Section 16 gives
+the in-window figures separately for exactly that reason.
+
+Neither is a defect in the apparatus. Both are places where a number that looks
+like evidence is actually a statement about the machinery, and this report
+separates them rather than letting the larger number stand in for the smaller
+one.

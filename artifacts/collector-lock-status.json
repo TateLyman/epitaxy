@@ -1,71 +1,16 @@
 {
-  "trajectoryProcesses": [
-    {
-      "pid": 34584,
-      "parentPid": 20092,
-      "createdUtc": "2026-08-18T04:11:44.578Z",
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'cd C:/Users/lyman/tradseee && SP='\\\"'\\\"'C:/Users/lyman/AppData/Local/Temp/claude/C--Users-lyman-tradseee/f0fe5b03-e494-4bce-934d-ad7f46fbdd75/scratchpad'\\\"'\\\"'\nexport SOLANA_RPC_HTTP=\\\"$(cat $SP/rpc-helius.url)\\\"; export RPC_ENDPOINT=\\\"$SOLANA_RPC_HTTP\\\"\nnohup npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180 > data/collect.log 2>&1 &\necho started; sleep 2; echo \\\"observe alive: $(npx tsx scripts/collector-ops.ts lock-status 2>&1 | grep -c '\\\"'\\\"'collector .*ALIVE'\\\"'\\\"')\\\"' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-bf5f-cwd\""
-    },
-    {
-      "pid": 36240,
-      "parentPid": 34584,
-      "createdUtc": "2026-08-18T04:11:44.598Z",
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\..\\usr\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'cd C:/Users/lyman/tradseee && SP='\\\"'\\\"'C:/Users/lyman/AppData/Local/Temp/claude/C--Users-lyman-tradseee/f0fe5b03-e494-4bce-934d-ad7f46fbdd75/scratchpad'\\\"'\\\"'\nexport SOLANA_RPC_HTTP=\\\"$(cat $SP/rpc-helius.url)\\\"; export RPC_ENDPOINT=\\\"$SOLANA_RPC_HTTP\\\"\nnohup npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180 > data/collect.log 2>&1 &\necho started; sleep 2; echo \\\"observe alive: $(npx tsx scripts/collector-ops.ts lock-status 2>&1 | grep -c '\\\"'\\\"'collector .*ALIVE'\\\"'\\\"')\\\"' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-bf5f-cwd\""
-    },
-    {
-      "pid": 31688,
-      "parentPid": 30036,
-      "createdUtc": "2026-08-18T04:11:44.828Z",
-      "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 34516,
-      "parentPid": 31688,
-      "createdUtc": "2026-08-18T04:11:45.268Z",
-      "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 31136,
-      "parentPid": 34516,
-      "createdUtc": "2026-08-18T04:11:45.291Z",
-      "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\lyman\\AppData\\Roaming\\npm/node_modules/npm/bin/npx-cli.js tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 37708,
-      "parentPid": 31136,
-      "createdUtc": "2026-08-18T04:11:46.471Z",
-      "commandLine": "C:\\WINDOWS\\system32\\cmd.exe /d /s /c tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 3852,
-      "parentPid": 37708,
-      "createdUtc": "2026-08-18T04:11:46.518Z",
-      "commandLine": "node   \"C:\\Users\\lyman\\tradseee\\node_modules\\.bin\\\\..\\tsx\\dist\\cli.mjs\" apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 30960,
-      "parentPid": 3852,
-      "createdUtc": "2026-08-18T04:11:46.614Z",
-      "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" --require C:\\Users\\lyman\\tradseee\\node_modules\\.pnpm\\tsx@4.23.12\\node_modules\\tsx\\dist\\preflight.cjs --import file:///C:/Users/lyman/tradseee/node_modules/.pnpm/tsx@4.23.12/node_modules/tsx/dist/loader.mjs apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180"
-    },
-    {
-      "pid": 29264,
-      "parentPid": 36240,
-      "createdUtc": "2026-08-18T04:11:46.825Z",
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\..\\usr\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\nexport CODEX_COMPANION_SESSION_ID='f0fe5b03-e494-4bce-934d-ad7f46fbdd75'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\f0fe5b03-e494-4bce-934d-ad7f46fbdd75.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'cd C:/Users/lyman/tradseee && SP='\\\"'\\\"'C:/Users/lyman/AppData/Local/Temp/claude/C--Users-lyman-tradseee/f0fe5b03-e494-4bce-934d-ad7f46fbdd75/scratchpad'\\\"'\\\"'\nexport SOLANA_RPC_HTTP=\\\"$(cat $SP/rpc-helius.url)\\\"; export RPC_ENDPOINT=\\\"$SOLANA_RPC_HTTP\\\"\nnohup npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180 > data/collect.log 2>&1 &\necho started; sleep 2; echo \\\"observe alive: $(npx tsx scripts/collector-ops.ts lock-status 2>&1 | grep -c '\\\"'\\\"'collector .*ALIVE'\\\"'\\\"')\\\"' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-bf5f-cwd\""
-    }
-  ],
+  "trajectoryProcesses": [],
   "locks": [
     {
       "lock_name": "collector",
       "pid": 1916,
       "hostname": "TATE",
       "acquired_utc_ms": 1787012700211,
-      "heartbeat_utc_ms": 1787026304431,
+      "heartbeat_utc_ms": 1787031761206,
       "mode": "observe",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 4534,
+      "ageMs": 5586,
       "pidAlive": true,
       "program": "apps/collector/src/main.ts"
     },
@@ -78,34 +23,34 @@
       "mode": "paper",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 253662241,
+      "ageMs": 259120068,
       "pidAlive": false,
       "program": "unknown"
     },
     {
       "lock_name": "trajectory_collector",
-      "pid": 30960,
+      "pid": 37708,
       "hostname": "TATE",
-      "acquired_utc_ms": 1787026308643,
-      "heartbeat_utc_ms": 1787026308643,
+      "acquired_utc_ms": 1787027368563,
+      "heartbeat_utc_ms": 1787031616070,
       "mode": "observe",
-      "source_commit": "371bb96fee84f559133be22c37d51b06ae58a8c4",
-      "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe --contract=contract-05e1eb427c5bade4 --backfill-scan=60 --interval=180",
-      "ageMs": 322,
-      "pidAlive": true,
+      "source_commit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+      "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe --contract=contract-159d6dc1129230a6 --backfill-scan=60 --interval=180",
+      "ageMs": 150722,
+      "pidAlive": false,
       "program": "apps/collector/src/trajectory-collect.ts"
     }
   ],
   "recentSessions": [],
   "singleOwner": false,
   "problems": [
-    "9 trajectory collector processes are alive"
+    "the trajectory_collector lock names a dead pid"
   ],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "371bb96fee84f559133be22c37d51b06ae58a8c4",
+    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-18T04:11:49.627Z"
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-18T05:42:47.361Z"
   }
 }

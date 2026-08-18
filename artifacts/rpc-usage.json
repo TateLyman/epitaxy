@@ -1,7 +1,7 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 24949,
-  "sessionsNeverEnded": 23,
+  "activeSeconds": 32408,
+  "sessionsNeverEnded": 27,
   "sessionsFromDirtyTree": 0,
   "byKind": [
     {
@@ -13,49 +13,49 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 12663,
+      "n": 13641,
       "q": 48
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 3560,
+      "n": 3796,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 3560,
+      "n": 3796,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 2033,
+      "n": 2303,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "entityTierWalk",
-      "n": 259,
+      "n": 490,
       "q": 0
     }
   ],
-  "totalCalls": 116010,
-  "callsPerActiveSecond": 4.649885766964608,
+  "totalCalls": 117961,
+  "callsPerActiveSecond": 3.6398728708960753,
   "quotaErrors": 48,
-  "trajectories": 445,
-  "trajectoriesPerActiveDay": 1541.0637700909856,
+  "trajectories": 496,
+  "trajectoriesPerActiveDay": 1322.340162922735,
   "recommendations": [
-    "48 quota refusal(s) at 4.65 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "48 quota refusal(s) at 3.64 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "fceb8e11e7c3c9726ac69e37e8462fd0b756297e",
+    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
     "treeDirty": true,
-    "dirtyFiles": 9,
-    "writtenUtc": "2026-08-18T03:05:32.585Z"
+    "dirtyFiles": 11,
+    "writtenUtc": "2026-08-18T05:42:55.958Z"
   }
 }
