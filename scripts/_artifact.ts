@@ -58,7 +58,21 @@ export function writeArtifact(name: string, body: Record<string, unknown>): stri
   if (name.includes('/') || name.includes('\\')) {
     throw new Error(`writeArtifact takes a bare filename, got ${name}`);
   }
-  const path = resolve('artifacts', name);
+  /**
+   * `ARTIFACT_DIR` exists so a TEST cannot overwrite a committed artifact.
+   *
+   * `tests/unit/contract-freeze-window-identity-s095.test.ts` spawns the real
+   * freeze script — which is the right way to test it — and the script wrote
+   * `artifacts/experiment-contract.json` in the repository. Every run of the
+   * suite therefore replaced a committed provenance record with one describing
+   * a contract that was never frozen for any window, and the change looked like
+   * ordinary output in `git status`.
+   *
+   * An artifact is a claim about what a real run measured. A test run is not a
+   * real run, and the two must not share a filename.
+   */
+  const dir = process.env['ARTIFACT_DIR'];
+  const path = dir === undefined || dir.trim() === '' ? resolve('artifacts', name) : resolve(dir, name);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify({ ...body, provenance: provenance() }, null, 2)}\n`);
   return path;

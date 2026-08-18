@@ -47,8 +47,12 @@ import { evaluateWithCoverage } from '../../../packages/strategy/src/policy-cove
 import { computePreEntrySignals } from '../../../packages/intelligence/src/pre-entry-signals.js';
 import {
   ensureMicrostructure,
+  evaluateSizesOffline,
   migrationAnchor,
+  opportunityId,
+  persistEntryOpportunity,
   persistPolicyCoverage,
+  persistSizeEvaluations,
   persistStrata,
 } from './profit-discovery.js';
 import { SETTLEMENT_VERSION, SDK_VERSIONS } from '../../../packages/pipeline/src/open-trajectory.js';
@@ -1185,13 +1189,108 @@ async function runCycle(
       await worker.close();
       const w = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
 
+      /**
+       * P7 — CHOOSE THE SIZE FROM THE POOL, NOT FROM A CONSTANT.
+       *
+       * The fixed 0.02 SOL notional caused depth refusals where the proposed
+       * position was an absurd fraction of the pool. Those refusals were about
+       * an arbitrary research number rather than about the token, and each one
+       * removed a real market observation from the corpus.
+       *
+       * NO SAFETY BOUND MOVED. Every limit in `FROZEN_SIZE_BOUNDS` is the one
+       * the fixed notional already had to clear and 0.02 SOL is now the
+       * ceiling. All four candidate sizes are priced from ONE decision-time
+       * coherent snapshot — offline, so four sizes cost four computations
+       * rather than four round trips — and all four are persisted with the
+       * condition that bound them, because storing only the winner makes the
+       * rule unfalsifiable.
+       *
+       * The snapshot is captured HERE rather than reused from the viability
+       * pass, because a size chosen from migration-time state is a stale fact
+       * and P6 requires decision-time mechanics to be recomputed.
+       */
+      const opportunity = opportunityId(c.mint, 'T0', lanes?.evidenceContextId ?? 'unassigned');
+      let chosenNotional = NOTIONAL_LAMPORTS;
+      try {
+        const poolKey = canonicalPool(c.mint);
+        const poolRow = await readPoolRow(rpc, poolKey);
+        count('solana_rpc', 'getAccountInfo');
+        const addrs = poolAddressesFrom(accountSourceOf([poolRow]), poolKey);
+        const snap = await captureCoherentSnapshotV2(
+          rpc as never,
+          {
+            economicAccounts: [poolKey, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, c.mint],
+            feeConfig: FEE_CONFIG_ADDR,
+            staticAccounts: [GLOBAL_CONFIG_ADDR],
+            requireDecodable: [poolKey, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount],
+            commitment: 'confirmed',
+          },
+          base58Encode,
+        );
+        const sizeSource = accountSourceOf(
+          snap.accounts.map((a) => ({
+            pubkey: a.pubkey,
+            owner: a.owner,
+            dataBase64: a.dataBase64,
+            lamports: BigInt(a.lamports),
+          })),
+        );
+        const choice = evaluateSizesOffline({
+          source: sizeSource,
+          pool: poolKey,
+          effectiveQuoteReserveLamports: facts.effectiveQuoteReserveLamports ?? null,
+          slippagePct: 3,
+        });
+
+        persistEntryOpportunity(db, {
+          opportunityId: opportunity,
+          mint: c.mint,
+          pool: poolKey,
+          entryClock: 'T0',
+          evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
+          snapshotHash: snap.snapshotHash,
+          decisionUtcMs: Date.now(),
+          migrationSlot: c.slot,
+          ageSinceMigrationMs: c.block_time === null ? 0 : Date.now() - c.block_time * 1000,
+          mechanicallyViable: choice.chosenLamports !== null,
+          refusal: choice.refusal,
+          trajectoryId: null,
+        });
+        persistSizeEvaluations(db, opportunity, choice, Date.now());
+
+        if (choice.chosenLamports === null) {
+          // Every size refused. That IS a depth refusal, and now it is one the
+          // corpus can distinguish from "the research notional was too large".
+          refusals['SIZE_RULE_REFUSED_EVERY_SIZE'] = (refusals['SIZE_RULE_REFUSED_EVERY_SIZE'] ?? 0) + 1;
+          console.log(`  ${c.mint.slice(0, 10)}  SIZE_RULE_REFUSED  ${choice.refusal ?? ''}`);
+          abandonReservation(db, reservation.reservationId, Date.now(), 'SIZE_RULE_REFUSED_EVERY_SIZE');
+          continue;
+        }
+        chosenNotional = choice.chosenLamports;
+        const bound = choice.evaluations.find((e) => !e.admissible)?.boundBy ?? 'none';
+        console.log(
+          `  ${c.mint.slice(0, 10)}  SIZE ${chosenNotional} lamports ` +
+            `(${choice.evaluations.filter((e) => e.admissible).length}/${choice.evaluations.length} admissible, first bound ${bound})`,
+        );
+      } catch (e) {
+        /**
+         * The size rule could not be evaluated. FALL BACK TO THE CEILING rather
+         * than to an unbounded guess: the fixed notional is the size every
+         * previous trajectory used and it is the one the depth gate downstream
+         * is already written against, so a failure here degrades to the
+         * previous behaviour instead of inventing a new one.
+         */
+        refusals['SIZE_RULE_UNEVALUATED'] = (refusals['SIZE_RULE_UNEVALUATED'] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  SIZE_RULE_UNEVALUATED  ${(e as Error).message.slice(0, 100)}`);
+      }
+
       const res = await openTrajectory(
         rpc as never,
         w,
         {
           mint: c.mint,
           taker,
-          notionalLamports: NOTIONAL_LAMPORTS,
+          notionalLamports: chosenNotional,
           slippagePct: 3,
           isCashbackCoin: c.is_cashback_coin === 1,
           captureSnapshot: async (accounts, programs) =>
@@ -1742,6 +1841,20 @@ async function runCycle(
           ),
         );
         persistPolicyCoverage(db, t.trajectoryId, 'TRAJECTORY', coverageVerdicts, 'treatments-v2', Date.now());
+
+        /**
+         * P6 — the opportunity now names the trajectory it produced.
+         *
+         * Written inside the atomic open, so an opportunity can never point at
+         * a trajectory that was rolled back. The link is what lets the T0 and
+         * T120 arms be paired by mint later: without it an opportunity row and
+         * a trajectory row are two facts about the same decision that nothing
+         * joins.
+         */
+        db.prepare('UPDATE entry_opportunities SET trajectory_id = ? WHERE opportunity_id = ?').run(
+          t.trajectoryId,
+          opportunity,
+        );
 
         /**
          * P8 — the immutable mechanics labels. One trajectory, four strata,

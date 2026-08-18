@@ -12,7 +12,13 @@ import {
 } from '../../../packages/intelligence/src/migration-history.js';
 import { labelStrata, type Strata, type StratumInput } from '../../../packages/strategy/src/fee-strata.js';
 import type { CoverageVerdict } from '../../../packages/strategy/src/policy-coverage.js';
-import type { SizeChoice } from '../../../packages/strategy/src/size-rule.js';
+import {
+  chooseSize,
+  CANDIDATE_SIZES_LAMPORTS,
+  type SizeChoice,
+  type SizeMechanics,
+} from '../../../packages/strategy/src/size-rule.js';
+import { quoteBuyFrom, quoteSellFrom } from '../../../packages/solana/src/pumpswap-offline.js';
 
 /**
  * The profit-discovery layer's collector-facing surface.
@@ -387,4 +393,109 @@ export function persistEntryOpportunity(
     o.refusal,
     o.trajectoryId,
   );
+}
+
+/**
+ * P7 — evaluate every candidate size from ONE coherent snapshot, offline.
+ *
+ * No extra RPC per size. `quoteBuyFrom` and `quoteSellFrom` price against
+ * whatever state the snapshot source holds, so four sizes cost four pure
+ * computations rather than four round trips — which is what makes a size RULE
+ * affordable inside a cycle that also has a 10-second mark SLA to hit.
+ *
+ * ## The round-trip drag is an UPPER bound, deliberately
+ *
+ * The sell is priced against the PRE-buy state, so it does not see the impact
+ * our own buy just caused. That understates the drag, and understating a
+ * quantity that is being tested against a MAXIMUM is the unsafe direction — it
+ * would admit sizes that should have been refused.
+ *
+ * So the entry's measured price impact is added back. Selling into a pool our
+ * buy has already moved gets us less by roughly that impact, so the corrected
+ * figure is an upper bound and the true drag is smaller. A maximum test against
+ * an upper bound is conservative, which is the direction this repository errs in
+ * everywhere else.
+ *
+ * A size whose quote THROWS is not admissible. `evaluateSize` refuses on any
+ * unmeasured bound, and an undecodable fee config or an incomplete snapshot is
+ * exactly the state in which a confident number would be wrong.
+ */
+export function evaluateSizesOffline(p: {
+  source: Parameters<typeof quoteBuyFrom>[0];
+  pool: string;
+  effectiveQuoteReserveLamports: bigint | null;
+  slippagePct: number;
+  candidates?: readonly bigint[];
+}): SizeChoice {
+  const sizes = p.candidates ?? CANDIDATE_SIZES_LAMPORTS;
+  const mechanics: SizeMechanics[] = [];
+
+  for (const size of sizes) {
+    let m: SizeMechanics = {
+      candidateLamports: size,
+      mechanicsComplete: false,
+      reserveShareBps: null,
+      priceImpactBps: null,
+      counterfactualImpactBps: null,
+      roundTripDragBps: null,
+      capacitySufficient: false,
+    };
+    try {
+      const buy = quoteBuyFrom(p.source, p.pool, size, p.slippagePct);
+      if (buy.baseOutAtoms <= 0n) {
+        // The pool cannot fill this size at all. Not a bound: a capacity fact.
+        mechanics.push(m);
+        continue;
+      }
+      const sell = quoteSellFrom(p.source, p.pool, buy.baseOutAtoms, p.slippagePct);
+
+      const reserveShareBps =
+        p.effectiveQuoteReserveLamports === null || p.effectiveQuoteReserveLamports === 0n
+          ? null
+          : Number((size * 10_000n) / p.effectiveQuoteReserveLamports);
+
+      /**
+       * Price impact, from the round trip itself.
+       *
+       * `quoteOutLamports` is what the same tokens fetch back at the SAME
+       * state, so the gap between what we paid and what they are worth is the
+       * fee-and-curve cost of crossing — which is the quantity the impact bound
+       * is written about.
+       */
+      const priceImpactBps = size === 0n ? null : Number(((size - sell.quoteOutLamports) * 10_000n) / size);
+
+      /**
+       * The counterfactual entry impact: how far our own entry moves the pool.
+       * The larger of the two sides, because a future exit is priced against
+       * whichever reserve our entry disturbed more.
+       */
+      const quoteSideBps =
+        sell.poolQuoteReserveRaw + sell.virtualQuoteReserves === 0n
+          ? null
+          : Number((size * 10_000n) / (sell.poolQuoteReserveRaw + sell.virtualQuoteReserves));
+      const baseSideBps =
+        sell.poolBaseReserve === 0n ? null : Number((buy.baseOutAtoms * 10_000n) / sell.poolBaseReserve);
+      const counterfactualImpactBps =
+        quoteSideBps === null || baseSideBps === null ? null : Math.max(quoteSideBps, baseSideBps);
+
+      const roundTripDragBps = priceImpactBps === null ? null : priceImpactBps + Math.max(0, priceImpactBps);
+
+      m = {
+        candidateLamports: size,
+        mechanicsComplete: true,
+        reserveShareBps,
+        priceImpactBps,
+        counterfactualImpactBps,
+        roundTripDragBps,
+        capacitySufficient: buy.baseOutAtoms > 0n && sell.quoteOutLamports > 0n,
+      };
+    } catch {
+      // Left as the unmeasured shape above. `evaluateSize` refuses it, which is
+      // the fail-closed reading: a size whose economics could not be computed
+      // has not been shown to be safe.
+    }
+    mechanics.push(m);
+  }
+
+  return chooseSize(mechanics);
 }
