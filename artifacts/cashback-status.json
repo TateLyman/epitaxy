@@ -1,23 +1,23 @@
 {
   "legs": {
-    "legs": 864,
-    "cashbackCoinLegs": 268,
-    "buyAccrued": 133,
-    "sellAccrued": 134,
-    "undetermined": 597,
-    "accumulatorGainLamports": "15822420"
+    "legs": 1202,
+    "cashbackCoinLegs": 382,
+    "buyAccrued": 190,
+    "sellAccrued": 191,
+    "undetermined": 821,
+    "accumulatorGainLamports": "23844996"
   },
-  "accruedLamports": "8651960",
-  "claimableLamports": "5333400",
+  "accruedLamports": "16674536",
+  "claimableLamports": "13355976",
   "claimedLamports": "0",
   "claimCostLamports": "0",
   "settlementsWithAccrualAndZeroClaimable": 28,
   "note": "accrued and claimable are NOT cash and do not enter PnL; only claimed does",
   "provenance": {
     "writer": "cashback-status.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
-    "dirtyFiles": 10,
-    "writtenUtc": "2026-08-18T05:42:55.576Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-18T16:54:18.806Z"
   }
 }

@@ -112,6 +112,24 @@ function main(): void {
 
     const body = {
       sourceCommit: tree.commit,
+      /**
+       * NAMED, so two windows over identical content mint DIFFERENT contracts.
+       *
+       * `contractId` is `contract-${sha256(body).slice(0,16)}`, and until this
+       * field existed the hash covered only WHAT the experiment measures, never
+       * WHICH window it ran in. Two freezes at the same commit with different
+       * `--window=` therefore produced the identical contract id, and the
+       * second `contract:freeze --apply` hit `ON CONFLICT(contract_id) DO
+       * NOTHING` — it printed FROZEN and silently kept the first call's
+       * context and window_id.
+       *
+       * Measured 2026-08-18: `--window=DEV_WINDOW_5D24E_R2` after a window had
+       * already been frozen and demoted at the same commit reported success
+       * while leaving the collector bound to the DEMOTED context. Starting a
+       * collector on that "fresh" contract would have written 2026-08-18's
+       * corpus into a window already invalidated for OPERATOR_INDUCED_STALENESS.
+       */
+      windowId,
       cohort,
       notionalRule: `fixed ${notional} lamports per entry`,
       entryPolicies: [...ENTRY_POLICIES],

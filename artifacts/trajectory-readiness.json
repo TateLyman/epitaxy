@@ -5,12 +5,12 @@
   "verdict": "NOT_READY",
   "ready": false,
   "contract": {
-    "contractId": "contract-159d6dc1129230a6",
-    "contractHash": "159d6dc1129230a66869b8f4663a632db4159873f78d921c96214ed46ea3c927",
-    "evidenceContextId": "ctx-47a91fa1a07b-DEV_WINDOW_5D24E",
+    "contractId": "contract-6e1f2a04f794b95c",
+    "contractHash": "6e1f2a04f794b95c6e1c80f880b9ba0906fcf93067c6cea1a80529abd093cc16",
+    "evidenceContextId": "ctx-8eb790b0feb9-DEV_WINDOW_5D24E",
     "contextValidity": "DEVELOPMENT_EVIDENCE",
-    "frozenUtcMs": 1787027355278,
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "frozenUtcMs": 1787056979015,
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "markSlaMs": 10000,
     "counterfactualContract": "counterfactual-v1 (bounded impact cap 10 bps)",
     "entryPolicies": [
@@ -80,18 +80,18 @@
     ]
   },
   "sample": {
-    "settledInContract": 9,
-    "eligible": 2,
-    "withNetPnl": 2,
-    "distinctMints": 2,
+    "settledInContract": 48,
+    "eligible": 38,
+    "withNetPnl": 38,
+    "distinctMints": 23,
     "distinctUtcDays": 1,
     "droppedNoEvidenceLinks": 0,
-    "droppedLateMark": 7,
+    "droppedLateMark": 10,
     "droppedNonZeroUnexplained": 0
   },
-  "netPnlLamports": "-14892854",
-  "outcomesWithCounterfactualContract": 4,
-  "outcomesTotal": 4,
+  "netPnlLamports": "-248139794",
+  "outcomesWithCounterfactualContract": 67,
+  "outcomesTotal": 76,
   "entryPoliciesDecided": 3,
   "thresholds": {
     "minCompletedTrajectories": 200,
@@ -116,7 +116,7 @@
     {
       "name": "completed trajectories",
       "pass": false,
-      "detail": "2 of 200"
+      "detail": "38 of 200"
     },
     {
       "name": "distinct UTC days",
@@ -126,7 +126,7 @@
     {
       "name": "net PnL positive",
       "pass": false,
-      "detail": "-14892854"
+      "detail": "-248139794"
     },
     {
       "name": "expected log growth positive",
@@ -254,9 +254,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
-    "dirtyFiles": 12,
-    "writtenUtc": "2026-08-18T05:42:56.379Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-18T16:54:19.381Z"
   }
 }

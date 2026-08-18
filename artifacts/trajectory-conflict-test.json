@@ -55,9 +55,9 @@
   "note": "run against a temporary database; the research corpus is never mutated by this command",
   "provenance": {
     "writer": "trajectory-conflict-test.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
-    "dirtyFiles": 6,
-    "writtenUtc": "2026-08-18T05:42:52.494Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-18T16:54:16.479Z"
   }
 }

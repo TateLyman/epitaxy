@@ -1,9 +1,8 @@
 {
   "activeContexts": [
-    "ctx-b71956b37104-DEV_WINDOW_5D24E",
-    "ctx-47a91fa1a07b-DEV_WINDOW_5D24E"
+    "ctx-8eb790b0feb9-DEV_WINDOW_5D24E"
   ],
-  "trajectoriesInScope": 115,
+  "trajectoriesInScope": 60,
   "checks": [
     {
       "name": "LINK_ROW_EXISTS",
@@ -90,9 +89,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
-    "dirtyFiles": 4,
-    "writtenUtc": "2026-08-18T05:42:47.796Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-18T16:54:11.018Z"
   }
 }

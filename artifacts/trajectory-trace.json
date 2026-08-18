@@ -4,7 +4,27 @@
   "failures": 0,
   "results": [
     {
-      "trajectoryId": "8a42c8b4-a424-4bda-bb1c-8ebf8feb49d0",
+      "trajectoryId": "74b48ca4-cf67-4f25-b4b1-23b4290c0a98",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496691",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426788"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496691",
+        "netPnlLamports": "-6426788"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "d80cd3cf-2e96-483c-971b-88b2da3cf827",
       "traceable": true,
       "manifestRows": 50,
       "blobsRead": 95,
@@ -24,67 +44,87 @@
       "recomputes": true
     },
     {
-      "trajectoryId": "307ada5f-fdb5-46a6-a036-5c63bff5b511",
-      "traceable": true,
-      "manifestRows": 52,
-      "blobsRead": 98,
-      "unreadableBlobs": [],
-      "derived": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "unexplainedLamports": "0",
-        "netPnlLamports": "-8466067"
-      },
-      "stored": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "netPnlLamports": "-8466067"
-      },
-      "mismatches": [],
-      "recomputes": true
-    },
-    {
-      "trajectoryId": "2624e9c7-059b-4172-b221-494b59c0a875",
-      "traceable": true,
-      "manifestRows": 50,
-      "blobsRead": 95,
-      "unreadableBlobs": [],
-      "derived": {
-        "entryCashOutLamports": "23923479",
-        "exitCashInLamports": "17516215",
-        "unexplainedLamports": "0",
-        "netPnlLamports": "-6407264"
-      },
-      "stored": {
-        "entryCashOutLamports": "23923479",
-        "exitCashInLamports": "17516215",
-        "netPnlLamports": "-6407264"
-      },
-      "mismatches": [],
-      "recomputes": true
-    },
-    {
-      "trajectoryId": "9a94336a-5c8f-44e0-82cd-7a9587941b24",
+      "trajectoryId": "36909329-9e19-4a83-a7b0-a32f3bcd69a9",
       "traceable": true,
       "manifestRows": 51,
       "blobsRead": 97,
       "unreadableBlobs": [],
       "derived": {
         "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "19535972",
+        "exitCashInLamports": "19535971",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426788"
+      },
+      "stored": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "19535971",
+        "netPnlLamports": "-6426788"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "142ac750-ba7f-4fb4-be8e-ac1bff2ed850",
+      "traceable": true,
+      "manifestRows": 52,
+      "blobsRead": 98,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "17496690",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-8466069"
+      },
+      "stored": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "17496690",
+        "netPnlLamports": "-8466069"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "9c7ed692-ac48-4914-acd0-c2a950780a28",
+      "traceable": true,
+      "manifestRows": 51,
+      "blobsRead": 97,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "19535971",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426788"
+      },
+      "stored": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "19535971",
+        "netPnlLamports": "-6426788"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "c893e983-b819-4e91-a0c4-3d74c2c92c24",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
         "unexplainedLamports": "0",
         "netPnlLamports": "-6426787"
       },
       "stored": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "19535972",
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
         "netPnlLamports": "-6426787"
       },
       "mismatches": [],
       "recomputes": true
     },
     {
-      "trajectoryId": "ebeded7f-15c0-4cd9-81df-9b2084cbd489",
+      "trajectoryId": "4dc962a7-6e4e-4baa-96c0-dea8d20e1fc4",
       "traceable": true,
       "manifestRows": 52,
       "blobsRead": 98,
@@ -104,101 +144,61 @@
       "recomputes": true
     },
     {
-      "trajectoryId": "bdda51ae-d9a1-40d6-aac1-276742a5ea89",
+      "trajectoryId": "07283edd-3747-409b-8f73-719eb851a6ec",
       "traceable": true,
-      "manifestRows": 48,
-      "blobsRead": 91,
+      "manifestRows": 50,
+      "blobsRead": 95,
       "unreadableBlobs": [],
       "derived": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "17461892",
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
         "unexplainedLamports": "0",
-        "netPnlLamports": "-6426787"
+        "netPnlLamports": "-6426786"
       },
       "stored": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "17461892",
-        "netPnlLamports": "-6426787"
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "netPnlLamports": "-6426786"
       },
       "mismatches": [],
       "recomputes": true
     },
     {
-      "trajectoryId": "15c9ea84-9621-400a-bcdd-090f13ff7c81",
+      "trajectoryId": "d802e52e-bb92-447d-ad6f-588cec044a38",
       "traceable": true,
-      "manifestRows": 47,
-      "blobsRead": 90,
+      "manifestRows": 50,
+      "blobsRead": 95,
       "unreadableBlobs": [],
       "derived": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "19501172",
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
         "unexplainedLamports": "0",
-        "netPnlLamports": "-4387507"
+        "netPnlLamports": "-6426786"
       },
       "stored": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "19501172",
-        "netPnlLamports": "-4387507"
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "netPnlLamports": "-6426786"
       },
       "mismatches": [],
       "recomputes": true
     },
     {
-      "trajectoryId": "ad5c9d37-0381-46a9-a220-a644482128d5",
+      "trajectoryId": "641c8d40-5399-4734-9207-d3119000c08f",
       "traceable": true,
-      "manifestRows": 48,
-      "blobsRead": 91,
+      "manifestRows": 50,
+      "blobsRead": 95,
       "unreadableBlobs": [],
       "derived": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "17461892",
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
         "unexplainedLamports": "0",
         "netPnlLamports": "-6426787"
       },
       "stored": {
-        "entryCashOutLamports": "23888679",
-        "exitCashInLamports": "17461892",
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
         "netPnlLamports": "-6426787"
-      },
-      "mismatches": [],
-      "recomputes": true
-    },
-    {
-      "trajectoryId": "36b67230-d4ad-4551-8ad0-4e4ecf659040",
-      "traceable": true,
-      "manifestRows": 52,
-      "blobsRead": 98,
-      "unreadableBlobs": [],
-      "derived": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "unexplainedLamports": "0",
-        "netPnlLamports": "-8466067"
-      },
-      "stored": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "netPnlLamports": "-8466067"
-      },
-      "mismatches": [],
-      "recomputes": true
-    },
-    {
-      "trajectoryId": "c9f88486-f31c-4a9a-a84c-362746a8e89f",
-      "traceable": true,
-      "manifestRows": 52,
-      "blobsRead": 98,
-      "unreadableBlobs": [],
-      "derived": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "unexplainedLamports": "0",
-        "netPnlLamports": "-8466067"
-      },
-      "stored": {
-        "entryCashOutLamports": "25962759",
-        "exitCashInLamports": "17496692",
-        "netPnlLamports": "-8466067"
       },
       "mismatches": [],
       "recomputes": true
@@ -206,9 +206,9 @@
   ],
   "provenance": {
     "writer": "trajectory-trace.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-18T04:42:31.288Z"
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-18T16:32:12.162Z"
   }
 }

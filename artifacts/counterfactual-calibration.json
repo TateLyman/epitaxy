@@ -1,45 +1,45 @@
 {
-  "boundedRows": 1005,
-  "replayRows": 14,
+  "boundedRows": 2110,
+  "replayRows": 18,
   "pairedRows": 4,
   "toleranceBps": 200,
   "results": [
     {
-      "trajectoryId": "59ada35b-6fc1-4cf5-8cf6-e799f0489832",
+      "trajectoryId": "142ac750-ba7f-4fb4-be8e-ac1bff2ed850",
       "offsetMs": 900000,
-      "boundedExitLamports": "18754293",
-      "replayExitLamports": "18848286",
-      "errorLamports": "-93993",
+      "boundedExitLamports": "17920078",
+      "replayExitLamports": "18009891",
+      "errorLamports": "-89813",
       "errorBps": -49,
       "conservative": true,
       "withinTolerance": true
     },
     {
-      "trajectoryId": "9249f1c3-5cd4-4f65-83a2-5c2e60ddba36",
+      "trajectoryId": "36909329-9e19-4a83-a7b0-a32f3bcd69a9",
       "offsetMs": 900000,
-      "boundedExitLamports": "19654584",
-      "replayExitLamports": "19753085",
-      "errorLamports": "-98501",
+      "boundedExitLamports": "19654605",
+      "replayExitLamports": "19753086",
+      "errorLamports": "-98481",
       "errorBps": -49,
       "conservative": true,
       "withinTolerance": true
     },
     {
-      "trajectoryId": "d2275075-1f72-49c3-a9a7-efc9ecc0a19e",
+      "trajectoryId": "9c7ed692-ac48-4914-acd0-c2a950780a28",
       "offsetMs": 900000,
-      "boundedExitLamports": "19626439",
-      "replayExitLamports": "19724794",
-      "errorLamports": "-98355",
+      "boundedExitLamports": "19314958",
+      "replayExitLamports": "19411740",
+      "errorLamports": "-96782",
       "errorBps": -49,
       "conservative": true,
       "withinTolerance": true
     },
     {
-      "trajectoryId": "ef501c7a-3167-41c8-98da-3a9a074f3f8a",
+      "trajectoryId": "c893e983-b819-4e91-a0c4-3d74c2c92c24",
       "offsetMs": 900000,
-      "boundedExitLamports": "17978917",
-      "replayExitLamports": "18069025",
-      "errorLamports": "-90108",
+      "boundedExitLamports": "19654607",
+      "replayExitLamports": "19753087",
+      "errorLamports": "-98480",
       "errorBps": -49,
       "conservative": true,
       "withinTolerance": true
@@ -50,9 +50,9 @@
   "verdict": "BOUND_IS_CONSERVATIVE",
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
     "treeDirty": true,
     "dirtyFiles": 19,
-    "writtenUtc": "2026-08-18T05:52:10.141Z"
+    "writtenUtc": "2026-08-18T16:54:18.537Z"
   }
 }
