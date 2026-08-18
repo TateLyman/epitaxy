@@ -246,6 +246,17 @@ interface Args {
   readonly maxTickMs: number;
 }
 
+/**
+ * The window the frozen contract owns, once `main` has resolved it.
+ *
+ * `runCycle` re-parses `process.argv` rather than receiving `main`'s parsed
+ * args, so a window adopted from the contract in `main` alone would not reach
+ * the code that actually seeds the policy randomisation and namespaces the
+ * reservations. This is set ONCE, before any cycle runs, and is the only
+ * mutable module state here.
+ */
+let CONTRACT_WINDOW: string | null = null;
+
 function parseArgs(argv: readonly string[]): Args {
   const num = (flag: string, dflt: number): number => {
     const a = argv.find((x) => x.startsWith(`${flag}=`));
@@ -264,7 +275,7 @@ function parseArgs(argv: readonly string[]): Args {
     // Opt-in. See the field comment: 219 messages/second, measured.
     liveLane: argv.includes('--live-lane'),
     maxPerMint: num('--max-per-mint', 3),
-    windowId: (argv.find((x) => x.startsWith('--window=')) ?? '--window=DEV_WINDOW_V1').slice(9),
+    windowId: argv.find((x) => x.startsWith('--window='))?.slice(9) ?? CONTRACT_WINDOW ?? 'DEV_WINDOW_V1',
     instrumentDevelopment: argv.includes('--instrument-development'),
     contractId: argv.find((x) => x.startsWith('--contract='))?.slice(11) ?? null,
     markSlaMs: num('--mark-sla-ms', MARK_SLA_MS),
@@ -2135,7 +2146,8 @@ async function runMarkPass(
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  // Re-parsed once the frozen contract's window is known; see CONTRACT_WINDOW.
+  let args = parseArgs(process.argv.slice(2));
   const secrets = loadSecrets();
 
   /**
@@ -2268,8 +2280,10 @@ async function main(): Promise<void> {
   }`;
   if (args.contractId !== null) {
     const contract = telemetryDb
-      .prepare('SELECT evidence_context_id, source_commit FROM experiment_contracts WHERE contract_id = ?')
-      .get(args.contractId) as { evidence_context_id: string; source_commit: string } | undefined;
+      .prepare('SELECT evidence_context_id, source_commit, window_id FROM experiment_contracts WHERE contract_id = ?')
+      .get(args.contractId) as
+      | { evidence_context_id: string; source_commit: string; window_id: string | null }
+      | undefined;
     if (contract === undefined) {
       console.error(`\nREFUSED: no frozen contract ${args.contractId}. Freeze one with \`pnpm contract:freeze\`.\n`);
       lock.release();
@@ -2287,8 +2301,54 @@ async function main(): Promise<void> {
       telemetryDb.close();
       process.exit(4);
     }
+    /**
+     * THE CONTRACT OWNS THE WINDOW TOO, not only the commit and the context.
+     *
+     * `contract:freeze` defaults to DEV_WINDOW_5D24E and this program defaults
+     * to DEV_WINDOW_V1, and until now nothing compared them. The window id is
+     * not a label: it seeds the entry-policy randomisation, scopes exploration
+     * entitlements and namespaces every reservation, so a collector running a
+     * different window is running a different experiment while writing into
+     * this contract's evidence context.
+     *
+     * Measured 2026-08-18: started without `--window`, this program opened
+     * ctx-5f5a6dc3f761-DEV_WINDOW_V1 while the frozen contract owned
+     * ctx-5f5a6dc3f761-DEV_WINDOW_5D24E, and one trajectory landed in a context
+     * `pnpm readiness` does not read — the "every row real, every report empty"
+     * failure the comment above warns about, arriving through the one field
+     * that binding did not cover.
+     *
+     * Unstated on the command line, the contract's window is ADOPTED. Stated
+     * and disagreeing, this refuses: an operator who names a window means it,
+     * and silently overriding them would substitute a different randomisation
+     * for the one they asked for. A contract frozen before this column existed
+     * carries NULL, and absence is not a disagreement.
+     */
+    const stated = process.argv.some((x) => x.startsWith('--window='));
+    if (contract.window_id !== null && stated && contract.window_id !== args.windowId) {
+      console.error(
+        `\nREFUSED: contract ${args.contractId} owns window ${contract.window_id} and --window=${args.windowId} ` +
+          'was passed.\n\n' +
+          'The window id seeds the entry-policy randomisation, scopes exploration entitlements and\n' +
+          'namespaces every reservation. Collecting one window into another window\'s contract is not the\n' +
+          'experiment that was declared. Drop --window to adopt the contract\'s, or freeze a new contract.\n',
+      );
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    if (contract.window_id !== null) {
+      CONTRACT_WINDOW = contract.window_id;
+      // Everything below this point — the context hash, the session record, and
+      // every cycle — has to see the adopted window, not the default it was
+      // parsed with a hundred lines ago.
+      args = parseArgs(process.argv.slice(2));
+    }
     evidenceContextId = contract.evidence_context_id;
-    console.log(`collecting under contract ${args.contractId} into context ${evidenceContextId}`);
+    console.log(
+      `collecting under contract ${args.contractId} into context ${evidenceContextId} ` +
+        `(window ${contract.window_id ?? `${args.windowId}, not stated by this contract`})`,
+    );
   }
   telemetryDb
     .prepare(

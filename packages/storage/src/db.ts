@@ -3437,6 +3437,34 @@ CREATE INDEX IF NOT EXISTS idx_cf_marks_class
 PRAGMA foreign_keys = ON;
 `,
   },
+  {
+    id: 52,
+    name: 'the_contract_owns_its_window',
+    sql: `
+-- THE WINDOW IS PART OF THE EXPERIMENT, SO THE CONTRACT HAS TO STATE IT.
+--
+-- \`contract:freeze\` defaulted its window to DEV_WINDOW_5D24E and
+-- \`trajectory:collect\` defaulted its own to DEV_WINDOW_V1, and nothing
+-- compared them. The window id is not a label: it seeds the entry-policy
+-- randomisation (\`seed: \${windowId}:\${policy}\`), scopes exploration
+-- entitlements, and namespaces every reservation. A collector running one
+-- window while writing into another window's evidence context is running a
+-- different randomisation and a different reservation namespace than the
+-- contract declares.
+--
+-- Measured 2026-08-18: a collector started without --window opened
+-- ctx-5f5a6dc3f761-DEV_WINDOW_V1 while the frozen contract owned
+-- ctx-5f5a6dc3f761-DEV_WINDOW_5D24E. One trajectory landed in a context the
+-- gate does not read -- the exact "every row real, every report empty" failure
+-- the collector's own contract-binding comment warns about, arriving through
+-- the one field that binding did not cover.
+--
+-- The column is nullable because contracts frozen before this migration cannot
+-- have one, and inventing a value for them would be a fabricated provenance
+-- record. The collector refuses on DISAGREEMENT, not on absence.
+ALTER TABLE experiment_contracts ADD COLUMN window_id TEXT;
+`,
+  },
 ];
 
 export interface OpenOptions {

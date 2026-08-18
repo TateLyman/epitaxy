@@ -351,3 +351,79 @@ describe('a refused counterfactual is representable; a priced one outside the bo
     }
   });
 });
+
+/**
+ * S087 — the contract owns the window, and the window is not a label.
+ *
+ * `contract:freeze` defaults to DEV_WINDOW_5D24E; `trajectory:collect` defaults
+ * to DEV_WINDOW_V1; nothing compared them. `windowId` seeds the entry-policy
+ * randomisation (`seed: ${windowId}:${policy}`), scopes exploration
+ * entitlements and namespaces every reservation, so the two defaults are two
+ * different experiments.
+ *
+ * Measured 2026-08-18: a collector started with no `--window` opened
+ * ctx-5f5a6dc3f761-DEV_WINDOW_V1 while the frozen contract owned
+ * ctx-5f5a6dc3f761-DEV_WINDOW_5D24E, and a trajectory landed in a context the
+ * readiness gate does not read.
+ *
+ * These check the storage half — that a contract can state its window and that
+ * the statement survives a round trip — which is what the collector's adopt and
+ * refuse both read.
+ */
+describe('S087 — a frozen contract states the window it owns', () => {
+  const insertContract = (db: ReturnType<typeof openDb>, id: string, windowId: string | null): void => {
+    db.prepare(
+      `INSERT INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms, validity, reasons)
+       VALUES (?, ?, ?, 0, ?, 'DEVELOPMENT_EVIDENCE', '[]')`,
+    ).run(`ctx-${id}`, HASH_A, 'c'.repeat(40), NOW);
+    db.prepare(
+      `INSERT INTO experiment_contracts
+         (contract_id, evidence_context_id, frozen_utc_ms, source_commit, context_hash,
+          collector_version, kernel_version, route_fingerprint, capability_fingerprint,
+          notional_rule, cohort, entry_policies, exit_policies, mark_sla_ms,
+          counterfactual_contract, cashback_treatment, mayhem_treatment, cost_rent_treatment,
+          risk_facts, thresholds, claimed_invariants, contract_hash, window_id)
+       VALUES (?, ?, ?, ?, ?, 'v', 'v', 'PUMPSWAP_DIRECT', ?, 'fixed', 'FIRST_HOUR', '[]', '[]', 10000,
+               'counterfactual-v1', 'none', 'none', 'none', '[]', '{}', '[]', ?, ?)`,
+    ).run(id, `ctx-${id}`, NOW, 'c'.repeat(40), HASH_A, HASH_B, HASH_B, windowId);
+  };
+
+  it('round-trips the window id the freeze stated', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      insertContract(db, 'contract-owns', 'DEV_WINDOW_5D24E');
+      const got = db
+        .prepare('SELECT window_id w FROM experiment_contracts WHERE contract_id = ?')
+        .get('contract-owns') as { w: string | null };
+      expect(got.w).toBe('DEV_WINDOW_5D24E');
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
+  it('a contract frozen before the column existed reads NULL, which is absence and not disagreement', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      insertContract(db, 'contract-legacy', null);
+      const got = db
+        .prepare('SELECT window_id w FROM experiment_contracts WHERE contract_id = ?')
+        .get('contract-legacy') as { w: string | null };
+      expect(got.w).toBeNull();
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+});

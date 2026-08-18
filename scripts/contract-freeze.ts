@@ -183,8 +183,8 @@ function main(): void {
             collector_version, kernel_version, route_fingerprint, capability_fingerprint,
             notional_rule, cohort, entry_policies, exit_policies, mark_sla_ms,
             counterfactual_contract, cashback_treatment, mayhem_treatment, cost_rent_treatment,
-            risk_facts, thresholds, claimed_invariants, contract_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            risk_facts, thresholds, claimed_invariants, contract_hash, window_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(contract_id) DO NOTHING`,
       ).run(
         contractId,
@@ -211,6 +211,15 @@ function main(): void {
         JSON.stringify(body.thresholds),
         JSON.stringify(CLAIMED_INVARIANTS),
         contractHash,
+        /**
+         * The window the collector must run, stated by the contract.
+         *
+         * It is not a label. `windowId` seeds the entry-policy randomisation,
+         * scopes exploration entitlements and namespaces every reservation, so
+         * a collector running a different one is running a different
+         * experiment while writing into this contract's evidence context.
+         */
+        windowId,
       );
       db.exec('COMMIT');
     } catch (e) {
