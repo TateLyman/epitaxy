@@ -10,6 +10,16 @@ Measured 2026-08-18T05:49Z against `contract-159d6dc1129230a6`, context
 `ctx-47a91fa1a07b-DEV_WINDOW_5D24E`, at commit `47a91fa`, with the gate's own
 live collector pass reporting `opened 2, marks 16, settled 1; restart PASS`.
 
+**That window is now marked superseded, and this report is why.** The commit
+carrying this document moved HEAD, and the collector refuses a contract whose
+`source_commit` is not HEAD — so continuing to collect required a re-freeze,
+which supersedes the window the numbers below describe. Nothing in it is invalid:
+it is complete, audited clean, and preserved in full. Collection continues in
+`ctx-8e64fba67ca1-DEV_WINDOW_5D24E` under `contract-a4317e98477ff177`, and
+exactly one evidence context is `DEVELOPMENT_EVIDENCE` at any time.
+
+Appendix C states what that costs and why the rule causing it is still right.
+
 ```
 PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
 independently recomputed trajectories: 10 (0 failures)

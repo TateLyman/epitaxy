@@ -135,7 +135,7 @@ Last updated: 2026-08-18T05:55Z
 | mode | `observe` for the trajectory collector; nothing capital-bearing is running |
 | schema | **v53** (`a_reservation_belongs_to_its_experiment`) |
 | strategy version | `delayed-momentum-v0.6.0` |
-| active contract | `contract-159d6dc1129230a6`, context `ctx-47a91fa1a07b-DEV_WINDOW_5D24E`, window `DEV_WINDOW_5D24E` |
+| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — collecting. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
 | positions with executable PnL | **0** |
 | development trajectories, ACTIVE context | **52** across **52** distinct mints; 15 settled, 30 policy outcomes, 4 pairs disagreeing |
 | independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
