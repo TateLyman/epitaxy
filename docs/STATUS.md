@@ -1,5 +1,48 @@
 # STATUS
 
+> **2026-08-18 (LATEST) — Profit Discovery V1, from audited head `aaf6d6a`.
+> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+>
+> Full account: `docs/PROFIT_DISCOVERY_V1_REPORT.md` (21 sections).
+>
+> ```
+> contract-623ce9c59e896474 at 35b926b, context ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4
+> pnpm check green: 129 files, 1,955 tests
+>
+> policy                             eligible  ENTER  REJECTED  NOT_EVALUABLE
+> HARD_GATES_RANDOM                         7      4         3              0
+> MIGRATION_MICROSTRUCTURE_RISK_V1          7      0         0              7
+> SURVIVOR_FLOW_CONTINUATION_V1             7      0         0              7
+> CORRECTED_CURRENT_QUALITY_SCORE           7      0         0              7
+> ```
+>
+> **The six literal `null`s are gone.** `MIGRATION_MICROSTRUCTURE_V2` computes 48
+> features over the CLOSED pre-migration bonding curve — immutable, cached once,
+> and impossible to contaminate with the future. On a COMPLETE history **6 of the
+> 8** fields the new risk policy needs are known, up from 0.
+>
+> **But the tournament still has one arm that can enter.** `entityConcentration`
+> is unmeasured on **84%** of candidates corpus-wide (1,218 MEASURED vs 6,391
+> HISTORY_INCOMPLETE) and is required by both smart policies. That refusal is
+> CORRECT — an incomplete holder history can only understate clustering — and the
+> walk parameters are frozen as a measurement, not a knob. **The repair is
+> endpoint capacity, and it is now a number rather than an opinion.**
+>
+> What changed regardless: a REJECT row can no longer hide an unplugged
+> instrument. `NOT_EVALUABLE` is a third verdict, and `pnpm policy:coverage`
+> names the missing field.
+>
+> **FIVE DEFECTS FOUND BY RUNNING IT, ALL PAST A GREEN SUITE.** Round-trip cost
+> tested against the impact cap (every size refused on every pool); COMPLETE
+> reported over a history with zero trades (fabricated zeros); failed
+> transactions fetched then discarded; the cheap signature walk bounded by the
+> expensive fetch budget; and `mintBehaviourSafe: freezeAuthority === null`
+> against a STRING UNION — always null, on every candidate ever evaluated,
+> silently making both challengers unevaluable long before this directive began.
+>
+> No edge. No arm selected. `DEVELOPMENT_EDGE_CANDIDATE` needs 100 mints; there
+> are 10, over 1 UTC day. Nothing signed, funded or submitted.
+
 > **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, final.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >

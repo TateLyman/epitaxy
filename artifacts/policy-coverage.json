@@ -1,10 +1,10 @@
 {
   "status": "MEASURED",
   "context": {
-    "contract": "contract-4f577282cf51cb8b",
-    "contractHash": "4f577282cf51cb8bfb65f4cb3f2e85e1907851cdcd31f760c15a4130f19d6ccc",
-    "evidenceContextId": "ctx-ca50a7ada970-PROFIT_DISCOVERY_V1_R3",
-    "windowId": "PROFIT_DISCOVERY_V1_R3",
+    "contract": "contract-623ce9c59e896474",
+    "contractHash": "623ce9c59e89647447df95b458632187cb8ca4090332acaa82fdc7db364676b5",
+    "evidenceContextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
+    "windowId": "PROFIT_DISCOVERY_V1_R4",
     "featureVersions": {
       "microstructure": "migration-microstructure-v2"
     },
@@ -14,21 +14,21 @@
   "policies": [
     {
       "policy": "CORRECTED_CURRENT_QUALITY_SCORE",
-      "eligible": 6,
+      "eligible": 7,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 6,
+      "notEvaluable": 7,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
-        "correctedQualityScore": 6
+        "correctedQualityScore": 7
       }
     },
     {
       "policy": "HARD_GATES_RANDOM",
-      "eligible": 6,
+      "eligible": 7,
       "decisionCoverage": 1,
-      "enter": 3,
+      "enter": 4,
       "rejectedOnSignal": 3,
       "notEvaluable": 0,
       "performanceQuotable": true,
@@ -36,35 +36,35 @@
     },
     {
       "policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
-      "eligible": 6,
+      "eligible": 7,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 6,
+      "notEvaluable": 7,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
         "creatorNetSellingLamports": 4,
         "mintBehaviourSafe": 6,
-        "entityConcentration": 6,
+        "entityConcentration": 7,
         "largestFirstBuyerEntityShare": 4,
         "buyerRetention": 4,
-        "lateSellPressure": 3,
+        "lateSellPressure": 4,
         "migrationPathEntityDominance": 4
       }
     },
     {
       "policy": "SURVIVOR_FLOW_CONTINUATION_V1",
-      "eligible": 6,
+      "eligible": 7,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 6,
+      "notEvaluable": 7,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
-        "effectiveQuoteReserveTrend": 6,
-        "executableExitCapacityTrend": 6,
-        "continuationSlope": 6,
-        "entityConcentration": 6,
+        "effectiveQuoteReserveTrend": 7,
+        "executableExitCapacityTrend": 7,
+        "continuationSlope": 7,
+        "entityConcentration": 7,
         "mintBehaviourSafe": 6,
         "independentBuyerPersistence": 4,
         "creatorNetSellingLamports": 4
@@ -73,9 +73,9 @@
   ],
   "provenance": {
     "writer": "policy-coverage.ts",
-    "sourceCommit": "ca50a7ada97073a50165afb940fb1e15d0a968f5",
+    "sourceCommit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
     "treeDirty": true,
-    "dirtyFiles": 3,
-    "writtenUtc": "2026-08-18T23:33:01.792Z"
+    "dirtyFiles": 4,
+    "writtenUtc": "2026-08-18T23:39:27.227Z"
   }
 }
