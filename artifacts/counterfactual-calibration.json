@@ -1,15 +1,58 @@
 {
-  "status": "NOT_RUN",
-  "reason": "no trajectory carries both a bounded counterfactual and a reserve-delta replay for the same horizon",
-  "boundedRows": 253,
-  "replayRows": 6,
-  "pairedRows": 0,
+  "boundedRows": 501,
+  "replayRows": 10,
+  "pairedRows": 4,
   "toleranceBps": 200,
+  "results": [
+    {
+      "trajectoryId": "3f177c19-d353-4276-824c-bf5b896fb3e1",
+      "offsetMs": 900000,
+      "boundedExitLamports": "19654606",
+      "replayExitLamports": "19753087",
+      "errorLamports": "-98481",
+      "errorBps": -49,
+      "conservative": true,
+      "withinTolerance": true
+    },
+    {
+      "trajectoryId": "c3b1c930-946a-4749-8f61-687a0285c385",
+      "offsetMs": 900000,
+      "boundedExitLamports": "19654603",
+      "replayExitLamports": "19753086",
+      "errorLamports": "-98483",
+      "errorBps": -49,
+      "conservative": true,
+      "withinTolerance": true
+    },
+    {
+      "trajectoryId": "e0c49e7e-3f8d-46f8-9d57-f01c2022c360",
+      "offsetMs": 900000,
+      "boundedExitLamports": "20683327",
+      "replayExitLamports": "20786991",
+      "errorLamports": "-103664",
+      "errorBps": -49,
+      "conservative": true,
+      "withinTolerance": true
+    },
+    {
+      "trajectoryId": "ec62f2b0-d000-4d89-a5e3-9623608446f7",
+      "offsetMs": 900000,
+      "boundedExitLamports": "18107484",
+      "replayExitLamports": "19776982",
+      "errorLamports": "-1669498",
+      "errorBps": -844,
+      "conservative": true,
+      "withinTolerance": false
+    }
+  ],
+  "nonConservative": 0,
+  "outsideTolerance": 1,
+  "verdict": "BOUND_IS_CONSERVATIVE",
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "4f9c87d374a02a06fda5a23cdadff50fa8283dbf",
+    "sourceCommit": "b71956b37104a9b6a315a2b6c23d7380a95f2dc6",
     "treeDirty": true,
-    "dirtyFiles": 8,
-    "writtenUtc": "2026-08-18T00:06:11.989Z"
+    "dirtyFiles": 16,
+    "writtenUtc": "2026-08-18T02:06:01.037Z"
   }
 }

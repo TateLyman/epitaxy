@@ -1,21 +1,40 @@
 # STATUS
 
-> **2026-08-17 (LATEST) — the `5d24e39` ledger-first repair.
-> State: `MEASUREMENT_REPAIR_REQUIRED`.**
+> **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, second pass.
+> State: `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING`.**
 >
-> Full account: `docs/AUDIT_HEAD_5D24E39.md`. Gate ledger:
-> `artifacts/runtime-adversarial-audit-*.json`. Re-runnable end to end with
-> `pnpm gate`.
+> Full account: `docs/5D24E39_FINAL_REPORT.md`. Gate ledger:
+> `artifacts/runtime-adversarial-audit-b71956b.json`. Re-runnable end to end
+> with `pnpm gate --with-live-run`.
 >
 > ```
-> against contract-d2b2bf4f5f83b0a1, which claims 52 invariants
-> PASS 37    FAIL 7    NOT TESTABLE 4    OUT OF SCOPE 8
+> against contract-45d645af0e26ce9b at b71956b, which claims 54 invariants
+> PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+> independently recomputed trajectories: 10 (0 failures)
 > ```
 >
-> against `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`.
+> against `PASS 37 / FAIL 7 / NOT TESTABLE 4` at the first pass, and
+> `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`.
 >
-> **The state does not move up.** The ledger is repaired; the evidence it was
-> built to hold does not exist yet.
+> **NO EDGE IS CLAIMED.** The apparatus now produces two policy decisions over
+> one shared, durable, independently recomputable mark path, and they disagree
+> on 5 of 15 settled paths. That is a working measurement instrument, not a
+> result: n=15 against a threshold of 100, the figures are GROSS of an execution
+> cost dominated by locked rent, the challenger's total is a tail rather than a
+> central tendency, and the exits are priced by a counterfactual graded
+> DEVELOPMENT. Section 23 of the final report states all five reasons.
+>
+> Five defects found and fixed during this pass, each with the measurement that
+> found it: **S086** a bounded-counterfactual refusal violated its own table's
+> CHECK and the exception killed the mark pass mid-run; **S087** the freeze and
+> the collector had different default window ids and nothing compared them;
+> **S088** the C-1 trace probe carried a link hardwired to `SELECT 0`, so the
+> invariant could never pass; **S089** the screening collector never read
+> `RPC_ENDPOINT`, so the two halves of one system could read two endpoints;
+> **S090** trajectories left open in DEMOTED windows excluded their mints from
+> every future candidate queue — 75 of them held 70 of 113 under-cap migrations
+> hostage, and the resulting refusal histogram read as a fact about the chain
+> when it was a fact about our own bookkeeping.
 >
 > ### What is now true, and how it is enforced
 >
@@ -96,20 +115,23 @@
 > (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
 > through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
 
-Last updated: 2026-08-17T05:10Z
+Last updated: 2026-08-18T02:15Z
 
 ## Operational right now
 
 | | |
 |---|---|
 | mode | `observe` for the trajectory collector; nothing capital-bearing is running |
-| schema | **v48** (`evidence_graph_v1`, `evidence_graph_columns`) |
+| schema | **v52** (`the_contract_owns_its_window`) |
 | strategy version | `delayed-momentum-v0.6.0` |
-| active contract | `contract-d2b2bf4f5f83b0a1`, context `ctx-faa8e69264f2-DEV_WINDOW_5D24E` |
+| active contract | `contract-45d645af0e26ce9b`, context `ctx-b71956b37104-DEV_WINDOW_5D24E`, window `DEV_WINDOW_5D24E` |
 | positions with executable PnL | **0** |
-| development trajectories, ACTIVE context | **0** — blocked on RPC capacity |
-| development trajectories, pre-repair | **292**, all `INSTRUMENT_DEVELOPMENT_INVALID` |
-| trajectory collectors running | **0** |
+| development trajectories, ACTIVE context | **49** across **47** distinct mints; 14 settled, 28 policy outcomes, 5 pairs disagreeing |
+| independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
+| mark timeliness, pre-gate | 25 of 237 `MISSED_HORIZON` (10.5%), worst 20.9 s against a 10 s SLA |
+| counterfactual calibration | `BOUND_IS_CONSERVATIVE`, 0 of 4 non-conservative |
+| evidence contexts | **41**, of which **40** are `INSTRUMENT_DEVELOPMENT_INVALID`; 427 trajectories preserved, none deleted |
+| trajectory collectors running | **1**, under the contract frozen at the commit it is running |
 | default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
 | tests | 1,867 passing across 125 files |
 | collector candidate lane | live migration socket primary; history paging is bounded recovery |

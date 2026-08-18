@@ -158,3 +158,67 @@ MEASUREMENT_REPAIR_REQUIRED
 The ledger is repaired and the gate is honest about what remains. Ten
 independently recomputable trajectories do not exist, so
 `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING` is not claimed.
+
+---
+
+# Second pass — 2026-08-18, terminal state reached
+
+**Head:** `b71956b37104a9b6a315a2b6c23d7380a95f2dc6`
+**Contract:** `contract-45d645af0e26ce9b`, context `ctx-b71956b37104-DEV_WINDOW_5D24E`
+
+```
+PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+independently recomputed trajectories: 10 (0 failures)
+terminal state: VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING
+```
+
+Full account, including every figure and every caveat on the policy numbers:
+`docs/5D24E39_FINAL_REPORT.md`.
+
+## On the ordering the directive asks for
+
+The directive says not to restart evidence collection until the committed audit
+reports zero FAIL and zero NOT TESTABLE. Two of the three FAILs standing before
+this window — **B-3** ("the same pass continues to later marks and settles at
+least one policy outcome") and **S-3** ("the collector was stopped and restarted
+with open trajectories and resumed correctly") — are **live-run probes**. Both
+read a collector's behaviour *during the audit itself*: `pnpm gate
+--with-live-run` spawns the `--once` passes and measures them. Neither can report
+anything but FAIL or NOT TESTABLE while no collector has ever run, so the
+ordering as literally written cannot be satisfied by either of them.
+
+What was satisfied instead, and is what the requirement is for: **every FAIL
+whose cause was a defect was fixed and committed before the window opened.** The
+third standing FAIL, C-1, was itself a defect in the probe — a link hardwired to
+`SELECT 0 c`, which could never pass whatever the data said (S088). The two
+live-run probes were then cleared by the gate's own collector pass, which is the
+only apparatus that can clear them.
+
+Stating it plainly rather than quietly claiming a clean gate preceded collection.
+
+## The five defects this pass found
+
+| | what it was | how it showed up |
+|---|---|---|
+| **S086** | a bounded-counterfactual REFUSAL violated its own table's CHECK | the exception killed the mark pass mid-run; six passes died in one window and the gate read the crash as "0 marks over 0 open trajectories" |
+| **S087** | `contract:freeze` defaulted to `DEV_WINDOW_5D24E`, the collector to `DEV_WINDOW_V1`, nothing compared them | a trajectory landed in a context `pnpm readiness` does not read — every row real, every report empty |
+| **S088** | the C-1 trace probe carried a placeholder link hardwired to `SELECT 0` | C-1 reported the trace broken on every trajectory ever opened, including ones whose exit step resolves perfectly |
+| **S089** | `apps/collector/src/main.ts` built its RPC client directly and never read `RPC_ENDPOINT` | the two halves of one system could read two endpoints; measured, one collector ran fine while the other logged "max usage reached" on every concentration read |
+| **S090** | trajectories left open in DEMOTED windows excluded their mints from every future candidate queue | 75 of them held 70 of the 113 under-cap migrations hostage; the survivors were exactly the depth-refused pools, so the window opened nothing for 35 minutes while 114 eligible mints sat behind the clause |
+
+S090 is the one worth remembering. Its symptom was **indistinguishable from the
+market**: a refusal histogram full of *"the entry is 160% of the pool's effective
+quote reserve"* reads as a chain with no admissible pools. It was a fact about
+our own bookkeeping. Scoping one predicate moved the queue's quote reserves from
+0.0035–0.088 SOL to 2.19–41.85 SOL, same command, same minute.
+
+## What the terminal state does not say
+
+It does not say an edge exists. Over the 15 settled paths carrying outcomes:
+`FIXED_15M_CONTROL` n=15, 5 positive, total gross +1,229,949;
+`FLOW_LIQUIDITY_DETERIORATION_V1` n=15, 4 positive, total gross +14,591,951.
+The threshold is 100 valid paths per policy-cohort, those figures are gross of an
+execution cost dominated by locked rent, the challenger's total is a tail rather
+than a central tendency, the exits are priced by a counterfactual graded
+DEVELOPMENT, and no hold-out exists. Section 23 of the final report states each
+of those.

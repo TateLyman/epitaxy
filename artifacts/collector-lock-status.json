@@ -3,15 +3,15 @@
   "locks": [
     {
       "lock_name": "collector",
-      "pid": 30400,
+      "pid": 1916,
       "hostname": "TATE",
-      "acquired_utc_ms": 1787007426342,
-      "heartbeat_utc_ms": 1787011437134,
+      "acquired_utc_ms": 1787012700211,
+      "heartbeat_utc_ms": 1787019148421,
       "mode": "observe",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 1056152,
-      "pidAlive": false,
+      "ageMs": 4913,
+      "pidAlive": true,
       "program": "apps/collector/src/main.ts"
     },
     {
@@ -23,8 +23,8 @@
       "mode": "paper",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 239846562,
-      "pidAlive": true,
+      "ageMs": 246506610,
+      "pidAlive": false,
       "program": "unknown"
     }
   ],
@@ -33,9 +33,9 @@
   "problems": [],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "5f5a6dc3f7617678034a896c69ce76e683689842",
-    "treeDirty": false,
-    "dirtyFiles": 0,
-    "writtenUtc": "2026-08-18T00:21:33.859Z"
+    "sourceCommit": "b71956b37104a9b6a315a2b6c23d7380a95f2dc6",
+    "treeDirty": true,
+    "dirtyFiles": 17,
+    "writtenUtc": "2026-08-18T02:12:33.934Z"
   }
 }
