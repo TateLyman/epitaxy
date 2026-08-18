@@ -1,0 +1,107 @@
+{
+  "status": "MEASURED",
+  "limits": {
+    "totalRatePerSecond": 8,
+    "totalBurst": 16,
+    "family": {
+      "history": {
+        "ratePerSecond": 4,
+        "burst": 8
+      },
+      "account": {
+        "ratePerSecond": 5,
+        "burst": 10
+      },
+      "token": {
+        "ratePerSecond": 3,
+        "burst": 6
+      },
+      "light": {
+        "ratePerSecond": 5,
+        "burst": 10
+      }
+    }
+  },
+  "buckets": [
+    {
+      "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
+      "methodFamily": "__endpoint_total__",
+      "tokens": 15,
+      "capacity": 16,
+      "ratePerSecond": 8,
+      "granted": 547,
+      "refused": 0
+    },
+    {
+      "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
+      "methodFamily": "account",
+      "tokens": 9,
+      "capacity": 10,
+      "ratePerSecond": 5,
+      "granted": 106,
+      "refused": 0
+    },
+    {
+      "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
+      "methodFamily": "history",
+      "tokens": 7,
+      "capacity": 8,
+      "ratePerSecond": 4,
+      "granted": 414,
+      "refused": 0
+    },
+    {
+      "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
+      "methodFamily": "light",
+      "tokens": 9,
+      "capacity": 10,
+      "ratePerSecond": 5,
+      "granted": 25,
+      "refused": 0
+    },
+    {
+      "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
+      "methodFamily": "token",
+      "tokens": 4,
+      "capacity": 6,
+      "ratePerSecond": 3,
+      "granted": 2,
+      "refused": 0
+    },
+    {
+      "endpointKey": "mainnet.helius-rpc.com#f39e1f7dba4a",
+      "methodFamily": "__endpoint_total__",
+      "tokens": 15,
+      "capacity": 16,
+      "ratePerSecond": 8,
+      "granted": 2,
+      "refused": 0
+    },
+    {
+      "endpointKey": "mainnet.helius-rpc.com#f39e1f7dba4a",
+      "methodFamily": "account",
+      "tokens": 9,
+      "capacity": 10,
+      "ratePerSecond": 5,
+      "granted": 2,
+      "refused": 0
+    }
+  ],
+  "totalGranted": 1098,
+  "totalRefused": 0,
+  "context": {
+    "contract": "contract-15f3c36b03845074",
+    "contractHash": "15f3c36b038450746dcde8edb10dc442c73f5705d829c2a869948c189c8a2008",
+    "evidenceContextId": "ctx-a17e909fa5c5-PROFIT_DISCOVERY_V1",
+    "windowId": "PROFIT_DISCOVERY_V1",
+    "featureVersions": {},
+    "sampleQuery": "SELECT endpoint_key, method_family, tokens, capacity, rate_per_second, granted, refused FROM rpc_endpoint_budget"
+  },
+  "provenance": {
+    "writer": "rpc-shared-budget.ts",
+    "sourceCommit": "a17e909fa5c5d636397411bce845964a3e922e44",
+    "treeDirty": true,
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-18T22:56:38.330Z"
+  }
+}

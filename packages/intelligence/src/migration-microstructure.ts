@@ -64,7 +64,22 @@
 
 import { createHash } from 'node:crypto';
 
-export const MICROSTRUCTURE_FEATURE_VERSION = 'migration-microstructure-v1';
+/**
+ * v2 — the coverage CLASSIFICATION changed, so the version changed.
+ *
+ * v1 could report COMPLETE over a history containing no pre-migration trade at
+ * all, because it inferred "reached creation" from a short signature page. A
+ * closed bonding curve's index can be truncated, so a short page proves only
+ * that the INDEX has no more to give. One live mint under v1 was characterised
+ * from 296 signatures spanning 25 slots at its own migration, 197 of the newest
+ * 200 failed, and every creation-anchored total was written as 0 rather than
+ * null.
+ *
+ * The features are keyed by `(mint, feature_version)` precisely so this does
+ * not require deleting anything: the v1 rows remain as the record of what the
+ * defective build believed, and no v2 consumer can read them by accident.
+ */
+export const MICROSTRUCTURE_FEATURE_VERSION = 'migration-microstructure-v2';
 
 export type Coverage = 'COMPLETE' | 'INCOMPLETE';
 
@@ -262,7 +277,16 @@ export function computeMicrostructureFeatures(input: MicrostructureInput): Micro
     .filter((t) => !t.failed)
     .sort((a, b) => (a.slot === b.slot ? a.eventIndex - b.eventIndex : a.slot - b.slot));
 
-  const complete = input.coverage === 'COMPLETE';
+  /**
+   * COMPLETE also requires that something was decoded.
+   *
+   * Checked here as well as in the fetcher, because THIS function's output
+   * becomes a policy input and it must not depend on a caller having classified
+   * coverage correctly. A vector of zeros over an empty history is
+   * indistinguishable from a launch nobody traded, and it reads as the safest
+   * token in the corpus.
+   */
+  const complete = input.coverage === 'COMPLETE' && ok.length > 0;
   const entityOf = input.entityOf ?? ((): string | null => null);
   const mayhem = input.mayhemAddresses ?? new Set<string>();
 

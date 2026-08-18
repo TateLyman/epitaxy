@@ -455,19 +455,34 @@ export function evaluateSizesOffline(p: {
           : Number((size * 10_000n) / p.effectiveQuoteReserveLamports);
 
       /**
-       * Price impact, from the round trip itself.
+       * THE ROUND-TRIP DRAG: what a full in-and-out actually costs.
        *
-       * `quoteOutLamports` is what the same tokens fetch back at the SAME
-       * state, so the gap between what we paid and what they are worth is the
-       * fee-and-curve cost of crossing — which is the quantity the impact bound
-       * is written about.
+       * `quoteOutLamports` is what the same tokens fetch back at the SAME pool
+       * state, so the gap between what we paid and what we get back is the
+       * all-in fee-and-curve cost of crossing twice. At the current schedule
+       * that is roughly 190-250 bps on a bottom-tier pool, which is why its
+       * bound is 400 bps.
+       *
+       * This was originally assigned to `priceImpactBps` and tested against the
+       * 50 bps IMPACT cap. That is a category error and it was fatal rather
+       * than approximate: the fee is charged on every pool at every size, so
+       * the rule refused all four sizes on every candidate, including a pool
+       * holding 1,048 SOL where 0.0025 SOL moves essentially nothing. The
+       * collector opened zero trajectories and reported it as a depth refusal.
+       *
+       * A bound is only meaningful if the quantity under it is the quantity its
+       * name claims. Fees are a COST, tested by the drag bound; impact is
+       * MOVEMENT, tested below.
        */
-      const priceImpactBps = size === 0n ? null : Number(((size - sell.quoteOutLamports) * 10_000n) / size);
+      const roundTripDragBps = size === 0n ? null : Number(((size - sell.quoteOutLamports) * 10_000n) / size);
 
       /**
-       * The counterfactual entry impact: how far our own entry moves the pool.
-       * The larger of the two sides, because a future exit is priced against
-       * whichever reserve our entry disturbed more.
+       * IMPACT: how far our own entry moves the pool, per side.
+       *
+       * The quote side is what our size is as a fraction of the effective quote
+       * reserve; the base side is what fraction of the float we take out. A
+       * future exit is priced against whichever reserve our entry disturbed
+       * more, so the counterfactual bound uses the larger of the two.
        */
       const quoteSideBps =
         sell.poolQuoteReserveRaw + sell.virtualQuoteReserves === 0n
@@ -477,8 +492,9 @@ export function evaluateSizesOffline(p: {
         sell.poolBaseReserve === 0n ? null : Number((buy.baseOutAtoms * 10_000n) / sell.poolBaseReserve);
       const counterfactualImpactBps =
         quoteSideBps === null || baseSideBps === null ? null : Math.max(quoteSideBps, baseSideBps);
-
-      const roundTripDragBps = priceImpactBps === null ? null : priceImpactBps + Math.max(0, priceImpactBps);
+      // The base side alone is the price impact: the share of the token float
+      // this entry consumes, which is what moves the quoted price against us.
+      const priceImpactBps = baseSideBps;
 
       m = {
         candidateLamports: size,

@@ -7,7 +7,7 @@ import {
   computeMicrostructureFeatures,
   type PreMigrationTrade,
 } from '../../packages/intelligence/src/migration-microstructure.js';
-import { decodeCurveTrade } from '../../packages/intelligence/src/migration-history.js';
+import { decodeCurveTrade, fetchPreMigrationHistory } from '../../packages/intelligence/src/migration-history.js';
 import {
   buildFlowBars,
   buildAccountInclude,
@@ -19,7 +19,13 @@ import { computePreEntrySignals } from '../../packages/intelligence/src/pre-entr
 import { externalPriorScore, refuseExternalPriorInPolicy, ExternalPriorMisuse } from '../../packages/intelligence/src/external-prior.js';
 import { evaluateWithCoverage } from '../../packages/strategy/src/policy-coverage.js';
 import { decideEntry, type PreEntryFeatures } from '../../packages/strategy/src/treatments.js';
-import { chooseSize, pooledSetupCost, SetupPoolingError, type SizeMechanics } from '../../packages/strategy/src/size-rule.js';
+import {
+  chooseSize,
+  pooledSetupCost,
+  SetupPoolingError,
+  CANDIDATE_SIZES_LAMPORTS as CANDIDATE_SIZES,
+  type SizeMechanics,
+} from '../../packages/strategy/src/size-rule.js';
 import { labelStrata, cashbackAdjustedPnl, CashbackNotMeasured } from '../../packages/strategy/src/fee-strata.js';
 import {
   assertDistinctSnapshots,
@@ -836,6 +842,125 @@ describe('P19 — profit discovery, tested as behaviour', () => {
     // flow-derived values as if they were the same measurement.
     expect(s.sources['independentBuyerPersistence']).toBe('PRE_MIGRATION_CURVE');
     expect(s.sources['effectiveQuoteReserveTrend']).toBe('CHECKPOINTS');
+  });
+
+  /**
+   * The four below were found by RUNNING the collector on 2026-08-18, not by
+   * reading the code. Each one is a defect this phase introduced and shipped
+   * into a live window, and each is the same species: a quantity that was
+   * plausible, computed, and measuring the wrong thing.
+   */
+  it('F1 — a truncated signature index cannot report COMPLETE', async () => {
+    /**
+     * Measured: one migrated mint's ENTIRE indexed curve history was 296
+     * signatures inside a 25-slot window AT the migration, 197 of the newest
+     * 200 of them failed. The walk saw a short page, concluded it had reached
+     * creation, and reported COMPLETE over zero pre-migration trades — so every
+     * creation-anchored total was written as 0 instead of null, and the token
+     * became the cleanest-looking launch in the corpus.
+     *
+     * A bonding curve cannot be created at or after the slot it migrates in.
+     */
+    const sigs = Array.from({ length: 5 }, (_, i) => ({
+      signature: `s${i}`,
+      blockTime: 1_700_000,
+      slot: MIGRATION_SLOT + i, // every one AT OR AFTER the migration
+      failed: false,
+    }));
+    const rpc = {
+      getSignaturesForAddress: async () => sigs,
+      getTransactionWithMeta: async () => null,
+    };
+    const r = await fetchPreMigrationHistory(rpc as never, {
+      mint: 'MINT',
+      bondingCurve: 'CURVE',
+      migrationSignature: 'migSig',
+      migrationSlot: MIGRATION_SLOT,
+    });
+    expect(r.coverage.reachedCreation).toBe(false);
+    expect(r.coverage.coverage).toBe('INCOMPLETE');
+    expect(r.coverage.coverageReason).toMatch(/does not reach before the migration slot/);
+  });
+
+  it('F2 — a history that decoded no trade is not COMPLETE, and its totals are null', () => {
+    // Even if a caller insists the coverage is COMPLETE, an empty trade set
+    // cannot produce totals. This is the second line of defence: the fetcher
+    // classifies, and the feature layer refuses to trust the classification.
+    const r = computeMicrostructureFeatures(baseInput([], 'COMPLETE'));
+    expect(r.features.totalBuyLamports).toBeNull();
+    expect(r.features.uniqueBuyers).toBeNull();
+    expect(r.features.tradesToMigration).toBeNull();
+    expect(r.features.netInflowLamports).toBeNull();
+    // Not a single zero anywhere among the creation-anchored fields.
+    expect(r.unknownFields).toContain('totalBuyLamports');
+    expect(r.unknownFields).toContain('uniqueBuyers');
+  });
+
+  it('F3 — a signature the index already reports as failed is never fetched', async () => {
+    const fetched: string[] = [];
+    const sigs = [
+      { signature: 'ok1', blockTime: 1_700_000, slot: 10, failed: false },
+      { signature: 'bad1', blockTime: 1_700_001, slot: 11, failed: true },
+      { signature: 'bad2', blockTime: 1_700_002, slot: 12, failed: true },
+      { signature: 'unknown1', blockTime: 1_700_003, slot: 13, failed: null },
+    ];
+    const rpc = {
+      getSignaturesForAddress: async (_a: string, _l?: number, before?: string) => (before === undefined ? sigs : []),
+      getTransactionWithMeta: async (sig: string) => {
+        fetched.push(sig);
+        return {
+          signature: sig,
+          slot: 10,
+          blockTime: 1_700_000,
+          failed: false,
+          accountKeys: ['payer', 'CURVE'],
+          preTokenBalances: [],
+          postTokenBalances: [],
+          preBalances: [0n, 1_000n],
+          postBalances: [0n, 2_000n],
+        };
+      },
+    };
+    const r = await fetchPreMigrationHistory(rpc as never, {
+      mint: 'MINT',
+      bondingCurve: 'CURVE',
+      migrationSignature: 'migSig',
+      migrationSlot: MIGRATION_SLOT,
+    });
+    // The two known-failed signatures cost no request at all.
+    expect(fetched).toEqual(['ok1', 'unknown1']);
+    expect(r.coverage.transactionsSkippedFailed).toBe(2);
+    // `failed: null` means the provider did not say, which is not "it succeeded".
+    expect(fetched).toContain('unknown1');
+  });
+
+  it('F4 — fees alone cannot refuse a size: a deep pool admits the ceiling', () => {
+    /**
+     * The defect: the all-in round-trip COST (~190-250 bps of fees at the
+     * current schedule) was assigned to `priceImpactBps` and tested against the
+     * 50 bps IMPACT cap. Fees are charged on every pool at every size, so all
+     * four sizes were refused on every candidate — including a live pool
+     * holding 1,048 SOL, where 0.0025 SOL moves essentially nothing. The
+     * collector opened zero trajectories and called it a depth refusal.
+     */
+    const deepPool: SizeMechanics[] = CANDIDATE_SIZES.map((size) => ({
+      candidateLamports: size,
+      mechanicsComplete: true,
+      // A 1,048 SOL pool: impact is negligible at every candidate size.
+      reserveShareBps: 1,
+      priceImpactBps: 1,
+      counterfactualImpactBps: 1,
+      // The fee, which is present at every size and is NOT impact.
+      roundTripDragBps: 220,
+      capacitySufficient: true,
+    }));
+    const choice = chooseSize(deepPool);
+    expect(choice.chosenLamports).toBe(20_000_000n);
+    expect(choice.refusal).toBeNull();
+
+    // And a genuinely shallow pool is still refused on IMPACT, not on fees.
+    const shallow = deepPool.map((m) => ({ ...m, counterfactualImpactBps: 400 }));
+    expect(chooseSize(shallow).chosenLamports).toBeNull();
   });
 
   it('P9 — the new risk policy removes catastrophic structure and keeps a wide tail', () => {

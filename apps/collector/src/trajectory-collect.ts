@@ -1099,7 +1099,7 @@ async function runCycle(
           if (microstructure !== null) {
             count('microstructure', microstructure.fromCache ? 'cache_hit' : 'fetched');
             console.log(
-              `  ${c.mint.slice(0, 10)}  MICROSTRUCTURE ${microstructure.coverage.padEnd(10)}` +
+              `  ${c.mint.slice(0, 10)}  MICROSTRUCTURE ${microstructure.coverage.padEnd(11)}` +
                 `${microstructure.fromCache ? 'cached' : 'fetched'}`,
             );
           }

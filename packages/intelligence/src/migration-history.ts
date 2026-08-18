@@ -94,6 +94,8 @@ export interface HistoryCoverageRecord {
   readonly pages: number;
   readonly transactionsFetched: number;
   readonly transactionsFailed: number;
+  /** Reported failed by the index and never fetched: observed, and zero flow. */
+  readonly transactionsSkippedFailed: number;
   readonly transactionsPruned: number;
   readonly coverage: Coverage;
   readonly coverageReason: string | null;
@@ -232,6 +234,7 @@ export async function fetchPreMigrationHistory(
   let fetched = 0;
   let failedCount = 0;
   let pruned = 0;
+  let skippedFailed = 0;
 
   // Oldest first, so the emitted order matches the order the market saw.
   const ordered = [...preMigration].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
@@ -242,6 +245,29 @@ export async function fetchPreMigrationHistory(
       coverageReason = coverageReason ?? `stopped at the ${limits.maxTransactions}-transaction bound`;
       break;
     }
+
+    /**
+     * A signature the INDEX already reports as failed is never fetched.
+     *
+     * A failed transaction moved no value and contributes nothing to any
+     * feature, so fetching it costs a request and can only produce a row we
+     * discard. That is not a micro-optimisation on this data: a launch probed
+     * on 2026-08-18 had 197 of its newest 200 curve signatures failed — sniper
+     * bots spraying the migration instant — so the naive loop spends most of
+     * its budget on transactions guaranteed to be dropped, and reaches the
+     * transaction bound long before it reaches the history.
+     *
+     * `failed === null` means the provider did not say, which is NOT the same
+     * as "it succeeded". Those are still fetched, because an unread
+     * transaction and a failed one are different facts and only the decoder can
+     * tell them apart.
+     */
+    if (s.failed === true) {
+      skippedFailed++;
+      failedCount++;
+      continue;
+    }
+
     let tx: Awaited<ReturnType<HistoryRpc['getTransactionWithMeta']>> = null;
     try {
       tx = await rpc.getTransactionWithMeta(s.signature);
@@ -262,15 +288,51 @@ export async function fetchPreMigrationHistory(
   }
 
   /**
-   * COMPLETE requires reaching creation AND losing nothing along the way.
+   * A SHORT PAGE IS NOT PROOF OF REACHING CREATION.
    *
-   * A history that reached creation but could not read 40 of its transactions
-   * is not complete, and calling it complete would let those 40 transactions
-   * become implicit zeros in every total.
+   * `getSignaturesForAddress` returning fewer rows than asked means the INDEX
+   * has no more to give, which is a different claim from "this address has no
+   * older history". A pump bonding curve is CLOSED at migration, and a closed
+   * account's signature index can be truncated by the provider, so the walk
+   * ends early and the loop above concludes it reached creation.
+   *
+   * Measured on this endpoint on 2026-08-18: one migrated mint's entire indexed
+   * curve history was 296 signatures spanning 25 slots AT the migration, 197 of
+   * the newest 200 of them failed. Zero pre-migration trades existed in the
+   * index, the fetch reported COMPLETE, and every creation-anchored total was
+   * written as 0 rather than null — the exact "unknown becomes zero" failure
+   * this layer exists to prevent. It produced the cleanest-looking launch in
+   * the corpus.
+   *
+   * The mechanical disproof: a bonding curve cannot be CREATED at or after the
+   * slot in which it MIGRATES. So if the oldest signature we ever saw is not
+   * strictly older than the migration slot, we did not reach creation —
+   * whatever the page lengths suggested.
    */
-  const complete = reachedCreation && pruned === 0;
-  if (!complete && coverageReason === null && pruned > 0) {
-    coverageReason = `${pruned} transaction(s) could not be read`;
+  const oldestSlotSeen = signatures.reduce<number | null>(
+    (acc, s) => (s.slot === null ? acc : acc === null || s.slot < acc ? s.slot : acc),
+    null,
+  );
+  if (reachedCreation && (oldestSlotSeen === null || oldestSlotSeen >= req.migrationSlot)) {
+    reachedCreation = false;
+    coverageReason =
+      coverageReason ??
+      `the signature index does not reach before the migration slot (oldest seen ${oldestSlotSeen ?? 'unknown'} ` +
+        `vs migration ${req.migrationSlot}); the curve is closed and its history is truncated`;
+  }
+
+  /**
+   * COMPLETE requires reaching creation, losing nothing along the way, AND
+   * having actually found something.
+   *
+   * A history that decoded zero trades is not a characterised launch, it is a
+   * failed read. Calling it complete writes 0 into every total, and a token
+   * nobody appears to have bought looks like the safest launch there is.
+   */
+  const complete = reachedCreation && pruned === 0 && trades.length > 0;
+  if (!complete && coverageReason === null) {
+    if (pruned > 0) coverageReason = `${pruned} transaction(s) could not be read`;
+    else if (trades.length === 0) coverageReason = 'no pre-migration curve trade could be decoded';
   }
 
   const sourceSignaturesHash = createHash('sha256')
@@ -290,6 +352,7 @@ export async function fetchPreMigrationHistory(
       pages,
       transactionsFetched: fetched,
       transactionsFailed: failedCount,
+      transactionsSkippedFailed: skippedFailed,
       transactionsPruned: pruned,
       coverage: complete ? 'COMPLETE' : 'INCOMPLETE',
       coverageReason,
