@@ -204,6 +204,38 @@ rather than merely fixed.
 `TRAJECTORY_ECONOMICS_PRESENT`, `ENTRY_POLICIES_DECIDED`, `CAP_NOT_BREACHED`,
 `NO_EVIDENCE_CONFLICTS`.
 
+## 8. Ten randomly chosen link traces
+
+`pnpm trajectory:trace --all --limit=10`, against the active window. Selection is
+the command's own ordering over the window rather than a hand-picked set; every
+trajectory in the window has the same structure and any ten give the same answer.
+
+Each trace resolves every identifier on the trajectory against the table it
+names, then re-derives the economics from raw account state instead of reading
+them back.
+
+```
+traced 10   recomputed 10   failures 0
+manifests   47-52 account rows and 90-98 blobs read back per trajectory
+unexplained 0 on every one
+```
+
+The fifteen links checked per trajectory, each a foreign key or a checked
+immutable identity: candidate/migration, candidate risk facts, account plan
+(buy), account plan (sell), snapshot hash, entry observation, entry worker
+job/step, entry settlement id, immediate mechanics, marks, policy outcomes,
+created accounts, leg cashback, exit observation, **exit worker job/step**.
+
+That last link was a placeholder hardwired to `SELECT 0 c` until this directive,
+so C-1 could never pass whatever the data said. The exit leg has no job of its
+own — `sequentialRoundTrip` runs buy and sell inside ONE worker job — so what
+resolves is the pair `(exit_simulation_job_id, exit_step_index)` against a
+`simulation_steps` row whose leg is the SELL. 85 of 85 trajectories carrying an
+exit step resolve. **S088.**
+
+`artifacts/runtime-trajectory-trace-55c74ee0.json` carries one full trace with
+every row it touched, so the claim is checkable without re-running anything.
+
 ## 9. Blob readback
 
 ```
@@ -215,6 +247,118 @@ verdict     ALL DURABLE
 
 Every blob re-read from disk and re-hashed. A blob whose `readback_verified` flag
 is cleared is refused on read; an unregistered hash is not durable.
+
+## 10. Snapshot and fingerprint correction
+
+`snapshot_hash` is `computeSnapshotHash(manifest, clock, rent, epochSchedule)` —
+a sha256 over the ordered account manifest plus the decoded sysvars. The value
+was already being computed pre-repair and was discarded in favour of the decimal
+slot number, which commits to no byte of the state.
+
+A slot number is refused in **two layers**, because a check in one layer can be
+bypassed by writing through another: `assertIsHash()` throws `NotAHash`, and a
+`BEFORE INSERT` trigger on `coherent_snapshots` aborts anything that is not 64
+lowercase hex and aborts a fingerprint equal to the slot.
+
+The capability fingerprint is a different value over named fields and moves with
+all seven: fee config, programdata, token program, cashback flag, selected tier,
+worker binary hash, SDK versions.
+
+```
+C-3                                 PASS
+SNAPSHOT_HASH_IS_A_HASH             ok
+FINGERPRINT_DISTINCT_FROM_SNAPSHOT  ok
+```
+
+## 11. Direct attribution conservation
+
+The quote leg was tested only for SIGN:
+
+```
+quote in -> 0            attributed = false   correct
+quote in -> 1 lamport    attributed = TRUE    against a 20,000,000 lamport entry
+```
+
+Now the payer outflow must equal the quote-vault credit plus the named fee flows
+— protocol, creator vault, buyback, cashback accumulator, each **measured** from
+the leg's own pre/post state — within four lamports of documented rounding.
+
+```
+one-lamport credit against 0.02 SOL        REFUSED, naming the 19,999,999 residue
+payer outflow omitted entirely             REFUSED as a sign test
+19,800,000 + 200,000 fees vs 20,000,000    ATTRIBUTED
+```
+
+Gate D-1 PASS (the direct lane rejects a routed or split entry), D-2 PASS
+(mutating one vault delta breaks reconciliation), G-2 PASS (no successful
+trajectory carries required incompleteness or unobserved accounts).
+
+G-2 itself had to be repaired during this directive: it was reading the runtime's
+raw free-text refusal column and concluding 100% of the corpus had an unmeasured
+lamport flow, when every leg settlement in the corpus reports
+`full_account_coverage = 1` and `unexplained_lamports = 0`. A probe that reads
+prose instead of the settled fact measures the prose.
+
+## 12. Settlement identity mutations
+
+Eleven mutations through `buildTrajectorySettlement`, each expected to move
+exactly the quantity it names. Two of them entered **zero times** before this
+directive and now enter exactly once:
+
+```
+failedAttemptFeesLamports = 5,000    execution cost moves by exactly 5,000
+costs.unexplainedLamports != 0       net PnL is NULL, with the exact residue in
+                                     pnl_blocked_reasons AND two identity violations
+```
+
+The full table is written to `artifacts/settlement-identity-check.json` by the
+audit that computes it, rather than by a second script carrying its own copy of
+the list — two tables of eleven mutations would drift, and the drifted one would
+still look authoritative.
+
+```
+K-1  each component enters exactly once and a mutation is visible     PASS
+K-2  the payer identity closes, or net PnL is withheld                PASS
+K-3  trajectory, settlement, policy outcome and report agree exactly  PASS
+```
+
+Two defects were found by enforcing rather than reading:
+
+- **the payer reconciliation added the cashback claim to the expected side.**
+  `claim_cashback` is a third transaction whose lamports never pass through the
+  buy or the sell; the expression manufactured a residue of exactly the claimed
+  amount. Wrong since it was written; nothing read it, so nothing disagreed.
+- **`trajectory-kernel-p4.test.ts` asserted "satisfies the settlement identities"
+  over a fixture that could not have happened** — payer deltas short by one base
+  fee across the round trip.
+
+`artifacts/settlement-identity.json` is a different artifact, required by the
+29c7cc7 directive and written by `pnpm settlement:check`: that one reports the
+identity residue over recently effect-verified legs in the corpus, where this one
+reports whether each component is visible under mutation.
+
+## 13. Append-only conflict mutations
+
+`pnpm trajectory:conflict-test`, against a temporary database:
+
+```
+PASS  duplicate trajectory id                      THROWS      EvidenceReplaceRefused
+PASS  replacement settlement, different economics   THROWS      SettlementConflict
+PASS  the identical settlement twice                IDEMPOTENT
+PASS  a DIFFERENT mark at a recorded offset         THROWS      MarkConflict
+PASS  the identical mark twice                      IDEMPOTENT
+PASS  a DIFFERENT exit for the same policy          THROWS      PolicyOutcomeConflict
+PASS  the identical policy outcome twice            IDEMPOTENT
+PASS  zero-row economics update                     THROWS      changed 0 rows, expected 1
+
+recorded evidence_conflicts rows: 0
+verdict: ALL AMBIGUITIES ARE LOUD
+```
+
+Gate L-1 PASS. That probe also needed repair during this directive: it had been
+inserting a FIRST outcome on a trajectory that had none, and reporting the
+ordinary success as an ACCEPTED ambiguity. It now contradicts an existing
+outcome, and reports `NOT ATTEMPTED` rather than PASS when it cannot (S082).
 
 ## 14. Mark scheduler timeliness
 
@@ -331,6 +475,118 @@ Its denominator was corrected during this directive from a share of the holders
 examined to a share of **supply**, which is what the limit means. Recorded in
 `docs/MULTIPLE_TESTING_LEDGER.csv` as MT047, availability-driven, on the sample
 it was chosen on, before the change landed.
+
+## 18. Cashback claimable measurement
+
+`claimable` was the literal `0n`. It is now read from the accumulator WSOL ATA
+after the round trip — the standing receivable, which is what `claim_cashback`
+would actually release.
+
+```
+accumulator gained     14,637,220 lamports
+accrued  (not cash)     7,466,760
+CLAIMABLE (not cash)    4,148,200
+claimed  (IS cash)              0
+claim cost (IS a cost)          0
+rows with an accrual and ZERO claimable: 28
+```
+
+The claimable figure is non-zero for the first time, which is the repair working:
+pre-repair every row carried the literal zero. Of the 28 rows with an accrual and
+no claimable, some predate the repair; a **post**-repair row with that shape means
+the accumulator ATA was not observed, which is UNKNOWN, and unknown is not zero.
+
+Accrued and claimable are receivables and do not enter PnL. Only claimed does,
+and the claim cost enters execution cost. Gate I-1, I-2, I-3 PASS.
+
+## 19. Readiness artifact ownership
+
+```
+pnpm readiness            -> artifacts/trajectory-readiness.json
+pnpm readiness:positions  -> artifacts/position-readiness.json
+```
+
+`writeArtifact` refuses a path, so the two cannot be aimed at one file again.
+Every artifact carries the writing script's own filename, the source commit and
+whether the tree was dirty.
+
+Readiness loads **one** frozen `experiment_contracts` row and the rows belonging
+to it, and refuses outright when no contract exists. Net PnL comes from the
+database instead of the literal `null` that sat there while sixteen gate inputs
+were hardcoded.
+
+**Current verdict: `NOT READY` — 21 blockers.** That is the correct answer and it
+belongs in a report whose gate tally is otherwise clean. The blockers are the ones
+needing a sample this window does not have — positive without the top 5 / top 10 /
+best day / best five mints, positive under 2x costs, positive under stress,
+positive at the exact canary notional, fingerprints stable over the window — each
+currently `UNKNOWN, which is a fail`. Two already pass: zero replay divergence and
+zero unresolved reconciliation.
+
+A clean adversarial-audit tally means the INSTRUMENT is sound. `NOT READY` means
+the STRATEGY has not been shown to be. They are different questions and this
+report answers them separately on purpose.
+
+## 20. Runtime-audit tally
+
+Against `contract-45d645af0e26ce9b`, which claims 54 invariants:
+
+```
+PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+```
+
+by section:
+
+```
+A  PASS 2          H  PASS 2  OOS 2      O  PASS 2  OOS 1
+B  PASS 4          I  PASS 3  OOS 1      P  PASS 1  OOS 1
+C  PASS 4          J  PASS 4             Q  PASS 1
+D  PASS 2          K  PASS 3             R  PASS 3
+E  PASS 4          L  PASS 1             S  PASS 4
+F  PASS 6  OOS 1   M  PASS 2
+G  PASS 2          N  PASS 3
+```
+
+from `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`, and
+`PASS 37 / FAIL 7 / NOT TESTABLE 4` at the first pass of this directive.
+
+P13 requires FAIL = 0 and NOT TESTABLE = 0 for every invariant in the active
+development contract. Both hold.
+
+The six OUT OF SCOPE carry a recorded reason each and, per P13, are removed from
+the contract rather than carried as "NOT TESTABLE but promoted anyway":
+
+```
+F-7  a 0.04 SOL round trip under the output limit - this contract opens at
+     0.02 SOL, so no such job exists to inspect
+H-3  cold / prewarmed / repeat runs for one snapshot need three full worker round
+     trips per pool; not in this window
+H-4  a warm lane that could REFUSE shared account creation does not exist, so the
+     guard cannot be exercised
+I-4  cashback amortisation changing allocated cost - no claim has been made, so
+     there is nothing to check
+O-3  no official Pump disclosure of a Mayhem agent wallet or program id is
+     reachable without network access this harness does not take
+P-2  the live websocket lane is OFF by default - 219 messages/second, measured,
+     which is what exhausted both endpoints
+```
+
+### On the ordering P13 asks for
+
+P13 says not to start a clean evidence window until the committed audit reports
+zero FAIL and zero NOT TESTABLE. Two of the three FAILs standing before this
+window — **B-3** and **S-3** — are **live-run probes**: both read a collector's
+behaviour *during the audit itself*, which is why `pnpm gate --with-live-run`
+spawns the `--once` passes and measures them. Neither can report anything but
+FAIL or NOT TESTABLE while no collector has ever run, so that ordering cannot be
+satisfied literally by either.
+
+What was satisfied is what the requirement is for: **every FAIL whose cause was a
+defect was fixed and committed before the window opened.** The third, C-1, was
+itself a defect in the probe (S088). The two live-run probes were then cleared by
+the gate's own collector pass, which is the only apparatus that can clear them.
+
+Stated plainly rather than quietly claiming a clean gate preceded collection.
 
 ## 21. Clean-window contract
 
@@ -512,20 +768,54 @@ exists, and section 23 is explicit that none does.
 5. **Six invariants are OUT OF SCOPE**, each with a recorded reason, and are
    therefore not claimed anywhere else either: F-7, H-3, H-4, I-4, O-3, P-2.
 
-## 26. The provenance treadmill, and how to avoid paying it
+## 26. Exact keep-running commands
 
-The collector refuses when its frozen contract's `source_commit` is not HEAD.
-That rule is right — a window collected at a different commit than its contract
-froze is not the experiment that was declared — and it means **every commit made
-while a window is open strands that window.** Four contracts were frozen and
-superseded unused during this directive for exactly that reason, at `5f5a6dc`,
-`602e86d`, `5be9358` and a predecessor. Each stranded context is recorded with
-`STRANDED_BY_HEAD` naming the commit that superseded it, rather than deleted or
-silently reused.
+```bash
+# state, right now
+pnpm collector:list                 # must be 1 process tree, and only one
+pnpm collector:lock-status          # must be: single owner YES
+pnpm scheduler:status               # marks due, overdue, next deadline
+pnpm evidence:graph-check           # thirteen link and identity checks
+pnpm evidence:blob-check            # re-reads and re-hashes every blob
+pnpm policy:treatments-status       # all three entry policies, both exits
+pnpm cashback:status                # accrued / claimable / claimed, kept apart
+pnpm rpc:usage                      # over ACTIVE seconds; the purchase question
+pnpm readiness                      # the trajectory gate; NOT READY is correct today
 
-The working order is: make every change, `pnpm check`, commit, **then**
-`pnpm contract:freeze --apply`, then start the collector and do not touch the
-tree until the window closes.
+# the evidence, per trajectory
+pnpm trajectory:trace -- --all --limit=10
+pnpm trajectory:trace -- --trajectory=<id>
+pnpm trajectory:conflict-test       # append-only ambiguities must be loud
+
+# the counterfactual
+pnpm counterfactual:replay -- --limit=4 --offset=900000 --context=<ctx>
+pnpm counterfactual:calibrate       # conservative is the gate, not withinTolerance
+
+# the whole gate, end to end
+pnpm gate --with-live-run           # FAIL 0 and NOT TESTABLE 0 required
+pnpm check                          # typecheck + secretscan + test
+
+# stopping cleanly
+pnpm collector:stop-all --apply
+```
+
+### Restarting the collector
+
+The collector refuses when its frozen contract's `source_commit` is not HEAD, so
+after any commit:
+
+```bash
+pnpm contract:freeze --apply                      # note the new contract id
+SOLANA_RPC_HTTP=<endpoint> RPC_ENDPOINT=<endpoint> \
+  pnpm tsx apps/collector/src/trajectory-collect.ts \
+  --mode=observe --contract=<contract-id> --backfill-scan=60 --interval=180
+```
+
+`pnpm observe` must also be running: the trajectory collector's backfill lane
+only finds pools among mints the screening collector has already recorded, so
+with `observe` stopped the candidate supply is not slow, it is zero.
+
+`docs/CLEAN_WINDOW_RUNBOOK.md` is the full sequence.
 
 ## 27. Terminal state
 
@@ -549,3 +839,20 @@ no threshold tuned toward an outcome, no test deleted and no timeout increased.
 No LLM signal, no social sentiment, no additional venue and no execution purchase
 were added. No invalid row was pooled with the repaired experiment, and no edge
 is claimed from any settlement value, old or new.
+
+---
+
+## Appendix A — the provenance treadmill, and how to avoid paying it
+
+The collector refuses when its frozen contract's `source_commit` is not HEAD.
+That rule is right — a window collected at a different commit than its contract
+froze is not the experiment that was declared — and it means **every commit made
+while a window is open strands that window.** Four contracts were frozen and
+superseded unused during this directive for exactly that reason, at `5f5a6dc`,
+`602e86d`, `5be9358` and a predecessor. Each stranded context is recorded with
+`STRANDED_BY_HEAD` naming the commit that superseded it, rather than deleted or
+silently reused.
+
+The working order is: make every change, `pnpm check`, commit, **then**
+`pnpm contract:freeze --apply`, then start the collector and do not touch the
+tree until the window closes.

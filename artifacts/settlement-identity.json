@@ -1,17 +1,17 @@
 {
   "artifact": "settlement-identity",
   "directiveSection": "P5",
-  "generatedUtcMs": 1786929423064,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "generatedUtcMs": 1787021731361,
+  "sourceCommit": "76766ae6f5d12a266e34b2d6afd094624d8a4167",
   "dirty": true,
-  "sinceUtcMs": 1786925822970,
+  "sinceUtcMs": 1787018131237,
   "effectVerifiedLegs": 0,
   "settlementsRead": 0,
   "pnlEligible": 0,
   "settlements": [],
   "coverageGap": {
-    "developmentTrajectories": 292,
-    "settledTrajectories": 239,
+    "developmentTrajectories": 443,
+    "settledTrajectories": 344,
     "trajectoriesWithCanonicalSettlement": 0,
     "why": "this check reads the PAPER path (simulation_jobs joined to execution_observations). Trajectory legs run inside the sequential runtime and do not write a canonical settlement per leg, so trajectory net PnL is UNKNOWN rather than computed.",
     "consequence": "pnpm readiness FAILS on that UNKNOWN rather than substituting the gross delta the outcomes table carries. Gross is exit mark minus entry cash-out and contains no unrecoverable rent, no failed attempt, no claim cost and no cashback."

@@ -1551,6 +1551,47 @@ function sectionK(db: DatabaseSync): void {
     rows: mutations.map((m) => `${m.name} -> cost=${m.s.cost} net=${m.s.net} unexplained=${m.s.unexplained} blocked=${m.s.blocked} violations=${m.s.violations.length}`),
   });
 
+  /**
+   * P18 — `artifacts/settlement-identity-check.json`, written from THIS table.
+   *
+   * The directive requires the artifact by name. It is emitted here, as a
+   * by-product of the probe that already computes it, rather than from a second
+   * script carrying its own copy of the mutation list — two tables of eleven
+   * mutations would drift, and the one that drifted would still look authoritative.
+   *
+   * `artifacts/settlement-identity.json` is a DIFFERENT artifact, required by the
+   * 29c7cc7 directive and written by `pnpm settlement:check`: that one reports
+   * the identity residue over recently effect-verified legs in the corpus. This
+   * one reports whether each settlement COMPONENT is visible under mutation.
+   * Neither overwrites the other.
+   */
+  writeFileSync(
+    'artifacts/settlement-identity-check.json',
+    `${JSON.stringify(
+      {
+        artifact: 'settlement-identity-check',
+        writtenBy: 'scripts/runtime-adversarial-audit.ts',
+        sourceCommit: sh('git rev-parse HEAD'),
+        generatedUtcMs: Date.now(),
+        invariant: 'each settlement component enters exactly once and a mutation is visible',
+        verdict: bad.length === 0 ? 'PASS' : 'FAIL',
+        baseline: { cost: String(base.cost), net: String(base.net), unexplained: String(base.unexplained) },
+        mutations: mutations.map((m) => ({
+          name: m.name,
+          expected: m.expect,
+          cost: String(m.s.cost),
+          net: m.s.net === null ? null : String(m.s.net),
+          unexplained: String(m.s.unexplained),
+          blockedReasons: m.s.blocked,
+          identityViolations: m.s.violations.length,
+        })),
+        notMoved: bad,
+      },
+      null,
+      1,
+    )}\n`,
+  );
+
   // THE BIG ONE: an unexplained remainder does not block PnL and is not a violation.
   const forced = buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() });
   const nonZeroUnexplained = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements WHERE CAST(unexplained_lamports AS INTEGER) != 0');

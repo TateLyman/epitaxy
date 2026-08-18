@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { assertQuoteStateSurvived, QuoteStateMoved } from '../../packages/simulator/src/sequential-worker.js';
 
 import { openDb } from '../../packages/storage/src/db.js';
 import {
@@ -1639,5 +1640,113 @@ describe('P17 43–45 — a recycled pid is not a live collector', () => {
     // permission, so the lock is refused rather than stolen.
     expect(pidStillOwns(process.pid, '')).toBe(true);
     expect(pidStillOwns(process.pid, 'some command with no recognisable marker')).toBe(true);
+  });
+});
+
+/**
+ * P17 #23 and #24 — a fee-config or Clock mutation between the quote and the
+ * sell must BREAK quote-state equality.
+ *
+ * `assertQuoteStateSurvived` compares the COMPLETE account hash rather than the
+ * data hash, and the distinction is the whole point: an account whose owner,
+ * lamports, executable flag or rent epoch changed has the same bytes and is not
+ * the same account to the runtime that has to execute against it.
+ *
+ * The audit's G-1 exercises this at runtime against the live corpus. These two
+ * pin it at unit level, because a runtime probe can only report on the mutations
+ * the market happened to produce.
+ */
+describe('23/24 — a mutation between quote and sell breaks quote-state equality', () => {
+  const FEE_CONFIG = 'FeeCfg1111111111111111111111111111111111111';
+  const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
+  const POOL = 'Pool111111111111111111111111111111111111111';
+
+  const acct = (pubkey: string, hash: string) => ({
+    pubkey,
+    lamports: 1_000n,
+    owner: 'Sys',
+    executable: false,
+    rentEpoch: 0n,
+    dataLen: 8,
+    dataBase64: 'AAAAAAAAAAA=',
+    dataSha256: 'd',
+    accountHash: hash,
+  });
+
+  const quoted = (hashes: Record<string, string>) => ({
+    accounts: Object.entries(hashes).map(([k, h]) => acct(k, h)),
+    unobserved: [],
+    stateHash: 'q',
+    instanceId: 'i',
+  });
+
+  const sellStep = (hashes: Record<string, string>) => ({
+    label: 'sell',
+    status: 'SIMULATED_OK',
+    transactionError: null,
+    computeUnitsConsumed: 1,
+    logs: [],
+    preAccounts: Object.entries(hashes).map(([k, h]) => acct(k, h)),
+    postAccounts: [],
+    unobserved: [],
+  });
+
+  it('an UNCHANGED quote state survives, so the check is not vacuous', () => {
+    const same = { [POOL]: 'h1', [FEE_CONFIG]: 'h2', [CLOCK]: 'h3' };
+    expect(() =>
+      assertQuoteStateSurvived(quoted(same) as never, sellStep(same) as never),
+    ).not.toThrow();
+  });
+
+  it('23 — a FEE CONFIG mutation breaks equality and NAMES the account', () => {
+    let thrown: QuoteStateMoved | null = null;
+    try {
+      assertQuoteStateSurvived(
+        quoted({ [POOL]: 'h1', [FEE_CONFIG]: 'h2', [CLOCK]: 'h3' }) as never,
+        sellStep({ [POOL]: 'h1', [FEE_CONFIG]: 'MOVED', [CLOCK]: 'h3' }) as never,
+      );
+    } catch (e) {
+      thrown = e as QuoteStateMoved;
+    }
+    expect(thrown?.name).toBe('QuoteStateMoved');
+    // The account list is what a caller acts on; the message only counts them.
+    expect(thrown?.differing).toEqual([FEE_CONFIG]);
+  });
+
+  it('24 — a CLOCK mutation breaks equality when the Clock was quoted', () => {
+    let thrown: QuoteStateMoved | null = null;
+    try {
+      assertQuoteStateSurvived(
+        quoted({ [POOL]: 'h1', [FEE_CONFIG]: 'h2', [CLOCK]: 'h3' }) as never,
+        sellStep({ [POOL]: 'h1', [FEE_CONFIG]: 'h2', [CLOCK]: 'MOVED' }) as never,
+      );
+    } catch (e) {
+      thrown = e as QuoteStateMoved;
+    }
+    expect(thrown?.name).toBe('QuoteStateMoved');
+    expect(thrown?.differing).toEqual([CLOCK]);
+  });
+
+  it('a quoted account that is ABSENT at execution also breaks equality', () => {
+    let thrown: QuoteStateMoved | null = null;
+    try {
+      assertQuoteStateSurvived(
+        quoted({ [POOL]: 'h1', [FEE_CONFIG]: 'h2' }) as never,
+        sellStep({ [POOL]: 'h1' }) as never,
+      );
+    } catch (e) {
+      thrown = e as QuoteStateMoved;
+    }
+    expect(thrown?.name).toBe('QuoteStateMoved');
+    expect(thrown?.differing).toEqual([FEE_CONFIG]);
+  });
+
+  it('an account the quote never read is NOT compared, so the check stays scoped', () => {
+    expect(() =>
+      assertQuoteStateSurvived(
+        quoted({ [POOL]: 'h1' }) as never,
+        sellStep({ [POOL]: 'h1', 'Unrelated1111111111111111111111111111111111': 'whatever' }) as never,
+      ),
+    ).not.toThrow();
   });
 });
