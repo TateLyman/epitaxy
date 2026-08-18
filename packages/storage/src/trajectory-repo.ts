@@ -1,6 +1,7 @@
 import type { Db } from './db.js';
 import type { SettledTrajectory, TrajectoryIdentity, TrajectoryState } from '../../pipeline/src/trajectory-kernel.js';
 import type { EvidenceGrade } from '../../domain/src/trajectory-evidence.js';
+import type { TrajectorySettlement } from '../../domain/src/trajectory-settlement.js';
 import type { EntryImpactBound } from '../../domain/src/trajectory-evidence.js';
 import type { MigrationEventIdentity, ReversalStatus } from '../../solana/src/migration.js';
 
@@ -21,6 +22,18 @@ export interface OpenTrajectoryRow {
   readonly maxAttainableGrade: EvidenceGrade;
   readonly refusals: readonly string[];
   readonly openedUtcMs: number;
+  /**
+   * P8 — what a counterfactual exit needs, and what no row carried.
+   *
+   * Optional so a caller that has not measured them writes NULL rather than a
+   * zero. A zero displacement reads as "our entry moved nothing", which is a
+   * claim; absent is the honest state.
+   */
+  readonly postEntryBaseReserve?: bigint | null;
+  readonly postEntryQuoteReserve?: bigint | null;
+  readonly entryBaseDeltaAtoms?: bigint | null;
+  readonly entryQuoteDeltaLamports?: bigint | null;
+  readonly entryImpactBps?: number | null;
 }
 
 export class EvidenceReplaceRefused extends Error {
@@ -52,8 +65,10 @@ export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
        entry_policy, exit_policy, state,
        evidence_grade, max_attainable_grade,
        quote_impact_ratio, base_impact_ratio, max_impact_ratio, haircut_bps, within_small_impact,
-       opened_utc_ms, refusals
-     ) VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,?)`,
+       opened_utc_ms, refusals,
+       post_entry_base_reserve, post_entry_quote_reserve,
+       entry_base_delta_atoms, entry_quote_delta_lamports, entry_impact_bps
+     ) VALUES (?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?, ?,?,?,?,?, ?,?, ?,?,?,?,?)`,
   ).run(
     r.identity.trajectoryId,
     r.identity.entryObservationId,
@@ -82,6 +97,19 @@ export function insertTrajectory(db: Db, r: OpenTrajectoryRow): void {
     r.impact.withinSmallImpactBound ? 1 : 0,
     r.openedUtcMs,
     JSON.stringify(r.refusals),
+    r.postEntryBaseReserve === undefined || r.postEntryBaseReserve === null
+      ? null
+      : r.postEntryBaseReserve.toString(),
+    r.postEntryQuoteReserve === undefined || r.postEntryQuoteReserve === null
+      ? null
+      : r.postEntryQuoteReserve.toString(),
+    r.entryBaseDeltaAtoms === undefined || r.entryBaseDeltaAtoms === null
+      ? null
+      : r.entryBaseDeltaAtoms.toString(),
+    r.entryQuoteDeltaLamports === undefined || r.entryQuoteDeltaLamports === null
+      ? null
+      : r.entryQuoteDeltaLamports.toString(),
+    r.entryImpactBps ?? null,
   );
 }
 
@@ -100,7 +128,7 @@ export function settleTrajectory(
   extra: { exitObservationId: string | null; fillLatencyMs: number | null; settledUtcMs: number },
 ): void {
   const s = t.settlement;
-  db.prepare(
+  const r = db.prepare(
     `UPDATE development_trajectories SET
        state = ?, evidence_grade = ?,
        entry_cash_out_lamports = ?, exit_cash_in_lamports = ?, haircut_exit_lamports = ?,
@@ -126,6 +154,72 @@ export function settleTrajectory(
     extra.settledUtcMs,
     t.identity.trajectoryId,
   );
+  // P4.5 — exactly one row, checked. The audit ran one UPDATE that settled 64
+  // open trajectories and nothing bounded it.
+  const changed = Number(r.changes);
+  if (changed !== 1) {
+    throw new Error(
+      `settling ${t.identity.trajectoryId} changed ${changed} row(s), expected exactly 1. ` +
+        (changed === 0
+          ? 'A zero-row update is a write that went nowhere and reported success.'
+          : 'A multi-row update means the key did not identify one trajectory.'),
+    );
+  }
+}
+
+/**
+ * K-3 / P4.5 — write the trajectory row's ECONOMICS, without touching state.
+ *
+ * `settleTrajectory` above also transitions the state, which is right at the
+ * end of a policy path and wrong at open: the immediate-mechanics settlement is
+ * a measurement of the round trip, not the close of the holding period.
+ *
+ * That distinction is why the economics columns were empty. The collector had
+ * no writer it could call at open without also closing the trajectory, so it
+ * called none, and every economics column on `development_trajectories` was
+ * permanently NULL — 0 of 292 — while `trajectory_settlements` held 31 net PnL
+ * figures. The trajectory row and the settlement row disagreed by construction.
+ *
+ * The affected row count is CHECKED. The audit's L-1 found a zero-row update
+ * reporting success and a single statement settling 64 open trajectories at
+ * once; both are silent, and both produce a corpus nobody can question.
+ */
+export function persistTrajectoryEconomics(
+  db: Db,
+  trajectoryId: string,
+  s: TrajectorySettlement,
+  nowMs: number,
+): void {
+  const r = db
+    .prepare(
+      `UPDATE development_trajectories SET
+         entry_cash_out_lamports = ?, exit_cash_in_lamports = ?,
+         execution_cost_lamports = ?, net_pnl_lamports = ?, pnl_blocked_reasons = ?,
+         cashback_accrued = ?, cashback_claimable = ?, cashback_claimed = ?, cashback_claim_cost = ?
+       WHERE trajectory_id = ?`,
+    )
+    .run(
+      s.entryCashOutLamports.toString(),
+      s.exitCashInLamports === null ? null : s.exitCashInLamports.toString(),
+      s.executionCostLamports.toString(),
+      s.netPnlLamports === null ? null : s.netPnlLamports.toString(),
+      JSON.stringify(s.pnlBlockedReasons),
+      s.cashbackAccruedLamports.toString(),
+      s.cashbackClaimableLamports.toString(),
+      s.cashbackClaimedLamports.toString(),
+      s.cashbackClaimCostLamports.toString(),
+      trajectoryId,
+    );
+  const changed = Number(r.changes);
+  if (changed !== 1) {
+    throw new Error(
+      `persisting economics for ${trajectoryId} changed ${changed} row(s), expected exactly 1. ` +
+        (changed === 0
+          ? 'A zero-row update is a write that went nowhere and reported success.'
+          : 'A multi-row update means the key did not identify one trajectory.'),
+    );
+  }
+  void nowMs;
 }
 
 export function trajectoryCounts(db: Db): Record<string, number> {
@@ -218,6 +312,12 @@ export function migrationCandidates(
    * corpus dominated by one pool cannot support a claim about a population.
    */
   maxPerMint = 3,
+  /**
+   * The window whose open trajectories may exclude a mint.
+   *
+   * Null keeps the corpus-wide behaviour for callers that have no window.
+   */
+  evidenceContextId: string | null = null,
 ): { mint: string; canonical_pool: string; slot: number; block_time: number | null; is_cashback_coin: number | null; is_mayhem_mode: number | null }[] {
   /**
    * Least-sampled first, and never a mint that is already open.
@@ -232,32 +332,103 @@ export function migrationCandidates(
    * A hundred paths across three pools is three outcomes with a hundred
    * observations of them, and no amount of collection turns one into the other.
    *
-   * Two rules:
+   * Three rules:
    *
    * - a mint with an OPEN trajectory is excluded outright — two concurrent
    *   trajectories on one pool share a mark path and duplicate each other
    *   exactly;
+   * - a mint whose MOST RECENT risk-fact reading refused it for DEPTH sinks to
+   *   the back, because least-sampled-first plus a permanently-refused
+   *   population is a starvation loop (see below);
    * - the rest are ordered by how many trajectories they have already produced,
    *   so coverage spreads before it deepens, with `slot DESC` breaking ties
    *   toward the fresher migration.
+   *
+   * ## The starvation loop, measured
+   *
+   * Least-sampled-first is right, and combined with a gate that PERMANENTLY
+   * refuses part of the population it is self-defeating: a drained pool is
+   * refused on depth, so it is never sampled, so it stays least-sampled, so it
+   * returns to the head of the queue on the very next cycle. Forever.
+   *
+   * Measured 2026-08-17 against live reserves for all 58 confirmed migrations:
+   *
+   *     38 of 58 pools were deep enough for a 0.02 SOL entry at the 0.5% bound
+   *     11 of those were still under the per-mint cap of 3
+   *     the deepest was 184 SOL, where the entry is 0.01% of the pool
+   *
+   * and the collector refused EVERY candidate it looked at, on depth, at 14.3%
+   * to 568.1% — because the queue head was permanently occupied by the drained
+   * ones and `--max-candidates` never reached past them. The corpus shows both
+   * ends of it at once: one mint at 58 trajectories while eleven admissible
+   * pools sat untouched.
+   *
+   * Sinking rather than excluding: a pool can recover, and a mint that is
+   * shallow now is a legitimate candidate later. It just must not block the
+   * ones that are admissible today.
    */
   return db
     .prepare(
       `SELECT m.mint, m.canonical_pool, m.slot, m.block_time, m.is_cashback_coin, m.is_mayhem_mode,
-              COALESCE(t.n, 0) AS sampled
+              COALESCE(t.n, 0) AS sampled,
+              COALESCE(d.depth_refused, 0) AS depth_refused
          FROM confirmed_migrations m
          LEFT JOIN (
            SELECT mint, COUNT(*) n FROM development_trajectories GROUP BY mint
          ) t ON t.mint = m.mint
+         LEFT JOIN (
+           -- The most recent reading per mint, and whether it refused on depth.
+           SELECT f.mint,
+                  CASE WHEN f.refusals LIKE '%effective quote reserve%' THEN 1 ELSE 0 END AS depth_refused
+             FROM candidate_risk_facts f
+             JOIN (SELECT mint, MAX(collected_utc_ms) AS newest
+                     FROM candidate_risk_facts GROUP BY mint) x
+               ON x.mint = f.mint AND x.newest = f.collected_utc_ms
+         ) d ON d.mint = m.mint
         WHERE m.reversal_status = 'CONFIRMED'
-          AND COALESCE(t.n, 0) < ?
-          AND m.mint NOT IN (
-            SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+          AND COALESCE(t.n, 0) < ?1
+          /**
+           * SCOPED TO THE WINDOW BEING COLLECTED.
+           *
+           * The exclusion's reason is that two concurrent trajectories on one
+           * pool share a mark path and duplicate each other exactly. That is
+           * true WITHIN a window and false across windows: the mark pass, the
+           * scheduler and the backpressure brake are all scoped to one evidence
+           * context, so a trajectory sitting open in a demoted context is not
+           * being marked by anything and cannot duplicate anything.
+           *
+           * Unscoped, it was permanent sterilisation. Measured 2026-08-18: 75
+           * trajectories were left open in contexts that had been demoted to
+           * INSTRUMENT_DEVELOPMENT_INVALID — nothing will ever mark them, so
+           * nothing will ever settle them — and they excluded 70 of the 113
+           * under-cap CONFIRMED migrations. The 43 that survived the filter
+           * were precisely the ones the depth gate had already refused, so the
+           * queue returned the same 25 unusable mints every cycle (24 of 25
+           * repeated between cycle 1 and cycle 2) and the window could not
+           * open a single trajectory. Scoping restores 114 eligible mints.
+           *
+           * This is S078's defect in a second place. That one scoped the
+           * RESERVATION table; this query carries its own independent
+           * exclusion, and fixing the first did not reach it.
+           */
+          AND (
+            ?2 IS NULL
+            OR m.mint NOT IN (
+              SELECT t2.mint FROM development_trajectories t2
+                JOIN trajectory_evidence_context x2 ON x2.trajectory_id = t2.trajectory_id
+               WHERE t2.state != 'SETTLED' AND x2.evidence_context_id = ?2
+            )
           )
-        ORDER BY sampled ASC, m.slot DESC
-        LIMIT ?`,
+          AND (
+            ?2 IS NOT NULL
+            OR m.mint NOT IN (
+              SELECT mint FROM development_trajectories WHERE state != 'SETTLED'
+            )
+          )
+        ORDER BY depth_refused ASC, sampled ASC, m.slot DESC
+        LIMIT ?3`,
     )
-    .all(maxPerMint, limit) as never;
+    .all(maxPerMint, evidenceContextId, limit) as never;
 }
 
 /** How concentrated the corpus is. A study of three pools is not a study. */
@@ -693,11 +864,30 @@ export function admissionTotals(db: Db): {
 /**
  * P5 - write the ONE canonical settlement for a trajectory.
  *
- * `INSERT OR IGNORE` on the trajectory id: a retry of the same settlement is
- * idempotent, and a second, DIFFERENT answer for the same trajectory is refused
- * rather than allowed to overwrite the first. An outcome that can be rewritten
- * is not evidence.
+ * The comment here used to say a second, different answer "is refused rather
+ * than allowed to overwrite the first". The audit demonstrated it is
+ * DISCARDED — `INSERT OR IGNORE` returning `void`, with the caller unable to
+ * tell — and discarded is not refused, because the caller cannot tell.
+ *
+ * Same key + identical economics stays idempotent; a retry of the same
+ * settlement must not throw. Same key + DIFFERENT economics throws, so the
+ * caller has to find out which of the two is wrong.
  */
+export class SettlementConflict extends Error {
+  constructor(
+    readonly trajectoryId: string,
+    readonly stored: string | null,
+    readonly offered: string | null,
+  ) {
+    super(
+      `a DIFFERENT settlement already exists for ${trajectoryId.slice(0, 12)}: ` +
+        `stored net PnL ${stored ?? 'null'}, offered ${offered ?? 'null'}. ` +
+        'A second different answer to the same question is refused, not discarded.',
+    );
+    this.name = 'SettlementConflict';
+  }
+}
+
 export function insertTrajectorySettlement(
   db: Db,
   trajectoryId: string,
@@ -727,8 +917,24 @@ export function insertTrajectorySettlement(
   identityViolations: readonly string[],
   settledUtcMs: number,
 ): void {
-  db.prepare(
-    `INSERT OR IGNORE INTO trajectory_settlements (
+  const existing = db
+    .prepare('SELECT net_pnl, entry_cash_out, exit_cash_in, unexplained_lamports FROM trajectory_settlements WHERE trajectory_id = ?')
+    .get(trajectoryId) as
+    | { net_pnl: string | null; entry_cash_out: string; exit_cash_in: string | null; unexplained_lamports: string }
+    | undefined;
+  if (existing !== undefined) {
+    const offeredNet = s.netPnlLamports === null ? null : s.netPnlLamports.toString();
+    const same =
+      existing.net_pnl === offeredNet &&
+      existing.entry_cash_out === s.entryCashOutLamports.toString() &&
+      existing.exit_cash_in === (s.exitCashInLamports === null ? null : s.exitCashInLamports.toString()) &&
+      existing.unexplained_lamports === s.unexplainedLamports.toString();
+    if (same) return;
+    throw new SettlementConflict(trajectoryId, existing.net_pnl, offeredNet);
+  }
+
+  const r = db.prepare(
+    `INSERT INTO trajectory_settlements (
        trajectory_id, scope, entry_cash_out, exit_cash_in, gross_exit_credit,
        base_fees, priority_fees, tips, transfer_fees, failed_attempt_fees,
        rent_created, rent_recovered, rent_still_locked,
@@ -762,6 +968,11 @@ export function insertTrajectorySettlement(
     JSON.stringify(identityViolations),
     settledUtcMs,
   );
+  if (Number(r.changes) !== 1) {
+    throw new Error(
+      `inserting the settlement for ${trajectoryId.slice(0, 12)} changed ${r.changes} row(s), expected 1`,
+    );
+  }
 }
 
 /** The corpus-level settlement picture. Net PnL exists or it does not. */

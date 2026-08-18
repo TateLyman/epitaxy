@@ -144,13 +144,38 @@ export async function buildEntityLinks(
   }
 
   const funderOf = new Map<string, string>();
+  /**
+   * READ is not the same as CLUSTERED, and conflating them made the entity
+   * figure untrustworthy on exactly the tokens that are genuinely dispersed.
+   *
+   * `historyKnown` was `funderOf.has(address)`. A holder whose creation
+   * transaction was fetched and whose fee payer turned out to be ITSELF, or a
+   * known exchange, gets no funder link — correctly — and was then counted as
+   * having UNEXAMINED history. `concentration()` calls the whole reading
+   * untrustworthy once a quarter of holders are unexamined, so a token where
+   * every holder self-funded scored the same as one where the RPC answered
+   * nothing.
+   *
+   * Measured on three live mints: 19 of 19 histories reached their earliest
+   * signature and `trustworthy` was still false on all three.
+   *
+   * This set is "the history was read and the answer is what it is". The funder
+   * map stays what it was: a link, or nothing.
+   */
+  const historyRead = new Set<string>();
   for (const h of examine) {
     try {
       const sigs = await source.oldestSignatures(h.historyAddress ?? h.address, 1);
       const first = sigs[0];
+      // No signature at all is not a read history. An account with no
+      // transactions cannot be the token account of a holder with a balance,
+      // so this is the RPC declining to say rather than a fact about the wallet.
       if (first === undefined) continue;
       const payer = await source.feePayerOf(first.signature);
-      if (payer === null || payer === h.address || ignored.has(payer)) continue;
+      // A null payer is an unreadable transaction, NOT a self-funded wallet.
+      if (payer === null) continue;
+      historyRead.add(h.address);
+      if (payer === h.address || ignored.has(payer)) continue;
       funderOf.set(h.address, payer);
     } catch (e) {
       // An unreadable history is an unknown history. It is NOT a wallet with
@@ -186,7 +211,7 @@ export async function buildEntityLinks(
   }
 
   const built: Holder[] = [
-    ...examine.map((h) => ({ address: h.address, amount: h.amount, historyKnown: funderOf.has(h.address) })),
+    ...examine.map((h) => ({ address: h.address, amount: h.amount, historyKnown: historyRead.has(h.address) })),
     ...rest.map((h) => ({ address: h.address, amount: h.amount, historyKnown: false })),
   ];
 

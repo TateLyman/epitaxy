@@ -70,7 +70,18 @@ function entryLeg(acquired = 1_000_000n): MeasuredLegSettlement {
     createdAccounts: [],
     closedAccounts: [],
     residualTokenAtoms: 0n,
-    payerNativeDeltaLamports: -20_005_000n,
+    /**
+     * SELF-CONSISTENT with the costs above: trade debit + base fee + the rent
+     * this leg created.
+     *
+     * This fixture used to say −20,005,000 — the trade and its signature fee,
+     * with the 2,039,280 of rent it declares creating simply absent from the
+     * payer's balance. The identity was short by exactly one base fee across
+     * the round trip, and `checkIdentities` did not look at
+     * `unexplainedLamports`, so a fixture that could not have happened passed
+     * as evidence that the identities hold.
+     */
+    payerNativeDeltaLamports: -(20_000_000n + 5_000n + 2_039_280n),
     fullAccountCoverage: true,
     effectValid: true,
     effectRefusals: [],
@@ -99,7 +110,9 @@ function exitLeg(observationId: string, credit = 21_000_000n): MeasuredLegSettle
     output: { kind: 'native_sol', minimumLamports: 0n, expectedLamports: credit, actualCreditLamports: credit },
     costs: costs({ rentRecoveredLamports: 2_039_280n }),
     residualTokenAtoms: 0n,
-    payerNativeDeltaLamports: credit,
+    // The credit, less this leg's own signature fee, plus the rent it recovered.
+    // `credit` alone is the gross venue payout, not what reached the payer.
+    payerNativeDeltaLamports: credit - 5_000n + 2_039_280n,
   };
   return leg;
 }

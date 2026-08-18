@@ -1,0 +1,97 @@
+{
+  "activeContexts": [
+    "ctx-c3add8bff804-DEV_WINDOW_5D24E"
+  ],
+  "trajectoriesInScope": 22,
+  "checks": [
+    {
+      "name": "LINK_ROW_EXISTS",
+      "statement": "every active trajectory carries an evidence-link row",
+      "failures": 0,
+      "detail": "a trajectory with no link row has no checkable evidence graph at all"
+    },
+    {
+      "name": "ENTRY_OBSERVATION_RESOLVES",
+      "statement": "entry_observation_id joins execution_observations",
+      "failures": 0,
+      "detail": "0 of 292 pre-repair values resolved, and none could: the namespaces were disjoint"
+    },
+    {
+      "name": "ENTRY_STEP_RESOLVES",
+      "statement": "entry (job_id, step_index) joins simulation_steps",
+      "failures": 0,
+      "detail": "the worker job that produced the leg must be reachable from the leg"
+    },
+    {
+      "name": "ENTRY_SETTLEMENT_RESOLVES",
+      "statement": "entry_settlement_id joins leg_settlements",
+      "failures": 0,
+      "detail": ""
+    },
+    {
+      "name": "EXIT_LINKS_COMPLETE_OR_OPEN",
+      "statement": "a null exit link occurs only while the trajectory is open",
+      "failures": 0,
+      "detail": "a settled trajectory whose exit does not resolve has half an economic identity"
+    },
+    {
+      "name": "SNAPSHOT_HASH_IS_A_HASH",
+      "statement": "snapshot_hash is a sha256 digest, not a slot number",
+      "failures": 0,
+      "detail": "292 of 292 pre-repair values were the decimal slot number"
+    },
+    {
+      "name": "FINGERPRINT_DISTINCT_FROM_SNAPSHOT",
+      "statement": "capability_fingerprint is not the snapshot hash",
+      "failures": 0,
+      "detail": "they answer different questions; 292 of 292 pre-repair rows had them identical"
+    },
+    {
+      "name": "RAW_STATE_PERSISTED",
+      "statement": "every linked job carries account manifests",
+      "failures": 0,
+      "detail": "no raw pre/post state means every amount is recorded once and unfalsifiable"
+    },
+    {
+      "name": "NO_UNEXPLAINED_PNL",
+      "statement": "no settlement publishes net PnL over a non-zero residue",
+      "failures": 0,
+      "detail": "30 of 51 pre-repair rows with a residue published net PnL anyway"
+    },
+    {
+      "name": "TRAJECTORY_ECONOMICS_PRESENT",
+      "statement": "settled trajectories carry their economics columns",
+      "failures": 0,
+      "detail": "0 of 292 pre-repair rows had any economics at all"
+    },
+    {
+      "name": "ENTRY_POLICIES_DECIDED",
+      "statement": "all three entry policies decided on each trajectory",
+      "failures": 0,
+      "detail": "the pre-repair corpus carried one entry policy label against three defined"
+    },
+    {
+      "name": "CAP_NOT_BREACHED",
+      "statement": "no mint exceeded its reservation cap",
+      "failures": 0,
+      "detail": "15 mints exceeded a hard cap of 3; the worst produced 58"
+    },
+    {
+      "name": "NO_EVIDENCE_CONFLICTS",
+      "statement": "no evidence conflict was recorded",
+      "failures": 0,
+      "detail": "a recorded conflict is a second different answer that was refused; it needs resolving"
+    }
+  ],
+  "failingChecks": [],
+  "emptyGraph": false,
+  "strict": false,
+  "verdict": "RESOLVES",
+  "provenance": {
+    "writer": "evidence-graph-check.ts",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "treeDirty": true,
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-18T19:12:47.353Z"
+  }
+}

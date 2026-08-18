@@ -1,6 +1,51 @@
-import { execSync } from 'node:child_process';
 import { loadSecrets, modeFromArgv } from '../../../packages/domain/src/config.js';
 import { openDb } from '../../../packages/storage/src/db.js';
+import {
+  TrajectoryCollectorLock,
+  CollectorLockRefused,
+  DirtyEvidenceCollection,
+  readTreeState,
+  evidenceContextValidity,
+} from '../../../packages/storage/src/collector-lock.js';
+import {
+  reserveCandidate,
+  resolveReservation,
+  abandonReservation,
+  ReservationRefused,
+} from '../../../packages/storage/src/reservation-repo.js';
+import { EvidenceStore } from '../../../packages/storage/src/evidence-repo.js';
+import {
+  persistEvidence,
+  linkTrajectoryEvidence,
+  insertLegSettlement,
+  pairLegAccounts,
+} from '../../../packages/pipeline/src/persist-evidence.js';
+import {
+  MARK_SLA_MS,
+  DEFAULT_MAX_TICK_MS,
+  nextWakeMs,
+  classifyMark,
+  discoveryAdmissible,
+  dueMarks,
+} from '../../../packages/pipeline/src/mark-scheduler.js';
+import { measureEntityTier, type EntityTierReading } from '../../../packages/pipeline/src/entity-tier.js';
+import {
+  boundedCounterfactual,
+  insertCounterfactualMark,
+  CounterfactualRefused,
+  COUNTERFACTUAL_CONTRACT_VERSION,
+  HAIRCUT_FORMULA,
+} from '../../../packages/pipeline/src/counterfactual.js';
+import { SMALL_IMPACT_BOUND } from '../../../packages/domain/src/trajectory-evidence.js';
+import { createHash } from 'node:crypto';
+import {
+  decideEntry,
+  ENTRY_POLICIES,
+  type PreEntryFeatures,
+} from '../../../packages/strategy/src/treatments.js';
+import { SETTLEMENT_VERSION, SDK_VERSIONS } from '../../../packages/pipeline/src/open-trajectory.js';
+import { buildTrajectorySettlement, checkIdentities } from '../../../packages/domain/src/trajectory-settlement.js';
+import { isPnlEligible, transferFeeOrUnknown } from '../../../packages/domain/src/settlement.js';
 import { researchRpc } from '../../../packages/solana/src/endpoint.js';
 import { isQuotaExhausted, EndpointRefusalBreaker } from '../../../packages/solana/src/rpc.js';
 import { base58Encode } from '../../../packages/solana/src/base58.js';
@@ -18,6 +63,7 @@ import {
   AMM_PROGRAM_ID,
   GLOBAL_CONFIG_ADDR,
   FEE_CONFIG_ADDR,
+  WSOL_MINT,
 } from '../../../packages/solana/src/pumpswap-offline.js';
 import { captureCoherentSnapshotV2, SnapshotIncoherent } from '../../../packages/solana/src/coherent-snapshot.js';
 import { captureSnapshot } from '../../../packages/solana/src/snapshot-capture.js';
@@ -32,6 +78,7 @@ import {
   insertPolicyOutcome,
   closeTrajectory,
   markAndOutcomeCounts,
+  counterfactualExits,
 } from '../../../packages/storage/src/mark-repo.js';
 import { mechanicsStratum } from '../../../packages/solana/src/cashback.js';
 import { allocate, EXPLORATION_FRACTION } from '../../../packages/strategy/src/exploration.js';
@@ -73,6 +120,7 @@ import {
   cashbackLegTotals,
   insertCandidateRiskFacts,
   insertTrajectorySettlement,
+  persistTrajectoryEconomics,
   settlementTotals,
   admissionTotals,
   samplingSpread,
@@ -178,7 +226,36 @@ interface Args {
    * re-granting it.
    */
   readonly windowId: string;
+  /**
+   * P1.3 — permit a run from a DIRTY tree, quarantined.
+   *
+   * A development-evidence collector runs from a clean tree at a known commit,
+   * because a trajectory opened from an uncommitted tree cannot be re-derived
+   * from its commit — and 26 of 31 pre-repair sessions were opened that way.
+   *
+   * Refusing outright would make the collector unrunnable during development,
+   * so a dirty run is allowed with this flag and writes to an evidence context
+   * that is PERMANENTLY excluded from evidence. Not refusing, and not lying.
+   */
+  readonly instrumentDevelopment: boolean;
+  /** The frozen experiment contract this run collects under. */
+  readonly contractId: string | null;
+  /** The mark SLA, in milliseconds. Frozen before collection. */
+  readonly markSlaMs: number;
+  /** Longest the scheduler may sleep between mark checks. */
+  readonly maxTickMs: number;
 }
+
+/**
+ * The window the frozen contract owns, once `main` has resolved it.
+ *
+ * `runCycle` re-parses `process.argv` rather than receiving `main`'s parsed
+ * args, so a window adopted from the contract in `main` alone would not reach
+ * the code that actually seeds the policy randomisation and namespaces the
+ * reservations. This is set ONCE, before any cycle runs, and is the only
+ * mutable module state here.
+ */
+let CONTRACT_WINDOW: string | null = null;
 
 function parseArgs(argv: readonly string[]): Args {
   const num = (flag: string, dflt: number): number => {
@@ -198,7 +275,11 @@ function parseArgs(argv: readonly string[]): Args {
     // Opt-in. See the field comment: 219 messages/second, measured.
     liveLane: argv.includes('--live-lane'),
     maxPerMint: num('--max-per-mint', 3),
-    windowId: (argv.find((x) => x.startsWith('--window=')) ?? '--window=DEV_WINDOW_V1').slice(9),
+    windowId: argv.find((x) => x.startsWith('--window='))?.slice(9) ?? CONTRACT_WINDOW ?? 'DEV_WINDOW_V1',
+    instrumentDevelopment: argv.includes('--instrument-development'),
+    contractId: argv.find((x) => x.startsWith('--contract='))?.slice(11) ?? null,
+    markSlaMs: num('--mark-sla-ms', MARK_SLA_MS),
+    maxTickMs: num('--max-tick-ms', DEFAULT_MAX_TICK_MS),
   };
 }
 
@@ -216,6 +297,15 @@ async function discover(
   limit: number,
   /** How many unseen mints this cycle may probe. Recovery, not the main lane. */
   scanBudget: number,
+  /**
+   * Called between probed mints. See `yieldToMarks`.
+   *
+   * The backfill scan is the LONGEST single stretch of a cycle — up to
+   * `scanBudget` mints, each a pool derivation and an on-chain read. Yielding
+   * only between candidates left this whole stretch unyielded, and a horizon
+   * that came due inside it slipped by however long the rest of the scan took.
+   */
+  yieldToMarks?: () => Promise<void>,
 ): Promise<{ found: number; refusals: Record<string, number> }> {
   const refusals: Record<string, number> = {};
   let found = 0;
@@ -284,6 +374,7 @@ async function discover(
     }
     if (alreadyKnown.has(mint)) continue;
     probed++;
+    if (yieldToMarks !== undefined) await yieldToMarks();
     let pool: string;
     try {
       pool = canonicalPool(mint);
@@ -341,6 +432,17 @@ async function candidateFacts(
   rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
   mint: string,
   count: (kind: string, detail?: string) => void,
+  /**
+   * The mark hook, threaded down into the ENTITY WALK.
+   *
+   * The walk is the longest uninterruptible stretch in a discovery cycle — up
+   * to twenty addresses, each up to six sequential pages, against a bucket set
+   * to a few requests a second. Measured 2026-08-18: the worst collector mark
+   * was 43,251 ms late against a frozen 10,000 ms bound, and only 4 of 15
+   * settled paths carried a clean SLA record, because a horizon that came due
+   * inside a candidate waited for the whole candidate.
+   */
+  yieldToMarks?: () => Promise<void>,
 ): Promise<CandidateRiskFacts> {
   const nowMs = Date.now();
   let pool = '';
@@ -433,11 +535,24 @@ async function candidateFacts(
    * counting it would report every pool as maximally concentrated.
    */
   const raw: { share: number | null; examined: number } = { share: null, examined: 0 };
+  /**
+   * KEPT, so the entity tier reads the same instant.
+   *
+   * `measureEntityTier` used to re-read both, which is two more calls per
+   * candidate and — the part that matters — makes the raw share and the entity
+   * share describe two different moments. The gap between them is this module's
+   * entire output; a gap that is partly elapsed time is not a measurement of
+   * clustering.
+   */
+  let holderList: { address: string; amount: bigint }[] | null = null;
+  let supplyAtoms: bigint | null = null;
   try {
     const [largest, supply] = await Promise.all([
       rpc.getTokenLargestAccounts(mint),
       rpc.getTokenSupply(mint),
     ]);
+    holderList = largest.accounts.map((a) => ({ address: a.address, amount: a.amount }));
+    supplyAtoms = supply.amount;
     count('solana_rpc', 'getTokenLargestAccounts');
     count('solana_rpc', 'getTokenSupply');
     if (supply.amount > 0n) {
@@ -452,6 +567,51 @@ async function candidateFacts(
   } catch {
     // Null, not zero. An unread holder list is not an unconcentrated one, and
     // `admitCandidate` refuses on null.
+  }
+
+  /**
+   * WALKED ONLY WHERE IT COULD MATTER.
+   *
+   * The walk is ~40 RPC calls per mint and the depth gate refuses most
+   * candidates before any of it would be read. Running it on a pool where a
+   * 0.02 SOL entry is 170% of the reserve spends the budget to inform a
+   * decision that is already made — and skipping it there cannot weaken the
+   * gate, because a refusal on depth stands whatever the clustering says.
+   *
+   * An unreadable depth is NOT a skip. Depth null already refuses, and adding
+   * the entity read there would spend the budget on the same refusal.
+   */
+  const entryFraction =
+    effectiveQuote === null || effectiveQuote <= 0n
+      ? null
+      : Number(NOTIONAL_LAMPORTS) / Number(effectiveQuote);
+  const depthCouldAdmit = entryFraction !== null && entryFraction <= SMALL_IMPACT_BOUND;
+  const entity: EntityTierReading = depthCouldAdmit
+    ? await measureEntityTier(rpc as never, {
+        // The mark hook, threaded into the walk itself. See `yieldToMarks`.
+        yieldTo: yieldToMarks,
+        mint,
+        poolBaseVault,
+        holders: holderList,
+        supplyAtoms,
+      })
+    : {
+        histories: [],
+        clusteredShare: 0,
+        addressShare: 0,
+        clusteredShareOfExamined: 0,
+        addressShareOfExamined: 0,
+        entityCount: 0,
+        addressCount: 0,
+        trustworthy: false,
+        notes: [],
+        refusal:
+          entryFraction === null
+            ? 'the pool depth could not be read, so the candidate is refused before the entity tier could inform anything'
+            : `the entry is ${(entryFraction * 100).toFixed(1)}% of the pool, already over the depth bound`,
+      };
+  if (entity.refusal === null) {
+    count('solana_rpc', 'entityTierWalk');
   }
 
   const fee = decoded?.transferFeeConfig ?? null;
@@ -471,16 +631,25 @@ async function candidateFacts(
     isCashbackCoin: cashback,
     accumulatorWsolAta: accumulator,
     /**
-     * The strong tier is NOT walked here.
+     * O-2 — THE STRONG TIER, WALKED.
      *
-     * An empty history list is HISTORY_INCOMPLETE — never a measured zero
-     * clustering, which is what it used to report. Paginating every top
-     * holder's full signature history to justify "initial funder" is a
-     * Helius-tier operation this system does not have, and the oldest item in a
-     * capped newest page is not the first transaction.
+     * This passed `[]` and `0` with a comment saying paginating every top
+     * holder's history was "a Helius-tier operation this system does not have".
+     * The endpoint changed; the comment did not. `measureEntityTier` pages
+     * `getSignaturesForAddress` backwards until a short page PROVES the
+     * earliest was reached, and reports each holder's completeness honestly, so
+     * `entityAdjustedConcentration` still refuses on any incomplete walk rather
+     * than reporting a lower bound as a fact.
+     *
+     * Measured on three live mints: one reported a 74.9% entity share against a
+     * 64.3% address share — 19 addresses resolving to 16 entities, one funder
+     * behind four of them. That gap is the entire reason the tier exists, and
+     * before this it was structurally unreachable from a trajectory decision.
+     *
+     * `entity.refusal` is a refusal, never a share of zero.
      */
-    holderHistories: [],
-    clusteredShare: 0,
+    holderHistories: entity.histories,
+    clusteredShare: entity.clusteredShare,
     rawTopHolderShare: raw.share,
     holdersExamined: raw.examined,
     canonicalPool: canonical,
@@ -579,9 +748,59 @@ interface LaneContext {
   readonly session: SessionHandle;
   readonly migrations: LiveMigrationLane | null;
   readonly vaults: LiveVaultWatch | null;
+  /**
+   * P0.4 / P12.2 — which evidence context this cycle's rows belong to, and
+   * whether that context is admissible.
+   *
+   * Carried rather than looked up so a cycle cannot write into a context
+   * different from the one the run's provenance gate approved.
+   */
+  readonly evidenceContextId: string;
+  readonly contextValidity: 'DEVELOPMENT_EVIDENCE' | 'INSTRUMENT_DEVELOPMENT_INVALID';
+  readonly contractId: string | null;
+  readonly sourceCommit: string;
 }
 
-async function runCycle(lanes: LaneContext | null = null): Promise<void> {
+/**
+ * P7 — one pass.
+ *
+ * `marksOnly` is the mark half. The 8f73cef audit's B-4 found 697 of 1,448
+ * marks more than 60 seconds late, and the cause was structural: the mark pass
+ * ran at the top of a 300-second discovery cycle, so the mark clock and the
+ * discovery clock were the same clock. A one-minute horizon cannot be met by a
+ * five-minute loop.
+ *
+ * Splitting them means discovery keeps its 300 seconds — migrations are
+ * backfilled from the chain and nothing is missed by looking every five
+ * minutes — while marks run on a monotonic due-time schedule.
+ */
+async function runCycle(
+  lanes: LaneContext | null = null,
+  opts: {
+    readonly marksOnly?: boolean;
+    /**
+     * P7 — CALLED BETWEEN CANDIDATES, SO A LONG DISCOVERY PASS CANNOT STARVE
+     * THE MARK TICK.
+     *
+     * Discovery and marks were given separate CLOCKS and left on one THREAD.
+     * Backpressure stops discovery from STARTING while a mark is overdue, and
+     * then a cycle that has started runs to completion however long it takes:
+     * the entity walk alone is 6-13 seconds per admissible candidate.
+     *
+     * Measured 2026-08-17, the first mark the repaired window ever missed:
+     *
+     *   MISSED_HORIZON  428DdvZJ1r +3m late by 47s (SLA 10s)
+     *
+     * against an SLA of ten seconds, with nothing wrong except that discovery
+     * held the thread. That is B-4 in miniature — 697 of 1,448 pre-repair marks
+     * more than sixty seconds late — reappearing for a different reason after
+     * the clock was fixed.
+     *
+     * A mark is a measurement of an instant. It cannot wait for anything.
+     */
+    readonly yieldToMarks?: () => Promise<void>;
+  } = {},
+): Promise<void> {
   const mode = modeFromArgv() ?? 'observe';
   if (mode === 'canary' || mode === 'live') {
     throw new Error('trajectory:collect never runs in a mode that can trade');
@@ -591,6 +810,14 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   const { rpc, host } = researchRpc(secrets as never);
   const db = openDb({ path: secrets.databasePath, skipBackup: true });
   const sessionId = lanes?.session.sessionId ?? null;
+  /**
+   * P3.1 — the content-addressed store, opened once per cycle.
+   *
+   * Its root is `data/evidence-blobs`, separate from the older `data/blobs`,
+   * because the two answer different questions and mixing them would make a
+   * blob-store sweep report on evidence it does not own.
+   */
+  const evidence = new EvidenceStore(db, 'data/evidence-blobs');
   const count = (kind: string, detail?: string): void => {
     if (sessionId !== null) countResource(db, sessionId, kind, detail === undefined ? {} : { detail });
   };
@@ -628,7 +855,16 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   // The RECOVERY lane. Structurally late — a pool only enters it once a
   // screening happened to mention its mint — and kept because it reaches
   // creations the socket was not alive for.
-  const disc = await discover(db, rpc, args.maxCandidates, args.backfillScan);
+  if (opts.marksOnly === true) {
+    // Straight to the mark pass. No discovery, no opening, no candidate reads:
+    // this pass exists to hit deadlines, and spending its RPC budget on
+    // discovery is what made the deadlines unreachable.
+    await runMarkPass(db, rpc, args, lanes, sessionId, evidence);
+    db.close();
+    return;
+  }
+
+  const disc = await discover(db, rpc, args.maxCandidates, args.backfillScan, opts.yieldToMarks);
   console.log(`history backfill: ${disc.found} confirmed migration(s) recorded`);
   for (const [r, n] of Object.entries(disc.refusals).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
     console.log(`  refused ${String(n).padStart(4)}  ${r}`);
@@ -642,13 +878,23 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
     return;
   }
 
-  const candidates = migrationCandidates(db, args.maxCandidates, args.maxPerMint);
+  // Scoped: a trajectory left open in a DEMOTED window is marked by nothing and
+  // must not exclude its mint from this one. See `migrationCandidates`.
+  const candidates = migrationCandidates(
+    db,
+    args.maxCandidates,
+    args.maxPerMint,
+    lanes?.evidenceContextId ?? null,
+  );
   console.log('');
   console.log(`candidate queue: ${candidates.length} confirmed migration(s)`);
 
   let viable = 0;
   const reasons: Record<string, number> = {};
   for (const c of candidates) {
+    // The second unyielded stretch: one coherent snapshot per candidate, each
+    // several account reads.
+    if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
     const s = await snapshotCandidate(rpc, c.mint);
     if (!s.ok) {
       reasons[s.reason] = (reasons[s.reason] ?? 0) + 1;
@@ -746,6 +992,9 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
   try {
     for (const c of candidates) {
       if (opened >= args.maxOpen) break;
+      // Before spending 6-13 seconds walking one candidate's holders, hand the
+      // thread back to any mark whose horizon has arrived. See `yieldToMarks`.
+      if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
 
       /**
        * P10 — THE RISK FACTS, BEFORE THE DECISION.
@@ -760,7 +1009,7 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
        * reading a fact collected after selection is a post-hoc annotation and
        * the position was taken either way.
        */
-      const facts = await candidateFacts(rpc, c.mint, count);
+      const facts = await candidateFacts(rpc, c.mint, count, opts.yieldToMarks);
 
       /**
        * A SPENT DAILY QUOTA IS NOT A REFUSAL. Stop.
@@ -797,6 +1046,65 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
         continue;
       }
 
+      /**
+       * P1.4 — RESERVE THE SLOT BEFORE ANY WORK IS DONE.
+       *
+       * `migrationCandidates()` filtered on `COUNT(*) < maxPerMint` when the
+       * queue was built. That is correct per cycle and worthless across
+       * processes: five daemons evaluated it against the same instant and all
+       * admitted the same mint, producing 15 over-cap mints and one at 58.
+       *
+       * The reservation is an atomic database fact — BEGIN IMMEDIATE, unique
+       * indexes, a CHECK that the ordinal is within the cap. Taken here, before
+       * the snapshot and the worker round trip, so a refusal costs nothing.
+       */
+      let reservation;
+      try {
+        reservation = reserveCandidate(db, {
+          windowId: args.windowId,
+          mint: c.mint,
+          maxPerMint: args.maxPerMint,
+          ownerSessionId: sessionId ?? 'no-session',
+          nowMs: Date.now(),
+          // The cap is over the STUDY, not over this window. A mint that
+          // already produced its allowance in an earlier window has produced
+          // it, and the audit's 58-trajectory mint is what ignoring that costs.
+          includeHistoric: true,
+          /**
+           * Scoped to THIS window.
+           *
+           * The rule is "no two concurrent trajectories on one pool", because
+           * they would share a mark path and duplicate each other exactly. That
+           * reason is about one experiment. Applied across every context ever
+           * opened it says something else: a mint opened in a window that was
+           * later abandoned is locked out forever, since an abandoned window's
+           * trajectories are never marked and never settle.
+           */
+          evidenceContextId: lanes?.evidenceContextId ?? null,
+        });
+      } catch (e) {
+        if (e instanceof ReservationRefused) {
+          refusals[`RESERVATION_${e.code}`] = (refusals[`RESERVATION_${e.code}`] ?? 0) + 1;
+          console.log(`  ${c.mint.slice(0, 10)}  RESERVATION_${e.code}  ${e.message.slice(0, 60)}`);
+          continue;
+        }
+        throw e;
+      }
+
+      /**
+       * ONE MORE YIELD, INSIDE the candidate.
+       *
+       * Yielding between candidates left a single candidate's own processing
+       * unbroken, and that is 6-13 seconds of entity walk plus a worker round
+       * trip plus persistence. B-4 requires ZERO marks more than sixty seconds
+       * late and the previous window had five of forty-one, all from horizons
+       * that came due inside one candidate rather than between two.
+       *
+       * Here is the natural break: the risk facts are collected and the
+       * reservation is held, and the round trip has not started.
+       */
+      if (opts.yieldToMarks !== undefined) await opts.yieldToMarks();
+
       // A fresh runtime per candidate: the client's output bound is cumulative
       // over a worker's lifetime, and one long-lived worker turns a bound meant
       // to catch runaways into a cap on the study.
@@ -820,7 +1128,11 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
 
       if (!res.ok) {
         refusals[res.refusal] = (refusals[res.refusal] ?? 0) + 1;
-        console.log(`  ${c.mint.slice(0, 10)}  ${res.refusal}  ${res.detail.slice(0, 70)}`);
+        console.log(`  ${c.mint.slice(0, 10)}  ${res.refusal}  ${res.detail.slice(0, 420)}`);
+        // The reservation is released, so a refused candidate does not consume
+        // its mint's allowance. A refusal is a fact about the venue or the
+        // apparatus, not a sample.
+        abandonReservation(db, reservation.reservationId, Date.now(), res.refusal);
         continue;
       }
 
@@ -871,81 +1183,540 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
       // This row exists, so its stratum earns entitlement for the next cycle.
       openedPerStratum.set(stratumOfCandidate, (openedPerStratum.get(stratumOfCandidate) ?? 0) + 1);
 
-      insertTrajectory(db, {
-        identity: {
-          trajectoryId: t.trajectoryId,
-          entryObservationId: t.entryObservationId,
-          entrySimulationJobId: t.entrySimulationJobId,
-          entrySettlementId: t.entrySettlementId,
-          venue: 'PUMPSWAP_DIRECT',
-          pool: t.pool,
-          capabilityFingerprint: t.snapshotHash,
-          snapshotHash: t.snapshotHash,
+      /**
+       * P2.4 / P3 — PERSIST THE RAW EVIDENCE BEFORE THE TRAJECTORY EXISTS.
+       *
+       * C-4: the buy and sell pre/post account sets lived only in the worker
+       * process and were reduced to aggregate columns before anything was
+       * written, so every economic amount was recorded once and was
+       * unfalsifiable from the database.
+       *
+       * Every account state goes to the content-addressed store, is read back
+       * and re-hashed, and is linked by (job, step, leg, address) with ABSENT
+       * explicit on both sides.
+       */
+      const planWritable = new Set(t.entryPlan.writableAccounts);
+      const exitWritable = new Set(t.exitPlan?.writableAccounts ?? []);
+      /**
+       * P3.2 — the roles the manifest is indexed by.
+       *
+       * PAYER first and by name, because the independent recomputation
+       * (`pnpm trajectory:trace`) derives every cash figure from the PAYER's
+       * own lamports. It is the one quantity that cannot disagree with itself,
+       * and a manifest that does not name it cannot be recomputed from.
+       */
+      const roleOf: Record<string, string> = {
+        [taker]: 'PAYER',
+        [t.pool]: 'POOL',
+        [t.mint]: 'BASE_MINT',
+      };
+      const persisted = persistEvidence(db, evidence, {
+        trajectoryId: t.trajectoryId,
+        evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
+        reservationId: reservation.reservationId,
+        jobId: t.entrySimulationJobId,
+        canonicalRequest: {
           mint: t.mint,
-          cohort: 'FIRST_HOUR',
-          migrationAgeMs: null,
-          notionalLamports: t.notionalLamports,
-          entryPolicyInputs: {
-            soleVenueAttributed: t.soleVenueAttributed,
-            quoteStateSurvived: t.quoteStateSurvived,
-            baseVaultDeltaAtoms: t.baseVaultDeltaAtoms.toString(),
-            quoteVaultDeltaLamports: t.quoteVaultDeltaLamports.toString(),
-          },
-          stratum: t.stratum,
+          pool: t.pool,
+          taker,
+          notionalLamports: t.notionalLamports.toString(),
+          snapshotHash: t.snapshotHash,
+          accountPlanHash: t.entryPlan.fingerprint,
         },
-        entryPolicy: 'HARD_GATES_RANDOM',
-        exitPolicy: 'FIXED_15M_CONTROL',
-        state: 'AWAITING_FILL_OBSERVATION',
-        // The MEASURED bound, not zeros. These were hardcoded, and every row
-        // claimed a 0% impact inside a 50 bps bound while the first live
-        // surface found entries larger than the pool's whole quote reserve.
-        impact: t.impact,
-        maxAttainableGrade: 'SIMULATED_EXECUTION',
-        refusals: t.incompleteness,
-        openedUtcMs: t.openedUtcMs,
+        workerResponse: t.rawEvidence.workerIdentity,
+        snapshot: {
+          hash: t.snapshotHash,
+          slot: t.rawEvidence.snapshotSlot,
+          capturedUtcMs: t.openedUtcMs,
+          mint: t.mint,
+          pool: t.pool,
+          // The REAL manifest and sysvars the hash was computed over.
+          // `persistEvidence` recomputes with the same function and refuses a
+          // mismatch, so a stub here cannot become a stored snapshot.
+          manifest: t.rawEvidence.snapshotManifest,
+          clock: t.rawEvidence.snapshotClock,
+          rent: t.rawEvidence.snapshotRent,
+          epochSchedule: t.rawEvidence.snapshotEpochSchedule,
+          feeConfigHash: t.feeConfigHash,
+          capabilityFingerprint: t.capabilityFingerprint,
+          programDataHashes: t.rawEvidence.programDataHashes,
+          sdkVersions: SDK_VERSIONS,
+          workerBinaryHash:
+            typeof (t.rawEvidence.workerIdentity as { binarySha256?: unknown } | null)?.binarySha256 === 'string'
+              ? ((t.rawEvidence.workerIdentity as { binarySha256: string }).binarySha256)
+              : null,
+        },
+        accountPlanHash: t.entryPlan.fingerprint,
+        selectedTier: t.selectedTier,
+        legs: [
+          {
+            leg: 'buy',
+            stepIndex: 0,
+            observationId: t.entryObservationId,
+            transactionBase64: t.rawEvidence.buyTransactionBase64,
+            accountStates: pairLegAccounts(
+              t.rawEvidence.buyPre,
+              t.rawEvidence.buyPost,
+              roleOf,
+              planWritable,
+            ),
+            declaredUnobserved: t.rawEvidence.buyUnobserved,
+            runtimeOk: true,
+            effectOk: t.settlement.entry.effectValid,
+            unitsConsumed: t.buyComputeUnits,
+            transactionError: null,
+            mint: t.mint,
+            inputMint: WSOL_MINT,
+            outputMint: t.mint,
+            requestedAmount: t.notionalLamports,
+          },
+          ...(t.rawEvidence.sellPre === null || t.rawEvidence.sellPost === null || t.exitObservationId === null
+            ? []
+            : [
+                {
+                  leg: 'sell' as const,
+                  stepIndex: 1,
+                  observationId: t.exitObservationId,
+                  transactionBase64: t.rawEvidence.buyTransactionBase64,
+                  accountStates: pairLegAccounts(
+                    t.rawEvidence.sellPre,
+                    t.rawEvidence.sellPost,
+                    roleOf,
+                    exitWritable,
+                  ),
+                  declaredUnobserved: t.rawEvidence.sellUnobserved ?? [],
+                  runtimeOk: true,
+                  effectOk: t.settlement.exit?.effectValid ?? false,
+                  unitsConsumed: t.sellComputeUnits,
+                  transactionError: null,
+                  mint: t.mint,
+                  inputMint: t.mint,
+                  outputMint: WSOL_MINT,
+                  requestedAmount: t.acquiredAtoms,
+                },
+              ]),
+        ],
+        endpoint: host,
+        nowMs: Date.now(),
       });
 
-      db.prepare(
-        `UPDATE development_trajectories
-            SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?
-          WHERE trajectory_id = ?`,
-      ).run(effectiveArm, arm?.p ?? null, windowId, t.trajectoryId);
-
-      insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
-      // P2/P7 — the exit's plan too. It is the plan the cashback tail was
-      // verified against, and until now only the entry's was stored, so a
-      // replay had nothing to compare the sell to.
-      if (t.exitPlan !== null) insertAccountPlan(db, t.trajectoryId, t.exitPlan, Date.now());
+      /**
+       * P2.5 / P4.1 — RE-DERIVE THE SETTLEMENT NOW THAT THE EVIDENCE IS DURABLE.
+       *
+       * `t.settlement` was built inside `openTrajectory`, before anything
+       * existed on disk; its `rawStateDurable` was a claim about process
+       * memory. This one is built with the durability the blob store actually
+       * reports after read-back, and it is the one that gets stored.
+       */
+      const settlement = buildTrajectorySettlement({
+        trajectoryId: t.trajectoryId,
+        entry: t.settlementInputs.entry,
+        exit: t.settlementInputs.exit,
+        cashback: t.settlementInputs.cashback,
+        rentStillLockedLamports: t.settlementInputs.rentStillLockedLamports,
+        venueFeeDecompositionKnown: false,
+        legEvidence: {
+          entry: {
+            rawStateDurable: persisted.rawStateDurable,
+            linksResolve: true,
+            residualSemanticsKnown: true,
+          },
+          ...(t.settlementInputs.exit === null
+            ? {}
+            : {
+                exit: {
+                  rawStateDurable: persisted.rawStateDurable,
+                  linksResolve: t.exitObservationId !== null,
+                  residualSemanticsKnown: true,
+                },
+              }),
+        },
+      });
+      const identityViolations = checkIdentities(settlement).violations;
 
       /**
-       * P7/F13 — both legs' cashback movement, stored per leg.
+       * P2.5 — THE ATOMIC OPEN.
        *
-       * The repository asserted that `sell` carries no volume accumulator. It
-       * carries two, as optional positional remaining accounts. These rows are
-       * what settles that empirically rather than by assertion: if `sell`
-       * accrual stays at zero while `buy` climbs, the old model was right.
-       */
-      insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
-
-      /**
-       * P5 - the ONE canonical settlement, written once.
+       * One transaction. The trajectory row, its evidence links, its per-leg
+       * settlements, its policy decisions, its plans and its economics either
+       * ALL become durable or NONE of them do.
        *
-       * Scope is IMMEDIATE_MECHANICS: the legs that actually executed. The
-       * policy exit is a mark on a later path and stays a counterfactual, so it
-       * is deliberately not settled here.
+       * Ordering inside it is forced by the foreign keys and that is the point:
+       * `leg_settlements` references `development_trajectories`, so the
+       * trajectory row must exist first — and the first real open failed here
+       * with `FOREIGN KEY constraint failed` because the writes were a sequence
+       * of independent statements rather than one act.
+       *
+       * That sequence is exactly how a half-open trajectory gets created: a row
+       * that exists, points at nothing, and is indistinguishable afterwards
+       * from one that was written correctly. 292 rows in this corpus are in
+       * that state, and the difference between them and this one is this
+       * transaction.
+       *
+       * `persistEvidence` above committed the blobs, the snapshot, the
+       * observations, the worker steps and the account manifests. None of them
+       * references the trajectory, so a rollback here leaves them orphaned
+       * rather than dangling — countable, harmless, and not a trajectory.
        */
-      insertTrajectorySettlement(
-        db,
-        t.trajectoryId,
-        'IMMEDIATE_MECHANICS',
-        t.settlement,
-        t.identityViolations,
-        Date.now(),
-      );
+      db.exec('BEGIN IMMEDIATE');
+      try {
 
-      // P6 — what the entry had to open, and who ends up owning it. Written
-      // per leg, so a later exit leg's creations do not merge into the entry's.
-      insertCreatedAccounts(db, t.trajectoryId, 'buy', t.createdAccounts, Date.now());
+        insertTrajectory(db, {
+          identity: {
+            trajectoryId: t.trajectoryId,
+            entryObservationId: t.entryObservationId,
+            entrySimulationJobId: t.entrySimulationJobId,
+            entrySettlementId: t.entrySettlementId,
+            venue: 'PUMPSWAP_DIRECT',
+            pool: t.pool,
+            // C-3 — a DIFFERENT value from the snapshot hash, because it answers a
+            // different question. This argument was literally `t.snapshotHash`,
+            // which is how 292 of 292 rows came to carry identical values in the
+            // two columns meant to identify their inputs.
+            capabilityFingerprint: t.capabilityFingerprint,
+            snapshotHash: t.snapshotHash,
+            mint: t.mint,
+            cohort: 'FIRST_HOUR',
+            migrationAgeMs: null,
+            notionalLamports: t.notionalLamports,
+            entryPolicyInputs: {
+              soleVenueAttributed: t.soleVenueAttributed,
+              quoteStateSurvived: t.quoteStateSurvived,
+              baseVaultDeltaAtoms: t.baseVaultDeltaAtoms.toString(),
+              quoteVaultDeltaLamports: t.quoteVaultDeltaLamports.toString(),
+            },
+            stratum: t.stratum,
+          },
+          /**
+           * N-2 — the entry policy column records the CONTROL's identity, and the
+           * decisions themselves live in `trajectory_policy_decisions`.
+           *
+           * This used to be a string literal written on every row AFTER
+           * `admitCandidate` had already decided, so the corpus carried one
+           * distinct entry policy against three defined and `decideEntry` had
+           * zero production callers. The entry side of the tournament did not
+           * exist: the two challengers had a sample of zero and the label
+           * described nothing that happened.
+           *
+           * One column cannot hold three decisions, which is why the decisions
+           * are rows. This names which arm the trajectory's own exit path
+           * belongs to, and every policy's verdict is stored below.
+           */
+          entryPolicy: 'HARD_GATES_RANDOM',
+          exitPolicy: 'FIXED_15M_CONTROL',
+          state: 'AWAITING_FILL_OBSERVATION',
+          // The MEASURED bound, not zeros. These were hardcoded, and every row
+          // claimed a 0% impact inside a 50 bps bound while the first live
+          // surface found entries larger than the pool's whole quote reserve.
+          impact: t.impact,
+          maxAttainableGrade: 'SIMULATED_EXECUTION',
+          refusals: t.incompleteness,
+          openedUtcMs: t.openedUtcMs,
+          // P8 — the local post-entry state and the entry's own impact, which
+          // is what turns a later mainnet quote into a counterfactual exit
+          // rather than a quote against a pool that never held our position.
+          postEntryBaseReserve: t.postEntryBaseReserve,
+          postEntryQuoteReserve: t.postEntryQuoteReserve,
+          entryBaseDeltaAtoms: t.entryBaseDeltaAtoms,
+          entryQuoteDeltaLamports: t.entryQuoteDeltaLamports,
+          entryImpactBps: t.entryImpactBps,
+        });
+
+        db.prepare(
+          `UPDATE development_trajectories
+              SET exploration_arm = ?, inclusion_probability = ?, exploration_window = ?,
+                  fee_config_hash = ?, selected_tier = ?, market_cap_lamports = ?,
+                  creator_fee_bps = ?, protocol_fee_bps = ?, lp_fee_bps = ?, cashback_flag = ?,
+                  exit_observation_id = ?, exit_simulation_job_id = ?, exit_settlement_id = ?,
+                  entry_step_index = ?, exit_step_index = ?,
+                  concentration_raw = ?, concentration_entity_adjusted = ?, concentration_stratum = ?
+            WHERE trajectory_id = ?`,
+        ).run(
+          effectiveArm,
+          arm?.p ?? null,
+          windowId,
+          // J-3 — the fee table this trajectory was priced against. No column
+          // existed, so no historical row could survive a Pump fee change.
+          t.feeConfigHash,
+          t.selectedTier,
+          t.marketCapLamports?.toString() ?? null,
+          t.creatorFeeBps,
+          t.protocolFeeBps,
+          t.lpFeeBps,
+          t.cashbackVerified ? 1 : 0,
+          /**
+           * The SELL leg's observation id, which nothing wrote.
+           *
+           * `settleTrajectory` sets this column and the collector does not use
+           * that path — it closes through the mark scheduler — so the id was
+           * produced at open time, carried out of `openTrajectory`, and then
+           * dropped. C-1 asks that every link in the trace resolve, and this
+           * one was NULL on every trajectory the collector has ever opened
+           * while the observation itself existed in `execution_observations`.
+           */
+          t.exitObservationId,
+          t.exitSimulationJobId,
+          t.exitSettlementId,
+          t.entryStepIndex,
+          t.exitStepIndex,
+          // O-2 — RAW and ENTITY-ADJUSTED, kept apart. 1,959 of 1,959 pre-repair
+          // risk-fact rows were stratified `CONCENTRATION_RAW_ONLY`, so the raw
+          // top-holder share decided every admission — and an incomplete history
+          // can only UNDERSTATE clustering, which makes the gate that fires the
+          // weaker of the two on every candidate.
+          facts.rawTopHolderShare,
+          facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
+          facts.concentration.kind === 'MEASURED' ? 'CONCENTRATION_ENTITY' : 'CONCENTRATION_RAW_ONLY',
+          t.trajectoryId,
+        );
+
+        /**
+         * P0.4 — the trajectory belongs to THIS evidence context.
+         *
+         * Written before the link row, because the link row's foreign key names
+         * the context and will refuse if it does not exist.
+         */
+        db.prepare(
+          `INSERT INTO trajectory_evidence_context (trajectory_id, evidence_context_id, assigned_utc_ms)
+           VALUES (?, ?, ?) ON CONFLICT(trajectory_id) DO NOTHING`,
+        ).run(t.trajectoryId, lanes?.evidenceContextId ?? 'unassigned', Date.now());
+
+        /**
+         * The per-leg settlements, AFTER the trajectory row exists.
+         *
+         * `leg_settlements.trajectory_id` is a foreign key, so this cannot
+         * run first — and it did, which is how the first real open failed
+         * with `FOREIGN KEY constraint failed` after clearing every gate.
+         * The ordering here is dictated by the constraints rather than by
+         * the order the values happened to be computed in.
+         */
+        // P4 — the per-leg settlements, so the trajectory settlement is derived
+        // from measured legs rather than recomputed from aggregates handed to it.
+        for (const [leg, m, settlementId, stepIndex] of [
+          ['buy' as const, t.settlementInputs.entry, t.entrySettlementId, t.entryStepIndex],
+          ...(t.settlementInputs.exit === null || t.exitSettlementId === null
+            ? []
+            : [['sell' as const, t.settlementInputs.exit, t.exitSettlementId, t.exitStepIndex ?? 1] as const]),
+        ] as const) {
+          const eligible = isPnlEligible(m);
+          const fee = transferFeeOrUnknown(m);
+          insertLegSettlement(db, {
+            settlementId,
+            trajectoryId: t.trajectoryId,
+            leg,
+            observationId: m.observationId,
+            jobId: t.entrySimulationJobId,
+            stepIndex,
+            settlementVersion: SETTLEMENT_VERSION,
+            cashOutLamports: leg === 'buy' ? -m.payerNativeDeltaLamports : null,
+            cashInLamports: leg === 'sell' ? m.payerNativeDeltaLamports : null,
+            grossCreditLamports: m.output.kind === 'native_sol' ? m.output.actualCreditLamports : null,
+            baseFeeLamports: m.costs.baseFeeLamports,
+            priorityFeeLamports: m.costs.priorityFeeLamports,
+            tipLamports: m.costs.tipLamports,
+            transferFeeLamports: fee ?? 0n,
+            failedAttemptFeeLamports: m.costs.failedAttemptCostLamports,
+            rentCreatedLamports: m.costs.rentCreatedLamports,
+            rentRecoveredLamports: m.costs.rentRecoveredLamports,
+            rentStillLockedLamports:
+              m.costs.rentCreatedLamports > m.costs.rentRecoveredLamports
+                ? m.costs.rentCreatedLamports - m.costs.rentRecoveredLamports
+                : 0n,
+            cashbackAccruedLamports: 0n,
+            cashbackClaimableLamports: t.settlementInputs.cashback.claimableLamports,
+            cashbackClaimedLamports: 0n,
+            cashbackClaimCostLamports: 0n,
+            residualTokenAtoms: m.residualTokenAtoms ?? 0n,
+            unexplainedLamports: m.costs.unexplainedLamports,
+            complete: m.complete,
+            effectValid: m.effectValid,
+            fullAccountCoverage: m.fullAccountCoverage,
+            residualSemanticsKnown: true,
+            // NOT_APPLICABLE and UNKNOWN are opposite facts that both arrive as an
+            // absent number, and only the second blocks PnL.
+            transferFeeStatus: fee === null ? 'UNKNOWN' : m.costs.transferFeeLamportsEquivalent === null ? 'NOT_APPLICABLE' : 'MEASURED',
+            rawStateDurable: persisted.rawStateDurable,
+            pnlEligible: eligible.ok,
+            ineligibilityReasons: eligible.reasons,
+            nowMs: Date.now(),
+          });
+        }
+
+        /**
+         * P2.3 — THE LINK ROW. Every arrow is a foreign key.
+         *
+         * If any identifier does not resolve, SQLite refuses this insert and the
+         * trajectory does not become a usable sample. The 292 pre-repair rows
+         * cannot be represented here at all, which is how "0 of 292 resolve"
+         * stops being a thing that can happen rather than a thing that was fixed.
+         */
+        linkTrajectoryEvidence(db, {
+          trajectoryId: t.trajectoryId,
+          evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
+          reservationId: reservation.reservationId,
+          snapshotHash: t.snapshotHash,
+          capabilityFingerprint: t.capabilityFingerprint,
+          accountPlanHash: t.entryPlan.fingerprint,
+          feeConfigHash: t.feeConfigHash,
+          selectedTier: t.selectedTier,
+          entryObservationId: t.entryObservationId,
+          entryJobId: t.entrySimulationJobId,
+          entryStepIndex: t.entryStepIndex,
+          entrySettlementId: t.entrySettlementId,
+          exitObservationId: t.exitObservationId,
+          exitJobId: t.exitSimulationJobId,
+          exitStepIndex: t.exitStepIndex,
+          exitSettlementId: t.exitSettlementId,
+          nowMs: Date.now(),
+        });
+
+        // The reservation produced this trajectory. Bound now, so the cap is
+        // enforced against rows that exist rather than against intentions.
+        resolveReservation(db, reservation.reservationId, t.trajectoryId, Date.now());
+
+        /**
+         * P9.1 — ALL THREE ENTRY POLICIES DECIDE, over the SAME pre-entry data.
+         *
+         * The research sample is selected independently of any entry policy — by
+         * mechanics viability and the hard safety gates — and then every policy
+         * is asked what IT would have done. That is a paired comparison: same
+         * token, same pool, same marks, same costs, different decision.
+         *
+         * `decideEntry` had zero production callers. This is where it gets them.
+         */
+        const preEntry: PreEntryFeatures = {
+          mint: c.mint,
+          hardGatesPass: admission.admit,
+          /**
+           * Flow features the collector does not yet measure are NULL, and null
+           * is never a pass: `survivorFlowContinuation` refuses on every unknown
+           * and records which one. That is the honest state of this build — the
+           * challenger will REJECT most candidates for want of a flow history,
+           * and that rejection is a real decision with a real reason, which is
+           * exactly what a sample of zero was not.
+           */
+          independentBuyerPersistence: null,
+          nonMayhemNetQuoteInflowLamports: null,
+          effectiveQuoteReserveTrend: null,
+          executableExitCapacityTrend: null,
+          continuationSlope: null,
+          creatorNetSellingLamports: null,
+          // O-2 — the ENTITY-ADJUSTED share when it was measured, and null when
+          // only balances were read. Never the raw share silently substituted:
+          // an incomplete history can only understate clustering.
+          entityConcentration:
+            facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
+          mintBehaviourSafe: facts.mint2022.freezeAuthority === null ? true : null,
+          mechanicsViable: true,
+          correctedQualityScore: null,
+          scoreCoverageOk: false,
+        };
+        /**
+         * P10.1 — did the entity-adjusted fact CHANGE the decision?
+         *
+         * Recorded per policy, by running the same policy twice: once with the
+         * entity-adjusted concentration and once with the raw share. A risk fact
+         * that never alters an outcome is not wired in, and the audit found
+         * `entity_concentration` holding 57 rows none of which was joined to a
+         * candidate decision.
+         */
+        const rawOnly: PreEntryFeatures = { ...preEntry, entityConcentration: facts.rawTopHolderShare };
+        for (const policy of ENTRY_POLICIES) {
+          const decision = decideEntry(policy, preEntry, { seed: `${windowId}:${policy}` });
+          const withoutRisk = decideEntry(policy, rawOnly, { seed: `${windowId}:${policy}` });
+          db.prepare(
+            `INSERT INTO trajectory_policy_decisions
+               (trajectory_id, entry_policy, policy_version, decision, reason, feature_snapshot,
+                feature_snapshot_hash, decided_utc_ms, risk_facts_applied, decision_without_risk_facts)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(trajectory_id, entry_policy) DO NOTHING`,
+          ).run(
+            t.trajectoryId,
+            policy,
+            'treatments-v1',
+            decision.enter ? 'ENTER' : 'REJECT',
+            `${decision.reason}${decision.unknowns.length > 0 ? ` [unknown: ${decision.unknowns.join(',')}]` : ''}`,
+            JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+            createHash('sha256')
+              .update(JSON.stringify(preEntry, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)))
+              .digest('hex'),
+            Date.now(),
+            JSON.stringify(facts.concentration.kind === 'MEASURED' ? ['ENTITY_ADJUSTED_CONCENTRATION'] : []),
+            withoutRisk.enter ? 'ENTER' : 'REJECT',
+          );
+        }
+
+        insertAccountPlan(db, t.trajectoryId, t.entryPlan, Date.now());
+        // P2/P7 — the exit's plan too. It is the plan the cashback tail was
+        // verified against, and until now only the entry's was stored, so a
+        // replay had nothing to compare the sell to.
+        if (t.exitPlan !== null) insertAccountPlan(db, t.trajectoryId, t.exitPlan, Date.now());
+
+        /**
+         * P7/F13 — both legs' cashback movement, stored per leg.
+         *
+         * The repository asserted that `sell` carries no volume accumulator. It
+         * carries two, as optional positional remaining accounts. These rows are
+         * what settles that empirically rather than by assertion: if `sell`
+         * accrual stays at zero while `buy` climbs, the old model was right.
+         */
+        insertLegCashback(db, t.trajectoryId, t.cashbackVerified, t.cashbackLegs, Date.now());
+
+        /**
+         * P5 - the ONE canonical settlement, written once.
+         *
+         * Scope is IMMEDIATE_MECHANICS: the legs that actually executed. The
+         * policy exit is a mark on a later path and stays a counterfactual, so it
+         * is deliberately not settled here.
+         */
+        insertTrajectorySettlement(
+          db,
+          t.trajectoryId,
+          'IMMEDIATE_MECHANICS',
+          // The RE-DERIVED settlement, built after the raw evidence was written
+          // and read back — not the provisional one `openTrajectory` returned.
+          settlement,
+          identityViolations,
+          Date.now(),
+        );
+
+        /**
+         * K-3 — `settleTrajectory()` IS CALLED.
+         *
+         * It was the only writer of the trajectory row's economics columns and
+         * the collector never called it: `closeTrajectory()` set `state` and
+         * `settled_utc_ms` and nothing else, so every economics column on
+         * `development_trajectories` was permanently NULL — 0 of 292 — while
+         * `trajectory_settlements` held 31 net PnL figures. Any consumer reading
+         * the trajectory row rather than the settlement row saw a corpus with no
+         * costs and no PnL at all.
+         *
+         * The affected row count is checked, because a zero-row update is a write
+         * that went nowhere and reported success.
+         */
+        persistTrajectoryEconomics(db, t.trajectoryId, settlement, Date.now());
+
+        // P6 — what the entry had to open, and who ends up owning it. Written
+        // per leg, so a later exit leg's creations do not merge into the entry's.
+        insertCreatedAccounts(db, t.trajectoryId, 'buy', t.createdAccounts, Date.now());
+      } catch (e) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          /* already unwound */
+        }
+        // A trajectory that could not be written WHOLE is not written at all,
+        // and the mint returns to the queue rather than being retired.
+        refusals['ATOMIC_OPEN_FAILED'] = (refusals['ATOMIC_OPEN_FAILED'] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  ATOMIC_OPEN_FAILED  ${(e as Error).message.slice(0, 160)}`);
+        try {
+          abandonReservation(db, reservation.reservationId, Date.now(), 'ATOMIC_OPEN_FAILED');
+        } catch {
+          /* the reservation is reclaimable by the stale rule regardless */
+        }
+        continue;
+      }
+      db.exec('COMMIT');
       if (t.requiresSharedSetup) {
         console.log(
           `              COLD_SETUP  paid ${t.setup.subsidyToOtherTradersLamports} lamports of rent ` +
@@ -989,158 +1760,8 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
     console.log(`  refused ${String(n).padStart(3)}  ${r}`);
   }
 
-  /**
-   * P9 — THE MARK AND SETTLE PASS.
-   *
-   * This is what makes the process a collector rather than an opener. It runs
-   * on EVERY invocation over every still-open trajectory, so a path opened in
-   * one run is marked by later runs and closes when its 60-minute horizon
-   * arrives. Nothing has to stay resident for an hour, and a restart resumes
-   * from the database rather than from memory.
-   *
-   * Marks are taken only for horizons that are actually DUE and not already
-   * recorded. A mark taken early would be a 15-minute number observed at four
-   * minutes, which is a different measurement wearing the right label.
-   */
-  const nowMs = Date.now();
-  const openRaw = openTrajectories(db, 100);
-  let marksTaken = 0;
-  let settled = 0;
-
-  /**
-   * P11 — THE URGENT QUEUE IS DRAINED FIRST.
-   *
-   * A vault that just moved 5% is the observation whose value decays fastest.
-   * Serving it after a queue of routine marks is the same as not having
-   * detected it, which would make the whole subscription theatre.
-   *
-   * `drainOrder`'s rule, applied to the actual work list: urgent trajectories
-   * move to the front, and nothing is duplicated.
-   */
-  const urgentIds =
-    sessionId === null ? [] : pendingUrgent(db, sessionId).map((u) => u.trajectory_id);
-  const urgentSet = new Set(urgentIds);
-  const open = [...openRaw.filter((t) => urgentSet.has(t.trajectoryId)), ...openRaw.filter((t) => !urgentSet.has(t.trajectoryId))];
-  if (urgentIds.length > 0) {
-    console.log(`urgent queue          : ${urgentIds.length} trajector(ies) ahead of ordinary marks`);
-  }
-
-  for (const t of open) {
-    /**
-     * P11 — watch this trajectory's vaults while it is open.
-     *
-     * Idempotent: `watch` returns early for an address already subscribed, so
-     * a trajectory that survives many cycles subscribes once.
-     */
-    if (lanes?.vaults != null) {
-      try {
-        const addrs = poolAddressesFrom(
-          accountSourceOf([await readPoolRow(rpc, canonicalPool(t.mint))]),
-          canonicalPool(t.mint),
-        );
-        const set = {
-          baseVault: addrs.poolBaseTokenAccount,
-          quoteVault: addrs.poolQuoteTokenAccount,
-          poolState: canonicalPool(t.mint),
-          feeConfig: FEE_CONFIG_ADDR,
-          mint: t.mint,
-          creatorOrCashbackAccumulator: null,
-        };
-        lanes.vaults.watch(subscriptionFor(t.trajectoryId, set, nowMs), [
-          addrs.poolBaseTokenAccount,
-          addrs.poolQuoteTokenAccount,
-        ]);
-        count('solana_rpc', 'getAccountInfo');
-      } catch {
-        // A pool that will not read is a mark-time refusal, recorded there.
-        // Failing the whole cycle over a subscription would stop collection.
-      }
-    }
-
-    const already = recordedOffsets(db, t.trajectoryId);
-    const due = MARK_OFFSETS_MS.filter((o) => !already.has(o) && nowMs >= t.openedUtcMs + o);
-
-    for (const offsetMs of due) {
-      const startedAt = Date.now();
-      const m = await takeMark(rpc as never, {
-        mint: t.mint,
-        tokenAmount: t.acquiredAtoms,
-        slippagePct: 3,
-        globalConfig: GLOBAL_CONFIG_ADDR,
-        feeConfig: FEE_CONFIG_ADDR,
-        offsetMs,
-        openedAtMs: t.openedUtcMs,
-      });
-      insertMark(db, t.trajectoryId, m);
-      marksTaken++;
-      count('mark_jobs');
-      count('solana_rpc', 'getAccountInfo');
-      if (sessionId !== null) {
-        // How long the mark itself took. Distinct from LATENESS, which is how
-        // late the horizon was reached — one is apparatus, the other is
-        // schedule, and merging them hides which is the constraint.
-        recordLatency(db, sessionId, 'mark_lag', Date.now() - startedAt, startedAt);
-      }
-    }
-
-    // Consumed, whether or not a horizon was due: the urgent signal has been
-    // acted on by taking whatever this trajectory owed. Leaving it queued would
-    // make the same 5% move jump the queue forever.
-    if (sessionId !== null && urgentSet.has(t.trajectoryId)) {
-      consumeUrgent(db, sessionId, t.trajectoryId, Date.now());
-    }
-
-    // A path closes only when every horizon exists. Settling a truncated path
-    // would bias every policy toward whatever the collector happened to reach.
-    const path = marksFor(db, t.trajectoryId);
-    const complete = pathIsComplete(path);
-    if (!complete.complete) continue;
-
-    const outcomes = evaluateExitPolicies(path, {
-      openedAtMs: t.openedUtcMs,
-      policies: ['FIXED_15M_CONTROL', 'FLOW_LIQUIDITY_DETERIORATION_V1'],
-      entryCashOutLamports: t.entryCashOutLamports,
-    });
-    for (const o of outcomes) insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs);
-    closeTrajectory(db, t.trajectoryId, nowMs);
-    settled++;
-    // P11 — release the subscription, by the addresses that were STORED.
-    lanes?.vaults?.unwatch(t.trajectoryId);
-    console.log(
-      `  SETTLED ${t.trajectoryId.slice(0, 8)} ${t.mint.slice(0, 10)} ` +
-        outcomes.map((o) => `${o.exitPolicy}=${o.grossDeltaLamports ?? 'unpriced'}`).join(' '),
-    );
-  }
-
-  const counts = markAndOutcomeCounts(db);
-  console.log('');
-  console.log('open trajectories seen:', open.length);
-  console.log('marks taken this run  :', marksTaken);
-  console.log('settled this run      :', settled);
-  console.log(
-    'totals                : marks',
-    counts.marks,
-    'outcomes',
-    counts.outcomes,
-    'settled',
-    counts.settled,
-    'plans',
-    accountPlanCount(db),
-  );
-
-  // P6 — the cold/warm picture in lamports rather than in adjectives.
-  //
-  // `subsidy` is the hypothesis itself: rent this system paid to open accounts
-  // that every later trader through the same pool gets for free. If it is a
-  // large fraction of total drag, the answer is to wait for a warm pool, not to
-  // trade a bigger size.
-  const setup = setupEconomicsTotals(db);
-  console.log(
-    `setup accounts        : ${setup.accounts} across ${setup.trajectories} trajector(ies) — ` +
-      `rent ${setup.totalRentLamports}, recoverable ${setup.recoverableLamports}, ` +
-      `subsidy to other traders ${setup.subsidyLamports}` +
-      (setup.unknownScope > 0 ? `, UNCLASSIFIED ${setup.unknownScope}` : ''),
-  );
+  // P7 — the mark half, on its own schedule. See `runMarkPass`.
+  await runMarkPass(db, rpc, args, lanes, sessionId, evidence);
 
   /**
    * P7 — the count that settles F13 empirically.
@@ -1244,8 +1865,309 @@ async function runCycle(lanes: LaneContext | null = null): Promise<void> {
  * This process still cannot trade. It owns no NAV, opens no capital-bearing
  * positions, imports no signer, and refuses to start in canary or live.
  */
+
+/**
+ * P7 — THE MARK AND SETTLE PASS, callable on its own schedule.
+ *
+ * Extracted from `runCycle` so it can run every few seconds while discovery
+ * stays on its 300-second interval. The 8f73cef audit measured what happens
+ * when they share a clock: 697 of 1,448 marks more than 60 seconds late, and
+ * only 57 of 292 one-minute marks within 60 s of their horizon. A backfilled
+ * horizon carries the right label on the wrong instant, so both exit policies
+ * see the same prices and agree trivially — which makes the tournament unable
+ * to distinguish the policies it exists to compare.
+ *
+ * Everything it needs is passed in. It holds no state of its own, because all
+ * the scheduler state lives in the database — which is what makes a restart
+ * resume rather than reset.
+ */
+async function runMarkPass(
+  db: ReturnType<typeof openDb>,
+  rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
+  args: Args,
+  lanes: LaneContext | null,
+  sessionId: string | null,
+  evidence: EvidenceStore,
+): Promise<void> {
+  const count = (kind: string, detail?: string): void => {
+    if (sessionId !== null) countResource(db, sessionId, kind, detail === undefined ? {} : { detail });
+  };
+  void evidence;
+  /**
+   * P9 — THE MARK AND SETTLE PASS.
+   *
+   * This is what makes the process a collector rather than an opener. It runs
+   * on EVERY invocation over every still-open trajectory, so a path opened in
+   * one run is marked by later runs and closes when its 60-minute horizon
+   * arrives. Nothing has to stay resident for an hour, and a restart resumes
+   * from the database rather than from memory.
+   *
+   * Marks are taken only for horizons that are actually DUE and not already
+   * recorded. A mark taken early would be a 15-minute number observed at four
+   * minutes, which is a different measurement wearing the right label.
+   */
+  const nowMs = Date.now();
+  /**
+   * Scoped to the window this collector is collecting FOR.
+   *
+   * A collector running under a new contract must not spend its RPC budget and
+   * its mark deadlines finishing an invalidated window's paths — those rows are
+   * excluded from every report, so the work buys nothing and the deadlines it
+   * misses are real.
+   */
+  const openRaw = openTrajectories(db, 100, lanes?.evidenceContextId ?? null);
+  let marksTaken = 0;
+  let settled = 0;
+  let missedHorizons = 0;
+
+  /**
+   * P11 — THE URGENT QUEUE IS DRAINED FIRST.
+   *
+   * A vault that just moved 5% is the observation whose value decays fastest.
+   * Serving it after a queue of routine marks is the same as not having
+   * detected it, which would make the whole subscription theatre.
+   *
+   * `drainOrder`'s rule, applied to the actual work list: urgent trajectories
+   * move to the front, and nothing is duplicated.
+   */
+  const urgentIds =
+    sessionId === null ? [] : pendingUrgent(db, sessionId).map((u) => u.trajectory_id);
+  const urgentSet = new Set(urgentIds);
+  const open = [...openRaw.filter((t) => urgentSet.has(t.trajectoryId)), ...openRaw.filter((t) => !urgentSet.has(t.trajectoryId))];
+  if (urgentIds.length > 0) {
+    console.log(`urgent queue          : ${urgentIds.length} trajector(ies) ahead of ordinary marks`);
+  }
+
+  for (const t of open) {
+    /**
+     * P11 — watch this trajectory's vaults while it is open.
+     *
+     * Idempotent: `watch` returns early for an address already subscribed, so
+     * a trajectory that survives many cycles subscribes once.
+     */
+    if (lanes?.vaults != null) {
+      try {
+        const addrs = poolAddressesFrom(
+          accountSourceOf([await readPoolRow(rpc, canonicalPool(t.mint))]),
+          canonicalPool(t.mint),
+        );
+        const set = {
+          baseVault: addrs.poolBaseTokenAccount,
+          quoteVault: addrs.poolQuoteTokenAccount,
+          poolState: canonicalPool(t.mint),
+          feeConfig: FEE_CONFIG_ADDR,
+          mint: t.mint,
+          creatorOrCashbackAccumulator: null,
+        };
+        lanes.vaults.watch(subscriptionFor(t.trajectoryId, set, nowMs), [
+          addrs.poolBaseTokenAccount,
+          addrs.poolQuoteTokenAccount,
+        ]);
+        count('solana_rpc', 'getAccountInfo');
+      } catch {
+        // A pool that will not read is a mark-time refusal, recorded there.
+        // Failing the whole cycle over a subscription would stop collection.
+      }
+    }
+
+    const already = recordedOffsets(db, t.trajectoryId);
+    const due = MARK_OFFSETS_MS.filter((o) => !already.has(o) && nowMs >= t.openedUtcMs + o);
+
+    for (const offsetMs of due) {
+      const startedAt = Date.now();
+      const m = await takeMark(rpc as never, {
+        mint: t.mint,
+        tokenAmount: t.acquiredAtoms,
+        slippagePct: 3,
+        globalConfig: GLOBAL_CONFIG_ADDR,
+        feeConfig: FEE_CONFIG_ADDR,
+        offsetMs,
+        openedAtMs: t.openedUtcMs,
+      });
+      /**
+       * P7.2 — the SLA verdict, on the row, at the instant it is written.
+       *
+       * Measured from the horizon the mark REPRESENTS, not from when the
+       * scheduler got to it. A mark more than `markSlaMs` past its horizon is
+       * `MISSED_HORIZON` — not interpolated, not backfilled, and not given the
+       * horizon's name on a different instant, which is what 697 of 1,448
+       * pre-repair marks did.
+       */
+      const dueUtcMs = t.openedUtcMs + offsetMs;
+      const sla = classifyMark(dueUtcMs, m.atMs, args.markSlaMs);
+      insertMark(db, t.trajectoryId, m, {
+        dueUtcMs,
+        status: sla.status,
+        boundMs: args.markSlaMs,
+      });
+      if (sla.status === 'MISSED_HORIZON') {
+        missedHorizons++;
+        console.log(
+          `  MISSED_HORIZON  ${t.mint.slice(0, 10)} +${offsetMs / 60_000}m late by ` +
+            `${Math.round(sla.latenessMs / 1000)}s (SLA ${Math.round(args.markSlaMs / 1000)}s)`,
+        );
+      }
+      /**
+       * P8 — THE COUNTERFACTUAL CONTRACT, AT THE MARK.
+       *
+       * The audit's M-2: 545 policy outcomes rested on later mainnet quotes
+       * against a pool that never contained our entry, and the haircut columns
+       * on those rows came from the ENTRY impact bound rather than from any
+       * contract over the exit.
+       *
+       * A row is written for every priced mark — including a REFUSAL row when
+       * the entry moved the pool past the frozen 10 bps bound. Recording the
+       * refusal is the point: a mark with no counterfactual row and a mark
+       * whose counterfactual was refused are different facts, and only the
+       * second one is countable.
+       */
+      if (
+        m.observedBaseReserve !== null &&
+        m.observedQuoteReserve !== null &&
+        t.entryBaseDeltaAtoms !== null &&
+        t.entryQuoteDeltaLamports !== null &&
+        t.entryImpactBps !== null
+      ) {
+        const cfInput = {
+          trajectoryId: t.trajectoryId,
+          offsetMs,
+          entryBaseDeltaAtoms: t.entryBaseDeltaAtoms,
+          entryQuoteDeltaLamports: t.entryQuoteDeltaLamports,
+          observedBaseReserve: m.observedBaseReserve,
+          observedQuoteReserve: m.observedQuoteReserve,
+          tokensHeldAtoms: t.acquiredAtoms,
+          entryImpactBps: t.entryImpactBps,
+          nowMs: m.atMs,
+        };
+        try {
+          const cf = boundedCounterfactual(cfInput);
+          insertCounterfactualMark(db, {
+            ...cfInput,
+            evidenceClass: cf.evidenceClass,
+            contractVersion: cf.contractVersion,
+            adjustedBaseReserve: cf.adjustedBaseReserve,
+            adjustedQuoteReserve: cf.adjustedQuoteReserve,
+            haircutFormula: cf.haircutFormula,
+            haircutBps: cf.haircutBps,
+            haircutLamports: cf.haircutLamports,
+            counterfactualExitLamports: cf.counterfactualExitLamports,
+            evidenceGrade: cf.evidenceGrade,
+            refusal: null,
+          });
+        } catch (e) {
+          if (!(e instanceof CounterfactualRefused)) throw e;
+          const refused: CounterfactualRefused = e;
+          insertCounterfactualMark(db, {
+            ...cfInput,
+            evidenceClass: 'BOUNDED_COUNTERFACTUAL_V1',
+            contractVersion: COUNTERFACTUAL_CONTRACT_VERSION,
+            adjustedBaseReserve: 0n,
+            adjustedQuoteReserve: 0n,
+            haircutFormula: HAIRCUT_FORMULA,
+            haircutBps: 0,
+            haircutLamports: 0n,
+            // Null, never zero. A zero counterfactual exit is a claim that the
+            // position was worth nothing; absent is what a refusal means.
+            counterfactualExitLamports: null,
+            evidenceGrade: 'DEVELOPMENT',
+            refusal: `${refused.code}: ${refused.message}`,
+          });
+        }
+      }
+
+      marksTaken++;
+      count('mark_jobs');
+      count('solana_rpc', 'getAccountInfo');
+      if (sessionId !== null) {
+        // How long the mark itself took. Distinct from LATENESS, which is how
+        // late the horizon was reached — one is apparatus, the other is
+        // schedule, and merging them hides which is the constraint.
+        recordLatency(db, sessionId, 'mark_lag', Date.now() - startedAt, startedAt);
+      }
+    }
+
+    // Consumed, whether or not a horizon was due: the urgent signal has been
+    // acted on by taking whatever this trajectory owed. Leaving it queued would
+    // make the same 5% move jump the queue forever.
+    if (sessionId !== null && urgentSet.has(t.trajectoryId)) {
+      consumeUrgent(db, sessionId, t.trajectoryId, Date.now());
+    }
+
+    // A path closes only when every horizon exists. Settling a truncated path
+    // would bias every policy toward whatever the collector happened to reach.
+    const path = marksFor(db, t.trajectoryId);
+    const complete = pathIsComplete(path);
+    if (!complete.complete) continue;
+
+    /**
+     * P8/M-2 — the exit is priced from the COUNTERFACTUAL, not from the quote.
+     *
+     * `evaluateExitPolicies` decides WHEN each policy exits from the shared
+     * mark path — that is a decision about observable liquidity and is right to
+     * make on the marks. What it may not do is book the exit at the mark's own
+     * executable price, because that price is a quote against a pool our
+     * position was never in.
+     */
+    const cfByOffset = counterfactualExits(db, t.trajectoryId);
+    const outcomes = evaluateExitPolicies(path, {
+      openedAtMs: t.openedUtcMs,
+      policies: ['FIXED_15M_CONTROL', 'FLOW_LIQUIDITY_DETERIORATION_V1'],
+      entryCashOutLamports: t.entryCashOutLamports,
+      counterfactualExits: cfByOffset,
+    });
+    for (const o of outcomes) {
+      insertPolicyOutcome(db, t.trajectoryId, t.entryCashOutLamports, o, nowMs, {
+        evidenceClass: o.evidenceClass,
+      });
+    }
+    closeTrajectory(db, t.trajectoryId, nowMs);
+    settled++;
+    // P11 — release the subscription, by the addresses that were STORED.
+    lanes?.vaults?.unwatch(t.trajectoryId);
+    console.log(
+      `  SETTLED ${t.trajectoryId.slice(0, 8)} ${t.mint.slice(0, 10)} ` +
+        outcomes.map((o) => `${o.exitPolicy}=${o.grossDeltaLamports ?? 'unpriced'}`).join(' '),
+    );
+  }
+
+  const counts = markAndOutcomeCounts(db);
+  console.log('');
+  console.log('open trajectories seen:', open.length);
+  console.log('marks taken this run  :', marksTaken);
+  console.log('settled this run      :', settled);
+  // P7.2 — reported every pass, not discovered in an audit. A late mark is a
+  // measurement that did not happen at the instant it claims.
+  console.log('MISSED_HORIZON marks  :', missedHorizons);
+  console.log(
+    'totals                : marks',
+    counts.marks,
+    'outcomes',
+    counts.outcomes,
+    'settled',
+    counts.settled,
+    'plans',
+    accountPlanCount(db),
+  );
+
+  // P6 — the cold/warm picture in lamports rather than in adjectives.
+  //
+  // `subsidy` is the hypothesis itself: rent this system paid to open accounts
+  // that every later trader through the same pool gets for free. If it is a
+  // large fraction of total drag, the answer is to wait for a warm pool, not to
+  // trade a bigger size.
+  const setup = setupEconomicsTotals(db);
+  console.log(
+    `setup accounts        : ${setup.accounts} across ${setup.trajectories} trajector(ies) — ` +
+      `rent ${setup.totalRentLamports}, recoverable ${setup.recoverableLamports}, ` +
+      `subsidy to other traders ${setup.subsidyLamports}` +
+      (setup.unknownScope > 0 ? `, UNCLASSIFIED ${setup.unknownScope}` : ''),
+  );
+
+}
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  // Re-parsed once the frozen contract's window is known; see CONTRACT_WINDOW.
+  let args = parseArgs(process.argv.slice(2));
   const secrets = loadSecrets();
 
   /**
@@ -1261,14 +2183,82 @@ async function main(): Promise<void> {
    */
   const telemetryDb = openDb({ path: secrets.databasePath, skipBackup: true });
   const { host } = researchRpc(secrets as never);
-  let commit = 'unknown';
-  let dirty = true;
+
+  /**
+   * P1.3 — THE PROVENANCE GATE, BEFORE ANYTHING IS WRITTEN.
+   *
+   * Read from git rather than asserted. 26 of 31 pre-repair collector sessions
+   * were opened from a dirty tree, and a trajectory opened from an uncommitted
+   * tree cannot be re-derived from its commit — which is this repository's
+   * definition of not being evidence.
+   */
+  const tree = readTreeState();
+  let contextValidity: 'DEVELOPMENT_EVIDENCE' | 'INSTRUMENT_DEVELOPMENT_INVALID';
+  let contextReason: string | null;
   try {
-    commit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
-    dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim().length > 0;
-  } catch {
-    /* provenance that cannot be read is recorded unknown, never omitted */
+    const v = evidenceContextValidity(tree, { instrumentDevelopment: args.instrumentDevelopment });
+    contextValidity = v.validity;
+    contextReason = v.reason;
+  } catch (e) {
+    if (e instanceof DirtyEvidenceCollection) {
+      console.error(`\nREFUSED TO COLLECT.\n\n${e.message}\n`);
+      telemetryDb.close();
+      process.exit(2);
+    }
+    throw e;
   }
+  if (contextValidity === 'INSTRUMENT_DEVELOPMENT_INVALID') {
+    console.log('');
+    console.log('=========================================================================');
+    console.log('INSTRUMENT DEVELOPMENT RUN — this cycle produces NO admissible evidence.');
+    console.log(`  ${contextReason}`);
+    console.log('  Its context is permanently excluded from every report and from readiness.');
+    console.log('=========================================================================');
+  }
+
+  /**
+   * P1.1 — ONE SEMANTIC OWNER OF THE CANDIDATE QUEUE.
+   *
+   * Taken BEFORE a session is opened and before any candidate is read. The
+   * audit's A-2: this program never imported `process_locks` at all, five
+   * daemons ran against one 7.3 GB database, and `pnpm health` printed
+   * `OK engine.collector pid 24924 alive in observe` — a row about
+   * `apps/collector/src/main.ts`, a DIFFERENT program that happened to share
+   * the lock name. What it cost, measured: 15 mints over a hard cap of 3, the
+   * worst at 58.
+   *
+   * The OS lock file goes first because it covers the window before the
+   * database is even open. It does not replace the database lock: a file lock
+   * says nothing about who owns the queue in a corpus reachable by another path.
+   */
+  const lock = new TrajectoryCollectorLock(telemetryDb, {
+    mode: modeFromArgv() ?? 'observe',
+    sourceCommit: tree.commit,
+  });
+  const fileLock = lock.acquireFileLock();
+  if (!fileLock.ok) {
+    console.error(
+      `\nREFUSED: another trajectory collector (pid ${fileLock.heldByPid}) holds the OS lock file.\n` +
+        'Run `pnpm collector:list` to see it and `pnpm collector:stop-all` to stop it.\n',
+    );
+    telemetryDb.close();
+    process.exit(3);
+  }
+  try {
+    const owner = lock.acquire();
+    console.log(`trajectory_collector lock held by pid ${owner.pid} at ${owner.sourceCommit.slice(0, 12)}`);
+  } catch (e) {
+    if (e instanceof CollectorLockRefused) {
+      console.error(`\nREFUSED: ${e.message}\n`);
+      lock.release();
+      telemetryDb.close();
+      process.exit(3);
+    }
+    throw e;
+  }
+
+  const commit = tree.commit;
+  const dirty = tree.dirty;
   const session = openCollectorSession(telemetryDb, {
     mode: modeFromArgv() ?? 'observe',
     sourceCommit: commit,
@@ -1285,9 +2275,127 @@ async function main(): Promise<void> {
    * report a coverage gap for every interval BETWEEN cycles — gaps describing
    * the collector's schedule rather than the chain's.
    */
+  /**
+   * P0.4 / P12.2 — the evidence context this run's rows belong to.
+   *
+   * Named by the source commit, so a run from a different commit is a different
+   * context BY CONSTRUCTION rather than by anyone remembering to say so. A dirty
+   * run's context is created `INSTRUMENT_DEVELOPMENT_INVALID` and can never be
+   * promoted.
+   *
+   * WHEN A CONTRACT IS NAMED, IT OWNS THE CONTEXT.
+   *
+   * A frozen `experiment_contracts` row already names one, and `pnpm readiness`
+   * loads exactly that contract and the rows belonging to its context. If the
+   * collector derived its own instead, the window would collect into a context
+   * the gate does not read — every row real, every report empty, and nothing
+   * saying why. Found before the first clean window rather than after it.
+   *
+   * The contract's source commit must ALSO be the commit that is running. A
+   * window collected at a different commit than its contract froze is not the
+   * experiment that was declared, which is the whole point of freezing one.
+   */
+  let evidenceContextId = `ctx-${commit.slice(0, 12)}-${args.windowId}${
+    contextValidity === 'INSTRUMENT_DEVELOPMENT_INVALID' ? '-dirty' : ''
+  }`;
+  if (args.contractId !== null) {
+    const contract = telemetryDb
+      .prepare('SELECT evidence_context_id, source_commit, window_id FROM experiment_contracts WHERE contract_id = ?')
+      .get(args.contractId) as
+      | { evidence_context_id: string; source_commit: string; window_id: string | null }
+      | undefined;
+    if (contract === undefined) {
+      console.error(`\nREFUSED: no frozen contract ${args.contractId}. Freeze one with \`pnpm contract:freeze\`.\n`);
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    if (contract.source_commit !== commit) {
+      console.error(
+        `\nREFUSED: contract ${args.contractId} was frozen at ${contract.source_commit.slice(0, 12)} and this ` +
+          `process is running ${commit.slice(0, 12)}.\n\n` +
+          'A window collected at a different commit than its contract froze is not the experiment that was\n' +
+          'declared. Re-freeze at this commit, or check out the one the contract names.\n',
+      );
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    /**
+     * THE CONTRACT OWNS THE WINDOW TOO, not only the commit and the context.
+     *
+     * `contract:freeze` defaults to DEV_WINDOW_5D24E and this program defaults
+     * to DEV_WINDOW_V1, and until now nothing compared them. The window id is
+     * not a label: it seeds the entry-policy randomisation, scopes exploration
+     * entitlements and namespaces every reservation, so a collector running a
+     * different window is running a different experiment while writing into
+     * this contract's evidence context.
+     *
+     * Measured 2026-08-18: started without `--window`, this program opened
+     * ctx-5f5a6dc3f761-DEV_WINDOW_V1 while the frozen contract owned
+     * ctx-5f5a6dc3f761-DEV_WINDOW_5D24E, and one trajectory landed in a context
+     * `pnpm readiness` does not read — the "every row real, every report empty"
+     * failure the comment above warns about, arriving through the one field
+     * that binding did not cover.
+     *
+     * Unstated on the command line, the contract's window is ADOPTED. Stated
+     * and disagreeing, this refuses: an operator who names a window means it,
+     * and silently overriding them would substitute a different randomisation
+     * for the one they asked for. A contract frozen before this column existed
+     * carries NULL, and absence is not a disagreement.
+     */
+    const stated = process.argv.some((x) => x.startsWith('--window='));
+    if (contract.window_id !== null && stated && contract.window_id !== args.windowId) {
+      console.error(
+        `\nREFUSED: contract ${args.contractId} owns window ${contract.window_id} and --window=${args.windowId} ` +
+          'was passed.\n\n' +
+          'The window id seeds the entry-policy randomisation, scopes exploration entitlements and\n' +
+          'namespaces every reservation. Collecting one window into another window\'s contract is not the\n' +
+          'experiment that was declared. Drop --window to adopt the contract\'s, or freeze a new contract.\n',
+      );
+      lock.release();
+      telemetryDb.close();
+      process.exit(4);
+    }
+    if (contract.window_id !== null) {
+      CONTRACT_WINDOW = contract.window_id;
+      // Everything below this point — the context hash, the session record, and
+      // every cycle — has to see the adopted window, not the default it was
+      // parsed with a hundred lines ago.
+      args = parseArgs(process.argv.slice(2));
+    }
+    evidenceContextId = contract.evidence_context_id;
+    console.log(
+      `collecting under contract ${args.contractId} into context ${evidenceContextId} ` +
+        `(window ${contract.window_id ?? `${args.windowId}, not stated by this contract`})`,
+    );
+  }
+  telemetryDb
+    .prepare(
+      `INSERT INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms, closed_utc_ms,
+          validity, reasons, audit_artifact_hash, notes)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)
+       ON CONFLICT(evidence_context_id) DO NOTHING`,
+    )
+    .run(
+      evidenceContextId,
+      createHash('sha256').update(`${commit}|${args.windowId}|${contextValidity}`).digest('hex'),
+      commit,
+      dirty ? 1 : 0,
+      Date.now(),
+      contextValidity,
+      JSON.stringify(contextReason === null ? [] : [{ code: 'DIRTY_TREE', statement: contextReason }]),
+      `opened by trajectory:collect pid ${process.pid}`,
+    );
+
   const wsUrl = args.liveLane ? secrets.rpcWs : null;
   const lanes: LaneContext = {
     session,
+    evidenceContextId,
+    contextValidity,
+    contractId: args.contractId,
+    sourceCommit: commit,
     migrations:
       wsUrl === null
         ? null
@@ -1321,6 +2429,11 @@ async function main(): Promise<void> {
 
   const finish = (): void => {
     closeCollectorSession(telemetryDb, session.sessionId, Date.now());
+    // The lock is released BEFORE the handle closes, so the row is actually
+    // deleted rather than left for a stale-takeover to reason about. Seven
+    // pre-repair sessions never wrote `ended_utc_ms` because they were killed;
+    // an orderly exit should not look the same.
+    lock.release();
     telemetryDb.close();
   };
 
@@ -1344,38 +2457,135 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => stop('SIGINT'));
   process.on('SIGTERM', () => stop('SIGTERM'));
 
-  console.log(`collector daemon: every ${args.intervalSeconds}s until stopped`);
+  /**
+   * P7 — TWO SCHEDULES, ONE PROCESS.
+   *
+   * The pre-repair daemon slept `intervalSeconds` between passes and did both
+   * jobs at the top of each one, so a one-minute horizon was served by a
+   * five-minute loop and 697 of 1,448 marks landed more than 60 seconds late.
+   *
+   *   MARKS      wake at the next mark deadline, or after `maxTickMs`,
+   *              whichever is sooner
+   *   DISCOVERY  every `intervalSeconds`, and only when no mark is already
+   *              past its SLA (P7.3)
+   *
+   * Discovery is deliberately subordinate. Opening another trajectory while
+   * deadlines are slipping trades a measurement we are already committed to for
+   * one we are not, and the marks are the product.
+   */
+  console.log(
+    `collector daemon: marks on a ${args.maxTickMs}ms tick (SLA ${args.markSlaMs}ms), ` +
+      `discovery every ${args.intervalSeconds}s`,
+  );
   let cycle = 0;
+  let markPasses = 0;
+  let lastDiscoveryMs = 0;
+  /** Guards the mark yield against re-entering itself. See `yieldToMarks`. */
+  let yielding = false;
 
   while (!stopping) {
-    cycle++;
     const started = Date.now();
-    console.log(`\n===== cycle ${cycle} @ ${new Date(started).toISOString()} =====`);
-    try {
-      await runCycle(lanes);
-    } catch (e) {
-      /**
-       * A cycle that throws must not kill the daemon.
-       *
-       * An apparatus failure is a fact about this cycle, and stopping on it
-       * would silently end collection at the first RPC hiccup — which then
-       * reads later as "the market produced nothing" rather than "we stopped
-       * looking".
-       */
-      console.error(`cycle ${cycle} failed: ${(e as Error).message.slice(0, 200)}`);
+    const discoveryDue = started - lastDiscoveryMs >= args.intervalSeconds * 1_000;
+
+    let ranDiscovery = false;
+    if (discoveryDue) {
+      const admissible = discoveryAdmissible(telemetryDb, {
+        nowMs: started,
+        offsets: MARK_OFFSETS_MS,
+        slaMs: args.markSlaMs,
+        // The SAME scope the mark pass uses. See `discoveryAdmissible`.
+        evidenceContextId: lanes.evidenceContextId,
+      });
+      if (!admissible.admissible) {
+        // Backpressure, stated. An operator reading "discovery deferred" knows
+        // the collector is behind; an operator reading nothing concludes the
+        // chain produced no migrations.
+        console.log(`\ndiscovery deferred: ${admissible.reason}`);
+        lastDiscoveryMs = started;
+      } else {
+        cycle++;
+        ranDiscovery = true;
+        console.log(`\n===== discovery cycle ${cycle} @ ${new Date(started).toISOString()} =====`);
+        try {
+          await runCycle(lanes, {
+            /**
+             * The mark pass, run BETWEEN candidates rather than after them.
+             *
+             * Scoped to this window, like the brake and the sleep, so it takes
+             * the marks it is responsible for and no others.
+             */
+            /**
+             * REENTRANT-SAFE. The hook is now called from three places inside
+             * one cycle — the backfill scan, the screening loop and the open
+             * loop — and each awaits a full mark pass. Without the guard a mark
+             * pass that itself takes long enough for another horizon to come
+             * due would re-enter, and the stack would grow with the market.
+             */
+            yieldToMarks: async () => {
+              if (yielding) return;
+              const due = dueMarks(telemetryDb, {
+                nowMs: Date.now(),
+                offsets: MARK_OFFSETS_MS,
+                evidenceContextId: lanes.evidenceContextId,
+              });
+              if (due.length === 0) return;
+              yielding = true;
+              console.log(`  (yielding to ${due.length} due mark(s) mid-discovery)`);
+              try {
+                await runCycle(lanes, { marksOnly: true });
+              } catch (e) {
+                console.error(`mid-discovery mark pass failed: ${(e as Error).message.slice(0, 160)}`);
+              } finally {
+                yielding = false;
+              }
+            },
+          });
+        } catch (e) {
+          /**
+           * A cycle that throws must not kill the daemon.
+           *
+           * An apparatus failure is a fact about this cycle, and stopping on it
+           * would silently end collection at the first RPC hiccup — which then
+           * reads later as "the market produced nothing" rather than "we
+           * stopped looking".
+           */
+          console.error(`cycle ${cycle} failed: ${(e as Error).message.slice(0, 200)}`);
+        }
+        lastDiscoveryMs = Date.now();
+      }
     }
+
+    if (!ranDiscovery) {
+      markPasses++;
+      try {
+        await runCycle(lanes, { marksOnly: true });
+      } catch (e) {
+        console.error(`mark pass ${markPasses} failed: ${(e as Error).message.slice(0, 200)}`);
+      }
+    }
+
     /**
-     * The heartbeat advances whether the cycle succeeded or threw.
+     * The heartbeat advances whether the pass succeeded or threw.
      *
-     * A cycle that failed is still active time — the process was up, it spent
+     * A pass that failed is still active time — the process was up, it spent
      * RPC, and it produced a refusal. Advancing only on success would make an
-     * hour of failing cycles look like an hour of downtime, and the two call
+     * hour of failing passes look like an hour of downtime, and the two call
      * for opposite responses.
      */
     heartbeat(telemetryDb, session.sessionId, Date.now(), cycle);
     if (stopping) break;
-    const elapsed = Date.now() - started;
-    const wait = Math.max(0, args.intervalSeconds * 1_000 - elapsed);
+
+    // Wake at the next MARK deadline, bounded by the tick. The discovery
+    // interval never governs this sleep — that coupling is the whole defect.
+    const now = Date.now();
+    const untilMark = nextWakeMs(telemetryDb, {
+      nowMs: now,
+      offsets: MARK_OFFSETS_MS,
+      maxTickMs: args.maxTickMs,
+      evidenceContextId: lanes.evidenceContextId,
+    });
+    const untilDiscovery = Math.max(0, lastDiscoveryMs + args.intervalSeconds * 1_000 - now);
+    const wait = Math.max(0, Math.min(untilMark, untilDiscovery, args.maxTickMs));
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
 

@@ -1,0 +1,63 @@
+{
+  "cases": [
+    {
+      "name": "duplicate trajectory id",
+      "expectation": "THROWS",
+      "outcome": "EvidenceReplaceRefused: refusing to replace trajectory conflict-1: evidence is APPEND-ONLY. An",
+      "pass": true
+    },
+    {
+      "name": "replacement settlement with DIFFERENT economics",
+      "expectation": "THROWS",
+      "outcome": "SettlementConflict: a DIFFERENT settlement already exists for conflict-1: stored net PnL -",
+      "pass": true
+    },
+    {
+      "name": "the identical settlement twice",
+      "expectation": "IDEMPOTENT",
+      "outcome": "no error",
+      "pass": true
+    },
+    {
+      "name": "a DIFFERENT mark at a recorded offset",
+      "expectation": "THROWS",
+      "outcome": "MarkConflict: a DIFFERENT mark already exists at (conflict-1, 1800000ms): stored 186",
+      "pass": true
+    },
+    {
+      "name": "the identical mark twice",
+      "expectation": "IDEMPOTENT",
+      "outcome": "no error",
+      "pass": true
+    },
+    {
+      "name": "a DIFFERENT exit for the same policy",
+      "expectation": "THROWS",
+      "outcome": "PolicyOutcomeConflict: a DIFFERENT outcome already exists for (conflict-1, FIXED_15M_CONTROL)",
+      "pass": true
+    },
+    {
+      "name": "the identical policy outcome twice",
+      "expectation": "IDEMPOTENT",
+      "outcome": "no error",
+      "pass": true
+    },
+    {
+      "name": "zero-row economics update on a nonexistent trajectory",
+      "expectation": "THROWS",
+      "outcome": "Error: persisting economics for does-not-exist changed 0 row(s), expected exa",
+      "pass": true
+    }
+  ],
+  "failures": 0,
+  "recordedConflicts": 0,
+  "verdict": "ALL_LOUD",
+  "note": "run against a temporary database; the research corpus is never mutated by this command",
+  "provenance": {
+    "writer": "trajectory-conflict-test.ts",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "treeDirty": true,
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-18T19:12:55.245Z"
+  }
+}

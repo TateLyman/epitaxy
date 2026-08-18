@@ -1,0 +1,60 @@
+{
+  "entryPoliciesDefined": [
+    "HARD_GATES_RANDOM",
+    "CORRECTED_CURRENT_QUALITY_SCORE",
+    "SURVIVOR_FLOW_CONTINUATION_V1"
+  ],
+  "trajectories": 688,
+  "decisionRows": 1188,
+  "trajectoriesWithAllPolicies": 396,
+  "trajectoriesWherePoliciesDisagree": 227,
+  "decisionsByPolicy": [
+    {
+      "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
+      "decision": "REJECT",
+      "n": 396
+    },
+    {
+      "entry_policy": "HARD_GATES_RANDOM",
+      "decision": "ENTER",
+      "n": 227
+    },
+    {
+      "entry_policy": "HARD_GATES_RANDOM",
+      "decision": "REJECT",
+      "n": 169
+    },
+    {
+      "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
+      "decision": "REJECT",
+      "n": 396
+    }
+  ],
+  "riskFactsApplied": 1143,
+  "riskFactsChangedADecision": 0,
+  "exitPoliciesDefined": [
+    "FIXED_15M_CONTROL",
+    "FLOW_LIQUIDITY_DETERIORATION_V1"
+  ],
+  "outcomesByPolicy": [
+    {
+      "exit_policy": "FIXED_15M_CONTROL",
+      "n": 514
+    },
+    {
+      "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
+      "n": 514
+    }
+  ],
+  "pairedPaths": 514,
+  "pathsWithDifferentTriggerOffsets": 127,
+  "challengerExitedEarlier": 5,
+  "verdict": "TREATMENTS_WIRED",
+  "provenance": {
+    "writer": "policy-treatments-status.ts",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "treeDirty": true,
+    "dirtyFiles": 10,
+    "writtenUtc": "2026-08-18T19:12:57.598Z"
+  }
+}

@@ -152,7 +152,21 @@ describe('P11 — an unread history is unknown, never independent', () => {
       holders(['A', 100n]),
     );
     expect(r.links).toEqual([]);
-    expect(r.holders[0]?.historyKnown).toBe(false);
+    expect(r.funderOf.has('A')).toBe(false);
+    /**
+     * READ, and the answer is "nobody else funded it".
+     *
+     * This asserted `historyKnown === false`, which conflated two different
+     * facts: "the RPC told us nothing" and "we read the creation and the payer
+     * was the wallet itself". `concentration()` calls a reading untrustworthy
+     * once a quarter of holders are unexamined, so under the old rule a token
+     * where EVERY holder self-funded — the maximally dispersed case — scored
+     * exactly as untrustworthy as one the endpoint refused to answer for.
+     *
+     * Measured live before the change: 19 of 19 histories reached their
+     * earliest signature and `trustworthy` was false on all three mints tried.
+     */
+    expect(r.holders[0]?.historyKnown).toBe(true);
   });
 
   it('the system program is never a funder', async () => {

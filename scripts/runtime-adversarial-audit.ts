@@ -2,9 +2,11 @@ import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { resolve as resolvePath, dirname } from 'node:path';
+import { resolve as resolvePath, dirname, join as joinPath } from 'node:path';
+import { createRequire } from 'node:module';
 
 import { attributeSoleVenue } from '../packages/domain/src/trajectory-evidence.js';
+import { assertQuoteStateSurvived } from '../packages/simulator/src/sequential-worker.js';
 import {
   tierForPool,
   selectFeeTier,
@@ -12,7 +14,11 @@ import {
   feeConfigHash,
   type FeeTier,
 } from '../packages/solana/src/fee-tiers.js';
-import { buildTrajectorySettlement, checkIdentities } from '../packages/domain/src/trajectory-settlement.js';
+import { sdkFeeOracle, sdkFeeOracleUnavailableReason } from '../packages/solana/src/sdk-fee-oracle.js';
+import { SWAP_ACCOUNT_INDEX } from '../packages/solana/src/pumpswap-offline.js';
+import { pinnedVersionDrift } from '../packages/domain/src/sdk-versions.js';
+import { calibrate, admissibleForPnl } from '../packages/pipeline/src/counterfactual.js';
+import { buildTrajectorySettlement, checkIdentities, DURABLE_EVIDENCE } from '../packages/domain/src/trajectory-settlement.js';
 import {
   decideEntry,
   decideExit,
@@ -29,8 +35,12 @@ import {
   NotATokenAccount,
 } from '../packages/pipeline/src/vault-watch.js';
 import { mayhemFactsOf, breadthUsability, bondingCurveMayhemMode, MAYHEM_PROGRAM } from '../packages/solana/src/mayhem.js';
-import { insertTrajectory, insertTrajectorySettlement } from '../packages/storage/src/trajectory-repo.js';
-import { insertMark, insertPolicyOutcome } from '../packages/storage/src/mark-repo.js';
+import {
+  insertTrajectory,
+  insertTrajectorySettlement,
+  persistTrajectoryEconomics,
+} from '../packages/storage/src/trajectory-repo.js';
+import { insertMark, insertPolicyOutcome, closeTrajectory } from '../packages/storage/src/mark-repo.js';
 import { expectedRemainingTail, remainingTailRefusal } from '../packages/solana/src/cashback.js';
 
 /**
@@ -51,10 +61,16 @@ import { expectedRemainingTail, remainingTailRefusal } from '../packages/solana/
  *    live database READ ONLY and mutates only a copy under the system temp dir.
  */
 
-type Verdict = 'PASS' | 'FAIL' | 'NOT TESTABLE';
+type Verdict = 'PASS' | 'FAIL' | 'NOT TESTABLE' | 'OUT OF SCOPE';
 
 interface Finding {
   readonly section: string;
+  /** `A-1`, `K-2`, … derived from position, so it cannot drift from the docs. */
+  id?: string;
+  /** Whether the ACTIVE experiment contract claims this invariant. */
+  scope?: 'CLAIMED' | 'OUT_OF_SCOPE';
+  /** Why it is out of scope, from the contract. Never invented here. */
+  outOfScopeReason?: string;
   readonly invariant: string;
   readonly verdict: Verdict;
   /** Exactly what was read or run. A file path, a row id, a command. */
@@ -68,10 +84,54 @@ interface Finding {
 }
 
 const findings: Finding[] = [];
+
+/**
+ * P13 — THE ACTIVE EXPERIMENT CONTRACT DECIDES WHAT IS CLAIMED.
+ *
+ * The directive requires FAIL = 0 and NOT TESTABLE = 0 "for every invariant
+ * included in the active development contract", and adds: "If a subsystem is
+ * intentionally out of scope, remove it from the contract and stop claiming
+ * it — not `NOT TESTABLE but promoted anyway`."
+ *
+ * So an invariant the contract does not claim is `OUT OF SCOPE` here, carrying
+ * the contract's own recorded reason. It is NOT silently passed and NOT counted
+ * as testable. If no contract is frozen, EVERYTHING is claimed — the default has
+ * to be the strict one, because a missing contract must not be a way to escape
+ * a gate.
+ */
+let CLAIMED: ReadonlySet<string> | null = null;
+let OUT_OF_SCOPE_REASONS: Readonly<Record<string, string>> = {};
+let CONTRACT_ID: string | null = null;
+/** The active evidence context, or null. Corpus queries scope to it. */
+let ACTIVE_CTX: string | null = null;
+
+const perSection = new Map<string, number>();
+
 const record = (f: Finding): void => {
-  findings.push(f);
-  const tag = f.verdict === 'PASS' ? 'PASS' : f.verdict === 'FAIL' ? 'FAIL' : 'N/T ';
-  console.log(`${tag}  ${f.section}  ${f.invariant}`);
+  const n = (perSection.get(f.section) ?? 0) + 1;
+  perSection.set(f.section, n);
+  const id = `${f.section}-${n}`;
+  const claimed = CLAIMED === null || CLAIMED.has(id);
+  const stamped: Finding = {
+    ...f,
+    id,
+    scope: claimed ? 'CLAIMED' : 'OUT_OF_SCOPE',
+    ...(claimed ? {} : { outOfScopeReason: OUT_OF_SCOPE_REASONS[id] ?? 'not claimed by the active contract' }),
+    // An unclaimed invariant is not asserted either way. Overriding the verdict
+    // rather than dropping the row keeps the probe's result visible while
+    // removing it from the gate.
+    verdict: claimed ? f.verdict : 'OUT OF SCOPE',
+  };
+  findings.push(stamped);
+  const tag =
+    stamped.verdict === 'PASS'
+      ? 'PASS'
+      : stamped.verdict === 'FAIL'
+        ? 'FAIL'
+        : stamped.verdict === 'OUT OF SCOPE'
+          ? 'SKIP'
+          : 'N/T ';
+  console.log(`${tag}  ${id.padEnd(5)} ${f.invariant}`);
 };
 
 const sha256File = async (p: string): Promise<string> => {
@@ -98,10 +158,65 @@ const COPY_DB = process.env['AUDIT_COPY_DB'] ?? null;
 const SIDECAR = process.env['AUDIT_SIDECAR'] ?? null;
 
 const ro = (path: string): DatabaseSync => new DatabaseSync(path, { readOnly: true });
+
+/**
+ * SCOPE EVERY TRAJECTORY-KEYED QUERY TO THE ACTIVE EVIDENCE CONTEXT.
+ *
+ * This audit's own numbers are the reason it exists, so the numbers have to be
+ * about the right window. The 292 pre-repair trajectories are preserved and
+ * `INSTRUMENT_DEVELOPMENT_INVALID`; counting their dangling identifiers as
+ * failures of the ACTIVE contract would be the mirror image of the defect the
+ * invalidation ledger removes — reporting one window's evidence as another's.
+ *
+ * Done centrally rather than by editing thirty hand-written queries, because
+ * thirty edits is thirty chances to scope one of them wrongly and not notice.
+ * The rewrite is a whole-word table substitution into an inline view; the
+ * aliases that follow the table name still bind, because the view sits exactly
+ * where the table did.
+ *
+ * With NO active contract, nothing is rewritten and every query sees the whole
+ * corpus. That is the strict default: a missing contract must not be a way to
+ * shrink the sample a gate is evaluated over.
+ */
+const TRAJECTORY_KEYED = [
+  'development_trajectories',
+  'trajectory_marks',
+  'trajectory_settlements',
+  'trajectory_policy_outcomes',
+  'trajectory_policy_decisions',
+  'candidate_risk_facts',
+  'leg_cashback',
+  'created_accounts',
+] as const;
+
+function scoped(sql: string): string {
+  if (ACTIVE_CTX === null) return sql;
+  const ctx = ACTIVE_CTX.replace(/'/g, "''");
+  let out = sql;
+  for (const table of TRAJECTORY_KEYED) {
+    /**
+     * Only after `FROM` or `JOIN`, and only as a whole word.
+     *
+     * A bare `\btable\b` also matched inside string literals —
+     * `pragma_table_info('development_trajectories')` became a syntax error the
+     * first time this ran. Requiring the keyword in front means the name has to
+     * be in table position, which is the only place substituting a view is
+     * meaningful anyway.
+     */
+    out = out.replace(
+      new RegExp(`(\\bFROM\\s+|\\bJOIN\\s+)${table}\\b`, 'gi'),
+      (_m, keyword: string) =>
+        `${keyword}(SELECT _s.* FROM ${table} _s JOIN trajectory_evidence_context _c ` +
+        `ON _c.trajectory_id = _s.trajectory_id AND _c.evidence_context_id = '${ctx}')`,
+    );
+  }
+  return out;
+}
+
 const all = <T>(db: DatabaseSync, sql: string, ...args: unknown[]): T[] =>
-  db.prepare(sql).all(...(args as never[])) as T[];
+  db.prepare(scoped(sql)).all(...(args as never[])) as T[];
 const one = <T>(db: DatabaseSync, sql: string, ...args: unknown[]): T | undefined =>
-  db.prepare(sql).get(...(args as never[])) as T | undefined;
+  db.prepare(scoped(sql)).get(...(args as never[])) as T | undefined;
 const count = (db: DatabaseSync, sql: string): number => Number((one<{ c: number }>(db, sql) ?? { c: 0 }).c);
 
 // =====================================================================
@@ -159,14 +274,26 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
 
   // A dirty tree makes nothing here reproducible, and the collector STAMPS that
   // fact on every session it opens. Read it back rather than trusting the flag.
-  const dirtySessions = count(db, "SELECT COUNT(*) c FROM collector_sessions WHERE dirty = 1");
+  /**
+   * Scoped to the ACTIVE contract's own commit.
+   *
+   * `collector_sessions` is not keyed by trajectory, so the central rewrite
+   * cannot reach it. 26 of 31 pre-repair sessions were dirty and they are
+   * preserved history; counting them as failures of the active window would be
+   * reporting one window's provenance as another's.
+   */
+  const sessionScope =
+    ACTIVE_CTX === null
+      ? ''
+      : ` AND source_commit = (SELECT source_commit FROM evidence_contexts WHERE evidence_context_id = '${ACTIVE_CTX.replace(/'/g, "''")}')`;
+  const dirtySessions = count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE dirty = 1${sessionScope}`);
   record({
     section: 'A',
     invariant: 'the running collector is reproducible from its stamped commit',
     verdict: dirtySessions === 0 ? 'PASS' : 'FAIL',
     source: 'collector_sessions.dirty',
     mutation: 'observation',
-    result: `${dirtySessions} of ${count(db, 'SELECT COUNT(*) c FROM collector_sessions')} sessions were opened from a DIRTY tree`,
+    result: `${dirtySessions} of ${count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE 1${sessionScope}`)} in-contract sessions were opened from a DIRTY tree`,
     economicConsequence:
       'a trajectory opened from an uncommitted tree cannot be re-derived from its commit, which is this ' +
       'repository\'s definition of not being evidence',
@@ -176,7 +303,17 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
    * ONE logical writer per database. This is a `db.ts` header claim and a
    * `process_locks` table, and `trajectory-collect.ts` imports neither.
    */
-  const lock = one<{ pid: number; heartbeat_utc_ms: number }>(db, "SELECT pid, heartbeat_utc_ms FROM process_locks WHERE lock_name = 'collector'");
+  /**
+   * The TRAJECTORY collector's own lock.
+   *
+   * This read `lock_name = 'collector'` and therefore reported on
+   * `apps/collector/src/main.ts` — a DIFFERENT program — which is exactly how
+   * `pnpm health` printed OK while five unlocked writers ran beside it.
+   */
+  const lock = one<{ pid: number; heartbeat_utc_ms: number }>(
+    db,
+    "SELECT pid, heartbeat_utc_ms FROM process_locks WHERE lock_name = 'trajectory_collector'",
+  );
   const lockPidCmd =
     lock === undefined
       ? ''
@@ -198,27 +335,52 @@ async function sectionA(db: DatabaseSync): Promise<Record<string, unknown>> {
                   AND COALESCE(o.ended_utc_ms, o.heartbeat_utc_ms) >= s.started_utc_ms) AS n
          FROM collector_sessions s)`,
   );
-  const unended = count(db, 'SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL');
-  const openSessions = count(db, 'SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL AND heartbeat_utc_ms > ' + (Date.now() - 600_000));
+  const unended = count(db, `SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL${sessionScope}`);
+  const openSessions = count(
+    db,
+    `SELECT COUNT(*) c FROM collector_sessions WHERE ended_utc_ms IS NULL AND heartbeat_utc_ms > ${Date.now() - 600_000}${sessionScope}`,
+  );
+  /**
+   * The verdict is DERIVED from the live machine, not asserted.
+   *
+   * It used to be the literal `'FAIL'` with a hand-written finding, which was
+   * correct when it was written and could never become correct again. Three
+   * conditions, each measured:
+   *
+   *   1. at most ONE trajectory-collect process is alive;
+   *   2. if one is alive, `trajectory_collector` names it — not the screening
+   *      collector's `collector` lock, which is how `pnpm health` printed OK
+   *      while five unlocked writers ran beside it;
+   *   3. the module can actually take the lock, checked by walking its import
+   *      closure rather than by trusting its header.
+   */
+  const collectorSrc = readFileSync('apps/collector/src/trajectory-collect.ts', 'utf8');
+  const importsLock = /collector-lock\.js/.test(collectorSrc);
+  const oneProcess = procs.length <= 1;
+  const lockMatchesProcess =
+    procs.length === 0
+      ? lock === undefined || !lockPidAlive
+      : lock !== undefined && procs.includes(String(lock.pid));
+  const singleOwner = importsLock && oneProcess && lockMatchesProcess;
+
   record({
     section: 'A',
     invariant: 'the collector takes the process lock, so one writer owns the corpus',
-    verdict: 'FAIL',
-    source: 'apps/collector/src/trajectory-collect.ts (no import of process_locks); packages/storage/src/db.ts header; process_locks; collector_sessions',
-    mutation: 'observation of the live machine and of every session the corpus has recorded',
+    verdict: singleOwner ? 'PASS' : 'FAIL',
+    source:
+      'apps/collector/src/trajectory-collect.ts import closure; process_locks.trajectory_collector; ' +
+      'collector_sessions; the live Windows process list',
+    mutation: 'observation of the live machine and of every session in the active contract',
     result:
-      `trajectory-collect never imports the process lock. At the START of this audit FIVE daemons ` +
-      `(15 processes) were running against one database; section S stopped them all and restarted one, so ` +
-      `${procs.length} runtime process(es) are alive now [${procs.join(', ') || 'none'}]. ` +
-      `collector_sessions records a peak of ${peak?.n ?? '?'} simultaneously live sessions, ${unended} sessions that ` +
-      `never wrote ended_utc_ms, and ${openSessions} heartbeating inside the last 10 minutes. ` +
-      `process_locks.collector names pid ${lock?.pid ?? 'none'}, which is ${lockPidProgram} — a DIFFERENT program ` +
-      `(pnpm observe). So the lock is held by the screening collector and pnpm health reports OK against it, while ` +
-      `pnpm trajectory:collect writes the same database without taking a lock and without checking whether one is held`,
+      `${procs.length} trajectory-collect process(es) alive [${procs.join(', ') || 'none'}]; ` +
+      `the collector ${importsLock ? 'DOES' : 'does NOT'} import the trajectory-collector lock; ` +
+      `process_locks.trajectory_collector names pid ${lock?.pid ?? 'none'} (${lockPidProgram}); ` +
+      `in-contract sessions record a peak of ${peak?.n ?? '?'} simultaneously live, ${unended} that never wrote ` +
+      `ended_utc_ms, and ${openSessions} heartbeating inside the last 10 minutes`,
     economicConsequence:
-      'N daemons share one candidate queue and one mark scheduler. Duplicate work is suppressed only by ' +
-      'INSERT OR IGNORE, so a lost write is indistinguishable from a market fact. Section S measures what it cost: ' +
-      '15 mints exceed the hard --max-per-mint cap of 3, one of them by nineteen times',
+      'N daemons share one candidate queue and one mark scheduler. In the pre-repair corpus that cost 15 mints ' +
+      'over a hard --max-per-mint cap of 3, one of them by nineteen times, with duplicate work suppressed only by ' +
+      'INSERT OR IGNORE — so a lost write was indistinguishable from a market fact',
     rows: procs,
   });
 
@@ -295,17 +457,37 @@ function sectionB(db: DatabaseSync, sidecar: Record<string, unknown> | null): vo
 
   // Whether the mark path ever reaches a live horizon at all is a DATABASE
   // question, not a claim about one pass.
+  /**
+   * READ FROM THE COPY, because the gate perturbs the very thing this measures.
+   *
+   * `pnpm gate --with-live-run` stops the collector, takes a VACUUM copy, runs
+   * the worker probe and the sweeps, and only then spawns its `--once` passes.
+   * By that point every horizon that came due during those minutes is overdue,
+   * and the `--once` pass backfills them as late marks — so B-4 reported 5 of
+   * 95 marks more than sixty seconds late on a window whose own collector had
+   * just been measured at 0 of 87.
+   *
+   * The copy is taken at step 1, before anything is stopped for long or
+   * written. It is the collector's own record of its own timeliness, which is
+   * what this invariant is about. Measuring the gate's cleanup as the
+   * collector's lateness is the same substitution as reading an apparatus
+   * failure as a market fact.
+   */
+  const timeliness = COPY_DB === null ? db : ro(COPY_DB);
   const backfilled = one<{ n: number; late: number }>(
-    db,
+    timeliness,
     'SELECT COUNT(*) n, SUM(CASE WHEN lateness_ms > 60000 THEN 1 ELSE 0 END) late FROM trajectory_marks',
   );
+  if (COPY_DB !== null) timeliness.close();
   record({
     section: 'B',
     invariant: 'the corpus contains marks taken at their horizon rather than backfilled',
     verdict: (backfilled?.late ?? 0) === 0 ? 'PASS' : 'FAIL',
-    source: 'trajectory_marks.lateness_ms',
+    source: `trajectory_marks.lateness_ms, read from ${COPY_DB === null ? 'the live database' : 'the pre-gate copy'}`,
     mutation: 'observation',
-    result: `${backfilled?.late ?? 0} of ${backfilled?.n ?? 0} marks are more than 60s late`,
+    result:
+      `${backfilled?.late ?? 0} of ${backfilled?.n ?? 0} marks are more than 60s late` +
+      (COPY_DB === null ? '' : ' (measured on the copy taken before the gate stopped anything)'),
     economicConsequence:
       'a backfilled horizon carries the right label and the wrong instant, so both exit policies agree ' +
       'trivially and the tournament cannot distinguish the policies it exists to compare',
@@ -347,7 +529,21 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
     link('candidate risk facts', t['mint'], 'SELECT COUNT(*) c FROM candidate_risk_facts WHERE trajectory_id = ?', id),
     link('account-plan (buy)', `${id}/buy`, "SELECT COUNT(*) c FROM leg_account_plans WHERE trajectory_id = ? AND leg = 'buy'", id),
     link('account-plan (sell)', `${id}/sell`, "SELECT COUNT(*) c FROM leg_account_plans WHERE trajectory_id = ? AND leg = 'sell'", id),
-    link('snapshot hash', t['snapshot_hash'], 'SELECT COUNT(*) c FROM snapshot_manifests WHERE manifest_hash = ?', t['snapshot_hash']),
+    /**
+     * `coherent_snapshots`, NOT `snapshot_manifests`.
+     *
+     * `snapshot_manifests` is the PAPER engine's table — written only by
+     * `apps/engine/src/simulate-observation.ts` via `storeJitSnapshot`, and its
+     * `manifest_hash` is `sha({jobId, accounts, programs})`. A trajectory's
+     * `snapshot_hash` is `computeSnapshotHash(manifest, clock, rent,
+     * epochSchedule)`, which commits to the sysvars as well. Two different
+     * hashes of two different things, in two tables written by two programs.
+     *
+     * Measured 2026-08-17: 0 of the corpus's trajectories matched a
+     * manifest_hash and 64 of them resolve in `coherent_snapshots`, so this
+     * link reported the trace broken on every trajectory ever opened.
+     */
+    link('snapshot hash', t['snapshot_hash'], 'SELECT COUNT(*) c FROM coherent_snapshots WHERE snapshot_hash = ?', t['snapshot_hash']),
     link('entry observation', t['entry_observation_id'], 'SELECT COUNT(*) c FROM execution_observations WHERE observation_id = ?', t['entry_observation_id']),
     link('entry worker job/step', t['entry_simulation_job_id'], 'SELECT COUNT(*) c FROM simulation_jobs WHERE job_id = ?', t['entry_simulation_job_id']),
     link('entry settlement id', t['entry_settlement_id'], 'SELECT COUNT(*) c FROM trajectory_settlements WHERE trajectory_id = ?', id),
@@ -357,7 +553,31 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
     link('created accounts', id, 'SELECT COUNT(*) c FROM created_accounts WHERE trajectory_id = ?', id),
     link('leg cashback', id, 'SELECT COUNT(*) c FROM leg_cashback WHERE trajectory_id = ?', id),
     link('exit observation', t['exit_observation_id'], 'SELECT COUNT(*) c FROM execution_observations WHERE observation_id = ?', t['exit_observation_id']),
-    link('exit worker job/step', null, 'SELECT 0 c', []),
+    /**
+     * THE EXIT LEG IS A STEP, NOT A JOB OF ITS OWN.
+     *
+     * This read `link('exit worker job/step', null, 'SELECT 0 c', [])` — a
+     * placeholder hardwired to return zero, so C-1 could never pass no matter
+     * what the data said. A probe pinned to FAIL is worth exactly as much as
+     * one pinned to PASS: neither can tell you anything changed.
+     *
+     * `sequentialRoundTrip` runs the buy and the sell inside ONE worker job, so
+     * there is no separate exit job to resolve. What the trajectory records is
+     * `(exit_simulation_job_id, exit_step_index)`, and the fact worth checking
+     * is that the pair lands on a real step whose leg is the SELL — not merely
+     * that a job by that id exists, which the entry link already establishes.
+     *
+     * Measured 2026-08-18: 85 of the 85 trajectories carrying an exit step
+     * resolve to a `simulation_steps` row with `leg = 'sell'`.
+     */
+    link(
+      'exit worker job/step',
+      `${String(t['exit_simulation_job_id'])}#${String(t['exit_step_index'])}`,
+      `SELECT COUNT(*) c FROM simulation_steps
+        WHERE job_id = ? AND step_index = ? AND leg = 'sell'`,
+      t['exit_simulation_job_id'],
+      t['exit_step_index'],
+    ),
   ];
 
   const broken = links.filter((l) => !l.resolves);
@@ -452,12 +672,33 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
 // D. Attack direct-entry attribution
 // =====================================================================
 function sectionD(): void {
-  const honest = { baseOutAtoms: 1_000_000n, quoteInLamports: 20_000_000n, takerCreditAtoms: 1_000_000n };
+  /**
+   * The honest fixture now conserves BOTH sides.
+   *
+   * The pool receives 19,800,000 of a 20,000,000 lamport entry and 200,000
+   * reaches the named fee accounts. The previous fixture supplied no payer
+   * outflow at all, which under the repaired rule is refused by name — a
+   * missing input must not read as a passed check.
+   */
+  const honest = {
+    baseOutAtoms: 1_000_000n,
+    quoteInLamports: 19_800_000n,
+    takerCreditAtoms: 1_000_000n,
+    entryQuoteOutLamports: 20_000_000n,
+    feeFlowsLamports: 200_000n,
+    toleranceLamports: 4n,
+  };
   const direct = attributeSoleVenue(honest);
   const routed = attributeSoleVenue({ ...honest, takerCreditAtoms: 1_500_000n });
   const baseOff = attributeSoleVenue({ ...honest, baseOutAtoms: 999_999n });
   const quoteZero = attributeSoleVenue({ ...honest, quoteInLamports: 0n });
   const quoteOne = attributeSoleVenue({ ...honest, quoteInLamports: 1n });
+  /** A missing payer outflow refuses rather than passing a sign test. */
+  const noOutflow = attributeSoleVenue({
+    baseOutAtoms: 1_000_000n,
+    quoteInLamports: 20_000_000n,
+    takerCreditAtoms: 1_000_000n,
+  });
 
   record({
     section: 'D',
@@ -472,16 +713,23 @@ function sectionD(): void {
   record({
     section: 'D',
     invariant: 'mutating one vault delta breaks reconciliation',
-    verdict: !baseOff.attributed && !quoteZero.attributed && !quoteOne.attributed ? 'PASS' : 'FAIL',
+    verdict:
+      !baseOff.attributed && !quoteZero.attributed && !quoteOne.attributed && !noOutflow.attributed
+        ? 'PASS'
+        : 'FAIL',
     source: 'packages/domain/src/trajectory-evidence.ts:208',
-    mutation: 'three independent mutations: base out -1 atom; quote in -> 0; quote in -> 1 lamport against a 20,000,000 lamport entry',
+    mutation:
+      'four independent mutations: base out -1 atom; quote in -> 0; quote in -> 1 lamport against a ' +
+      '20,000,000 lamport entry; and the payer outflow omitted entirely',
     result:
       `base out -1 atom: attributed=${baseOff.attributed}; quote in 0: attributed=${quoteZero.attributed}; ` +
-      `quote in 1 lamport: attributed=${quoteOne.attributed} (${quoteOne.refusal ?? 'ATTRIBUTED'})`,
+      `quote in 1 lamport: attributed=${quoteOne.attributed} (${quoteOne.refusal ?? 'ATTRIBUTED'}); ` +
+      `payer outflow omitted: attributed=${noOutflow.attributed} (${noOutflow.refusal ?? 'ATTRIBUTED'})`,
     economicConsequence:
-      'the quote leg is tested only for SIGN. A pool that received one lamport against a 0.02 SOL entry still ' +
-      'attributes as the sole venue, so "all named deltas reconcile" is true of the base vault and false of the ' +
-      'quote vault. The notional is never compared to what the pool actually received',
+      'the quote leg used to be tested only for SIGN: a pool that received ONE LAMPORT against a 0.02 SOL entry ' +
+      'attributed as the sole venue, so "all named deltas reconcile" was true of the base vault and false of the ' +
+      'quote vault. The payer outflow is now compared against the quote vault plus the named fee flows, within ' +
+      'the documented four-lamport rounding of the venue model',
   });
 }
 
@@ -551,20 +799,99 @@ function sectionE(): void {
       'Nothing would fail if a future edit inserted a rebuild between them',
   });
 
+  /**
+   * E-4 — was NOT TESTABLE for the question as posed, and the question as posed
+   * was the wrong one.
+   *
+   * The old reason: "the open path does not hardcode fee recipients at all, so
+   * there is no constant to compare against the docs, and confirming the SDK
+   * against docs.pump.fun needs network access this harness does not take."
+   *
+   * The first half is true and is the correct design. The second half assumed
+   * the only authority is a website. It is not: the Anchor IDL that ships
+   * INSIDE the installed package is what the SDK encodes against, it is on
+   * disk, and comparing to it needs no network at all.
+   *
+   * What became checkable is the ORDER — `SWAP_ACCOUNT_INDEX`, which exists
+   * only because D-2 forced it. The protocol fee recipient's TOKEN ACCOUNT sits
+   * at index 10 and was 46 bps of unattributed quote on every entry until it
+   * was named, so a future SDK moving that name by one position is worth
+   * exactly that much and would otherwise be silent.
+   */
+  const idl = (() => {
+    const req = createRequire(import.meta.url);
+    let dir: string;
+    try {
+      dir = dirname(req.resolve('@pump-fun/pump-swap-sdk'));
+    } catch (e) {
+      return { path: null, idl: null, why: (e as Error).message.slice(0, 90) };
+    }
+    for (let i = 0; i < 6; i++) {
+      const candidate = joinPath(dir, 'src', 'idl', 'pump_amm.json');
+      if (existsSync(candidate)) {
+        return {
+          path: candidate,
+          idl: JSON.parse(readFileSync(candidate, 'utf8')) as Record<string, unknown>,
+          why: '',
+        };
+      }
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return { path: null, idl: null, why: 'pump_amm.json is not inside the installed package' };
+  })();
+
+  const mismatches: string[] = [];
+  let checkedIndices = 0;
+  if (idl.idl !== null) {
+    const address = idl.idl['address'];
+    if (address !== 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA') {
+      mismatches.push(`the IDL names program ${String(address)}, not the AMM this tree encodes for`);
+    }
+    for (const leg of ['buy', 'sell'] as const) {
+      const ix = ((idl.idl['instructions'] as { name: string; accounts: { name: string }[] }[]) ?? []).find(
+        (i) => i.name === leg,
+      );
+      if (ix === undefined) {
+        mismatches.push(`the IDL has no ${leg} instruction`);
+        continue;
+      }
+      const names = ix.accounts.map((a) => a.name);
+      for (const [label, index] of Object.entries(SWAP_ACCOUNT_INDEX)) {
+        checkedIndices++;
+        const expected = label.toLowerCase();
+        if (names[index] !== expected) {
+          mismatches.push(`${leg}[${index}] is ${String(names[index])}, this tree encodes ${expected}`);
+        }
+      }
+    }
+  }
+  const drift = pinnedVersionDrift();
   record({
     section: 'E',
     invariant: 'the April 2026 fee-recipient accounts and account ordering match the installed SDK',
-    verdict: 'NOT TESTABLE',
-    source: 'node_modules/@pump-fun/pump-swap-sdk@1.19.0',
-    mutation: 'compare the hardcoded recipients and ordering against current official Pump docs',
+    verdict:
+      idl.idl === null
+        ? 'NOT TESTABLE'
+        : mismatches.length === 0 && drift.length === 0
+          ? 'PASS'
+          : 'FAIL',
+    source: `${idl.path ?? '@pump-fun/pump-swap-sdk'} (the Anchor IDL the SDK itself encodes against)`,
+    mutation:
+      idl.idl === null
+        ? `the IDL could not be read: ${idl.why}`
+        : 'check every index in SWAP_ACCOUNT_INDEX by NAME against the IDL, on both legs, and check the pinned versions',
     result:
-      'the open path does not hardcode fee recipients at all: it reads whatever the SDK selects off the frozen ' +
-      'plan (selectedTrailingAccounts). There is therefore no constant in this repository to compare against ' +
-      'the docs, and confirming the SDK itself against docs.pump.fun requires network access this harness does ' +
-      'not take',
+      idl.idl === null
+        ? idl.why
+        : `${checkedIndices} named indices checked across buy and sell; ` +
+          `${mismatches.length === 0 ? 'every one holds the account the IDL says it does' : mismatches.slice(0, 4).join('; ')}. ` +
+          `pinned version drift: ${drift.length === 0 ? 'none' : JSON.stringify(drift)}`,
     economicConsequence:
-      'if the SDK version pinned here selects a stale recipient list, every leg pays a recipient the program no ' +
-      'longer credits, and nothing in the corpus would show it',
+      'the open path reads recipients off the SDK-selected plan rather than a constant, which is correct — but a ' +
+      'layout change moves the account whose delta the quote-side conservation check reads. The protocol fee ' +
+      "recipient's token account at index 10 was 46 bps of unattributed quote on every entry until it was named",
   });
 }
 
@@ -603,50 +930,147 @@ function sectionF(sidecar: Record<string, unknown> | null): void {
 // G. Attack quote-state equality
 // =====================================================================
 function sectionG(db: DatabaseSync): void {
-  const rt = readFileSync('packages/pipeline/src/sequential-round-trip.ts', 'utf8');
-  const ot = readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8');
-  const worker = readFileSync('packages/simulator/src/sequential-worker.ts', 'utf8');
+  /**
+   * EXECUTED, not read.
+   *
+   * This probe used to compute `uncovered = ['fee config', 'Clock']` as a
+   * literal and derive its verdict from the length of that array — a
+   * hand-written finding that could never become correct again. It is now eight
+   * real mutations put through `assertQuoteStateSurvived`, so the verdict is
+   * whatever the function actually does.
+   *
+   * Each mutation changes ONE property of ONE quoted account between the quote
+   * and the sell's pre-state. A mutation the equality check does not notice is
+   * a price-bearing input the sell was charged on and nobody compared.
+   */
+  const acct = (pubkey: string, hash: string): Record<string, unknown> => ({
+    pubkey,
+    lamports: 1n,
+    owner: 'o',
+    executable: false,
+    rentEpoch: 0n,
+    dataLen: 8,
+    dataBase64: null,
+    dataSha256: 'd',
+    accountHash: hash,
+  });
 
-  // What is actually compared, and over which accounts.
-  const comparesAccountHash = /q !== pre\.accountHash/.test(worker);
-  const quotesPriceBearing = /w\.observe\(req\.priceBearingAccounts/.test(rt);
-  const priceBearing = /const priceBearing = \[pool, addrs\.poolBaseTokenAccount, addrs\.poolQuoteTokenAccount, p\.mint\]/.test(ot);
+  const QUOTED = ['POOL', 'BASE_VAULT', 'QUOTE_VAULT', 'MINT', 'FEE_CONFIG', 'CLOCK'];
+  const baseline = QUOTED.map((k) => acct(k, `hash-${k}`));
 
-  const covered = ['pool data', 'base vault data', 'quote vault data', 'owner', 'lamports', 'executable flag'];
-  const uncovered = ['fee config', 'Clock'];
+  const mutationCaught = (which: string): boolean => {
+    const quoted = { accounts: baseline, stateHash: 'h', unobserved: [] as string[] } as never;
+    const sellPre = baseline.map((a) =>
+      (a['pubkey'] as string) === which ? { ...a, accountHash: `hash-${which}-MUTATED` } : a,
+    );
+    try {
+      assertQuoteStateSurvived(quoted, { preAccounts: sellPre } as never);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  /**
+   * Which of the six accounts the collector actually QUOTES.
+   *
+   * Read from the module rather than assumed, because the equality check can
+   * only compare what was put in front of it — a perfect comparator over the
+   * wrong set is the exact defect this section found.
+   */
+  const priceBearingSrc = /const priceBearing = \[([^\]]*)\]/.exec(
+    readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8'),
+  )?.[1] ?? '';
+  const economicSrc = /economicAccounts: \[([^\]]*)\]/.exec(
+    readFileSync('packages/pipeline/src/open-trajectory.ts', 'utf8'),
+  )?.[1] ?? '';
+  const quotesFeeConfig = /FEE_CONFIG_ADDR/.test(priceBearingSrc);
+  const observesClock = /CLOCK_SYSVAR/.test(economicSrc);
+
+  const results = QUOTED.map((k) => ({ account: k, caught: mutationCaught(k) }));
+  const uncaught = results.filter((r) => !r.caught).map((r) => r.account);
+  const ok = uncaught.length === 0 && quotesFeeConfig && observesClock;
+
   record({
     section: 'G',
     invariant: 'each required mutation between quote and sell breaks equality or invalidates the job',
-    verdict: uncovered.length === 0 ? 'PASS' : 'FAIL',
+    verdict: ok ? 'PASS' : 'FAIL',
     source:
-      'packages/simulator/src/sequential-worker.ts:448 assertQuoteStateSurvived; ' +
-      'packages/pipeline/src/sequential-round-trip.ts:398 observe(req.priceBearingAccounts); ' +
-      'packages/pipeline/src/open-trajectory.ts:331 priceBearing',
-    mutation: 'enumerate the eight required mutations against the set the equality check actually covers',
+      'packages/simulator/src/sequential-worker.ts assertQuoteStateSurvived, EXECUTED against six mutations; ' +
+      'packages/pipeline/src/open-trajectory.ts priceBearing / economicAccounts',
+    mutation: 'mutate the accountHash of each quoted account in turn between the quote and the sell pre-state',
     result:
-      `accountHash covers owner, lamports, executable, rentEpoch and data (${comparesAccountHash ? 'confirmed' : 'NOT confirmed'}), ` +
-      `and the quoted set is exactly [pool, baseVault, quoteVault, mint] (${quotesPriceBearing && priceBearing ? 'confirmed' : 'NOT confirmed'}). ` +
-      `Covered: ${covered.join(', ')}. NOT COVERED: ${uncovered.join(', ')} — the fee config is fetched into the ` +
-      'runtime but is not a price-bearing account, and the Clock is not an account in the observe set at all',
+      `${results.filter((r) => r.caught).length} of ${results.length} single-account mutations were caught` +
+      (uncaught.length === 0 ? '' : `; UNCAUGHT: ${uncaught.join(', ')}`) +
+      `. The fee config ${quotesFeeConfig ? 'IS' : 'is NOT'} in the price-bearing set, and the Clock ` +
+      `${observesClock ? 'IS' : 'is NOT'} in the economic observe set`,
     economicConsequence:
-      'a fee config swapped between the quote and the sell changes the tier the sell is charged and the equality ' +
-      'check would not notice. At the tier step this repository measured that is up to 200 bps of round trip, ' +
-      'attributed to the market rather than to the mutation',
+      'a fee config swapped between the quote and the sell changes the tier the sell is charged. At the tier step ' +
+      'this repository measured that is up to 200 bps of round trip, attributed to the market rather than to the ' +
+      'mutation. The Clock is observed rather than required byte-equal: an advancing slot is an apparatus ' +
+      'property, and refusing every trajectory for one would report our own runtime as a market fact',
   });
 
-  const total = count(db, 'SELECT COUNT(*) c FROM development_trajectories');
-  const withUnobserved = count(db, "SELECT COUNT(*) c FROM development_trajectories WHERE refusals LIKE '%unobserved%'");
-  const settledWithUnobserved = count(db, "SELECT COUNT(*) c FROM development_trajectories WHERE state = 'SETTLED' AND refusals LIKE '%unobserved%'");
+  /**
+   * G-2 — REWRITTEN onto the settled fact.
+   *
+   * It matched `development_trajectories.refusals LIKE '%unobserved%'` — a
+   * free-text column — and reported 303 of 303 rows, concluding that an
+   * unobserved writable "is exactly what the settlement then reports as an
+   * unexplained remainder, and 100% of the corpus carries one".
+   *
+   * The settlements say the opposite. Every leg row in the corpus carries
+   * `full_account_coverage = 1` and `unexplained_lamports = 0`. What the text
+   * column held was the runtime's RAW unobserved list: accounts the leg
+   * creates, accounts created and closed inside one transaction, and — through
+   * a separate defect — six builtin programs labelled "created by the leg"
+   * because programs are captured into the program path rather than into
+   * `planAccounts`.
+   *
+   * `coverageGap` already draws the line the invariant is about, and the leg
+   * settlement is where its answer is recorded. So this reads that, and a
+   * defect is now a leg whose coverage is incomplete or whose lamports do not
+   * reconcile — which is what "unobserved accounts" was always trying to say.
+   */
+  const legs = all<{ n: number; incomplete: number; unexplained: number }>(
+    db,
+    scoped(
+      `SELECT COUNT(*) n,
+              SUM(CASE WHEN l.full_account_coverage = 1 THEN 0 ELSE 1 END) incomplete,
+              SUM(CASE WHEN CAST(l.unexplained_lamports AS INTEGER) = 0 THEN 0 ELSE 1 END) unexplained
+         FROM leg_settlements l
+         JOIN development_trajectories t ON t.trajectory_id = l.trajectory_id`,
+    ),
+  );
+  const legRow = legs[0] ?? { n: 0, incomplete: 0, unexplained: 0 };
+  const total = count(db, scoped('SELECT COUNT(*) c FROM development_trajectories'));
+  const settledIncomplete = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM leg_settlements l
+         JOIN development_trajectories t ON t.trajectory_id = l.trajectory_id
+        WHERE t.state = 'SETTLED' AND l.full_account_coverage <> 1`,
+    ),
+  );
   record({
     section: 'G',
     invariant: 'no successful trajectory carries required incompleteness or unobserved accounts',
-    verdict: withUnobserved === 0 ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.refusals',
-    mutation: 'observation across the whole corpus',
-    result: `${withUnobserved} of ${total} trajectories carry at least one "unobserved on buy/sell/close" entry; ${settledWithUnobserved} of them are SETTLED`,
+    verdict:
+      Number(legRow.n) === 0
+        ? 'NOT TESTABLE'
+        : Number(legRow.incomplete) === 0 && Number(legRow.unexplained) === 0
+          ? 'PASS'
+          : 'FAIL',
+    source: 'leg_settlements.full_account_coverage / unexplained_lamports; packages/pipeline/src/leg-settlement.ts coverageGap',
+    mutation: 'read the coverage verdict the settlement itself recorded, per leg, rather than a free-text refusal column',
+    result:
+      `${Number(legRow.n)} leg settlement(s) over ${total} trajector(ies) in scope: ` +
+      `${Number(legRow.incomplete)} with incomplete account coverage, ` +
+      `${Number(legRow.unexplained)} with a non-zero unexplained remainder, ` +
+      `${settledIncomplete} of the incomplete ones on a SETTLED trajectory`,
     economicConsequence:
-      'an unobserved writable is a lamport flow nobody measured. It is exactly what the settlement then reports ' +
-      'as an unexplained remainder, and 100% of the corpus carries one',
+      'an unobserved writable is a lamport flow nobody measured, and the settlement refuses a net PnL when its ' +
+      'coverage is incomplete. An account the leg CREATES is absent by definition and is not that',
   });
 }
 
@@ -830,7 +1254,7 @@ function sectionI(db: DatabaseSync): void {
 // =====================================================================
 // J. Attack fee-tier classification
 // =====================================================================
-function sectionJ(db: DatabaseSync): void {
+async function sectionJ(db: DatabaseSync): Promise<void> {
   const tiers = [
     { marketCapLamportsThreshold: 0n, fees: { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 }, roundTripBps: 110 },
     { marketCapLamportsThreshold: 1_000_000_000_000n, fees: { lpFeeBps: 15, protocolFeeBps: 4, creatorFeeBps: 5 }, roundTripBps: 48 },
@@ -898,15 +1322,64 @@ function sectionJ(db: DatabaseSync): void {
       'against cannot distinguish "the tier changed" from "Pump republished the table", so no historical row survives a fee change',
   });
 
-  record({
-    section: 'J',
-    invariant: 'the selected tier matches the official SDK/program fee result',
-    verdict: 'NOT TESTABLE',
-    source: 'packages/solana/src/fee-tiers.ts:207 comment citing src/sdk/fees.ts:calculateFeeTier at 1.19.0',
-    mutation: 'not run: the SDK does not export calculateFeeTier, so the replication cannot be differentially tested against it in-process',
-    result: `feeConfigHash over the probe table = ${feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 } as never).slice(0, 16)}`,
-    economicConsequence: 'the replication is asserted against a code comment. A divergence would be worth the full tier step, up to 200 bps of round trip',
-  });
+  // J-4. The replication versus the function it replicates.
+  //
+  // This was NOT TESTABLE on the grounds that the SDK does not export
+  // `calculateFeeTier`. It ships it — `dist/esm/sdk/fees.js` exports it and the
+  // package's `exports` map simply does not publish the subpath. The oracle
+  // resolves the entry point and imports the sibling bundle by file URL, which
+  // is a thing an audit may do and a trading path may not.
+  const oracle = await sdkFeeOracle();
+  if (oracle === null) {
+    record({
+      section: 'J',
+      invariant: 'the selected tier matches the official SDK fee result',
+      verdict: 'NOT TESTABLE',
+      source: 'packages/solana/src/sdk-fee-oracle.ts',
+      mutation: `tried to import the SDK's own calculateFeeTier and could not: ${sdkFeeOracleUnavailableReason()}`,
+      result: 'the differential did not run',
+      economicConsequence:
+        'without it the replication is asserted against a code comment, and a divergence is worth the full tier step — up to 200 bps of round trip',
+    });
+  } else {
+    const probes: bigint[] = [0n, 1n];
+    for (const t of tiers) {
+      for (const d of [-1n, 0n, 1n]) {
+        const c = t.marketCapLamportsThreshold + d;
+        if (c >= 0n) probes.push(c);
+      }
+      probes.push(t.marketCapLamportsThreshold * 2n + 7n);
+    }
+    const disagreements: string[] = [];
+    for (const cap of probes) {
+      const mine = selectFeeTier(tiers, cap);
+      const theirs = oracle.feesFor(tiers, cap);
+      if (
+        mine === null ||
+        mine.fees.lpFeeBps !== theirs.lpFeeBps ||
+        mine.fees.protocolFeeBps !== theirs.protocolFeeBps ||
+        mine.fees.creatorFeeBps !== theirs.creatorFeeBps
+      ) {
+        disagreements.push(
+          `cap ${cap}: ours ${mine === null ? 'null' : `${mine.fees.lpFeeBps}/${mine.fees.protocolFeeBps}/${mine.fees.creatorFeeBps}`} ` +
+            `vs SDK ${theirs.lpFeeBps}/${theirs.protocolFeeBps}/${theirs.creatorFeeBps}`,
+        );
+      }
+    }
+    record({
+      section: 'J',
+      invariant: 'the selected tier matches the official SDK fee result',
+      verdict: disagreements.length === 0 ? 'PASS' : 'FAIL',
+      source: `packages/solana/src/fee-tiers.ts:207 selectFeeTier vs ${oracle.modulePath}`,
+      mutation: `${probes.length} market caps: every threshold, one lamport either side of each, and a point well above each`,
+      result:
+        disagreements.length === 0
+          ? `${probes.length} caps, ${tiers.length} tiers, zero disagreements. feeConfigHash = ${feeConfigHash(tiers, { lpFeeBps: 20, protocolFeeBps: 5, creatorFeeBps: 30 } as never).slice(0, 16)}`
+          : disagreements.slice(0, 5).join('; '),
+      economicConsequence:
+        'the replication is no longer asserted against a code comment. A divergence would be worth the full tier step, up to 200 bps of round trip',
+    });
+  }
 }
 
 // =====================================================================
@@ -958,6 +1431,15 @@ function sectionK(db: DatabaseSync): void {
       costs: costs({ rentCreatedLamports: 0n }), residualTokenAtoms: 0n, ...over,
     }) as never;
 
+  /**
+   * These fixtures are complete, covered and effect-valid by construction, so
+   * their persisted evidence is durable too. Stated rather than defaulted:
+   * `buildTrajectorySettlement` treats an unstated durability as UNKNOWN, and
+   * unknown blocks — which is the correct default and would otherwise make
+   * every mutation below indistinguishable from every other.
+   */
+  const AUDIT_EVIDENCE = { entry: DURABLE_EVIDENCE, exit: DURABLE_EVIDENCE };
+
   const shape = (s: ReturnType<typeof buildTrajectorySettlement>) => ({
     unexplained: s.unexplainedLamports,
     cost: s.executionCostLamports,
@@ -966,7 +1448,7 @@ function sectionK(db: DatabaseSync): void {
     violations: checkIdentities(s).violations,
   });
 
-  const base = shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit() }));
+  const base = shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit() }));
 
   const mutations: { name: string; s: ReturnType<typeof shape>; expect: 'cost+' | 'blocked' | 'violation' | 'unexplained' }[] = [
     {
@@ -974,6 +1456,7 @@ function sectionK(db: DatabaseSync): void {
       expect: 'blocked',
       s: shape(
         buildTrajectorySettlement({
+          legEvidence: AUDIT_EVIDENCE,
           trajectoryId: 't',
           entry: entry({
             output: { kind: 'token', mint: 'M', tokenProgram: T2022, tokenAccount: 'A', minimumAtoms: 0n, expectedAtoms: null, actualCreditAtoms: 1_000_000n },
@@ -986,52 +1469,52 @@ function sectionK(db: DatabaseSync): void {
     {
       name: 'the leg-level unexplained remainder (costs.unexplainedLamports = 2,500,000)',
       expect: 'blocked',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ unexplainedLamports: 2_500_000n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ unexplainedLamports: 2_500_000n }) }), exit: exit() })),
     },
     {
       name: 'rent created +1',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ rentCreatedLamports: 95_001n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ rentCreatedLamports: 95_001n }) }), exit: exit() })),
     },
     {
       name: 'rent recovered +1',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit({ costs: costs({ rentCreatedLamports: 0n, rentRecoveredLamports: 1n }) }) })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit({ costs: costs({ rentCreatedLamports: 0n, rentRecoveredLamports: 1n }) }) })),
     },
     {
       name: 'failed-attempt fee +5000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), failedAttemptFeesLamports: 5_000n })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), failedAttemptFeesLamports: 5_000n })),
     },
     {
       name: 'cashback claimed 60000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
     },
     {
       name: 'cashback claim cost 5000',
       expect: 'cost+',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 5_000n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 60_000n, claimableLamports: 60_000n, claimedLamports: 60_000n, claimCostLamports: 5_000n } })),
     },
     {
       name: 'residual atoms 7',
       expect: 'blocked',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit({ residualTokenAtoms: 7n }) })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit({ residualTokenAtoms: 7n }) })),
     },
     {
       name: 'unexplained lamports: payer delta moved by 2,500,000',
       expect: 'unexplained',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() })),
     },
     {
       name: 'principal leaked into execution cost',
       expect: 'violation',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ costs: costs({ baseFeeLamports: 30_000_000n }) }), exit: exit() })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ costs: costs({ baseFeeLamports: 30_000_000n }) }), exit: exit() })),
     },
     {
       name: 'more cashback claimed than accrued',
       expect: 'violation',
-      s: shape(buildTrajectorySettlement({ trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 0n, claimableLamports: 0n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
+      s: shape(buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry(), exit: exit(), cashback: { accruedLamports: 0n, claimableLamports: 0n, claimedLamports: 60_000n, claimCostLamports: 0n } })),
     },
   ];
 
@@ -1068,8 +1551,49 @@ function sectionK(db: DatabaseSync): void {
     rows: mutations.map((m) => `${m.name} -> cost=${m.s.cost} net=${m.s.net} unexplained=${m.s.unexplained} blocked=${m.s.blocked} violations=${m.s.violations.length}`),
   });
 
+  /**
+   * P18 — `artifacts/settlement-identity-check.json`, written from THIS table.
+   *
+   * The directive requires the artifact by name. It is emitted here, as a
+   * by-product of the probe that already computes it, rather than from a second
+   * script carrying its own copy of the mutation list — two tables of eleven
+   * mutations would drift, and the one that drifted would still look authoritative.
+   *
+   * `artifacts/settlement-identity.json` is a DIFFERENT artifact, required by the
+   * 29c7cc7 directive and written by `pnpm settlement:check`: that one reports
+   * the identity residue over recently effect-verified legs in the corpus. This
+   * one reports whether each settlement COMPONENT is visible under mutation.
+   * Neither overwrites the other.
+   */
+  writeFileSync(
+    'artifacts/settlement-identity-check.json',
+    `${JSON.stringify(
+      {
+        artifact: 'settlement-identity-check',
+        writtenBy: 'scripts/runtime-adversarial-audit.ts',
+        sourceCommit: sh('git rev-parse HEAD'),
+        generatedUtcMs: Date.now(),
+        invariant: 'each settlement component enters exactly once and a mutation is visible',
+        verdict: bad.length === 0 ? 'PASS' : 'FAIL',
+        baseline: { cost: String(base.cost), net: String(base.net), unexplained: String(base.unexplained) },
+        mutations: mutations.map((m) => ({
+          name: m.name,
+          expected: m.expect,
+          cost: String(m.s.cost),
+          net: m.s.net === null ? null : String(m.s.net),
+          unexplained: String(m.s.unexplained),
+          blockedReasons: m.s.blocked,
+          identityViolations: m.s.violations.length,
+        })),
+        notMoved: bad,
+      },
+      null,
+      1,
+    )}\n`,
+  );
+
   // THE BIG ONE: an unexplained remainder does not block PnL and is not a violation.
-  const forced = buildTrajectorySettlement({ trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() });
+  const forced = buildTrajectorySettlement({ legEvidence: AUDIT_EVIDENCE, trajectoryId: 't', entry: entry({ payerNativeDeltaLamports: -22_600_000n }), exit: exit() });
   const nonZeroUnexplained = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements WHERE CAST(unexplained_lamports AS INTEGER) != 0');
   const settlements = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements');
   const netDespite = count(db, 'SELECT COUNT(*) c FROM trajectory_settlements WHERE net_pnl IS NOT NULL AND CAST(unexplained_lamports AS INTEGER) != 0');
@@ -1135,9 +1659,48 @@ function sectionL(copyPath: string | null): void {
   }
   const db = new DatabaseSync(copyPath);
   db.exec('PRAGMA foreign_keys = ON');
-  const id = (one<{ id: string }>(db, 'SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1'))?.id;
-  if (id === undefined) throw new Error('the copy carries no trajectory');
-  const row = one<Record<string, string | number | null>>(db, 'SELECT * FROM development_trajectories WHERE trajectory_id = ?', id)!;
+  /**
+   * A trajectory to attack, from ANY context.
+   *
+   * The bare `development_trajectories` reference goes through the active-
+   * context rewrite, and an active window with no rows yet leaves nothing to
+   * mutate. That is a fact about the window, not about the writers — the
+   * append-only rules are properties of the CODE, so the probe falls back to
+   * the whole copy and says which it used.
+   *
+   * It throws NOTHING. An exception here would abort the ledger mid-run and
+   * lose every verdict after section L, which is how a probe that cannot run
+   * becomes a report that does not exist.
+   */
+  let id = (one<{ id: string }>(db, 'SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1'))?.id;
+  let usedActiveContext = id !== undefined;
+  if (id === undefined) {
+    id = (
+      db.prepare('SELECT trajectory_id id FROM development_trajectories ORDER BY opened_utc_ms DESC LIMIT 1').get() as
+        | { id: string }
+        | undefined
+    )?.id;
+    usedActiveContext = false;
+  }
+  if (id === undefined) {
+    db.close();
+    record({
+      section: 'L',
+      invariant: 'every append-only ambiguity fails LOUDLY rather than being silently discarded',
+      verdict: 'NOT TESTABLE',
+      source: copyPath,
+      mutation: 'not run',
+      result: 'the copy carries no trajectory at all, in any context, so there is nothing to attack',
+      economicConsequence:
+        'the append-only rules are properties of the writers and would hold; with no row to write against, ' +
+        'that is a belief rather than a measurement',
+    });
+    return;
+  }
+  // Fetched WITHOUT the context rewrite, so the fallback row above is reachable.
+  const row = db
+    .prepare('SELECT * FROM development_trajectories WHERE trajectory_id = ?')
+    .get(id) as Record<string, string | number | null>;
 
   const attempt = (name: string, fn: () => void): { name: string; outcome: string } => {
     try {
@@ -1147,9 +1710,13 @@ function sectionL(copyPath: string | null): void {
       const m = (e as Error).message;
       // A probe that detects a SILENT drop signals it by throwing, so the label
       // has to distinguish "the writer refused" from "the writer said nothing".
-      if (/SILENTLY DISCARDED|IMPOSSIBLE TO ATTACH|zero rows changed|rows changed in one statement/.test(m)) {
+      if (/SILENTLY DISCARDED|IMPOSSIBLE TO ATTACH|ACCEPTED:|rows changed in one statement/.test(m)) {
         return { name, outcome: m.slice(0, 140) };
       }
+      // A probe that could not be attempted is NOT a pass. It is reported as
+      // itself, so an untested ambiguity cannot hide inside a green section.
+      if (/^NOT ATTEMPTED/.test(m)) return { name, outcome: m.slice(0, 140) };
+      if (/^REFUSED_BY_KEY/.test(m)) return { name, outcome: `REFUSED LOUDLY: ${m.slice(0, 110)}` };
       return { name, outcome: `REFUSED LOUDLY: ${(e as Error).name}: ${m.slice(0, 90)}` };
     }
   };
@@ -1170,8 +1737,27 @@ function sectionL(copyPath: string | null): void {
       }),
     ),
     attempt('replacement settlement with different economics', () => {
-      const before = one<{ n: string | null; e: string }>(db, 'SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?', id);
-      insertTrajectorySettlement(db, id, 'IMMEDIATE_MECHANICS', {
+      // RAW, not `one()`: this probe attacks one named row, and the
+      // active-context rewrite would make BOTH reads return undefined, which
+      // then reads as "unchanged" and reports a defect that is not there.
+      /**
+       * A trajectory that HAS a settlement.
+       *
+       * The probe used to attack whichever trajectory section L picked first,
+       * and the newest one carries no settlement row — so the replacement it
+       * was testing never happened and the result described nothing. An
+       * ambiguity that is not attempted is not an ambiguity that passed.
+       */
+      const target = (db
+        .prepare('SELECT trajectory_id id FROM trajectory_settlements ORDER BY settled_utc_ms DESC LIMIT 1')
+        .get() as { id: string } | undefined)?.id;
+      if (target === undefined) throw new Error('NOT ATTEMPTED: the copy carries no settlement to replace');
+      const readSettlement = (): { n: string | null; e: string } | undefined =>
+        db.prepare('SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?').get(target) as
+          | { n: string | null; e: string }
+          | undefined;
+      const before = readSettlement();
+      insertTrajectorySettlement(db, target, 'IMMEDIATE_MECHANICS', {
         entryCashOutLamports: 1n, exitCashInLamports: 999_999_999n, grossExitCreditLamports: 999_999_999n,
         baseFeesLamports: 0n, priorityFeesLamports: 0n, tipsLamports: 0n, transferFeesLamports: 0n,
         failedAttemptFeesLamports: 0n, rentCreatedLamports: 0n, rentRecoveredLamports: 0n, rentStillLockedLamports: 0n,
@@ -1179,32 +1765,79 @@ function sectionL(copyPath: string | null): void {
         residualTokenAtoms: 0n, unexplainedLamports: 0n, executionCostLamports: 0n,
         netPnlLamports: 999_999_999n, pnlBlockedReasons: [],
       }, [], Date.now());
-      const after = one<{ n: string | null; e: string }>(db, 'SELECT net_pnl n, entry_cash_out e FROM trajectory_settlements WHERE trajectory_id = ?', id);
-      if (before?.n === after?.n && before?.e === after?.e) {
+      const after = readSettlement();
+      if (before === undefined) {
+        // Nothing to replace. The probe must not report a pass it did not earn.
+        throw new Error('NOT ATTEMPTED: the trajectory carried no settlement, so no replacement was possible');
+      }
+      if (before.n === after?.n && before.e === after?.e) {
         throw new Error('SILENTLY DISCARDED: the row is unchanged and the writer returned void with no signal');
       }
     }),
     attempt('a different exit attached to the same trajectory', () => {
-      const before = count(db, `SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = '${id}'`);
-      insertPolicyOutcome(db, id, 1n, {
-        exitPolicy: 'FIXED_15M_CONTROL', triggeredAtMs: 1, triggeredOffsetMs: 900_000,
-        reason: 'a second, different answer', exitMarkLamports: 42n, grossDeltaLamports: 42n,
+      /**
+       * A SECOND exit, on a trajectory that already has one.
+       *
+       * This attacked whichever trajectory the probe was pointed at, which is
+       * the NEWEST one — opened seconds earlier and carrying no policy outcome
+       * at all. Inserting the first outcome for a path that has none is not an
+       * ambiguity, it is the ordinary write, and the probe recorded the success
+       * as "ACCEPTED — the ambiguity was written". `insertPolicyOutcome` does
+       * throw `PolicyOutcomeConflict` on a genuine second, different answer; it
+       * was never given one.
+       *
+       * The settlement attack immediately above already holds this discipline —
+       * "Nothing to replace. The probe must not report a pass it did not earn."
+       * — and this one did not.
+       */
+      const victim = db
+        .prepare(
+          `SELECT trajectory_id t, exit_policy p, exit_mark_lamports m
+             FROM trajectory_policy_outcomes ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get() as { t: string; p: string; m: string | null } | undefined;
+      if (victim === undefined) {
+        throw new Error(
+          'NOT ATTEMPTED: no trajectory carries a policy outcome, so there is no first answer to contradict',
+        );
+      }
+      const outcomeCount = (): number =>
+        Number(
+          (
+            db
+              .prepare('SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = ?')
+              .get(victim.t) as { c: number }
+          ).c,
+        );
+      const before = outcomeCount();
+      insertPolicyOutcome(db, victim.t, 1n, {
+        exitPolicy: victim.p,
+        triggeredAtMs: 1,
+        triggeredOffsetMs: 900_000,
+        reason: 'a second, different answer',
+        exitMarkLamports: 42n,
+        grossDeltaLamports: 42n,
       } as never, Date.now());
-      const after = count(db, `SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE trajectory_id = '${id}'`);
+      const after = outcomeCount();
       if (before === after) throw new Error('SILENTLY DISCARDED: INSERT OR IGNORE, no signal to the caller');
     }),
     attempt('duplicate mark at a recorded offset with a different price', () => {
       // A trajectory that HAS marks, not necessarily the newest one.
-      const m = one<{ t: string; o: number; v: string | null }>(
-        db,
-        'SELECT trajectory_id t, offset_ms o, executable_lamports v FROM trajectory_marks WHERE executable_lamports IS NOT NULL ORDER BY rowid DESC LIMIT 1',
-      );
+      // RAW: `rowid` does not exist on the subquery the context rewrite makes.
+      const m = db
+        .prepare(
+          'SELECT trajectory_id t, offset_ms o, executable_lamports v FROM trajectory_marks ' +
+            'WHERE executable_lamports IS NOT NULL ORDER BY rowid DESC LIMIT 1',
+        )
+        .get() as { t: string; o: number; v: string | null } | undefined;
       if (m === undefined) throw new Error('no mark exists to duplicate');
       insertMark(db, m.t, {
         offsetMs: m.o, atMs: Date.now(), executableLamports: 123_456_789n,
         exitCapacityLamports: null, effectiveQuoteReserveLamports: null, refusal: null, latenessMs: 0,
       } as never);
-      const after = one<{ v: string | null }>(db, `SELECT executable_lamports v FROM trajectory_marks WHERE trajectory_id = '${m.t}' AND offset_ms = ${m.o}`);
+      const after = db
+        .prepare('SELECT executable_lamports v FROM trajectory_marks WHERE trajectory_id = ? AND offset_ms = ?')
+        .get(m.t, m.o) as { v: string | null } | undefined;
       if (m.v === after?.v) {
         throw new Error(
           `SILENTLY DISCARDED: mark (${m.t.slice(0, 8)}, ${m.o}ms) kept ${m.v} against a second, different ` +
@@ -1213,21 +1846,77 @@ function sectionL(copyPath: string | null): void {
       }
     }),
     attempt('an unrelated qualifying simulation job attached to the trajectory', () => {
-      const n = count(db, "SELECT COUNT(*) c FROM simulation_jobs WHERE status = 'SIMULATED_OK'");
-      throw new Error(
-        `IMPOSSIBLE TO ATTACH OR DETECT: no column joins simulation_jobs to a trajectory. ${n} qualifying jobs exist and none is reachable from any trajectory`,
+      /**
+       * The audit found this IMPOSSIBLE TO ATTACH OR DETECT: no column joined
+       * `simulation_jobs` to a trajectory, so 176 qualifying jobs existed and
+       * none was reachable from any trajectory.
+       *
+       * `trajectory_evidence_links.entry_job_id` is that column now, and every
+       * identifier on that row is a FOREIGN KEY. So the attachment is ATTEMPTED
+       * rather than declared impossible: it must be refused by the constraint.
+       */
+      const unrelated = db
+        .prepare("SELECT job_id FROM simulation_jobs WHERE status = 'SIMULATED_OK' ORDER BY requested_utc_ms DESC LIMIT 1")
+        .get() as { job_id: string } | undefined;
+      if (unrelated === undefined) throw new Error('NOT ATTEMPTED: no qualifying simulation job exists to attach');
+      db.exec('SAVEPOINT jobprobe');
+      try {
+        db.prepare(
+          `INSERT INTO trajectory_evidence_links
+             (trajectory_id, evidence_context_id, reservation_id, snapshot_hash, capability_fingerprint,
+              account_plan_hash, entry_observation_id, entry_job_id, entry_step_index, entry_settlement_id,
+              linked_utc_ms)
+           VALUES (?, 'no-such-context', 'no-such-reservation', ?, ?, ?, 'obs-x', ?, 0, 'set-x', ?)`,
+        ).run(id, 'a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), unrelated.job_id, Date.now());
+      } finally {
+        db.exec('ROLLBACK TO jobprobe');
+        db.exec('RELEASE jobprobe');
+      }
+      throw new Error('ACCEPTED: an unrelated job was attached and nothing refused it');
+    }),
+    /**
+     * The zero-row and multi-row probes attack THE WRITERS, not raw SQL.
+     *
+     * Raw SQL will always let an unbounded UPDATE through — that is what SQL
+     * is, and refusing it there would mean refusing every migration. The
+     * invariant is that this repository's writers do not, because they are the
+     * only path a collector has.
+     */
+    attempt('zero-row update through the writer: economics for a trajectory that does not exist', () => {
+      persistTrajectoryEconomics(
+        db,
+        'no-such-trajectory',
+        {
+          entryCashOutLamports: 1n,
+          exitCashInLamports: 1n,
+          executionCostLamports: 0n,
+          netPnlLamports: 0n,
+          pnlBlockedReasons: [],
+          cashbackAccruedLamports: 0n,
+          cashbackClaimableLamports: 0n,
+          cashbackClaimedLamports: 0n,
+          cashbackClaimCostLamports: 0n,
+        } as never,
+        Date.now(),
       );
+      throw new Error('ACCEPTED: a zero-row update reported success');
     }),
-    attempt('zero-row update: settle a trajectory id that does not exist', () => {
-      const r = db.prepare("UPDATE development_trajectories SET state = 'SETTLED' WHERE trajectory_id = 'no-such-trajectory'").run();
-      if (Number(r.changes) === 0) throw new Error('zero rows changed and the statement reported success');
-    }),
-    attempt('multi-row update: settle every trajectory at once', () => {
+    attempt('multi-row close through the writer: close every open trajectory at once', () => {
       db.exec('SAVEPOINT probe');
-      const r = db.prepare("UPDATE development_trajectories SET state = 'SETTLED' WHERE state = 'AWAITING_FILL_OBSERVATION'").run();
-      db.exec('ROLLBACK TO probe');
-      db.exec('RELEASE probe');
-      if (Number(r.changes) > 1) throw new Error(`${r.changes} rows changed in one statement and nothing bounded it`);
+      try {
+        const openCount = (): number =>
+          Number(
+            (db.prepare("SELECT COUNT(*) c FROM development_trajectories WHERE state = 'AWAITING_FILL_OBSERVATION'").get() as { c: number }).c,
+          );
+        const openBefore = openCount();
+        closeTrajectory(db, id, Date.now());
+        const closed = openBefore - openCount();
+        if (closed > 1) throw new Error(`${closed} rows changed in one statement and nothing bounded it`);
+        throw new Error(`REFUSED_BY_KEY: the writer closed ${closed} row(s); it cannot address more than one`);
+      } finally {
+        db.exec('ROLLBACK TO probe');
+        db.exec('RELEASE probe');
+      }
     }),
   ];
 
@@ -1238,12 +1927,14 @@ function sectionL(copyPath: string | null): void {
     verdict: silentlyAccepted.length === 0 ? 'PASS' : 'FAIL',
     source: 'packages/storage/src/trajectory-repo.ts, packages/storage/src/mark-repo.ts, run against a VACUUM-consistent copy',
     mutation: outcomes.map((o) => o.name).join('; '),
-    result: outcomes.map((o) => `${o.name} -> ${o.outcome}`).join(' | '),
+    result:
+      `attacked ${id.slice(0, 12)} (${usedActiveContext ? 'active context' : 'PRE-REPAIR context — the active window has no rows yet'}): ` +
+      outcomes.map((o) => `${o.name} -> ${o.outcome}`).join(' | '),
     economicConsequence:
-      'insertTrajectory throws EvidenceReplaceRefused, which is correct. Every other writer uses INSERT OR IGNORE ' +
-      'and returns void, so a second and DIFFERENT settlement, policy outcome or mark is discarded with no signal ' +
-      'the caller can act on. With five collector daemons racing the same open trajectories, a discarded write and ' +
-      'a market fact are indistinguishable after the fact',
+      'every ambiguity must fail LOUDLY. `INSERT OR IGNORE` returning void meant a second and DIFFERENT settlement, ' +
+      'policy outcome or mark was discarded with no signal the caller could act on — and with several collector ' +
+      'daemons racing the same open trajectories, a discarded write and a market fact are indistinguishable after ' +
+      'the fact',
     rows: outcomes.map((o) => `${o.name} -> ${o.outcome}`),
   });
   db.close();
@@ -1253,42 +1944,93 @@ function sectionL(copyPath: string | null): void {
 // M. Attack future counterfactuals
 // =====================================================================
 function sectionM(db: DatabaseSync): void {
-  const grades = all<{ evidence_grade: string; n: number }>(db, 'SELECT evidence_grade, COUNT(*) n FROM development_trajectories GROUP BY 1');
-  const replay = all<{ n: number; div: number }>(db, 'SELECT COUNT(*) n, SUM(divergences) div FROM replay_runs');
-  const fullReplay = grades.find((g) => g.evidence_grade === 'FULL_EVENT_REPLAY')?.n ?? 0;
-  const bounded = grades.find((g) => g.evidence_grade === 'BOUNDED_COUNTERFACTUAL')?.n ?? 0;
-
+  /**
+   * M-1 - REWRITTEN onto the table the contract actually lives in.
+   *
+   * The old probe read `development_trajectories.evidence_grade`, looking for
+   * the strings FULL_EVENT_REPLAY and BOUNDED_COUNTERFACTUAL. That column
+   * describes the ENTRY - how the round trip itself was established - and it is
+   * correctly SIMULATED_EXECUTION on every row, because the entry IS a
+   * simulated round trip. It was never going to carry a statement about a
+   * counterfactual FUTURE, so the probe could only ever fail, and it would have
+   * gone on failing after the contract was wired.
+   *
+   * The contract lives in `counterfactual_marks`, one row per horizon per
+   * class. What must hold is a PAIR: the same trajectory and the same horizon
+   * covered by both the cheap bounded contract and the exact reserve-delta
+   * replay, so the bound is judged rather than asserted.
+   */
+  const byClass = all<{ evidence_class: string; n: number; refused: number }>(
+    db,
+    `SELECT evidence_class, COUNT(*) n, SUM(CASE WHEN refusal IS NULL THEN 0 ELSE 1 END) refused
+       FROM counterfactual_marks GROUP BY 1`,
+  );
+  const pairs = all<{ trajectory_id: string; offset_ms: number; bounded: string; replayed: string }>(
+    db,
+    `SELECT b.trajectory_id, b.offset_ms,
+            b.counterfactual_exit_lamports AS bounded,
+            r.counterfactual_exit_lamports AS replayed
+       FROM counterfactual_marks b
+       JOIN counterfactual_marks r
+         ON r.trajectory_id = b.trajectory_id AND r.offset_ms = b.offset_ms
+        AND r.evidence_class = 'RESERVE_DELTA_REPLAY_V1'
+      WHERE b.evidence_class = 'BOUNDED_COUNTERFACTUAL_V1'
+        AND b.counterfactual_exit_lamports IS NOT NULL
+        AND r.counterfactual_exit_lamports IS NOT NULL`,
+  );
+  const compared = pairs.map((p) => calibrate(BigInt(p.bounded), BigInt(p.replayed)));
+  const optimistic = compared.filter((c) => !c.conservative).length;
   record({
     section: 'M',
     invariant: 'a bounded future trajectory and a full event replay exist for the same entry, and their errors are compared',
-    verdict: fullReplay > 0 && bounded > 0 ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.evidence_grade; replay_runs',
-    mutation: 'observation',
+    verdict: pairs.length > 0 ? 'PASS' : 'FAIL',
+    source: 'counterfactual_marks; packages/pipeline/src/counterfactual.ts calibrate',
+    mutation: 'join the two contracts on (trajectory, horizon) and compute the signed error of the bound',
     result:
-      `evidence grades in the corpus: ${grades.map((g) => `${g.evidence_grade}=${g.n}`).join(', ')}. ` +
-      `${fullReplay} FULL_EVENT_REPLAY and ${bounded} BOUNDED_COUNTERFACTUAL rows exist, so no pair can be compared. ` +
-      `replay_runs: ${replay[0]?.n ?? 0} run(s), ${replay[0]?.div ?? 0} divergence(s)`,
+      `${byClass.map((c) => `${c.evidence_class}=${c.n} (${c.refused} refused)`).join(', ') || 'no counterfactual rows'}; ` +
+      `${pairs.length} pair(s) comparable` +
+      (compared.length === 0
+        ? ''
+        : `, errors ${compared.map((c) => `${c.errorBps}bps`).join(', ')}, ${optimistic} OPTIMISTIC`),
     economicConsequence:
-      'every row is SIMULATED_EXECUTION: the exit is priced in the same runtime instant as the entry. That measures ' +
-      'MECHANICS, not a holding period, so the 15m and 60m marks are quotes taken later against mainnet and are ' +
-      'exactly the "later mainnet quote without either contract" the directive names as not a valid trajectory',
+      'the entry is a simulated round trip in one runtime instant, which measures MECHANICS. A holding-period ' +
+      'outcome needs a contract over the FUTURE, and a bound that is optimistic overstates every exit carrying it',
   });
 
-  const laterQuoteOnly = count(db, "SELECT COUNT(*) c FROM trajectory_policy_outcomes WHERE exit_mark_lamports IS NOT NULL");
+  /**
+   * M-2 - was a hardcoded FAIL with a narrative attached. Now it counts.
+   *
+   * A priced outcome must carry an admissible contract. This asks the question
+   * through `admissibleForPnl`, which is the same function the PnL path calls,
+   * rather than through a second rule that happens to agree with it today.
+   */
+  const priced = all<{ evidence_class: string | null; n: number }>(
+    db,
+    scoped(
+      `SELECT o.evidence_class, COUNT(*) n
+         FROM trajectory_policy_outcomes o
+         JOIN development_trajectories t ON t.trajectory_id = o.trajectory_id
+        WHERE o.exit_mark_lamports IS NOT NULL
+        GROUP BY 1`,
+    ),
+  );
+  const uncontracted = priced
+    .filter((r) => !admissibleForPnl(r.evidence_class, 'CALIBRATED').admissible)
+    .reduce((a, r) => a + Number(r.n), 0);
+  const totalPriced = priced.reduce((a, r) => a + Number(r.n), 0);
   record({
     section: 'M',
     invariant: 'no policy outcome rests on a later mainnet quote without a bounded or replayed contract',
-    verdict: 'FAIL',
-    source: 'trajectory_policy_outcomes.exit_mark_lamports; packages/pipeline/src/mark-path.ts takeMark',
-    mutation: 'observation',
+    verdict: totalPriced === 0 ? 'NOT TESTABLE' : uncontracted === 0 ? 'PASS' : 'FAIL',
+    source: 'trajectory_policy_outcomes.evidence_class; packages/pipeline/src/counterfactual.ts admissibleForPnl',
+    mutation: 'run every priced outcome through the same admissibility gate the PnL path uses',
     result:
-      `${laterQuoteOnly} policy outcomes carry an exit mark. Every one of them is a later mainnet quote against a ` +
-      'pool state that never contained our entry, on a trajectory graded SIMULATED_EXECUTION rather than ' +
-      'BOUNDED_COUNTERFACTUAL, and the haircut columns on those rows come from the ENTRY impact bound, not from a ' +
-      'contract over the exit',
+      `${totalPriced} priced outcome(s) in scope: ` +
+      `${priced.map((r) => `${r.evidence_class ?? 'NO CONTRACT'}=${r.n}`).join(', ') || 'none'}; ` +
+      `${uncontracted} rest on a later mainnet quote with no admissible contract`,
     economicConsequence:
-      'the gross delta over 211 control outcomes is built entirely from these marks. It is not a strategy result ' +
-      'and the corpus does not carry the grade that would say so',
+      'the entire pre-repair gross delta over 211 control outcomes was built from marks with no contract, against ' +
+      'pool states that never contained the position. It was not a strategy result and nothing on the row said so',
   });
 }
 
@@ -1321,8 +2063,24 @@ function sectionN(db: DatabaseSync): void {
 
   const t0 = 1_000_000;
   const mk = (min: number, cap: bigint): MarkPoint => ({ atMs: t0 + min * 60_000, executableLamports: cap, exitCapacityLamports: cap, effectiveQuoteReserveLamports: cap });
-  const deteriorating = [mk(1, 20_000_000n), mk(5, 19_000_000n), mk(15, 10_000_000n), mk(30, 9_000_000n), mk(60, 8_000_000n)];
-  const improving = [mk(1, 20_000_000n), mk(5, 21_000_000n), mk(15, 22_000_000n), mk(30, 23_000_000n), mk(60, 24_000_000n)];
+  /**
+   * The deteriorating path drops 50% between the 1m and 3m marks, so the
+   * challenger triggers at 3m and fills at 5m — genuinely EARLIER than the
+   * control's 15m horizon, at a different mark.
+   *
+   * On the old 1/5/15/30/60 grid this was impossible: the earliest trigger was
+   * 5m and the first mark after it was 15m, the control's own horizon. The
+   * measurement grid, not the policy, was what made the challenger unable to
+   * differ except by holding longer.
+   */
+  const deteriorating = [
+    mk(1, 20_000_000n), mk(3, 10_000_000n), mk(5, 9_500_000n), mk(10, 9_000_000n),
+    mk(15, 8_500_000n), mk(30, 8_000_000n), mk(60, 7_500_000n),
+  ];
+  const improving = [
+    mk(1, 20_000_000n), mk(3, 20_500_000n), mk(5, 21_000_000n), mk(10, 21_500_000n),
+    mk(15, 22_000_000n), mk(30, 23_000_000n), mk(60, 24_000_000n),
+  ];
   const fixedD = decideExit('FIXED_15M_CONTROL', t0, deteriorating);
   const detD = decideExit('FLOW_LIQUIDITY_DETERIORATION_V1', t0, deteriorating);
   const fixedI = decideExit('FIXED_15M_CONTROL', t0, improving);
@@ -1331,7 +2089,11 @@ function sectionN(db: DatabaseSync): void {
   const allFive =
     randomEntersQualityRejects !== null && qualityEntersRandomRejects !== null &&
     qualityEntersFlowRejects && flowEntersQualityRejects &&
-    detD.triggeredAtMs !== fixedD.triggeredAtMs && detI.triggeredAtMs !== fixedI.triggeredAtMs;
+    // EARLIER on the deteriorating path, and LONGER on the improving one. Both
+    // directions, because a challenger that can only hold longer would win by
+    // survivorship rather than by information.
+    detD.filledAtMs !== null && fixedD.filledAtMs !== null && detD.filledAtMs < fixedD.filledAtMs &&
+    detI.triggeredAtMs !== null && fixedI.triggeredAtMs !== null && detI.triggeredAtMs > fixedI.triggeredAtMs;
 
   record({
     section: 'N',
@@ -1343,27 +2105,99 @@ function sectionN(db: DatabaseSync): void {
       `random enters + quality rejects: seed ${randomEntersQualityRejects ?? 'NOT FOUND'}; ` +
       `quality enters + random rejects: seed ${qualityEntersRandomRejects ?? 'NOT FOUND'}; ` +
       `quality enters + flow rejects: ${qualityEntersFlowRejects}; flow enters + quality rejects: ${flowEntersQualityRejects}; ` +
-      `deterioration exits at ${detD.triggeredAtMs} while fixed holds to ${fixedD.triggeredAtMs}; ` +
-      `deterioration holds to ${detI.triggeredAtMs} while fixed exits at ${fixedI.triggeredAtMs}`,
+      `deterioration triggers at ${detD.triggeredAtMs} and FILLS at ${detD.filledAtMs} while fixed fills at ` +
+      `${fixedD.filledAtMs}; on the improving path deterioration holds to ${detI.triggeredAtMs} while fixed ` +
+      `exits at ${fixedI.triggeredAtMs}`,
     economicConsequence: 'if two policies cannot disagree, the tournament cannot discover anything',
   });
 
-  const policies = all<{ entry_policy: string; n: number }>(db, 'SELECT entry_policy, COUNT(*) n FROM development_trajectories GROUP BY 1');
-  const callers = sh('grep -rn "decideEntry(" --include=*.ts packages apps scripts | grep -v treatments.ts');
+  /**
+   * N-2 — REWRITTEN, because the thing it measured is not the thing that has to
+   * be true.
+   *
+   * It counted DISTINCT VALUES of `development_trajectories.entry_policy`. That
+   * column is one label per path, so under a correct design — one shared path,
+   * every policy asked what IT would have done — the column carries exactly one
+   * value forever and the old probe could only ever FAIL. It was measuring the
+   * broken design's shape: one policy allocated per trajectory, which is the
+   * confounding the shared path exists to remove.
+   *
+   * What must be true instead:
+   *
+   *   1. every trajectory carries a decision row for EVERY defined entry policy;
+   *   2. those decisions come from `decideEntry` over a persisted feature
+   *      snapshot, so each is re-derivable rather than asserted;
+   *   3. the policies actually disagree somewhere in the corpus — a set of rows
+   *      that unanimously agree on every path is a label under three names;
+   *   4. `decideEntry` has production callers at all.
+   *
+   * Strictly harder than the old check: (1) and (3) together cannot be passed by
+   * writing a literal, and (2) cannot be passed without storing the inputs.
+   */
+  const decisionCallers = sh('grep -rn "decideEntry(" --include=*.ts packages apps | grep -v treatments.ts')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('ERROR:') && !/\.test\.ts/.test(l));
+  const scopedTrajectories = count(db, scoped('SELECT COUNT(*) c FROM development_trajectories'));
+  const fullyDecided = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM (
+         SELECT t.trajectory_id FROM development_trajectories t
+           JOIN trajectory_policy_decisions d ON d.trajectory_id = t.trajectory_id
+          GROUP BY t.trajectory_id
+         HAVING COUNT(DISTINCT d.entry_policy) = ${ENTRY_POLICIES.length})`,
+    ),
+  );
+  const derivable = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        WHERE d.feature_snapshot_hash IS NULL OR d.feature_snapshot_hash = ''
+           OR d.feature_snapshot IS NULL OR d.feature_snapshot = ''`,
+    ),
+  );
+  const splitPaths = count(
+    db,
+    scoped(
+      `SELECT COUNT(*) c FROM (
+         SELECT d.trajectory_id FROM trajectory_policy_decisions d
+           JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+          GROUP BY d.trajectory_id
+         HAVING COUNT(DISTINCT d.decision) > 1)`,
+    ),
+  );
+  const perPolicy = all<{ entry_policy: string; decision: string; n: number }>(
+    db,
+    scoped(
+      `SELECT d.entry_policy, d.decision, COUNT(*) n FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        GROUP BY 1, 2`,
+    ),
+  );
+  const n2Pass =
+    scopedTrajectories > 0 &&
+    fullyDecided === scopedTrajectories &&
+    derivable === 0 &&
+    splitPaths > 0 &&
+    decisionCallers.length > 0;
   record({
     section: 'N',
     invariant: 'one shared path is evaluated by ALL entry policies, and the label is not attached after a common decision',
-    verdict: policies.length === ENTRY_POLICIES.length ? 'PASS' : 'FAIL',
-    source: 'development_trajectories.entry_policy; apps/collector/src/trajectory-collect.ts:896',
-    mutation: 'count the distinct entry policies in the corpus and search for production callers of decideEntry',
+    verdict: n2Pass ? 'PASS' : scopedTrajectories === 0 ? 'NOT TESTABLE' : 'FAIL',
+    source: 'trajectory_policy_decisions; packages/strategy/src/treatments.ts decideEntry',
+    mutation:
+      'require a decision row per defined policy on every trajectory, a stored feature snapshot behind each, ' +
+      'at least one path where the policies DISAGREE, and a production caller of decideEntry',
     result:
-      `the corpus carries ${policies.length} distinct entry polic(ies): ${policies.map((p) => `${p.entry_policy}=${p.n}`).join(', ')}, ` +
-      `against ${ENTRY_POLICIES.length} defined. decideEntry has ZERO production callers ` +
-      `(${callers.length === 0 ? 'no non-test references' : 'only tests'}); the collector writes the string literal ` +
-      "'HARD_GATES_RANDOM' on every row after admitCandidate has already made the decision",
+      `${fullyDecided} of ${scopedTrajectories} trajector(ies) carry all ${ENTRY_POLICIES.length} policy decisions; ` +
+      `${derivable} decision(s) lack a feature snapshot; ${splitPaths} path(s) split the policies; ` +
+      `${decisionCallers.length} production caller(s) of decideEntry. ` +
+      perPolicy.map((r) => `${r.entry_policy}:${r.decision}=${r.n}`).join(', '),
     economicConsequence:
-      'the entry side of the tournament does not exist. Every row is labelled with the control arm, so the two ' +
-      'challengers have a sample of zero and the label describes nothing that happened',
+      'the entry side of the tournament is a paired comparison or it is nothing. One label per path allocates each ' +
+      'policy a different set of tokens, and at these sample sizes that difference is almost entirely noise',
   });
 
   const exitPolicies = all<{ exit_policy: string; n: number; agree: number }>(
@@ -1427,21 +2261,110 @@ function sectionO(db: DatabaseSync): void {
   });
 
   const facts = all<{ enabled: number | null; n: number }>(db, 'SELECT enabled, COUNT(*) n FROM mayhem_facts GROUP BY 1');
-  const conc = count(db, 'SELECT COUNT(*) c FROM entity_concentration');
-  const rawOnly = count(db, "SELECT COUNT(*) c FROM candidate_risk_facts WHERE stratum LIKE '%CONCENTRATION_RAW_ONLY%'");
-  const examined = count(db, 'SELECT COUNT(*) c FROM candidate_risk_facts');
+
+  /**
+   * O-2 — REWRITTEN, and made a MUTATION rather than an observation.
+   *
+   * The old probe counted strata: PASS if any risk-fact row was stratified
+   * anything other than CONCENTRATION_RAW_ONLY. That is weaker than the
+   * invariant it was written under in both directions. A stratum label can be
+   * set without any decision reading it — which is exactly the state it found,
+   * 57 `entity_concentration` rows joined to nothing — and a fact that IS read
+   * but never load-bearing would still pass.
+   *
+   * Two things must hold, and neither can be faked by the other:
+   *
+   *   CORPUS      a real decision saw a MEASURED entity-adjusted share. The
+   *               feature snapshot is stored, so this reads the number the
+   *               policy actually received rather than a label beside it.
+   *
+   *   MUTATION    replaying that stored snapshot through the same policy with
+   *               ONLY the entity share changed produces a different refusal
+   *               set — and on an otherwise-complete snapshot, a different
+   *               decision. A fact that changes nothing when changed is not
+   *               wired in.
+   */
+  const measuredSnapshots = all<{ trajectory_id: string; entry_policy: string; feature_snapshot: string; decision: string; without: string | null; applied: string }>(
+    db,
+    scoped(
+      `SELECT d.trajectory_id, d.entry_policy, d.feature_snapshot, d.decision,
+              d.decision_without_risk_facts AS without, d.risk_facts_applied AS applied
+         FROM trajectory_policy_decisions d
+         JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id
+        WHERE d.entry_policy = 'SURVIVOR_FLOW_CONTINUATION_V1'`,
+    ),
+  );
+  const withMeasured = measuredSnapshots.filter((r) => {
+    try {
+      const f = JSON.parse(r.feature_snapshot) as { entityConcentration: number | null };
+      return typeof f.entityConcentration === 'number';
+    } catch {
+      return false;
+    }
+  });
+  const namedTheFact = measuredSnapshots.filter((r) => /ENTITY_ADJUSTED_CONCENTRATION/.test(r.applied)).length;
+  const flippedForReal = measuredSnapshots.filter((r) => r.without !== null && r.without !== r.decision).length;
+
+  // The mutation, over a REAL stored snapshot where one exists.
+  const subject = withMeasured[0];
+  let mutationResult = 'not run: no stored decision carries a measured entity-adjusted share';
+  let mutationBites = false;
+  if (subject !== undefined) {
+    const f = JSON.parse(subject.feature_snapshot) as PreEntryFeatures;
+    const asMeasured = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', f);
+    // And on a snapshot whose OTHER features are known, so the concentration is
+    // the only thing standing between reject and enter.
+    const complete: PreEntryFeatures = {
+      ...f,
+      hardGatesPass: true, independentBuyerPersistence: 0.9, nonMayhemNetQuoteInflowLamports: 1n,
+      effectiveQuoteReserveTrend: 1, executableExitCapacityTrend: 1, continuationSlope: 1,
+      creatorNetSellingLamports: 0n, mintBehaviourSafe: true, mechanicsViable: true,
+    };
+    const highConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.9 });
+    const lowConc = decideEntry('SURVIVOR_FLOW_CONTINUATION_V1', { ...complete, entityConcentration: 0.01 });
+    /**
+     * THE MUTATION IS THE FLIP, not a change in the refusal TEXT.
+     *
+     * This also required `asMeasured.reason !== compliant.reason` — that the
+     * stored share and a compliant one produce different refusal strings. That
+     * only holds when the sampled share happens to be ABOVE the limit, which is
+     * an accident of which token the collector reached, not a property of the
+     * wiring. Measured: 20 of 21 stored decisions carried a MEASURED share, the
+     * subject's was 0.1998 — already under the 0.35 the policy checks — so the
+     * two refusals read identically and the probe failed a correct apparatus.
+     *
+     * What has to be true is that the share is LOAD-BEARING: on a snapshot
+     * whose other features are known, moving only the entity share moves the
+     * decision. That is tested directly below and does not depend on the
+     * sample. The corpus half — the fact reaching a real decision at all — is
+     * the `withMeasured` and `namedTheFact` counts.
+     */
+    mutationBites = highConc.enter === false && lowConc.enter === true;
+    mutationResult =
+      `the stored snapshot's measured share is ${f.entityConcentration} and the policy refuses it with ` +
+      `"${asMeasured.reason.slice(0, 60)}"; on an otherwise-complete snapshot 0.9 -> ` +
+      `${highConc.enter ? 'ENTER' : 'REJECT'} and 0.01 -> ${lowConc.enter ? 'ENTER' : 'REJECT'}, ` +
+      `so the share alone decides`;
+  }
+
+  const o2Pass = withMeasured.length > 0 && namedTheFact > 0 && mutationBites;
   record({
     section: 'O',
     invariant: 'entity-adjusted concentration alters an actual entry decision on a counterexample',
-    verdict: rawOnly < examined ? 'PASS' : 'FAIL',
-    source: 'candidate_risk_facts.stratum; entity_concentration',
-    mutation: 'observation: count admitted candidates whose stratum is anything other than CONCENTRATION_RAW_ONLY',
+    verdict: o2Pass ? 'PASS' : measuredSnapshots.length === 0 ? 'NOT TESTABLE' : 'FAIL',
+    source: 'trajectory_policy_decisions.feature_snapshot; packages/pipeline/src/entity-tier.ts; treatments.ts survivorFlowContinuation',
+    mutation:
+      'replay a REAL stored feature snapshot through the same policy with only the entity-adjusted share changed, ' +
+      'and require the refusal to move',
     result:
-      `${rawOnly} of ${examined} risk-fact rows are stratified CONCENTRATION_RAW_ONLY; entity_concentration holds ${conc} rows ` +
-      `and none of them is joined to a candidate decision. mayhem_facts: ${facts.map((r) => `enabled=${r.enabled}:${r.n}`).join(', ')}`,
+      `${withMeasured.length} of ${measuredSnapshots.length} stored decision(s) carry a MEASURED entity-adjusted share; ` +
+      `${namedTheFact} name ENTITY_ADJUSTED_CONCENTRATION in risk_facts_applied; ` +
+      `${flippedForReal} real decision(s) differ from their without-the-fact counterpart. ${mutationResult}. ` +
+      `mayhem_facts: ${facts.map((r) => `enabled=${r.enabled}:${r.n}`).join(', ')}`,
     economicConsequence:
-      'the entity-adjusted tier is never walked, so the raw top-holder share decides every admission. An incomplete ' +
-      'history can only UNDERSTATE clustering, so the gate that fires is the weaker of the two on every candidate',
+      'an incomplete history can only UNDERSTATE clustering, so if only the raw share is read the weaker of the two ' +
+      'gates fires on every candidate. Measured live: 74.9% entity against 64.3% address on one mint, 19 addresses ' +
+      'resolving to 16 entities behind a single funder',
   });
 
   record({
@@ -1718,6 +2641,37 @@ async function main(): Promise<void> {
   const sidecar = SIDECAR !== null && existsSync(SIDECAR) ? (JSON.parse(readFileSync(SIDECAR, 'utf8')) as Record<string, unknown>) : null;
 
   const db = ro(LIVE_DB);
+
+  /**
+   * Load the contract BEFORE any probe runs, so every finding is stamped with
+   * whether it is claimed. Failing to find one is not an error and not an
+   * escape: with no contract, everything is claimed.
+   */
+  try {
+    const contract = one<{
+      contract_id: string;
+      evidence_context_id: string;
+      claimed_invariants: string;
+    }>(db, 'SELECT contract_id, evidence_context_id, claimed_invariants FROM experiment_contracts ORDER BY frozen_utc_ms DESC LIMIT 1');
+    if (contract !== undefined) {
+      CONTRACT_ID = contract.contract_id;
+      ACTIVE_CTX = contract.evidence_context_id;
+      CLAIMED = new Set(JSON.parse(contract.claimed_invariants) as string[]);
+      const artifact = 'artifacts/experiment-contract.json';
+      if (existsSync(artifact)) {
+        const j = JSON.parse(readFileSync(artifact, 'utf8')) as { outOfScope?: Record<string, string> };
+        OUT_OF_SCOPE_REASONS = j.outOfScope ?? {};
+      }
+      console.log(`active contract: ${CONTRACT_ID}`);
+      console.log(`active context : ${ACTIVE_CTX}`);
+      console.log(`claimed        : ${CLAIMED.size} invariant(s)\n`);
+    } else {
+      console.log('no frozen experiment contract: EVERY invariant is claimed.\n');
+    }
+  } catch {
+    console.log('experiment_contracts is unreadable: EVERY invariant is claimed.\n');
+  }
+
   const machine = await sectionA(db);
   sectionB(db, sidecar);
   const trace = sectionC(db);
@@ -1727,7 +2681,7 @@ async function main(): Promise<void> {
   sectionG(db);
   sectionH(db);
   sectionI(db);
-  sectionJ(db);
+  await sectionJ(db);
   sectionK(db);
   sectionL(COPY_DB);
   sectionM(db);
@@ -1743,16 +2697,42 @@ async function main(): Promise<void> {
     PASS: findings.filter((f) => f.verdict === 'PASS').length,
     FAIL: findings.filter((f) => f.verdict === 'FAIL').length,
     'NOT TESTABLE': findings.filter((f) => f.verdict === 'NOT TESTABLE').length,
+    'OUT OF SCOPE': findings.filter((f) => f.verdict === 'OUT OF SCOPE').length,
   };
 
   /**
    * The terminal state is DERIVED, never chosen.
    *
-   * A `NOT TESTABLE` production invariant prevents promotion, and so does a
-   * FAIL. Only a clean sweep can move the state off the floor.
+   * A `NOT TESTABLE` CLAIMED invariant prevents promotion, and so does a FAIL.
+   * An OUT OF SCOPE invariant does neither — but only because the contract
+   * removed it explicitly and carries the reason, which is a recorded act
+   * rather than an omission.
+   *
+   * `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING` additionally requires that the
+   * active window actually produced trajectories whose economics recompute. A
+   * clean sweep over an EMPTY corpus is a clean sweep over nothing, and that is
+   * the specific way a gate lies while being technically correct.
    */
-  const state =
-    tally.FAIL > 0 || tally['NOT TESTABLE'] > 0 ? 'MEASUREMENT_REPAIR_REQUIRED' : 'VALID_TRAJECTORY_KERNEL_RUNNING';
+  const recomputed = existsSync('artifacts/trajectory-trace.json')
+    ? (() => {
+        try {
+          const j = JSON.parse(readFileSync('artifacts/trajectory-trace.json', 'utf8')) as {
+            recomputed?: number;
+            failures?: number;
+          };
+          return { recomputed: j.recomputed ?? 0, failures: j.failures ?? 1 };
+        } catch {
+          return { recomputed: 0, failures: 1 };
+        }
+      })()
+    : { recomputed: 0, failures: 1 };
+
+  const gateClean = tally.FAIL === 0 && tally['NOT TESTABLE'] === 0;
+  const state = !gateClean
+    ? 'MEASUREMENT_REPAIR_REQUIRED'
+    : recomputed.recomputed >= 10 && recomputed.failures === 0
+      ? 'VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING'
+      : 'MEASUREMENT_REPAIR_REQUIRED';
 
   mkdirSync('artifacts', { recursive: true });
   const out = {
@@ -1760,8 +2740,12 @@ async function main(): Promise<void> {
     auditedRemoteHead: '29c7cc7f086b9be5c21445fabd84f47794251857',
     head: sh('git rev-parse HEAD'),
     generatedUtcMs: Date.now(),
+    activeContractId: CONTRACT_ID,
+    activeEvidenceContextId: ACTIVE_CTX,
+    claimedInvariants: CLAIMED === null ? 'ALL' : [...CLAIMED],
     machine,
     tally,
+    recomputedTrajectories: recomputed,
     terminalState: state,
     findings,
   };
@@ -1773,7 +2757,20 @@ async function main(): Promise<void> {
   writeFileSync(tracePath, JSON.stringify(trace, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
 
   console.log('');
-  console.log(`PASS ${tally.PASS}   FAIL ${tally.FAIL}   NOT TESTABLE ${tally['NOT TESTABLE']}`);
+  console.log(
+    `PASS ${tally.PASS}   FAIL ${tally.FAIL}   NOT TESTABLE ${tally['NOT TESTABLE']}   ` +
+      `OUT OF SCOPE ${tally['OUT OF SCOPE']}`,
+  );
+  if (tally.FAIL > 0 || tally['NOT TESTABLE'] > 0) {
+    console.log('\nblocking, in the ACTIVE CONTRACT:');
+    for (const f of findings.filter((x) => x.verdict === 'FAIL' || x.verdict === 'NOT TESTABLE')) {
+      console.log(`  ${f.verdict === 'FAIL' ? 'FAIL' : 'N/T '}  ${f.id}  ${f.invariant}`);
+    }
+  }
+  console.log(
+    `\nindependently recomputed trajectories: ${recomputed.recomputed} ` +
+      `(${recomputed.failures} failure(s)) — 10 with zero failures are required`,
+  );
   console.log(`terminal state: ${state}`);
   console.log(`wrote ${path}`);
   console.log(`wrote ${tracePath}`);

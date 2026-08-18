@@ -2708,6 +2708,809 @@ CREATE TABLE IF NOT EXISTS prospective_sample_marks (
 CREATE INDEX IF NOT EXISTS idx_pmark_due ON prospective_sample_marks(horizon_ms, observed_utc_ms);
 `,
   },
+  {
+    id: 47,
+    name: 'evidence_graph_v1',
+    sql: `
+-- =====================================================================
+-- EVIDENCE GRAPH V1  --  the 5d24e39 directive, P0.4 / P1 / P2 / P3
+--
+-- The 8f73cef runtime audit established that the apparatus runs and the
+-- evidence graph does not:
+--
+--   0 / 292  entry_observation_id values resolve
+--   0 / 292  entry_simulation_job_id values resolve
+--   292/292  snapshot_hash values are decimal SLOT NUMBERS
+--   292/292  capability fingerprints are the same slot number
+--   292/292  trajectories carry unobserved writable accounts
+--    51/52   settlements carry a non-zero unexplained remainder
+--    30      of those publish net PnL anyway
+--
+-- The old columns are NOT dropped and the old rows are NOT deleted. They
+-- are instrument-development history and they stay exactly where they are.
+-- What changes is that a trajectory in an ACTIVE evidence context must
+-- carry a row in trajectory_evidence_links, where every arrow is a real
+-- foreign key -- and that table is new, so no dangling legacy value can
+-- enter it.
+--
+-- Why a side table rather than ALTER TABLE ... ADD FOREIGN KEY: SQLite
+-- cannot add a constraint to an existing table, and rebuilding
+-- development_trajectories with the constraints WOULD FAIL on the 292
+-- legacy rows whose identifiers point at nothing. A rebuild that requires
+-- deleting the evidence of the defect is not an acceptable repair.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- P0.4  APPEND-ONLY INVALIDATION LEDGER
+--
+-- Old evidence is closed, never deleted. Every default report reads
+-- validity from here rather than deciding for itself.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS evidence_contexts (
+  evidence_context_id  TEXT PRIMARY KEY,
+  context_hash         TEXT NOT NULL,
+  source_commit        TEXT NOT NULL,
+  tree_dirty           INTEGER NOT NULL,
+  opened_utc_ms        INTEGER NOT NULL,
+  closed_utc_ms        INTEGER,
+  -- DEVELOPMENT_EVIDENCE          admissible as development evidence
+  -- INSTRUMENT_DEVELOPMENT_INVALID  preserved history, excluded everywhere
+  validity             TEXT NOT NULL
+    CHECK (validity IN ('DEVELOPMENT_EVIDENCE','INSTRUMENT_DEVELOPMENT_INVALID')),
+  -- JSON array of strings. Every reason, not the first one that fired.
+  reasons              TEXT NOT NULL DEFAULT '[]',
+  -- sha256 of the audit document that established the invalidation, so a
+  -- reader can check the claim against the artifact rather than the prose.
+  audit_artifact_hash  TEXT,
+  notes                TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_evctx_validity ON evidence_contexts(validity, opened_utc_ms);
+
+-- Which trajectories belong to which evidence context. A separate table
+-- because the legacy trajectories predate the concept and must be
+-- attributable to a closed context retroactively without editing them.
+CREATE TABLE IF NOT EXISTS trajectory_evidence_context (
+  trajectory_id        TEXT PRIMARY KEY,
+  evidence_context_id  TEXT NOT NULL,
+  assigned_utc_ms      INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id),
+  FOREIGN KEY (evidence_context_id) REFERENCES evidence_contexts(evidence_context_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tec_ctx ON trajectory_evidence_context(evidence_context_id);
+
+-- ---------------------------------------------------------------------
+-- P12.2  FROZEN EXPERIMENT CONTRACT
+--
+-- Frozen BEFORE a window opens. Readiness loads ONE contract and the rows
+-- that belong to it; it does not assemble a verdict from whatever is in
+-- the database, which is how a position report came to answer a
+-- trajectory question.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS experiment_contracts (
+  contract_id          TEXT PRIMARY KEY,
+  evidence_context_id  TEXT NOT NULL,
+  frozen_utc_ms        INTEGER NOT NULL,
+  source_commit        TEXT NOT NULL,
+  context_hash         TEXT NOT NULL,
+  collector_version    TEXT NOT NULL,
+  kernel_version       TEXT NOT NULL,
+  route_fingerprint    TEXT NOT NULL,
+  capability_fingerprint TEXT NOT NULL,
+  notional_rule        TEXT NOT NULL,
+  cohort               TEXT NOT NULL,
+  entry_policies       TEXT NOT NULL,
+  exit_policies        TEXT NOT NULL,
+  mark_sla_ms          INTEGER NOT NULL,
+  counterfactual_contract TEXT NOT NULL,
+  cashback_treatment   TEXT NOT NULL,
+  mayhem_treatment     TEXT NOT NULL,
+  cost_rent_treatment  TEXT NOT NULL,
+  risk_facts           TEXT NOT NULL,
+  thresholds           TEXT NOT NULL,
+  -- The set of audit invariants this contract CLAIMS. An invariant not in
+  -- this list is out of scope and is not claimed anywhere else either.
+  claimed_invariants   TEXT NOT NULL,
+  contract_hash        TEXT NOT NULL,
+  FOREIGN KEY (evidence_context_id) REFERENCES evidence_contexts(evidence_context_id)
+);
+CREATE INDEX IF NOT EXISTS idx_contract_ctx ON experiment_contracts(evidence_context_id, frozen_utc_ms);
+
+-- ---------------------------------------------------------------------
+-- P1.4  ATOMIC CANDIDATE RESERVATION
+--
+-- A process lock gives ONE writer. It does not give a per-mint sampling
+-- cap: five daemons evaluating COUNT(*) < maxPerMint against the same
+-- instant all admitted the same mint, and the worst mint produced 58
+-- trajectories against a cap of 3.
+--
+-- The cap is enforced by a UNIQUE INDEX on (window_id, mint, ordinal)
+-- plus a CHECK that the ordinal is within the cap, inside one
+-- BEGIN IMMEDIATE. A count followed by a later independent insert cannot
+-- express that, no matter how carefully it is written.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trajectory_reservations (
+  reservation_id       TEXT PRIMARY KEY,
+  window_id            TEXT NOT NULL,
+  mint                 TEXT NOT NULL,
+  reservation_ordinal  INTEGER NOT NULL CHECK (reservation_ordinal >= 1),
+  max_per_mint         INTEGER NOT NULL CHECK (max_per_mint >= 1),
+  trajectory_id        TEXT,
+  status               TEXT NOT NULL
+    CHECK (status IN ('RESERVED','OPENED','ABANDONED')),
+  reserved_utc_ms      INTEGER NOT NULL,
+  resolved_utc_ms      INTEGER,
+  owner_session_id     TEXT NOT NULL,
+  -- The reservation cannot be for an ordinal above the cap it was taken
+  -- under. Stated in the schema so it holds regardless of the caller.
+  CHECK (reservation_ordinal <= max_per_mint)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_ordinal ON trajectory_reservations(window_id, mint, reservation_ordinal);
+-- At most ONE unresolved reservation per (window, mint). This is the index
+-- that makes "no open trajectory for this mint" a database fact.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_open
+  ON trajectory_reservations(window_id, mint) WHERE status = 'RESERVED';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_trajectory
+  ON trajectory_reservations(trajectory_id) WHERE trajectory_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_resv_window ON trajectory_reservations(window_id, reserved_utc_ms);
+
+-- ---------------------------------------------------------------------
+-- P3.1  CONTENT-ADDRESSED EVIDENCE BLOBS
+--
+-- The audit's finding C-4: the worker's pre/post account state existed
+-- only in process memory and was reduced to aggregate columns before
+-- anything was persisted. Every economic amount was therefore recorded
+-- exactly once and was unfalsifiable from the database.
+--
+-- SQLite holds the hash and the metadata. The bytes live under
+-- data/evidence-blobs/<sha256[0:2]>/<sha256>, gzip-compressed, and every
+-- blob is READ BACK and re-hashed before it is marked durable.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS evidence_blobs (
+  blob_sha256          TEXT PRIMARY KEY,
+  kind                 TEXT NOT NULL,
+  byte_length          INTEGER NOT NULL CHECK (byte_length >= 0),
+  stored_length        INTEGER NOT NULL,
+  compression          TEXT NOT NULL CHECK (compression IN ('gzip','none')),
+  relative_path        TEXT NOT NULL,
+  -- Set only after the file was read back and its sha256 recomputed.
+  readback_verified    INTEGER NOT NULL DEFAULT 0,
+  readback_utc_ms      INTEGER,
+  written_utc_ms       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_blob_kind ON evidence_blobs(kind, written_utc_ms);
+
+-- ---------------------------------------------------------------------
+-- P2.3 / P3.3  COHERENT SNAPSHOTS WITH REAL HASHES
+--
+-- snapshot_hash was the decimal slot number on 292 of 292 rows, and
+-- capability_fingerprint was the SAME value. A slot number commits to no
+-- byte of the pool, the vaults, the mint or the fee config, so a replay
+-- comparing against it cannot detect that the state it re-fetched differs.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS coherent_snapshots (
+  snapshot_hash        TEXT PRIMARY KEY,
+  slot                 INTEGER NOT NULL,
+  captured_utc_ms      INTEGER NOT NULL,
+  mint                 TEXT NOT NULL,
+  pool                 TEXT NOT NULL,
+  -- sha256 over the ordered account manifest (address, owner, lamports,
+  -- executable, rentEpoch, data hash) -- the value snapshot_hash IS.
+  manifest_blob_sha256 TEXT NOT NULL,
+  account_count        INTEGER NOT NULL,
+  fee_config_hash      TEXT,
+  capability_fingerprint TEXT NOT NULL,
+  programdata_hashes   TEXT NOT NULL DEFAULT '{}',
+  sdk_versions         TEXT NOT NULL DEFAULT '{}',
+  worker_binary_hash   TEXT,
+  FOREIGN KEY (manifest_blob_sha256) REFERENCES evidence_blobs(blob_sha256)
+);
+CREATE INDEX IF NOT EXISTS idx_snap_mint ON coherent_snapshots(mint, captured_utc_ms);
+
+-- A slot number can never be mistaken for a snapshot hash again: a hash is
+-- 64 lowercase hex characters and a decimal slot is not.
+CREATE TRIGGER IF NOT EXISTS trg_snapshot_hash_is_a_hash
+BEFORE INSERT ON coherent_snapshots
+FOR EACH ROW WHEN NEW.snapshot_hash NOT GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+BEGIN
+  SELECT RAISE(ABORT, 'snapshot_hash must be a sha256 hex digest, not a slot number');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_capability_fingerprint_is_a_hash
+BEFORE INSERT ON coherent_snapshots
+FOR EACH ROW WHEN NEW.capability_fingerprint = CAST(NEW.slot AS TEXT)
+BEGIN
+  SELECT RAISE(ABORT, 'capability_fingerprint may not be the slot number');
+END;
+
+-- ---------------------------------------------------------------------
+-- P3.2  RAW PRE/POST ACCOUNT MANIFESTS
+--
+-- One row per (job, step, leg, account, side). ABSENT is represented
+-- EXPLICITLY -- an account created by the leg has pre = ABSENT and an
+-- account closed by it has post = ABSENT. Neither is silently added to
+-- the unobserved set, which is what let 292 of 292 trajectories settle while
+-- carrying an unmeasured lamport flow.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS account_state_manifests (
+  manifest_id          TEXT PRIMARY KEY,
+  job_id               TEXT NOT NULL,
+  step_index           INTEGER NOT NULL,
+  leg                  TEXT NOT NULL CHECK (leg IN ('buy','sell','close','claim')),
+  address              TEXT NOT NULL,
+  role                 TEXT NOT NULL,
+  writable             INTEGER NOT NULL,
+  -- STATIC or ALT_LOADED. An ALT-loaded writable that nobody observed is
+  -- the same defect as a static one and must be countable separately.
+  key_source           TEXT NOT NULL CHECK (key_source IN ('STATIC','ALT_LOADED','SYSVAR','DERIVED')),
+  pre_state            TEXT NOT NULL CHECK (pre_state IN ('PRESENT','ABSENT')),
+  post_state           TEXT NOT NULL CHECK (post_state IN ('PRESENT','ABSENT')),
+  pre_blob_sha256      TEXT,
+  post_blob_sha256     TEXT,
+  pre_lamports         TEXT,
+  post_lamports        TEXT,
+  recorded_utc_ms      INTEGER NOT NULL,
+  FOREIGN KEY (pre_blob_sha256) REFERENCES evidence_blobs(blob_sha256),
+  FOREIGN KEY (post_blob_sha256) REFERENCES evidence_blobs(blob_sha256),
+  -- PRESENT means there are bytes. ABSENT means there are not, and the
+  -- difference must not be expressible as "we did not look".
+  CHECK ((pre_state = 'PRESENT') = (pre_blob_sha256 IS NOT NULL)),
+  CHECK ((post_state = 'PRESENT') = (post_blob_sha256 IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asm_once
+  ON account_state_manifests(job_id, step_index, leg, address);
+CREATE INDEX IF NOT EXISTS idx_asm_job ON account_state_manifests(job_id, step_index);
+
+-- ---------------------------------------------------------------------
+-- P2.3  SIMULATION STEPS
+--
+-- simulation_jobs already exists and is keyed by the request hash. What
+-- was missing is the STEP: one worker job executes several legs, and a
+-- settlement must name which one it came from.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS simulation_steps (
+  job_id               TEXT NOT NULL,
+  step_index           INTEGER NOT NULL CHECK (step_index >= 0),
+  leg                  TEXT NOT NULL CHECK (leg IN ('buy','sell','close','claim')),
+  observation_id       TEXT,
+  transaction_blob_sha256 TEXT NOT NULL,
+  request_blob_sha256  TEXT,
+  response_blob_sha256 TEXT,
+  status               TEXT NOT NULL
+    CHECK (status IN ('REQUESTED','RUNTIME_RETURNED','RAW_STATE_DURABLE',
+                      'EFFECT_VERIFIED','SETTLEMENT_DERIVED','COMPLETE','FAILED')),
+  runtime_ok           INTEGER,
+  effect_ok            INTEGER,
+  units_consumed       INTEGER,
+  transaction_error    TEXT,
+  started_utc_ms       INTEGER NOT NULL,
+  completed_utc_ms     INTEGER,
+  PRIMARY KEY (job_id, step_index),
+  FOREIGN KEY (transaction_blob_sha256) REFERENCES evidence_blobs(blob_sha256),
+  FOREIGN KEY (request_blob_sha256) REFERENCES evidence_blobs(blob_sha256),
+  FOREIGN KEY (response_blob_sha256) REFERENCES evidence_blobs(blob_sha256)
+);
+CREATE INDEX IF NOT EXISTS idx_step_obs ON simulation_steps(observation_id);
+
+-- ---------------------------------------------------------------------
+-- P4  PER-LEG MEASURED SETTLEMENT
+--
+-- The settlement of ONE leg, derived from the raw manifests above, with
+-- its own eligibility verdict. buildTrajectorySettlement consumes these;
+-- it does not recompute them from aggregates it was handed.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS leg_settlements (
+  settlement_id        TEXT PRIMARY KEY,
+  trajectory_id        TEXT NOT NULL,
+  leg                  TEXT NOT NULL CHECK (leg IN ('buy','sell','close','claim')),
+  observation_id       TEXT NOT NULL,
+  job_id               TEXT NOT NULL,
+  step_index           INTEGER NOT NULL,
+  settlement_version   TEXT NOT NULL,
+
+  cash_out_lamports    TEXT,
+  cash_in_lamports     TEXT,
+  gross_credit_lamports TEXT,
+  base_fee_lamports    TEXT NOT NULL,
+  priority_fee_lamports TEXT NOT NULL,
+  tip_lamports         TEXT NOT NULL,
+  transfer_fee_lamports TEXT NOT NULL,
+  failed_attempt_fee_lamports TEXT NOT NULL,
+  rent_created_lamports TEXT NOT NULL,
+  rent_recovered_lamports TEXT NOT NULL,
+  rent_still_locked_lamports TEXT NOT NULL,
+  cashback_accrued_lamports TEXT NOT NULL,
+  cashback_claimable_lamports TEXT NOT NULL,
+  cashback_claimed_lamports TEXT NOT NULL,
+  cashback_claim_cost_lamports TEXT NOT NULL,
+  residual_token_atoms TEXT NOT NULL,
+  unexplained_lamports TEXT NOT NULL,
+
+  -- The four conditions isPnlEligible names, each stored as its own fact
+  -- rather than collapsed into a verdict nobody can take apart.
+  complete             INTEGER NOT NULL,
+  effect_valid         INTEGER NOT NULL,
+  full_account_coverage INTEGER NOT NULL,
+  residual_semantics_known INTEGER NOT NULL,
+  transfer_fee_status  TEXT NOT NULL
+    CHECK (transfer_fee_status IN ('MEASURED','NOT_APPLICABLE','UNKNOWN')),
+  raw_state_durable    INTEGER NOT NULL,
+  pnl_eligible         INTEGER NOT NULL,
+  ineligibility_reasons TEXT NOT NULL DEFAULT '[]',
+
+  derived_utc_ms       INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id),
+  FOREIGN KEY (job_id, step_index) REFERENCES simulation_steps(job_id, step_index)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_legset_once ON leg_settlements(trajectory_id, leg, settlement_version);
+CREATE INDEX IF NOT EXISTS idx_legset_job ON leg_settlements(job_id, step_index);
+
+-- ---------------------------------------------------------------------
+-- P2.3  THE LINK ROW  --  every arrow is a foreign key
+--
+-- A trajectory in an active evidence context must have one of these, and
+-- SQLite will refuse to insert it if any link does not resolve. That is
+-- the whole point: the 292 legacy rows CANNOT be represented here, which
+-- is how "0 of 292 resolve" becomes impossible rather than merely fixed.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trajectory_evidence_links (
+  trajectory_id        TEXT PRIMARY KEY,
+  evidence_context_id  TEXT NOT NULL,
+  reservation_id       TEXT NOT NULL,
+  snapshot_hash        TEXT NOT NULL,
+  capability_fingerprint TEXT NOT NULL,
+  account_plan_hash    TEXT NOT NULL,
+  fee_config_hash      TEXT,
+  selected_tier        TEXT,
+
+  entry_observation_id TEXT NOT NULL,
+  entry_job_id         TEXT NOT NULL,
+  entry_step_index     INTEGER NOT NULL,
+  entry_settlement_id  TEXT NOT NULL,
+
+  -- NULL is valid ONLY while the trajectory is open. The graph check
+  -- enforces that against the state column, which a CHECK constraint here cannot
+  -- see.
+  exit_observation_id  TEXT,
+  exit_job_id          TEXT,
+  exit_step_index      INTEGER,
+  exit_settlement_id   TEXT,
+
+  linked_utc_ms        INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id),
+  FOREIGN KEY (evidence_context_id) REFERENCES evidence_contexts(evidence_context_id),
+  FOREIGN KEY (reservation_id) REFERENCES trajectory_reservations(reservation_id),
+  FOREIGN KEY (snapshot_hash) REFERENCES coherent_snapshots(snapshot_hash),
+  FOREIGN KEY (entry_settlement_id) REFERENCES leg_settlements(settlement_id),
+  FOREIGN KEY (exit_settlement_id) REFERENCES leg_settlements(settlement_id),
+  FOREIGN KEY (entry_job_id, entry_step_index) REFERENCES simulation_steps(job_id, step_index),
+  FOREIGN KEY (exit_job_id, exit_step_index) REFERENCES simulation_steps(job_id, step_index),
+  -- Both halves of an exit link, or neither. A job id with no step index is
+  -- how a dangling identifier gets written without anyone noticing.
+  CHECK ((exit_job_id IS NULL) = (exit_step_index IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_tel_ctx ON trajectory_evidence_links(evidence_context_id);
+
+-- ---------------------------------------------------------------------
+-- P9.1  ENTRY POLICY DECISIONS
+--
+-- All 292 rows carried the string literal 'HARD_GATES_RANDOM', written
+-- AFTER admitCandidate had already decided. decideEntry had zero
+-- production callers. So the entry side of the tournament had a sample of
+-- zero and the label described nothing that happened.
+--
+-- A decision row is written per (trajectory, policy) BEFORE the entry, by
+-- the policy itself, over the pre-entry feature snapshot. Three policies
+-- over one shared trajectory is a paired comparison; one label is not.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trajectory_policy_decisions (
+  trajectory_id        TEXT NOT NULL,
+  entry_policy         TEXT NOT NULL,
+  policy_version       TEXT NOT NULL,
+  decision             TEXT NOT NULL CHECK (decision IN ('ENTER','REJECT')),
+  reason               TEXT NOT NULL,
+  -- The exact features the policy saw, as JSON. A decision that cannot be
+  -- re-derived from its inputs is an opinion.
+  feature_snapshot     TEXT NOT NULL,
+  feature_snapshot_hash TEXT NOT NULL,
+  decided_utc_ms       INTEGER NOT NULL,
+  -- Whether a risk fact CHANGED this decision, recorded at decision time.
+  -- P10.1: a fact that never alters an outcome is not wired in.
+  risk_facts_applied   TEXT NOT NULL DEFAULT '[]',
+  decision_without_risk_facts TEXT
+    CHECK (decision_without_risk_facts IS NULL OR decision_without_risk_facts IN ('ENTER','REJECT')),
+  PRIMARY KEY (trajectory_id, entry_policy),
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tpd_policy ON trajectory_policy_decisions(entry_policy, decision);
+
+-- ---------------------------------------------------------------------
+-- P8  COUNTERFACTUAL CONTRACTS
+--
+-- A hypothetical entry did not happen on mainnet, so a later mainnet
+-- quote is not an exact future exit for it. All 292 rows were graded
+-- SIMULATED_EXECUTION and 545 policy outcomes rested on those marks.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS counterfactual_marks (
+  trajectory_id        TEXT NOT NULL,
+  offset_ms            INTEGER NOT NULL,
+  evidence_class       TEXT NOT NULL
+    CHECK (evidence_class IN ('BOUNDED_COUNTERFACTUAL_V1','RESERVE_DELTA_REPLAY_V1')),
+  contract_version     TEXT NOT NULL,
+  -- The local displacement OUR entry made to the pool, carried forward.
+  post_entry_base_reserve  TEXT NOT NULL,
+  post_entry_quote_reserve TEXT NOT NULL,
+  -- The real mainnet state at the mark.
+  observed_base_reserve    TEXT NOT NULL,
+  observed_quote_reserve   TEXT NOT NULL,
+  -- The conservative adverse adjustment applied to it, and the formula.
+  adjusted_base_reserve    TEXT NOT NULL,
+  adjusted_quote_reserve   TEXT NOT NULL,
+  haircut_formula      TEXT NOT NULL,
+  haircut_bps          INTEGER NOT NULL,
+  haircut_lamports     TEXT NOT NULL,
+  entry_impact_bps     INTEGER NOT NULL,
+  impact_bound_bps     INTEGER NOT NULL,
+  counterfactual_exit_lamports TEXT,
+  -- DEVELOPMENT until the bound is calibrated against replay.
+  evidence_grade       TEXT NOT NULL
+    CHECK (evidence_grade IN ('DEVELOPMENT','CALIBRATED')),
+  refusal              TEXT,
+  computed_utc_ms      INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, offset_ms, evidence_class),
+  FOREIGN KEY (trajectory_id, offset_ms) REFERENCES trajectory_marks(trajectory_id, offset_ms),
+  -- P8.2: bounded mode exists ONLY at or under the frozen impact bound.
+  CHECK (evidence_class <> 'BOUNDED_COUNTERFACTUAL_V1' OR entry_impact_bps <= impact_bound_bps)
+);
+
+CREATE TABLE IF NOT EXISTS counterfactual_calibration (
+  calibration_id       TEXT PRIMARY KEY,
+  trajectory_id        TEXT NOT NULL,
+  offset_ms            INTEGER NOT NULL,
+  bounded_exit_lamports TEXT NOT NULL,
+  replay_exit_lamports TEXT NOT NULL,
+  error_lamports       TEXT NOT NULL,
+  error_bps            REAL NOT NULL,
+  tolerance_bps        REAL NOT NULL,
+  -- The bound must be CONSERVATIVE: bounded <= replay. A bounded value
+  -- above the replayed one is an optimistic bound and invalidates the rows.
+  conservative         INTEGER NOT NULL,
+  within_tolerance     INTEGER NOT NULL,
+  pool_events_applied  INTEGER NOT NULL,
+  computed_utc_ms      INTEGER NOT NULL,
+  FOREIGN KEY (trajectory_id) REFERENCES development_trajectories(trajectory_id)
+);
+
+-- ---------------------------------------------------------------------
+-- P5  APPEND-ONLY TRANSITIONS
+--
+-- Rather than overwriting economic history, record the transition. A
+-- second different answer is then visible as two rows plus a conflict,
+-- not as a silently discarded INSERT OR IGNORE.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS evidence_transitions (
+  transition_id        TEXT PRIMARY KEY,
+  entity               TEXT NOT NULL,
+  entity_key           TEXT NOT NULL,
+  from_state           TEXT,
+  to_state             TEXT NOT NULL,
+  content_hash         TEXT NOT NULL,
+  recorded_utc_ms      INTEGER NOT NULL,
+  detail               TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_trans_entity ON evidence_transitions(entity, entity_key, recorded_utc_ms);
+
+-- Every EvidenceConflict that was thrown, so a loud failure is also a
+-- durable one. A conflict that only ever reached a log is not evidence.
+CREATE TABLE IF NOT EXISTS evidence_conflicts (
+  conflict_id          TEXT PRIMARY KEY,
+  entity               TEXT NOT NULL,
+  entity_key           TEXT NOT NULL,
+  existing_hash        TEXT NOT NULL,
+  offered_hash         TEXT NOT NULL,
+  detail               TEXT NOT NULL,
+  recorded_utc_ms      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conflict_entity ON evidence_conflicts(entity, entity_key);
+`,
+  },
+  {
+    id: 48,
+    name: 'evidence_graph_columns',
+    sql: `
+-- Columns on existing tables. Separate migration so a failure here is
+-- distinguishable from a failure creating the tables above.
+
+-- P1.1: the lock must record WHICH COMMIT and WHICH COMMAND LINE owns it.
+-- 'process_locks.collector names pid 24924, which is alive -- and is a
+-- different program' was only diagnosable by hand because these were absent.
+ALTER TABLE process_locks ADD COLUMN source_commit TEXT;
+ALTER TABLE process_locks ADD COLUMN command_line TEXT;
+
+-- P7.2: a mark carries its own SLA verdict. A late mark is MISSED_HORIZON,
+-- not a valid backfilled horizon -- 697 of 1,448 marks were more than 60s
+-- late and every one of them carried the right label on the wrong instant.
+ALTER TABLE trajectory_marks ADD COLUMN sla_status TEXT;
+ALTER TABLE trajectory_marks ADD COLUMN due_utc_ms INTEGER;
+ALTER TABLE trajectory_marks ADD COLUMN sla_bound_ms INTEGER;
+-- P6.4: the fee table this mark was priced against.
+ALTER TABLE trajectory_marks ADD COLUMN fee_config_hash TEXT;
+ALTER TABLE trajectory_marks ADD COLUMN selected_tier TEXT;
+ALTER TABLE trajectory_marks ADD COLUMN evidence_class TEXT;
+
+-- P6.4 on the trajectory itself.
+ALTER TABLE development_trajectories ADD COLUMN fee_config_hash TEXT;
+ALTER TABLE development_trajectories ADD COLUMN selected_tier TEXT;
+ALTER TABLE development_trajectories ADD COLUMN market_cap_lamports TEXT;
+ALTER TABLE development_trajectories ADD COLUMN creator_fee_bps INTEGER;
+ALTER TABLE development_trajectories ADD COLUMN protocol_fee_bps INTEGER;
+ALTER TABLE development_trajectories ADD COLUMN lp_fee_bps INTEGER;
+ALTER TABLE development_trajectories ADD COLUMN cashback_flag INTEGER;
+-- P2.3: the exit half of the identity, which had no column at all.
+ALTER TABLE development_trajectories ADD COLUMN exit_simulation_job_id TEXT;
+ALTER TABLE development_trajectories ADD COLUMN exit_settlement_id TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_step_index INTEGER;
+ALTER TABLE development_trajectories ADD COLUMN exit_step_index INTEGER;
+-- P10.1: raw AND entity-adjusted, and whether the difference mattered.
+ALTER TABLE development_trajectories ADD COLUMN concentration_raw REAL;
+ALTER TABLE development_trajectories ADD COLUMN concentration_entity_adjusted REAL;
+ALTER TABLE development_trajectories ADD COLUMN concentration_stratum TEXT;
+ALTER TABLE development_trajectories ADD COLUMN token2022_fee_status TEXT;
+
+-- P4.5: the trajectory-level failed-attempt parameter, which the settlement
+-- builder accepted and then added to no total.
+ALTER TABLE trajectory_settlements ADD COLUMN settlement_version TEXT;
+ALTER TABLE trajectory_settlements ADD COLUMN entry_settlement_id TEXT;
+ALTER TABLE trajectory_settlements ADD COLUMN exit_settlement_id TEXT;
+
+-- P9.3: which entry policy this outcome is paired with. The outcome table
+-- was keyed by exit policy alone, so an entry-policy treatment could not be
+-- represented even once decideEntry started being called.
+ALTER TABLE trajectory_policy_outcomes ADD COLUMN entry_policy TEXT;
+ALTER TABLE trajectory_policy_outcomes ADD COLUMN entry_decision TEXT;
+ALTER TABLE trajectory_policy_outcomes ADD COLUMN net_pnl_lamports TEXT;
+ALTER TABLE trajectory_policy_outcomes ADD COLUMN pnl_blocked_reasons TEXT;
+ALTER TABLE trajectory_policy_outcomes ADD COLUMN evidence_class TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_marks_sla ON trajectory_marks(sla_status);
+`,
+  },
+{
+    id: 49,
+    name: 'reservation_retry',
+    sql: `
+-- A CANDIDATE REFUSED ONCE MUST BE RETRYABLE.
+--
+-- \`abandonReservation\` frees the ordinal for COUNTING — \`used\` excludes
+-- ABANDONED rows — but the abandoned row still occupies the deterministic
+-- primary key sha256(window|mint|ordinal). So the next attempt at the same
+-- mint collided on the PRIMARY KEY and reported RESERVATION_RACE_LOST, in a
+-- window with exactly one process running and no race at all.
+--
+-- Measured 2026-08-17: eleven admissible, deep, under-cap pools were refused
+-- for this reason on the pass immediately after the one that abandoned them.
+-- A window could therefore only ever open the mints that succeeded on their
+-- FIRST attempt, and a transient refusal — a thin minute, an RPC hiccup —
+-- removed a mint permanently.
+--
+-- A refusal is a fact about an instant, not about a mint.
+--
+-- The cap is unchanged and still enforced: at most maxPerMint NON-ABANDONED
+-- reservations per (window, mint), which is what the partial index below says.
+-- Abandoned rows are history and are excluded from it.
+DROP INDEX IF EXISTS idx_resv_ordinal;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resv_ordinal
+  ON trajectory_reservations(window_id, mint, reservation_ordinal)
+  WHERE status <> 'ABANDONED';
+`,
+  },
+{
+    id: 50,
+    name: 'counterfactual_inputs',
+    sql: `
+-- P8: THE INPUTS A COUNTERFACTUAL EXIT NEEDS, ON THE ROWS THAT HAVE THEM.
+--
+-- counterfactual_marks has existed since migration 48 and nothing wrote a
+-- single row, because the two states the construction needs were never
+-- persisted anywhere:
+--
+--   the LOCAL post-entry reserves -- the displacement our entry actually made,
+--   which is the only thing that distinguishes a counterfactual from a later
+--   quote; and
+--
+--   the REAL reserves at each mark, which trajectory_marks stored only as
+--   effective_quote_reserve. That figure includes the pool's VIRTUAL quote and
+--   is correct for depth and wrong for a constant-product exit: the virtual
+--   term is not lamports anyone can withdraw.
+--
+-- Without both, every policy outcome rested on a later mainnet quote against a
+-- pool that never contained our entry -- 545 of them before the repair -- and
+-- the haircut columns on those rows came from the ENTRY impact bound rather
+-- than from any contract over the exit.
+-- BOTH, because the two contracts need different things. The bounded contract
+-- carries the DISPLACEMENT onto the later real reserves; the reserve-delta
+-- replay starts from the ABSOLUTE local state and applies intervening events
+-- to it. Deriving either from the other needs the pre-entry reserves, which
+-- are not on this row.
+ALTER TABLE development_trajectories ADD COLUMN post_entry_base_reserve TEXT;
+ALTER TABLE development_trajectories ADD COLUMN post_entry_quote_reserve TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_base_delta_atoms TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_quote_delta_lamports TEXT;
+ALTER TABLE development_trajectories ADD COLUMN entry_impact_bps INTEGER;
+
+ALTER TABLE trajectory_marks ADD COLUMN observed_base_reserve TEXT;
+ALTER TABLE trajectory_marks ADD COLUMN observed_quote_reserve TEXT;
+
+-- counterfactual_marks named its two displacement columns post_entry_*, and
+-- boundedCounterfactual ADDS them to the observed reserves. An absolute
+-- post-entry reserve added to the later real state doubles the pool, and the
+-- exit is then priced against roughly twice the liquidity that existed --
+-- which flatters every counterfactual by understating slippage. The table has
+-- never held a row, so the names are corrected rather than worked around.
+ALTER TABLE counterfactual_marks RENAME COLUMN post_entry_base_reserve TO entry_base_delta_atoms;
+ALTER TABLE counterfactual_marks RENAME COLUMN post_entry_quote_reserve TO entry_quote_delta_lamports;
+
+CREATE INDEX IF NOT EXISTS idx_cf_marks_class
+  ON counterfactual_marks(evidence_class, trajectory_id);
+`,
+  },
+{
+    id: 51,
+    name: 'counterfactual_refusal_is_not_a_claim',
+    sql: `
+-- A REFUSAL IS NOT A CLAIM THAT BOUNDED MODE EXISTS.
+--
+-- The CHECK read:
+--
+--   evidence_class <> 'BOUNDED_COUNTERFACTUAL_V1' OR entry_impact_bps <= impact_bound_bps
+--
+-- and its intent is right: bounded mode exists ONLY at or under the frozen
+-- impact bound, so a row carrying that class and a larger impact would be
+-- claiming a contract it does not have.
+--
+-- It also forbade the REFUSAL row. When an entry moves the pool past the bound
+-- the collector records that fact -- class BOUNDED_COUNTERFACTUAL_V1, a null
+-- exit, and the refusal text -- because a mark with no counterfactual row and a
+-- mark whose counterfactual was REFUSED are different facts and only the second
+-- is countable. That insert violated the constraint and threw, which killed the
+-- mark pass mid-run.
+--
+-- Measured 2026-08-17: six mark passes in one window died this way, the --once
+-- pass exited non-zero, and the gate's B-3 and S-3 read the crash as "0 marks
+-- over 0 open trajectories" -- an apparatus failure wearing the shape of an
+-- idle collector.
+--
+-- The guarantee is unchanged and is now stated exactly: no PRICED bounded row
+-- outside the bound. A refusal carries no price, so it asserts nothing to
+-- guard.
+--
+-- SQLite cannot alter a CHECK, so the table is rebuilt and its rows copied.
+PRAGMA foreign_keys = OFF;
+
+CREATE TABLE counterfactual_marks_new (
+  trajectory_id        TEXT NOT NULL,
+  offset_ms            INTEGER NOT NULL,
+  evidence_class       TEXT NOT NULL
+    CHECK (evidence_class IN ('BOUNDED_COUNTERFACTUAL_V1','RESERVE_DELTA_REPLAY_V1')),
+  contract_version     TEXT NOT NULL,
+  entry_base_delta_atoms   TEXT NOT NULL,
+  entry_quote_delta_lamports TEXT NOT NULL,
+  observed_base_reserve  TEXT NOT NULL,
+  observed_quote_reserve TEXT NOT NULL,
+  adjusted_base_reserve  TEXT NOT NULL,
+  adjusted_quote_reserve TEXT NOT NULL,
+  haircut_formula      TEXT NOT NULL,
+  haircut_bps          INTEGER NOT NULL,
+  haircut_lamports     TEXT NOT NULL,
+  entry_impact_bps     INTEGER NOT NULL,
+  impact_bound_bps     INTEGER NOT NULL,
+  counterfactual_exit_lamports TEXT,
+  evidence_grade       TEXT NOT NULL
+    CHECK (evidence_grade IN ('DEVELOPMENT','CALIBRATED')),
+  refusal              TEXT,
+  computed_utc_ms      INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, offset_ms, evidence_class),
+  FOREIGN KEY (trajectory_id, offset_ms) REFERENCES trajectory_marks(trajectory_id, offset_ms),
+  -- P8.2: a PRICED bounded row exists ONLY at or under the frozen bound.
+  -- A refusal carries no price and asserts nothing to guard.
+  CHECK (
+    evidence_class <> 'BOUNDED_COUNTERFACTUAL_V1'
+    OR entry_impact_bps <= impact_bound_bps
+    OR (refusal IS NOT NULL AND counterfactual_exit_lamports IS NULL)
+  )
+);
+
+INSERT INTO counterfactual_marks_new
+  SELECT trajectory_id, offset_ms, evidence_class, contract_version,
+         entry_base_delta_atoms, entry_quote_delta_lamports,
+         observed_base_reserve, observed_quote_reserve,
+         adjusted_base_reserve, adjusted_quote_reserve,
+         haircut_formula, haircut_bps, haircut_lamports,
+         entry_impact_bps, impact_bound_bps, counterfactual_exit_lamports,
+         evidence_grade, refusal, computed_utc_ms
+    FROM counterfactual_marks;
+
+DROP TABLE counterfactual_marks;
+ALTER TABLE counterfactual_marks_new RENAME TO counterfactual_marks;
+
+CREATE INDEX IF NOT EXISTS idx_cf_marks_class
+  ON counterfactual_marks(evidence_class, trajectory_id);
+
+PRAGMA foreign_keys = ON;
+`,
+  },
+  {
+    id: 52,
+    name: 'the_contract_owns_its_window',
+    sql: `
+-- THE WINDOW IS PART OF THE EXPERIMENT, SO THE CONTRACT HAS TO STATE IT.
+--
+-- \`contract:freeze\` defaulted its window to DEV_WINDOW_5D24E and
+-- \`trajectory:collect\` defaulted its own to DEV_WINDOW_V1, and nothing
+-- compared them. The window id is not a label: it seeds the entry-policy
+-- randomisation (\`seed: \${windowId}:\${policy}\`), scopes exploration
+-- entitlements, and namespaces every reservation. A collector running one
+-- window while writing into another window's evidence context is running a
+-- different randomisation and a different reservation namespace than the
+-- contract declares.
+--
+-- Measured 2026-08-18: a collector started without --window opened
+-- ctx-5f5a6dc3f761-DEV_WINDOW_V1 while the frozen contract owned
+-- ctx-5f5a6dc3f761-DEV_WINDOW_5D24E. One trajectory landed in a context the
+-- gate does not read -- the exact "every row real, every report empty" failure
+-- the collector's own contract-binding comment warns about, arriving through
+-- the one field that binding did not cover.
+--
+-- The column is nullable because contracts frozen before this migration cannot
+-- have one, and inventing a value for them would be a fabricated provenance
+-- record. The collector refuses on DISAGREEMENT, not on absence.
+ALTER TABLE experiment_contracts ADD COLUMN window_id TEXT;
+`,
+  },
+  {
+    id: 53,
+    name: 'a_reservation_belongs_to_its_experiment',
+    sql: `
+-- THE SLOT NAMESPACE IS THE EXPERIMENT, NOT A REUSED WINDOW NAME.
+--
+-- \`trajectory_reservations\` numbered its slots within (window_id, mint), and
+-- every contract froze with the same default window name, so five successive
+-- experiments shared one set of ordinals. Combined with the S092 count repair
+-- the two disagreed: the corrected sample count produced ordinal 3 for a mint
+-- whose slot 3 was already held by an OPENED row from an earlier window, and
+-- the unique index refused the insert as RESERVATION_RACE_LOST -- 24 of 25
+-- candidates, with no concurrent writer anywhere.
+--
+-- The old double count had been hiding this by overshooting the occupied slots.
+--
+-- The cap and the slot are different things and are now separated:
+--
+--   the CAP    is a COUNT of samples, corpus-wide via the trajectory table,
+--              and is unchanged at maxPerMint;
+--   the SLOT   is a unique id WITHIN the experiment that took it.
+--
+-- Legacy rows keep their old namespace through COALESCE, so nothing that was
+-- already consistent is rewritten into a conflict. Rows that can be attributed
+-- to a context are backfilled to it, which is strictly more precise than the
+-- window name they carried.
+ALTER TABLE trajectory_reservations ADD COLUMN evidence_context_id TEXT;
+
+UPDATE trajectory_reservations
+   SET evidence_context_id = (
+         SELECT x.evidence_context_id FROM trajectory_evidence_context x
+          WHERE x.trajectory_id = trajectory_reservations.trajectory_id)
+ WHERE trajectory_id IS NOT NULL;
+
+DROP INDEX IF EXISTS idx_resv_open;
+DROP INDEX IF EXISTS idx_resv_ordinal;
+
+CREATE UNIQUE INDEX idx_resv_open
+  ON trajectory_reservations(COALESCE(evidence_context_id, window_id), mint)
+  WHERE status = 'RESERVED';
+
+CREATE UNIQUE INDEX idx_resv_ordinal
+  ON trajectory_reservations(COALESCE(evidence_context_id, window_id), mint, reservation_ordinal)
+  WHERE status <> 'ABANDONED';
+`,
+  },
 ];
 
 export interface OpenOptions {
@@ -2740,8 +3543,20 @@ export function openDb(opts: OpenOptions): Db {
   // A migration rewrites the only copy of a research corpus that cannot be
   // regenerated. If we cannot prove we have a readable snapshot of it first,
   // the correct behaviour is to refuse to start, not to proceed hopefully.
+  //
+  // BACK UP WHEN THERE IS A MIGRATION TO PROTECT AGAINST, AND NOT OTHERWISE.
+  //
+  // This used to back up on EVERY open. The invariant is right and the trigger
+  // was wrong: what needs a snapshot behind it is a schema change, not the act
+  // of opening a file. On the 7.3 GB corpus the unconditional version cost
+  // ~5 minutes and 7 GB of disk per `openDb` — per status command, per script,
+  // per collector restart — which is why five daemons were left running rather
+  // than restarted, and why a mark scheduler with a 10-second SLA could not
+  // exist. `pendingMigrations` is read from the same table `migrate` reads, so
+  // the two cannot disagree about whether anything is about to change.
   const hasContent = db.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type='table' LIMIT 1`).get() !== undefined;
-  if (!(opts.skipBackup ?? false) && hasContent) {
+  const pending = hasContent ? pendingMigrations(db) : [];
+  if (!(opts.skipBackup ?? false) && hasContent && pending.length > 0) {
     try {
       onlineBackup(db, `${abs}.bak`);
     } catch (e) {
@@ -2757,6 +3572,25 @@ export function openDb(opts: OpenOptions): Db {
 
   migrate(db);
   return db;
+}
+
+/**
+ * Migrations declared but not yet applied.
+ *
+ * Exported because two things must agree about it: the pre-migration backup
+ * (which is expensive and must run exactly when a schema change is about to
+ * happen) and `migrate` itself. Deriving both from one query is the only way to
+ * guarantee they cannot drift.
+ */
+export function pendingMigrations(db: Db): readonly Migration[] {
+  let applied: Set<number>;
+  try {
+    applied = new Set((db.prepare('SELECT id FROM schema_migrations').all() as { id: number }[]).map((r) => r.id));
+  } catch {
+    // The table does not exist yet: everything is pending.
+    return MIGRATIONS;
+  }
+  return MIGRATIONS.filter((m) => !applied.has(m.id));
 }
 
 export function migrate(db: Db): void {

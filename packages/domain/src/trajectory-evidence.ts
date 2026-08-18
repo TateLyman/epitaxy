@@ -209,6 +209,24 @@ export function attributeSoleVenue(p: {
   baseOutAtoms: bigint;
   quoteInLamports: bigint;
   takerCreditAtoms: bigint;
+  /**
+   * What the payer actually spent on this entry, and the fee flows that
+   * legitimately do NOT reach the pool's quote vault.
+   *
+   * The 8f73cef audit's D-2: the quote leg was tested only for SIGN. A ONE
+   * LAMPORT quote-vault credit attributed a 20,000,000 lamport entry as sole
+   * venue, because the notional was never compared to what the pool received.
+   * "The canonical pool accounts for all named deltas" was true of the base
+   * vault and false of the quote vault.
+   *
+   * Omitted, the conservation check is skipped and the refusal says so, rather
+   * than a missing input reading as a passed check.
+   */
+  entryQuoteOutLamports?: bigint;
+  /** Protocol, creator, LP and cashback lamports that go elsewhere by design. */
+  feeFlowsLamports?: bigint;
+  /** Rounding the venue model documents, in lamports. */
+  toleranceLamports?: bigint;
 }): SoleVenueAttribution {
   const base = { baseOutAtoms: p.baseOutAtoms, quoteInLamports: p.quoteInLamports, takerCreditAtoms: p.takerCreditAtoms };
   if (p.baseOutAtoms <= 0n) {
@@ -226,5 +244,33 @@ export function attributeSoleVenue(p: {
         'part of the flow came from somewhere else, so this is not direct evidence about this venue',
     };
   }
+
+  // QUOTE-SIDE CONSERVATION. Both sides of the trade must reconcile, not one.
+  if (p.entryQuoteOutLamports === undefined) {
+    return {
+      ...base,
+      attributed: false,
+      refusal:
+        'the quote side cannot be conserved because the payer outflow was not supplied; ' +
+        'a positive quote-vault delta on its own is a sign test, and a one-lamport credit passes it',
+    };
+  }
+  const fees = p.feeFlowsLamports ?? 0n;
+  const tolerance = p.toleranceLamports ?? 0n;
+  const accountedFor = p.quoteInLamports + fees;
+  const residue = p.entryQuoteOutLamports > accountedFor
+    ? p.entryQuoteOutLamports - accountedFor
+    : accountedFor - p.entryQuoteOutLamports;
+  if (residue > tolerance) {
+    return {
+      ...base,
+      attributed: false,
+      refusal:
+        `the payer spent ${p.entryQuoteOutLamports} lamports and this pool plus its named fee flows ` +
+        `account for ${accountedFor} (quote vault ${p.quoteInLamports} + fees ${fees}); ` +
+        `${residue} lamports went somewhere unnamed, which is not sole-venue evidence`,
+    };
+  }
+
   return { ...base, attributed: true, refusal: null };
 }

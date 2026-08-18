@@ -1,0 +1,42 @@
+{
+  "registered": 6905,
+  "neverReadBack": 0,
+  "byKind": [
+    {
+      "kind": "account_state",
+      "n": 5710,
+      "bytes": 19561150
+    },
+    {
+      "kind": "worker_request",
+      "n": 400,
+      "bytes": 144352
+    },
+    {
+      "kind": "snapshot_manifest",
+      "n": 399,
+      "bytes": 4407234
+    },
+    {
+      "kind": "exact_transaction",
+      "n": 394,
+      "bytes": 546912
+    },
+    {
+      "kind": "worker_response",
+      "n": 2,
+      "bytes": 718
+    }
+  ],
+  "checked": 6905,
+  "missing": [],
+  "corrupt": [],
+  "verdict": "ALL_DURABLE",
+  "provenance": {
+    "writer": "evidence-blob-check.ts",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "treeDirty": true,
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-18T19:12:54.549Z"
+  }
+}

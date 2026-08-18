@@ -159,7 +159,7 @@ export function isPnlEligible(s: MeasuredLegSettlement): { ok: boolean; reasons:
   const reasons: string[] = [];
   if (!s.complete) reasons.push(`settlement incomplete: ${s.incompleteness.join('; ')}`);
   if (!s.effectValid) reasons.push(`effect not verified: ${s.effectRefusals.slice(0, 2).join('; ')}`);
-  if (!s.fullAccountCoverage) reasons.push('account coverage incomplete');
+  if (!s.fullAccountCoverage) reasons.push('did not observe every writable it touched');
   if (s.costs.unexplainedLamports !== 0n) {
     reasons.push(`${s.costs.unexplainedLamports} lamports left the payer with no named cost`);
   }

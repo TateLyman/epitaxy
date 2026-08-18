@@ -1,0 +1,214 @@
+{
+  "traced": 10,
+  "recomputed": 10,
+  "failures": 0,
+  "results": [
+    {
+      "trajectoryId": "e194d839-c953-4258-af77-34f192b15604",
+      "traceable": true,
+      "manifestRows": 47,
+      "blobsRead": 90,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19501171",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-4387508"
+      },
+      "stored": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19501171",
+        "netPnlLamports": "-4387508"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "e4a4480f-5e7d-40a3-8c55-65c682cfc79e",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426786"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "netPnlLamports": "-6426786"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "bdba0806-a75d-4f18-93cf-c2bbcd4b5871",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426786"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "netPnlLamports": "-6426786"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "5d596121-29f1-4a22-b830-cfb010f120f8",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426786"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496693",
+        "netPnlLamports": "-6426786"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "5fcadad5-08b4-4273-99d5-2ab84ca47fad",
+      "traceable": true,
+      "manifestRows": 48,
+      "blobsRead": 91,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "17461892",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426787"
+      },
+      "stored": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "17461892",
+        "netPnlLamports": "-6426787"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "d36a83ec-5cdb-4f27-bfe3-08ff537e9f80",
+      "traceable": true,
+      "manifestRows": 51,
+      "blobsRead": 97,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "19535970",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426789"
+      },
+      "stored": {
+        "entryCashOutLamports": "25962759",
+        "exitCashInLamports": "19535970",
+        "netPnlLamports": "-6426789"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "5d881449-e702-4952-abe4-7284a0277257",
+      "traceable": true,
+      "manifestRows": 49,
+      "blobsRead": 94,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "19535972",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-4387507"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "19535972",
+        "netPnlLamports": "-4387507"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "9f6d336b-7d13-4f27-b503-1fe2326a9fa9",
+      "traceable": true,
+      "manifestRows": 50,
+      "blobsRead": 95,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426787"
+      },
+      "stored": {
+        "entryCashOutLamports": "23923479",
+        "exitCashInLamports": "17496692",
+        "netPnlLamports": "-6426787"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "4d9fd1ab-756f-443d-b11e-8bc5290eaf75",
+      "traceable": true,
+      "manifestRows": 47,
+      "blobsRead": 90,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19501170",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-4387509"
+      },
+      "stored": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "19501170",
+        "netPnlLamports": "-4387509"
+      },
+      "mismatches": [],
+      "recomputes": true
+    },
+    {
+      "trajectoryId": "fd00c158-9153-4421-9531-b8e16a329968",
+      "traceable": true,
+      "manifestRows": 48,
+      "blobsRead": 91,
+      "unreadableBlobs": [],
+      "derived": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "17461891",
+        "unexplainedLamports": "0",
+        "netPnlLamports": "-6426788"
+      },
+      "stored": {
+        "entryCashOutLamports": "23888679",
+        "exitCashInLamports": "17461891",
+        "netPnlLamports": "-6426788"
+      },
+      "mismatches": [],
+      "recomputes": true
+    }
+  ],
+  "provenance": {
+    "writer": "trajectory-trace.ts",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "treeDirty": true,
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-18T19:10:10.764Z"
+  }
+}

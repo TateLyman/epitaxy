@@ -1,251 +1,56 @@
 # STATUS
 
-> **2026-08-17 (LATEST) — independent runtime adversarial re-audit at `8f73cef`.
+> **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, final.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
-> Full ledger: `docs/RUNTIME_ADVERSARIAL_AUDIT_8F73CEF.md`,
-> `artifacts/runtime-adversarial-audit-8f73cef.json`,
-> `artifacts/runtime-trajectory-trace-966ef3fa.json`. Re-runnable from
-> `scripts/runtime-adversarial-audit.ts` and `scripts/runtime-audit-worker-probe.ts`.
+> Full account: `docs/5D24E39_FINAL_REPORT.md` (27 sections + appendices A-D).
 >
 > ```
-> PASS 25    FAIL 26    NOT TESTABLE 8
+> against contract-2572f62959ca05ab at c3add8b, which claims 54 invariants
+> PASS 51    FAIL 2    NOT TESTABLE 0    OUT OF SCOPE 6
+> independently recomputed trajectories: 10 (0 failures)
 > ```
 >
-> **The state below is corrected downward, on evidence.** The entry above claims
-> `VALID_TRAJECTORY_KERNEL_RUNNING`; the re-audit does not support it and the
-> claim is withdrawn. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md` also contradicts
-> itself — its header claims that state and its section 25 closes at
-> `MEASUREMENT_REPAIR_REQUIRED`. The second is right.
+> **P14's milestone IS met** — 10 settled trajectories with every horizon inside
+> the frozen 10s SLA, 0 marks beyond 60s, 0 unexplained lamports, 0 legs without
+> full account coverage, graph RESOLVES, blobs ALL DURABLE, bound CONSERVATIVE.
+> **P13 is not** — B-2 and B-3 fail because the gate's six-candidate live draw
+> found every candidate refused by real risk gates (427%, 63%, 13%, 10%, 4% of
+> pool reserve, plus concentration). The same collector opened 22 trajectories in
+> that window. The probe measures the market, not the apparatus; the repair is
+> named in section 25 and was deliberately not made, because editing a failing
+> probe to reach a better state is indistinguishable from selecting a result.
 >
-> **What is proven, by running it, not by reading it.** The Rust worker is
-> bit-exact at `2^53±1`, `10^18`, u64 max lamports and u64-max `rentEpoch`, keeps
-> its counters job-scoped, changes instance id on re-init and never mis-pairs a
-> response under a forced timeout (6 probes, all PASS). The cashback tail is
-> fail-closed on both legs across eight positional fixtures, and `leg_cashback`
-> shows the **sell accruing as often as the buy** (88 buy / 89 sell of 228 legs
-> each) — the one-leg model is refuted by data. Sole-venue attribution refuses a
-> routed entry by name. Fee-tier selection is a function of market cap, both
-> directions constructed. A collector restarted after every prior process was
-> SIGKILLed **settled a trajectory opened by one of them**, both policies, no
-> duplicate mark. `pnpm readiness` refuses all eleven seeded corpora, including
-> two that clear both sample thresholds. The collector cannot sign: 59 modules in
-> its transitive import closure, none under `packages/execution`.
+> **NO EDGE. THE SIGN FLIPS BETWEEN WINDOWS.** Three settled windows, same venue,
+> same notional: `+1.2M/+14.6M` (n=15), `-3.9M/-35.1M` (n=45), `+9.6M/+8.7M`
+> (n=13). In the last, only 2 of 13 paths closed positive and one path carried
+> the whole total. That instability is the result; it sets the noise scale any
+> future claim must clear.
 >
-> **What is broken, and it is the accounting.**
->
-> - **The payer identity does NOT reconcile to zero.** 51 of 52 settlements carry
->   a non-zero `unexplained` remainder; **30 of them publish a net PnL anyway**;
->   **zero** carry an identity violation. Worst row: net −6,426,787 lamports with
->   −4,564,488 unexplained — 71% of the loss it reports. `isPnlEligible()` names
->   `unexplained == 0` as its fourth condition and `buildTrajectorySettlement`
->   never reads it. Commit `4edb5f7` and report blocker 4 are **false**; the
->   paragraph below this one, which said the remainder is not yet zero, was right.
-> - **The trajectory identity columns are dangling.** 0/292 `entry_observation_id`
->   and 0/292 `entry_simulation_job_id` resolve — the namespaces are disjoint by
->   construction. `snapshot_hash` and `capability_fingerprint` are both the
->   decimal slot number, 290 distinct over 292 rows.
-> - **No raw pre/post state is persisted against a trajectory,** so no economic
->   amount is recomputable and no stored layer can be checked against another.
-> - **292/292 trajectories carry unobserved writable accounts**; 275 are SETTLED.
-> - **The entry tournament does not exist.** `decideEntry` has zero production
->   callers; all 292 rows carry the literal `'HARD_GATES_RANDOM'`, written after
->   `admitCandidate` already decided. The two challengers have a sample of zero.
-> - **`settleTrajectory()` is never called,** so every economics column on
->   `development_trajectories` is permanently NULL while 31 settlements carry a
->   net PnL.
-> - **`trajectory:collect` takes no process lock.** Five daemons were running
->   against one database at audit start; 15 mints exceed the hard
->   `--max-per-mint` cap of 3, the worst at 58. `pnpm health` reported OK against
->   a lock held by a different program (`pnpm observe`).
-> - **`pnpm readiness` and `pnpm readiness:positions` write the same artifact**
->   from two different scripts.
->
-> **`pnpm check` is GREEN — 124 test files, 1,817 tests, 16.9s — while 26 of these
-> invariants fail.** No claim in this document rests on a test name.
->
-> **Nothing was fixed.** The directive requires the failure ledger to land before
-> any repair. `DEVELOPMENT_EDGE_CANDIDATE`, `PUMP_CONFIRMATORY_COLLECTION_STARTED`
-> and `CANARY_READY` are not claimed. `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` is
-> not claimed either: the economics are not yet corrected, so killing the strategy
-> now would be killing it on an accounting defect.
+> Eleven defects found and fixed (S086-S096). Five were one mistake in five
+> places — a scope reading "per experiment" that meant "per corpus" or "per name,
+> forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
+> window). Every one presented as a market fact.
 
-> **2026-08-16 — running-collector directive from `29c7cc7`, executed.
-> State claimed at the time: `VALID_TRAJECTORY_KERNEL_RUNNING` — **SUPERSEDED and
-> WITHDRAWN** by the 2026-08-17 re-audit above. Kept because the apparatus work it
-> describes is real and the reasoning is worth reading; the terminal claim is not.**
->
-> A working RPC endpoint was supplied and the loop ran end to end. Window V2 is
-> collecting: six distinct deep-pool mints opened across two cycles, all
-> `soleVenue=true quoteState=true`, no repeats, depth gate refusing drained
-> pools by name. `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md`.
->
-> **Net PnL now EXISTS.** P5's canonical settlement was correct and unreachable
-> for several commits — its only caller was the trajectory kernel, which the
-> collector never reaches, and no table existed. Net PnL was UNKNOWN *by
-> construction*, not for want of a sample. It is now wired: 23 settlements, 8
-> with a net PnL, **−53,453,576 lamports** across eight IMMEDIATE round trips at
-> 0.02 SOL.
->
-> That figure is dominated by **unrecoverable setup rent**, 3.9–6.0M lamports per
-> cold trajectory, and is **NOT a strategy result**: it is the cost of being the
-> first trader through a cold pool, which is P6 measured rather than argued. The
-> venue itself takes about 7,899 lamports.
->
-> **`DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed.** No edge has been measured;
-> the sample is far below 100 valid paths per policy-cohort, and every
-> settlement still carries a non-zero `unexplained` remainder — derived and
-> reported, as P5 requires, and not yet zero. Window V1 was INVALIDATED after ten minutes for
-> a sampler defect — see `docs/DEV_WINDOW_V1_INVALIDATION.md`.
->
-> The entry below was written while both endpoints were exhausted and is kept
-> for the record.
->
-> The loop the directive asks for now runs end to end in the actual collector,
-> and the honest state is still `MEASUREMENT_REPAIR_REQUIRED` — because the
-> sample is 8 timely complete paths against a threshold of 200, and because the
-> RPC **daily quota is exhausted**, so nothing can collect until it resets.
->
-> Measured on the live database at this head:
->
-> ```
-> development_trajectories        64   (59 SETTLED)
-> TIMELY complete paths            8   of 200 required
-> distinct UTC days                2   of 21 required
-> trajectory_marks               320
-> trajectory_policy_outcomes     118   two policies on one shared path
-> frozen leg account plans        26
-> candidate_risk_facts            20 examined, 3 admitted
-> net PnL                    UNKNOWN   (gross is not net — see below)
-> pnpm readiness              NOT READY, 22 blockers
-> ```
->
-> **What changed.** `pnpm trajectory:collect` now runs: a live migration socket
-> as the primary candidate lane, risk gates that refuse before the decision,
-> exact frozen account plans on both legs with cashback placement verified
-> fail-closed, created-account economics per leg, an urgent queue drained ahead
-> of ordinary marks, and per-active-second telemetry the status commands read
-> out of the database.
->
-> **Five defects were found by running it, not by reading it.** The websocket was
-> pointed at a different provider than HTTP and had never connected (closing 1006
-> on every attempt); the daily RPC quota was being reported as "this token has no
-> canonical pool"; an empty holder-history list reported *unmeasured* clustering
-> as `MEASURED share 0`; my own cashback tail model was wrong and the fail-closed
-> check refused every candidate on the chain rather than mis-measuring quietly;
-> and a checked-in call-graph artifact was stale, showing a green check over a
-> required edge that had been unreachable since before this session.
->
-> **Nothing here is a profitability claim.** No edge has been measured. The
-> gross figure the corpus carries is not net: it contains no unrecoverable rent,
-> no failed attempt, no claim cost and no cashback.
->
-> `docs/DEVELOPMENT_WINDOW_V1.md` · `docs/CONFIRMATORY_TRAJECTORIES_V2.md` ·
-> `docs/EXACT_PUMPSWAP_ACCOUNT_PLAN.md` · `docs/PUMPSWAP_CASHBACK_V2.md` ·
-> `docs/COLD_WARM_SETUP_ECONOMICS.md` ·
-> `docs/FUTURE_COUNTERFACTUAL_CALIBRATION.md` ·
-> `docs/29C7CC7_RUNNING_COLLECTOR_REPORT.md` (the final report) ·
-> `docs/directives/DIRECTIVE_29C7CC7_RUNNING_COLLECTOR.md`
-
-> **BLOCKER — the RPC daily quota is spent.** The endpoint returns
-> `daily request limit reached - upgrade your account`. This is not a per-second
-> rate limit: backing off does not help, because every retry today fails.
-> `pnpm rate:budget-v2` names it as the binding constraint on OBSERVED evidence
-> (a quota error outranks a modelled ratio: the endpoint sat at 0.9% of its 10/s
-> limit while refusing every call) and, on that basis, marks the Helius upgrade
-> ALLOWED. Nothing is purchased from code. The development window in
-> `docs/DEVELOPMENT_WINDOW_V1.md` is preregistered and NOT STARTED.
-
-> **2026-08-15 — independent adversarial audit at head `74f839e`.
-> State: `MEASUREMENT_REPAIR_REQUIRED`.**
-> Ten findings, six confirmed by executable probes
-> (`tests/unit/adversarial-audit-74f839e.test.ts`, 19 tests).
-> The audit ran in a container with no `data/runtime.db` at all, so the twenty
-> trajectories were unreachable and eight of fourteen attack sections are
-> `NOT TESTABLE`. It therefore neither withdrew nor confirmed the
-> `VALID_TRAJECTORY_KERNEL_RUNNING` claim. **The entry above withdraws it**, on
-> the different and sufficient ground that the collector writes no database
-> trajectory at all.
-> Confirmed defects: the P3 quote-state proof **passes vacuously when `observe`
-> returns nothing, and the sell is then priced from PRE-BUY state while
-> reporting `quoteStateSurvived: true`** (F1); the coherent-snapshot economic
-> drift check is unreachable on real RPC output (F3); sysvars are exempt from
-> drift so a mixed-slot Clock is accepted (F4); a missing fee config falls back
-> to the program default rather than refusing (F5); `requireDecodable` never
-> decodes (F6). The sequential runtime is hardcoded to `wsl`, though the worker
-> builds and runs natively on Linux — so no independent party can currently
-> re-derive a trajectory (F9).
-> Nothing was repaired: the probes record a failing baseline for separate
-> commits. `docs/ADVERSARIAL_AUDIT_74F839E.md`.
-
-> **2026-08-14 — trajectory-kernel directive from `1c499cd`. ITS STATE CLAIM IS SUPERSEDED — see the entry above.
-> Claimed at the time: `VALID_TRAJECTORY_KERNEL_RUNNING`; **withdrawn**, because
-> the collector writes no database trajectory.**
-> All 22 sections done. **Twenty trajectories completed** — buy → sell → close
-> inside ONE runtime, the sell priced from the state the buy committed and
-> executed against that same state; 20/20 `quoteStateSurvived` per account by
-> content hash.
->
-> **The round-trip drag is a FIXED ~10,100,000 lamport account SETUP cost (five
-> rent-exempt minimums), not price impact.** Across a 4x size range the median
-> drag moves 1.8% in lamports and 293% in bps. This overturned an earlier
-> "median -12.7%" reading, which would have implied a proportional drag no
-> strategy could clear — it is a first-trade cost that amortises with size, and
-> the proportional floor underneath is 250 bps.
->
-> `DEVELOPMENT_EDGE_CANDIDATE` is NOT claimed: no edge has been measured, only a
-> cost structure. `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` is NOT claimed
-> either — killing it on the first reading would have been killing it on a units
-> error. `docs/1C499CD_FINAL_REPORT.md`.
->
-> Not done: `true-stateful-proof.ts` still contains the pass-1/pass-2 structure
-> P3 replaces. Nothing signed, submitted or funded on chain.
-
-> **2026-08-14 — trajectory-kernel directive from `1c499cd`, second
-> pass. State: `MEASUREMENT_REPAIR_REQUIRED`.**
-> The candidate stream was the binding constraint and it is now measured: only
-> **6 of 185** screened mints have a canonical PumpSwap pool (~3%), against
-> **6 of 6** for migration-sourced candidates. The stored migration corpus is
-> noise — 256,880 rows of which **256,235 are errored transactions** and **zero
-> of 300** sampled identities survive `canonicalPool(mint) == pool`.
-> Coherent snapshots, verified migration identity, Pump cashback mechanics, the
-> trajectory kernel and real entry/exit treatments are built and proven against
-> the live chain. **`pnpm trajectory:collect` deliberately refuses to open a
-> trajectory**: doing so without the one-pass sequential worker (P3) would price
-> the exit from a state that never contained the entry.
-> **Zero trajectories have completed.** `docs/1C499CD_TRAJECTORY_KERNEL_REPORT.md`.
-
-> **2026-08-14 (later) — trajectory-kernel directive from `1c499cd`. State:
-> `MEASUREMENT_REPAIR_REQUIRED`.**
-> The later-fill deadlock is repaired: 169 trajectories had been waiting up to
-> 4.6 hours because `resolveFill` required an effect-valid candidate and nothing
-> ever simulated one. **Zero trajectories have still completed** — 93% of marks
-> have no exit route, because the exit still runs through a router that declines
-> tokens with no canonical pool. `docs/1C499CD_PROGRESS_REPORT.md`.
-
----
-
-> **2026-08-14 — true-stateful directive from `3bc708d`. State:
-> `MEASUREMENT_REPAIR_REQUIRED`.**
-> The sequential runtime produces complete, correctly classified
-> buy → sell → close lifecycles whose economics reconcile to **one lamport**.
-> The shadow lifecycle now triggers and awaits a later fill, which voided all
-> **1,038** shadow results that existed before it
-> (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
-> through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
-
-Last updated: 2026-08-16T19:05Z
+Last updated: 2026-08-18T19:25Z
 
 ## Operational right now
 
 | | |
 |---|---|
-| mode | `paper`, engine LIVE; `observe` for the trajectory collector |
-| schema | **v46** |
+| mode | `observe` for the trajectory collector; nothing capital-bearing is running |
+| schema | **v53** (`a_reservation_belongs_to_its_experiment`) |
 | strategy version | `delayed-momentum-v0.6.0` |
+| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — collecting. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
 | positions with executable PnL | **0** |
-| development trajectories | **64**, of which 59 SETTLED and **8 TIMELY complete** |
-| default `pnpm readiness` gate | the exact **trajectory** contract (the position gate is `readiness:positions`) |
+| development trajectories, ACTIVE context | **52** across **52** distinct mints; 15 settled, 30 policy outcomes, 4 pairs disagreeing |
+| independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
+| mark timeliness, the collector's own marks | 53 of 250 `MISSED_HORIZON` (21.2%), worst 20.1 s against a 10 s SLA, and **0 more than 60 s late** |
+| counterfactual calibration | `BOUND_IS_CONSERVATIVE`, 0 of 4 non-conservative |
+| evidence contexts | **44**, of which **43** are `INSTRUMENT_DEVELOPMENT_INVALID`; 500 trajectories preserved, none deleted |
+| trajectory collectors running | **1**, under the contract frozen at the commit it is running |
+| default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
+| tests | 1,867 passing across 125 files |
 | collector candidate lane | live migration socket primary; history paging is bounded recovery |
 | RPC | **daily quota exhausted** — the binding constraint, measured |
 | direct mint facts collected | yes, in every mode (was capital-only) |

@@ -177,6 +177,8 @@ describe('29c7cc7 — one shared mark path, every policy on it', () => {
     executableLamports: BigInt(20_000_000 - i * 1_000_000),
     exitCapacityLamports: i >= 3 ? 1_000_000n : 20_000_000n,
     effectiveQuoteReserveLamports: 100_000_000_000n,
+    observedBaseReserve: 1_000_000_000_000n,
+    observedQuoteReserve: 100_000_000n,
     refusal: null,
   }));
 

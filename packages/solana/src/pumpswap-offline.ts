@@ -256,6 +256,70 @@ export interface SwapAccountRoles {
   readonly poolV2: string | null;
 }
 
+/**
+ * The PumpSwap `buy`/`sell` account layout, by POSITION.
+ *
+ * The program reads these positionally, so position is what they are. This
+ * repository already relies on that for the cashback tail — `remainingTailRefusal`
+ * checks exact positions — and the same reasoning applies here.
+ *
+ * `PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT` is the one that matters for D-2. It is
+ * SELECTED BY THE SDK from a list in the global config, so it cannot be derived;
+ * it can only be read off the frozen plan. Measured 2026-08-17 on two pools:
+ *
+ *     payer spent                       20,000,000
+ *     pool quote vault gained           19,757,035
+ *     creator vault + cashback tail        151,112
+ *     THIS ACCOUNT                          91,852     <- 46 bps, unattributed
+ *
+ * Omitting it made every entry fail quote-side conservation by 0.46%, which is
+ * the correct refusal for an incomplete model and the wrong conclusion about the
+ * venue.
+ */
+export const SWAP_ACCOUNT_INDEX = {
+  POOL: 0,
+  USER: 1,
+  GLOBAL_CONFIG: 2,
+  BASE_MINT: 3,
+  QUOTE_MINT: 4,
+  USER_BASE_TOKEN_ACCOUNT: 5,
+  USER_QUOTE_TOKEN_ACCOUNT: 6,
+  POOL_BASE_TOKEN_ACCOUNT: 7,
+  POOL_QUOTE_TOKEN_ACCOUNT: 8,
+  PROTOCOL_FEE_RECIPIENT: 9,
+  PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT: 10,
+  BASE_TOKEN_PROGRAM: 11,
+  QUOTE_TOKEN_PROGRAM: 12,
+  SYSTEM_PROGRAM: 13,
+  ASSOCIATED_TOKEN_PROGRAM: 14,
+  EVENT_AUTHORITY: 15,
+  PROGRAM: 16,
+  COIN_CREATOR_VAULT_ATA: 17,
+  COIN_CREATOR_VAULT_AUTHORITY: 18,
+} as const;
+
+/**
+ * The quote destinations a swap instruction NAMES, read off the frozen plan.
+ *
+ * Verified against the plan rather than derived: the layout above is checked by
+ * confirming the accounts we CAN derive land where it says they do. If the pool
+ * quote vault is not at index 8, the layout has changed and this returns null
+ * rather than reading whatever happens to sit at index 10.
+ */
+export function namedQuoteDestinations(
+  swapInstructionAccounts: readonly string[],
+  expect: { poolQuoteTokenAccount: string; globalConfig: string },
+): { protocolFeeRecipientTokenAccount: string; coinCreatorVaultAta: string } | null {
+  const a = swapInstructionAccounts;
+  if (a.length <= SWAP_ACCOUNT_INDEX.COIN_CREATOR_VAULT_ATA) return null;
+  if (a[SWAP_ACCOUNT_INDEX.POOL_QUOTE_TOKEN_ACCOUNT] !== expect.poolQuoteTokenAccount) return null;
+  if (a[SWAP_ACCOUNT_INDEX.GLOBAL_CONFIG] !== expect.globalConfig) return null;
+  return {
+    protocolFeeRecipientTokenAccount: a[SWAP_ACCOUNT_INDEX.PROTOCOL_FEE_RECIPIENT_TOKEN_ACCOUNT] as string,
+    coinCreatorVaultAta: a[SWAP_ACCOUNT_INDEX.COIN_CREATOR_VAULT_ATA] as string,
+  };
+}
+
 export function swapAccountRoles(p: {
   user: string;
   baseMint?: string;

@@ -3,7 +3,8 @@
     "checked_at_utc": "2026-08-11T21:40:00Z",
     "rechecked_at_utc": "2026-08-12T02:12:00Z",
     "note": "Buckets mirror provider documentation. We stay strictly UNDER the documented limit. Never evade a quota by creating extra accounts.",
-    "recheck_note": "2026-08-12: re-verified against official pages after a Jupiter Portal key and a Helius key were obtained. Jupiter publishes a FREE KEYED tier at 1 RPS / 60 RPM that this file did not previously name; withKeyRequestsPerSecond was 1.0, i.e. exactly at the documented ceiling and in breach of the 'strictly UNDER' rule above. It had never been exercised because no key existed. Lowered to 0.8, preserving the same 0.8x headroom ratio the keyless bucket uses (0.4 of 0.5)."
+    "recheck_note": "2026-08-12: re-verified against official pages after a Jupiter Portal key and a Helius key were obtained. Jupiter publishes a FREE KEYED tier at 1 RPS / 60 RPM that this file did not previously name; withKeyRequestsPerSecond was 1.0, i.e. exactly at the documented ceiling and in breach of the 'strictly UNDER' rule above. It had never been exercised because no key existed. Lowered to 0.8, preserving the same 0.8x headroom ratio the keyless bucket uses (0.4 of 0.5).",
+    "measured_note_2026_08_17": "A request-rate bucket does not describe every provider. Measured 2026-08-17 against an Alchemy mainnet endpoint, one connection, nothing else running: getAccountInfo served 20/20 at 12.8 req/s and getTokenLargestAccounts refused nothing, while getSignaturesForAddress was refused 15 of 20 at 2.4 req/s and at every faster rate tried - about 25% success regardless of spacing. The same three probes against a Helius mainnet endpoint returned 20/20 with zero refusals at 10.7 req/s. So the historical/indexed methods can carry a separate and much tighter budget than the state reads, and a single solana_rpc bucket at 8 req/s protects neither: it lets the cheap calls through into a budget the expensive ones have already spent. If an endpoint starts refusing getSignaturesForAddress while getAccountInfo is fine, that is this, and it is a fact about the provider rather than about the chain."
   },
   "buckets": [
     {
@@ -42,25 +43,27 @@
     {
       "name": "solana_public_rpc",
       "bucket": "solana_rpc",
-      "requestsPerSecond": 8,
-      "burst": 10,
+      "requestsPerSecond": 4,
+      "burst": 2,
       "documented": "Solana Labs public RPC: 100 req/10s per IP, 40 req/10s per method, 40 concurrent connections.",
-      "source": "https://solana.com/docs/references/clusters"
+      "source": "https://solana.com/docs/references/clusters",
+      "measured": "2026-08-17, the collector's real call mix issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s on ONE process, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s were never the steady rate. Two causes, both concurrency: burst 10 permitted ten requests in flight at once against an endpoint documenting 10 per second, and this bucket is PER PROCESS while the quota is per ENDPOINT - the trajectory collector and the screening collector run together and presented twice the configured budget. 6/burst-3 fixed the first and left the second, which returned as soon as both were running again. 4 req/s with a burst of 2 keeps the SUM of two collectors under the documented limit, which is what strictly-under has to mean when more than one process shares the endpoint. A per-endpoint budget shared across processes is the real fix and is not built."
     },
     {
       "name": "helius_rpc",
       "bucket": "solana_rpc",
-      "requestsPerSecond": 8,
-      "burst": 10,
+      "requestsPerSecond": 4,
+      "burst": 2,
       "documented": "Free plan 10 req/s RPC, 1M credits/month at 1 credit per standard RPC call. sendTransaction capped at 1/s on free. Auth is the ?api-key= query parameter, so the key is part of the URL.",
-      "source": "https://www.helius.dev/docs/billing/rate-limits"
+      "source": "https://www.helius.dev/docs/billing/rate-limits",
+      "measured": "2026-08-17, the collector's real call mix issued SEQUENTIALLY: 40 of 40 returned 200 at every target from 4 to 10 req/s on ONE process, zero refusals, actual throughput 3.2 to 6.1 req/s. The 429s were never the steady rate. Two causes, both concurrency: burst 10 permitted ten requests in flight at once against an endpoint documenting 10 per second, and this bucket is PER PROCESS while the quota is per ENDPOINT - the trajectory collector and the screening collector run together and presented twice the configured budget. 6/burst-3 fixed the first and left the second, which returned as soon as both were running again. 4 req/s with a burst of 2 keeps the SUM of two collectors under the documented limit, which is what strictly-under has to mean when more than one process shares the endpoint. A per-endpoint budget shared across processes is the real fix and is not built."
     },
     {
       "name": "helius_das",
       "bucket": "helius_das",
       "requestsPerSecond": 1.5,
       "burst": 2,
-      "documented": "DAS and Enhanced APIs 2 req/s on free plan. Separate rate bucket from RPC but the SAME monthly credit pool, at 10 credits per DAS call against 1 for standard RPC — so DAS spends the 1M allowance ten times faster and rate headroom is not credit headroom.",
+      "documented": "DAS and Enhanced APIs 2 req/s on free plan. Separate rate bucket from RPC but the SAME monthly credit pool, at 10 credits per DAS call against 1 for standard RPC \u2014 so DAS spends the 1M allowance ten times faster and rate headroom is not credit headroom.",
       "source": "https://www.helius.dev/docs/billing/credits"
     },
     {

@@ -17,7 +17,34 @@ import { decideExit, type ExitPolicy, type MarkPoint } from '../../strategy/src/
  * reason.
  */
 
-export const MARK_OFFSETS_MS = [60_000, 300_000, 900_000, 1_800_000, 3_600_000] as const;
+/**
+ * The horizons a path is marked at.
+ *
+ * 3m and 10m are NEW, and the reason is structural rather than a preference.
+ *
+ * `FLOW_LIQUIDITY_DETERIORATION_V1` needs TWO measured marks to see a capacity
+ * drop, and P9.2 requires it to fill at the first LATER valid mark rather than
+ * at the one that revealed the deterioration. On the old 1/5/15/30/60 grid the
+ * earliest possible trigger was the 5m mark and the first mark after it was
+ * 15m — which is the control's own horizon. The challenger could therefore
+ * NEVER exit before the control, on any path, whatever the market did.
+ *
+ * That is exactly the 8f73cef audit's N-1: "there is no constructed path in
+ * this build where it exits EARLIER than the control at a different mark", and
+ * "the challenger can only differ by holding longer". The cause was not the
+ * policy; it was that the measurement grid could not express the hypothesis.
+ * With heavy-tailed returns, "exiting early is the error" is the half most
+ * worth testing, and the grid had made the other half untestable.
+ *
+ * With 3m and 10m, a drop between 1m and 3m triggers at 3m and fills at 5m —
+ * genuinely earlier than 15m, at a different mark, on a real path.
+ *
+ * Recorded in `docs/MULTIPLE_TESTING_LEDGER.csv` as an AVAILABILITY-driven
+ * change: it was made before any outcome existed under the current contract,
+ * because the design could not represent the comparison, not because the
+ * returns looked better one way.
+ */
+export const MARK_OFFSETS_MS = [60_000, 180_000, 300_000, 600_000, 900_000, 1_800_000, 3_600_000] as const;
 
 export interface CollectedMark {
   readonly atMs: number;
@@ -39,6 +66,28 @@ export interface CollectedMark {
   readonly executableLamports: bigint | null;
   readonly exitCapacityLamports: bigint | null;
   readonly effectiveQuoteReserveLamports: bigint | null;
+  /**
+   * P8 — THE RESERVES THE CURVE PRICES AGAINST, which the counterfactual needs.
+   *
+   * This was written as "the RAW reserves", on the reasoning that the pool's
+   * virtual quote is not lamports anyone can take out and so has no place in an
+   * exit. That reasoning is right about withdrawal and wrong about pricing: the
+   * program's own arithmetic includes the virtual term, and an exit priced
+   * without it is not the exit the program would give.
+   *
+   * Measured on trajectory 33fb1978 — 216,476,180,220 base atoms against a
+   * post-entry vault quote of 23,478,665,673 gives a constant-product output of
+   * about 11,293,000 lamports, while the runtime's own immediate sell returned
+   * 17,461,890. The difference is roughly 12.8 SOL of virtual reserve.
+   *
+   * So this is the EFFECTIVE quote, and `postEntryQuoteReserve` on the
+   * trajectory is the same quantity. They are compared against each other by
+   * `counterfactual:calibrate`, and two conventions in one comparison is what
+   * made the bounded contract read as OPTIMISTIC by up to 18,260 bps when it
+   * was the replay that was mispricing.
+   */
+  readonly observedBaseReserve: bigint | null;
+  readonly observedQuoteReserve: bigint | null;
   /** Why this mark carries no price. Never collapsed to "no route". */
   readonly refusal: string | null;
 }
@@ -84,6 +133,8 @@ export async function takeMark(
       // pool's own arithmetic on the position's own size.
       exitCapacityLamports: m.executableLamports,
       effectiveQuoteReserveLamports: m.poolFacts.quoteReserveRaw + m.poolFacts.virtualQuoteReserves,
+      observedBaseReserve: m.poolFacts.baseReserve,
+      observedQuoteReserve: m.poolFacts.quoteReserveRaw + m.poolFacts.virtualQuoteReserves,
       refusal: null,
     };
   } catch (e) {
@@ -94,6 +145,8 @@ export async function takeMark(
       executableLamports: null,
       exitCapacityLamports: null,
       effectiveQuoteReserveLamports: null,
+      observedBaseReserve: null,
+      observedQuoteReserve: null,
       refusal: e instanceof DirectMarkUnavailable ? e.reason : (e as Error).message.slice(0, 120),
     };
   }
@@ -101,13 +154,30 @@ export async function takeMark(
 
 export interface PolicyOutcome {
   readonly exitPolicy: ExitPolicy;
+  /** When the rule FIRED. */
   readonly triggeredAtMs: number | null;
   readonly triggeredOffsetMs: number | null;
+  /**
+   * P9.2 — when it could actually have TRADED, which is what it is priced at.
+   * Null means the rule fired and no later mark carried a tradable price: a
+   * blocked exit, not a fill at the trigger.
+   */
+  readonly filledAtMs: number | null;
+  readonly filledOffsetMs: number | null;
   readonly reason: string;
   /** The mark the policy actually exits at. Null when it never triggered. */
   readonly exitMarkLamports: bigint | null;
   /** Entry cash out minus what the exit would realise. Null when unpriced. */
   readonly grossDeltaLamports: bigint | null;
+  /**
+   * P8/M-2 — WHAT KIND OF NUMBER `exitMarkLamports` IS.
+   *
+   * Null means it rests on a later mainnet quote with no contract over it,
+   * which is what all 545 pre-repair outcomes were. `admissibleForPnl` refuses
+   * on null BY NAME, so the refusal is countable rather than being an absent
+   * grade nobody looked for.
+   */
+  readonly evidenceClass: string | null;
 }
 
 /**
@@ -119,7 +189,20 @@ export interface PolicyOutcome {
  */
 export function evaluateExitPolicies(
   path: readonly CollectedMark[],
-  p: { openedAtMs: number; policies: readonly ExitPolicy[]; entryCashOutLamports: bigint },
+  p: {
+    openedAtMs: number;
+    policies: readonly ExitPolicy[];
+    entryCashOutLamports: bigint;
+    /**
+     * P8 — the counterfactual exit per horizon, and its class.
+     *
+     * Absent for a horizon means no admissible contract covers it. The outcome
+     * is then UNPRICED rather than priced at the mark's quote: a quote against
+     * a pool that never held our position is not an exit for it, and booking it
+     * as one is the defect that built the entire pre-repair gross delta.
+     */
+    counterfactualExits?: ReadonlyMap<number, { lamports: bigint; evidenceClass: string }>;
+  },
 ): readonly PolicyOutcome[] {
   /**
    * Policies are evaluated on the horizon the mark REPRESENTS, not the instant
@@ -137,18 +220,44 @@ export function evaluateExitPolicies(
 
   return p.policies.map((policy) => {
     const d = decideExit(policy, p.openedAtMs, marks);
-    const at = d.triggeredAtMs;
-    const mark = at === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === at) ?? null);
+    /**
+     * P9.2 — the exit is priced at the FILL, not at the trigger.
+     *
+     * This read `triggeredAtMs` for both. On the control they are the same
+     * instant, because a preregistered horizon is a clock the strategy can
+     * stand ready at. On the challenger they are NOT: the deterioration is
+     * detected BY a mark, so pricing the exit at that mark books it at the one
+     * observation the strategy demonstrably could not have traded at — it did
+     * not know until the mark existed.
+     *
+     * That difference flatters the challenger by exactly the move that
+     * triggered it, which is the move most likely to be adverse. Using the fill
+     * removes it.
+     */
+    const triggeredAt = d.triggeredAtMs;
+    const filledAt = d.filledAtMs;
+    const triggerMark =
+      triggeredAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === triggeredAt) ?? null);
+    const fillMark = filledAt === null ? null : (path.find((m) => p.openedAtMs + m.offsetMs === filledAt) ?? null);
+    /**
+     * The FILL horizon decides WHEN. The counterfactual decides AT WHAT.
+     *
+     * When no contract covers the fill horizon the outcome carries a null price
+     * and a null class, and `admissibleForPnl` refuses it. That is deliberately
+     * a visible hole rather than a fallback to the quote.
+     */
+    const cf = fillMark === null ? undefined : p.counterfactualExits?.get(fillMark.offsetMs);
+    const exitLamports = cf?.lamports ?? null;
     return {
       exitPolicy: policy,
-      triggeredAtMs: at,
-      triggeredOffsetMs: mark?.offsetMs ?? null,
+      triggeredAtMs: triggeredAt,
+      triggeredOffsetMs: triggerMark?.offsetMs ?? null,
+      filledAtMs: filledAt,
+      filledOffsetMs: fillMark?.offsetMs ?? null,
       reason: d.reason,
-      exitMarkLamports: mark?.executableLamports ?? null,
-      grossDeltaLamports:
-        mark?.executableLamports === null || mark?.executableLamports === undefined
-          ? null
-          : mark.executableLamports - p.entryCashOutLamports,
+      exitMarkLamports: exitLamports,
+      grossDeltaLamports: exitLamports === null ? null : exitLamports - p.entryCashOutLamports,
+      evidenceClass: cf?.evidenceClass ?? null,
     };
   });
 }

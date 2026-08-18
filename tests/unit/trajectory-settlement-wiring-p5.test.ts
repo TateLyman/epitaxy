@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { openDb } from '../../packages/storage/src/db.js';
 import { insertTrajectorySettlement, settlementTotals } from '../../packages/storage/src/trajectory-repo.js';
 import { legSettlementFromRuntime, coverageGap, BASE_FEE_PER_SIGNATURE_LAMPORTS } from '../../packages/pipeline/src/leg-settlement.js';
-import { buildTrajectorySettlement, checkIdentities } from '../../packages/domain/src/trajectory-settlement.js';
+import { buildTrajectorySettlement,
+  DURABLE_EVIDENCE, checkIdentities } from '../../packages/domain/src/trajectory-settlement.js';
 import type { CreatedAccount } from '../../packages/solana/src/created-accounts.js';
 
 /**
@@ -140,7 +141,15 @@ describe('P5 — the trajectory settlement, and what blocks net PnL', () => {
       pre: [sys(TAKER, 499_979_995_000n), tok(QUOTE_VAULT, 122_039_280n, 120_000_000n), tok(ATA, 0n, 5_000n)],
       post: [sys(TAKER, 499_999_490_000n), tok(QUOTE_VAULT, 102_539_280n, 100_500_000n), tok(ATA, 0n, 0n)],
     });
-    const s = buildTrajectorySettlement({ trajectoryId: 't1', entry, exit });
+    const s = buildTrajectorySettlement({
+      trajectoryId: 't1',
+      entry,
+      exit,
+      // Both legs above are built from complete observed pre/post state, so
+      // their durability is stated rather than defaulted. An unstated
+      // durability is UNKNOWN, and unknown blocks.
+      legEvidence: { entry: DURABLE_EVIDENCE, exit: DURABLE_EVIDENCE },
+    });
     expect(s.pnlBlockedReasons).toEqual([]);
     expect(s.netPnlLamports).not.toBeNull();
   });
@@ -196,16 +205,38 @@ describe('P5 persistence — one settlement, written once', () => {
     db.close();
   });
 
-  it('a second, DIFFERENT answer for the same trajectory does not overwrite the first', () => {
+  /**
+   * L-1 from the 8f73cef runtime audit, corrected.
+   *
+   * This test used to assert that the second answer was DISCARDED and the row
+   * count stayed at one — which is what `INSERT OR IGNORE` did, and it passed.
+   * The audit's finding is that discarding is not refusing: the writer returned
+   * `void`, so the caller could not tell a lost write from a market fact, and
+   * with several daemons racing the same open trajectories the two are
+   * indistinguishable afterwards.
+   *
+   * The row still does not change. What changed is that the caller is told.
+   */
+  it('a second, DIFFERENT answer for the same trajectory is REFUSED, loudly', () => {
     const db = freshDb();
     const a = settlementOf(false);
     const b = settlementOf(true);
     insertTrajectorySettlement(db, 't1', 'IMMEDIATE_MECHANICS', a, [], 1);
-    insertTrajectorySettlement(db, 't1', 'IMMEDIATE_MECHANICS', b, [], 2);
-    // An outcome that can be rewritten is an outcome that can be improved
-    // after the fact.
+    expect(() => insertTrajectorySettlement(db, 't1', 'IMMEDIATE_MECHANICS', b, [], 2)).toThrow(
+      /a DIFFERENT settlement already exists/,
+    );
+    // The first answer survives untouched. Refusing must not also corrupt.
     expect(settlementTotals(db).settlements).toBe(1);
     expect(settlementTotals(db).withNetPnl).toBe(0);
+    db.close();
+  });
+
+  it('the SAME answer twice is idempotent, because a retry is not a conflict', () => {
+    const db = freshDb();
+    const a = settlementOf(false);
+    insertTrajectorySettlement(db, 't1', 'IMMEDIATE_MECHANICS', a, [], 1);
+    expect(() => insertTrajectorySettlement(db, 't1', 'IMMEDIATE_MECHANICS', a, [], 2)).not.toThrow();
+    expect(settlementTotals(db).settlements).toBe(1);
     db.close();
   });
 

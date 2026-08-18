@@ -1,5 +1,12 @@
 import type { MeasuredLegSettlement } from './settlement.js';
-import { entryCashOut, exitCashIn, executionCost, transferFeeOrUnknown, acquiredTokens } from './settlement.js';
+import {
+  entryCashOut,
+  exitCashIn,
+  executionCost,
+  transferFeeOrUnknown,
+  acquiredTokens,
+  isPnlEligible,
+} from './settlement.js';
 
 /**
  * P5 — one settlement, one writer, one set of economics per trajectory.
@@ -85,6 +92,36 @@ export interface TrajectorySettlement {
   readonly pnlBlockedReasons: readonly string[];
 }
 
+/**
+ * The part of PnL eligibility that lives in the durable graph.
+ *
+ * P4.1 lists seven conditions. Four are properties of the measured leg and
+ * `isPnlEligible` owns them. These three are properties of what was written to
+ * disk, and nothing in memory can answer them.
+ */
+export interface LegEvidenceState {
+  /** Every blob this leg references passed read-back verification. */
+  readonly rawStateDurable: boolean;
+  /** The observation, worker job and step ids all resolve to rows. */
+  readonly linksResolve: boolean;
+  /** Whether a residual token balance's meaning is established. */
+  readonly residualSemanticsKnown: boolean;
+}
+
+/**
+ * A leg whose durability HAS been established.
+ *
+ * Deliberately a named constant rather than a default parameter. A default
+ * would mean every caller that forgot to establish durability got it for free,
+ * which is precisely how 275 trajectories settled with no raw state at all. A
+ * caller using this is claiming, in the diff, that it checked.
+ */
+export const DURABLE_EVIDENCE: LegEvidenceState = {
+  rawStateDurable: true,
+  linksResolve: true,
+  residualSemanticsKnown: true,
+};
+
 export interface CashbackFacts {
   readonly accruedLamports: bigint;
   readonly claimableLamports: bigint;
@@ -118,6 +155,23 @@ export function buildTrajectorySettlement(p: {
   /** Rent the trajectory opened and has not recovered. */
   rentStillLockedLamports?: bigint;
   venueFeeDecompositionKnown?: boolean;
+  /**
+   * P4.1 — the three eligibility conditions that are facts about the PERSISTED
+   * evidence rather than about the in-memory leg.
+   *
+   * A leg object cannot know whether its blobs survived read-back or whether
+   * its observation id resolves to a row; only the writer that persisted them
+   * can. Passing them in keeps `isPnlEligible` honest without giving the domain
+   * a database.
+   *
+   * Absent means UNKNOWN, and unknown blocks. That is deliberate: the audit
+   * found 275 settled trajectories with no raw state at all, and a default of
+   * "probably fine" is how they settled.
+   */
+  legEvidence?: {
+    readonly entry?: LegEvidenceState;
+    readonly exit?: LegEvidenceState;
+  };
 }): TrajectorySettlement {
   const reasons: string[] = [];
   const cashback = p.cashback ?? NO_CASHBACK;
@@ -142,9 +196,36 @@ export function buildTrajectorySettlement(p: {
     ['exit', p.exit],
   ] as const) {
     if (leg === null) continue;
-    if (!leg.complete) reasons.push(`the ${name} leg is incomplete: ${leg.incompleteness.join('; ').slice(0, 120)}`);
-    if (!leg.effectValid) reasons.push(`the ${name} leg is not effect valid: ${leg.effectRefusals.join('; ').slice(0, 120)}`);
-    if (!leg.fullAccountCoverage) reasons.push(`the ${name} leg did not observe every writable it touched`);
+    /**
+     * P4.1 — `isPnlEligible` IS the rule, and this is the writer that has to
+     * obey it.
+     *
+     * The 8f73cef audit's second-most-expensive finding (K-1): this function
+     * checked three of the four conditions `isPnlEligible` states in its own
+     * header and NEVER READ THE FOURTH — `costs.unexplainedLamports`. So a leg
+     * the domain itself calls PnL-ineligible produced a published net PnL.
+     * `isPnlEligible` was called by the paper engine and by `settlement-check`;
+     * it was not called by the canonical writer for the trajectory corpus.
+     *
+     * Calling it rather than restating three of its clauses means a condition
+     * added there can never again be missing here.
+     */
+    const eligible = isPnlEligible(leg);
+    if (!eligible.ok) reasons.push(...eligible.reasons.map((r) => `the ${name} leg is not PnL-eligible: ${r}`));
+
+    // Raw evidence durability and link resolution are properties of the
+    // PERSISTED graph, not of the in-memory leg, so they are supplied by the
+    // caller. Absent, they are UNKNOWN and unknown blocks.
+    const durability = p.legEvidence?.[name];
+    if (durability === undefined) {
+      reasons.push(`the ${name} leg's raw-state durability was not established`);
+    } else {
+      if (!durability.rawStateDurable) reasons.push(`the ${name} leg's raw pre/post state is not durable`);
+      if (!durability.linksResolve) reasons.push(`the ${name} leg's worker/observation links do not resolve`);
+      if (durability.residualSemanticsKnown === false) {
+        reasons.push(`the ${name} leg's residual semantics are unknown`);
+      }
+    }
   }
 
   const residual = p.exit === null ? acquiredTokens(p.entry) : p.exit.residualTokenAtoms ?? 0n;
@@ -180,18 +261,31 @@ export function buildTrajectorySettlement(p: {
    * F16 — every component appears EXACTLY ONCE.
    *
    * `executionCost(leg)` already contains base fee, priority fee, tip, NET rent
-   * (created minus recovered) and failed-attempt cost. This function then added
-   * `failed` and `rentLocked` on top, counting both twice, while omitting
-   * transfer fees entirely — so the total was simultaneously too high on rent
-   * and too low on Token-2022.
+   * (created minus recovered) and the PER-LEG failed-attempt cost. This
+   * function once added `failed` and `rentLocked` on top, counting rent twice,
+   * while omitting transfer fees entirely — so the total was simultaneously too
+   * high on rent and too low on Token-2022. `rentLocked` is therefore NOT added
+   * here; it is already inside each leg's net rent.
    *
-   * What legs do NOT carry is the transfer fee and the cashback claim cost, so
-   * those two are the only additions.
+   * Three things legs do not carry, and they are the only additions:
+   *
+   *   transferFees              measured, and per-trajectory
+   *   failed                    the TRAJECTORY-LEVEL failed-attempt fee
+   *   cashback.claimCostLamports
+   *
+   * P4.3 — `failed` is the one the audit caught entering ZERO times (K-1).
+   * `executionCost(leg)` sums only the per-leg `failedAttemptCostLamports`;
+   * this function accepted `failedAttemptFeesLamports`, stored it in
+   * `trajectory_settlements`, and added it to no total. The audit's mutation
+   * set it to 5,000 lamports and measured no effect at all. It was latent while
+   * `openTrajectory` passed nothing — and an API that accepts a cost and loses
+   * it is a defect whether or not a caller has reached it yet.
    */
   const executionCostLamports =
     executionCost(p.entry) +
     (p.exit === null ? 0n : executionCost(p.exit)) +
     transferFees +
+    failed +
     cashback.claimCostLamports;
 
   /**
@@ -234,12 +328,59 @@ export function buildTrajectorySettlement(p: {
     (p.entry.costs.protocolFeeLamports ?? 0n) +
     (p.exit?.costs.protocolFeeLamports ?? 0n);
   const namedRent = rentCreated - rentRecovered;
-  const namedCashback = cashback.claimedLamports - cashback.claimCostLamports;
 
-  const namedPayerDelta = tradeIn - tradeOut - namedFees - namedRent + namedCashback;
+  /**
+   * THE CASHBACK CLAIM IS NOT IN THESE TWO LEGS.
+   *
+   * `actualPayerDelta` below sums the ENTRY and EXIT legs' own payer deltas.
+   * `claim_cashback` is a THIRD transaction against the accumulator; its
+   * lamports never pass through the buy or the sell, so adding the claim to the
+   * expected side asserts a flow these two legs did not carry and manufactures
+   * a residue of exactly the claimed amount.
+   *
+   * Found by enforcing the residue rather than by reading the code: a fixture
+   * with 60,000 claimed and 5,000 of claim cost produced a spurious −55,000
+   * unexplained, which under the old build was computed and ignored. The
+   * expression has been wrong since it was written; nothing read it, so nothing
+   * disagreed.
+   *
+   * The claim still enters PnL — through the cash identity, where it belongs —
+   * and its cost still enters execution cost. If a claim LEG is ever settled as
+   * part of a trajectory, it must arrive as a third `MeasuredLegSettlement` and
+   * be added to BOTH sides of this reconciliation, not to one.
+   */
+  const namedPayerDelta = tradeIn - tradeOut - namedFees - namedRent;
   const actualPayerDelta =
     p.entry.payerNativeDeltaLamports + (p.exit?.payerNativeDeltaLamports ?? 0n);
   const unexplained = p.exit === null ? 0n : actualPayerDelta - namedPayerDelta;
+
+  /**
+   * P4.2 — NON-ZERO UNEXPLAINED VALUE BLOCKS PnL. NO EXCEPTION.
+   *
+   * This is the audit's single most expensive finding (K-2). The residue was
+   * computed, stored, and READ BY NOTHING: it was neither a `pnlBlockedReason`
+   * nor a `checkIdentities` violation. In the live corpus that produced
+   *
+   *     52 settlements
+   *     51 with a non-zero unexplained remainder
+   *     30 of those publishing a net PnL anyway
+   *      0 carrying an identity violation
+   *
+   * with a worst case of net −6,426,787 lamports published against −4,564,488
+   * unexplained — the residue being 71% of the loss the row reported, on a
+   * 20,000,000 lamport notional.
+   *
+   * A payer identity that does not close means some lamports left the wallet
+   * and the model cannot say where. Publishing a number derived from the
+   * lamports it CAN name, while that is true, is not a conservative
+   * approximation — it is a different quantity wearing PnL's name.
+   */
+  if (unexplained !== 0n) {
+    reasons.push(
+      `the payer identity does not close: ${unexplained} lamports left the payer with no named flow. ` +
+        'Net PnL is withheld rather than published over an unreconciled residue.',
+    );
+  }
 
   const netPnlLamports =
     reasons.length === 0 && exitCash !== null
@@ -296,6 +437,43 @@ export function buildTrajectorySettlement(p: {
  */
 export function checkIdentities(s: TrajectorySettlement): { ok: boolean; violations: readonly string[] } {
   const v: string[] = [];
+
+  /**
+   * THE PAYER IDENTITY. Checked first, because it is the one that was silently
+   * absent.
+   *
+   * The audit ran a forced fixture that moved 2,500,000 lamports off the named
+   * flows and got:
+   *
+   *     unexplained        = -2,500,000
+   *     netPnl             = -2,700,000       ← published anyway
+   *     pnlBlockedReasons  = 0
+   *     identityViolations = 0
+   *
+   * and, in the live corpus, 51 of 52 settlements with a residue and ZERO
+   * violations recorded. `unexplainedLamports` was computed, stored and read by
+   * nothing. An identity check that cannot fail on the one quantity designed to
+   * detect an incomplete cost model is decorative.
+   *
+   * The exact residue goes into the message, not a boolean: the number is what
+   * tells a reader whether this is a rounding artefact or 71% of the reported
+   * loss.
+   */
+  if (s.unexplainedLamports !== 0n) {
+    v.push(
+      `the payer identity does not close: ${s.unexplainedLamports} lamports unexplained ` +
+        `against an entry of ${s.entryCashOutLamports} lamports`,
+    );
+  }
+
+  // A published net PnL over a residue is a second, separate violation: the
+  // first says the model is incomplete, this one says something published
+  // anyway.
+  if (s.unexplainedLamports !== 0n && s.netPnlLamports !== null) {
+    v.push(
+      `net PnL ${s.netPnlLamports} is published while ${s.unexplainedLamports} lamports remain unexplained`,
+    );
+  }
 
   if (s.netPnlLamports !== null && s.exitCashInLamports !== null) {
     const expected =

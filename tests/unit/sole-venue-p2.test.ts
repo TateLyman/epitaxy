@@ -12,10 +12,69 @@ import { attributeSoleVenue } from '../../packages/domain/src/trajectory-evidenc
  */
 
 describe('7/8 — the canonical pool supplied the WHOLE entry, or it is not evidence', () => {
-  it('attributes when the pool base out equals the taker credit', () => {
-    const a = attributeSoleVenue({ baseOutAtoms: 1_000n, quoteInLamports: 20_000_000n, takerCreditAtoms: 1_000n });
+  it('attributes when BOTH sides conserve: base out == taker credit, and the payer outflow reaches this pool', () => {
+    const a = attributeSoleVenue({
+      baseOutAtoms: 1_000n,
+      quoteInLamports: 19_800_000n,
+      takerCreditAtoms: 1_000n,
+      entryQuoteOutLamports: 20_000_000n,
+      // Protocol, creator, LP and cashback cuts land outside the quote vault.
+      feeFlowsLamports: 200_000n,
+    });
     expect(a.attributed).toBe(true);
     expect(a.refusal).toBeNull();
+  });
+
+  /**
+   * D-2 from the 8f73cef runtime audit, as an executable test.
+   *
+   * The quote leg was checked ONLY FOR SIGN, so this exact case attributed:
+   *
+   *     quote in -> 0          attributed = false   correct
+   *     quote in -> 1 lamport  attributed = TRUE    against a 20,000,000 entry
+   *
+   * "The canonical pool accounts for all named deltas" was true of the base
+   * vault and false of the quote vault, because the notional was never compared
+   * to what the pool actually received.
+   */
+  it('REFUSES a one-lamport quote credit against a 0.02 SOL entry', () => {
+    const a = attributeSoleVenue({
+      baseOutAtoms: 1_000n,
+      quoteInLamports: 1n,
+      takerCreditAtoms: 1_000n,
+      entryQuoteOutLamports: 20_000_000n,
+      feeFlowsLamports: 0n,
+    });
+    expect(a.attributed).toBe(false);
+    expect(a.refusal).toContain('went somewhere unnamed');
+    expect(a.refusal).toContain('19999999');
+  });
+
+  it('refuses rather than attributing when the payer outflow was not supplied at all', () => {
+    // A missing input must not read as a passed check. Before the quote side
+    // was conserved this signature could not express the difference.
+    const a = attributeSoleVenue({ baseOutAtoms: 1_000n, quoteInLamports: 20_000_000n, takerCreditAtoms: 1_000n });
+    expect(a.attributed).toBe(false);
+    expect(a.refusal).toContain('sign test');
+  });
+
+  it('allows documented rounding, and nothing beyond it', () => {
+    const within = attributeSoleVenue({
+      baseOutAtoms: 1_000n,
+      quoteInLamports: 19_999_999n,
+      takerCreditAtoms: 1_000n,
+      entryQuoteOutLamports: 20_000_000n,
+      toleranceLamports: 1n,
+    });
+    expect(within.attributed).toBe(true);
+    const beyond = attributeSoleVenue({
+      baseOutAtoms: 1_000n,
+      quoteInLamports: 19_999_998n,
+      takerCreditAtoms: 1_000n,
+      entryQuoteOutLamports: 20_000_000n,
+      toleranceLamports: 1n,
+    });
+    expect(beyond.attributed).toBe(false);
   });
 
   it('REFUSES a split entry: the taker gained more than this pool gave up', () => {
