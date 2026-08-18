@@ -10,10 +10,10 @@
 | | |
 |---|---|
 | audited head (start) | `aaf6d6a502ff354d92e6c06a3aba1f96d01a6791` (merge of PR #56) |
-| ending HEAD | `35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f` |
+| ending HEAD | `b51538d74e232908da0e186a667fa89f4ee8951c` |
 | branch | `directive/profit-discovery-v1`, fast-forwarded onto `directive/5d24e39-ledger-first` |
-| final contract | `contract-623ce9c59e896474` |
-| final context | `ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4` |
+| final contract | `contract-7346e383d6266fbb` |
+| final context | `ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5` |
 
 Development happened in a separate worktree at `aaf6d6a` exactly as P0 requires;
 it was removed once the work was committed.
@@ -70,25 +70,58 @@ source.jupiter             30 tokens in 142ms
 Note `pnpm doctor` does **not** run this — pnpm's own builtin shadows the script.
 Use `npx tsx scripts/doctor.ts`.
 
-## 5. Helius recommendation, and the measured reason
+## 5. Helius recommendation — RETRACTED
 
-**RECOMMEND HELIUS DEVELOPER** — and the reason is now a number, not a feeling.
+**An earlier draft of this report recommended buying Helius Developer. That
+recommendation was wrong and is withdrawn.** It is left visible here rather than
+edited out, because the way it was reached is the more useful artifact.
 
-The binding constraint is **entity-adjusted concentration**, unmeasured on
-**84%** of candidates corpus-wide (1,218 `MEASURED` against 6,391
-`HISTORY_INCOMPLETE`). It is a required input of both smart policies, so it
-alone keeps them at 0% decision coverage.
+The reasoning was: entity-adjusted concentration is unmeasured on 84% of
+candidates; the refusal reads
 
-The refusal is *correct* and must not be worked around: an incomplete holder
-history can only **understate** clustering, so passing on it would pass exactly
-the tokens we know least about. The walk parameters are explicitly frozen as a
-measurement rather than a knob.
+```
+the holder owners could not be resolved: HTTP 429: max usage reached
+```
 
-This is not "faster bot". It is the specific input that unblocks two of three
-primary arms.
+`max usage reached` is the wording of an exhausted plan, the corpus showed 1,218
+`MEASURED` against 6,391 `HISTORY_INCOMPLETE`, and the conclusion — buy capacity
+— followed comfortably from both.
+
+Probing the endpoint directly, with request sizes interleaved to rule out an
+accumulating bucket:
+
+```
+n=5   OK 28ms        n=20  429        n=5 again  OK 27ms
+n=6   429            n=7   429        n=8        429
+the same 20 addresses as 4 x 5   ->   20/20 resolved in 468ms
+```
+
+A sharp per-request cliff between 5 and 6, with 5 succeeding *immediately after*
+a failure. Not rate, not credits: **a batch-size bound of five accounts,
+reported with a quota's error message.**
+
+`getTokenAccountOwners` passes the top **twenty** holders in one call, so it
+failed 100% of the time on this endpoint. After chunking at 5, the same four
+mints measure **4/4 with `trustworthy=true`** and real entity shares — 0.5148,
+0.7260, 0.0254, 0.8970 — in 2–4 seconds each. Two of those exceed the 50% gate
+and will now be refused at admission, which is the gate acting on a number that
+exists instead of on a null.
+
+**No purchase was needed. The blocker was ours.**
+
+What the episode is worth: a provider's error TEXT is not a diagnosis. Every
+piece of circumstantial evidence pointed at quota — the message, the corpus
+ratio, a genuinely exhausted fallback — and the actual cause was a constant.
+Probing the endpoint cost minutes; the recommendation would have cost money and
+fixed nothing.
 
 **Jupiter Developer: still NOT recommended.** Nothing in this phase showed the
 free bucket limiting completed trajectories.
+
+**Standing capacity note:** the configured *fallback* endpoint does appear to be
+credit-exhausted, so the system effectively runs on one endpoint and a primary
+hiccup has nowhere to go. That is worth resolving, but it is not what was
+blocking coverage and it should not be justified by this report's numbers.
 
 ## 6. Migration-history completeness
 
@@ -234,8 +267,13 @@ are 10. Three of four arms have never entered a position.
 
 ## 20. Unresolved blockers
 
-1. **Entity-adjusted concentration unmeasured on 84%** — the dominant blocker.
-   Correct refusal; needs capacity, not code.
+1. **Entity-adjusted concentration** — was the dominant blocker at 84%
+   unmeasured. **Cause found and fixed**: a 5-account-per-request limit on
+   `getMultipleAccounts` while `getTokenAccountOwners` batched twenty. Verified
+   at the entity-tier level (4/4 MEASURED, `trustworthy=true`). **End-to-end
+   verification through a collector window is still outstanding** — the window
+   at the fixed commit had not yet opened a trajectory when this was written, so
+   every `policy_field_coverage` row on record predates the fix.
 2. **Targeted flow never exercised** — every post-migration signal is null, so
    `SURVIVOR_FLOW_CONTINUATION_V1` cannot be evaluated at T120 by construction.
 3. **T120 arm not exercised** — no paired sample exists.
@@ -258,11 +296,21 @@ Every one passed a green ~1,900-test suite:
 4. the cheap signature walk bounded by the expensive transaction budget;
 5. **`mintBehaviourSafe: freezeAuthority === null`** against a *string union* —
    always null, on every candidate ever evaluated, silently making both
-   challengers unevaluable long before this directive began.
+   challengers unevaluable long before this directive began;
+6. every RPC family cap sat BELOW the endpoint total, so the documented
+   "families borrow idle capacity" could never happen — the endpoint total
+   refused 0 leases while the history family refused **6,662** at its own cap;
+7. a shared-budget refusal was caught by the failover loop and sent to the
+   fallback, spending the fallback's credits to avoid waiting on a healthy
+   primary — which manufactured the very `max usage reached` that made this look
+   like a quota problem;
+8. **`getMultipleAccounts` batched twenty against a five-account limit**, which
+   is what actually caused the 84%.
 
-The last one is the sharpest lesson: a REJECT count cannot distinguish
-"declined" from "unplugged", which is the entire argument for reporting coverage
-per field.
+Two lessons, and they are different. A REJECT count cannot distinguish
+"declined" from "unplugged" — the argument for per-field coverage. And a
+provider's error TEXT is not a diagnosis: `max usage reached` was a batch-size
+bound, and every piece of circumstantial evidence agreed with the wrong reading.
 
 ## 21. Terminal state
 
@@ -273,12 +321,21 @@ MEASUREMENT_REPAIR_REQUIRED
 The apparatus is validated, running under a frozen contract, opening
 trajectories, taking marks, and reporting honestly. But the directive conditions
 `VALID_PROFIT_DISCOVERY_RUNNING` on **actual non-null signal coverage**, and
-with all three smart policies at 0% decision coverage the tournament is still
-`HARD_GATES_RANDOM` alone — the exact condition this directive set out to end.
+every `policy_field_coverage` row on record still shows all three smart policies
+at 0% — the tournament is `HARD_GATES_RANDOM` alone, which is the exact
+condition this directive set out to end.
 
-The repair is now specific and measured rather than asserted: **entity-history
-capacity**. One field stands between `MIGRATION_MICROSTRUCTURE_RISK_V1` and its
-first real decision.
+The blocking measurement has been **identified and repaired** — a five-account
+batch limit, not the capacity it was first diagnosed as — and the repair is
+verified where it was made: the entity tier returns 4/4 MEASURED with
+`trustworthy=true`. What is NOT yet verified is the consequence: no window has
+yet opened a trajectory under the fixed build, so no row exists in which
+`entityConcentration` is populated and a smart policy renders a verdict.
+
+The state therefore stays `MEASUREMENT_REPAIR_REQUIRED` rather than advancing on
+a repair that is expected to work. The next `pnpm policy:coverage` against
+`ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5` is the measurement that decides it,
+and it should be read rather than predicted.
 
 **No result here authorizes capital. No arm was selected. Nothing signed,
 funded, or submitted.**

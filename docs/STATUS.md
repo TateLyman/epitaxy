@@ -21,18 +21,23 @@
 > and impossible to contaminate with the future. On a COMPLETE history **6 of the
 > 8** fields the new risk policy needs are known, up from 0.
 >
-> **But the tournament still has one arm that can enter.** `entityConcentration`
-> is unmeasured on **84%** of candidates corpus-wide (1,218 MEASURED vs 6,391
-> HISTORY_INCOMPLETE) and is required by both smart policies. That refusal is
-> CORRECT — an incomplete holder history can only understate clustering — and the
-> walk parameters are frozen as a measurement, not a knob. **The repair is
-> endpoint capacity, and it is now a number rather than an opinion.**
+> **The tournament still has one arm that can enter, but the cause is now known
+> and fixed.** `entityConcentration` was unmeasured on 84% of candidates and the
+> refusal read `HTTP 429: max usage reached` — which I diagnosed as an exhausted
+> plan and nearly answered by buying capacity. It was a **five-account
+> per-request limit** on `getMultipleAccounts` while `getTokenAccountOwners`
+> batched twenty, so it failed 100% of the time. Chunked at 5, the same mints
+> measure 4/4 with trustworthy=true. **No purchase was needed; the blocker was
+> ours.** A provider's error TEXT is not a diagnosis.
+>
+> End-to-end confirmation is still outstanding: no window has yet opened a
+> trajectory under the fixed build, so every coverage row on record predates it.
 >
 > What changed regardless: a REJECT row can no longer hide an unplugged
 > instrument. `NOT_EVALUABLE` is a third verdict, and `pnpm policy:coverage`
 > names the missing field.
 >
-> **FIVE DEFECTS FOUND BY RUNNING IT, ALL PAST A GREEN SUITE.** Round-trip cost
+> **EIGHT DEFECTS FOUND BY RUNNING IT, ALL PAST A GREEN SUITE.** Round-trip cost
 > tested against the impact cap (every size refused on every pool); COMPLETE
 > reported over a history with zero trades (fabricated zeros); failed
 > transactions fetched then discarded; the cheap signature walk bounded by the

@@ -1,10 +1,10 @@
 {
   "status": "MEASURED",
   "context": {
-    "contract": "contract-623ce9c59e896474",
-    "contractHash": "623ce9c59e89647447df95b458632187cb8ca4090332acaa82fdc7db364676b5",
-    "evidenceContextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
-    "windowId": "PROFIT_DISCOVERY_V1_R4",
+    "contract": "contract-7346e383d6266fbb",
+    "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
+    "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "windowId": "PROFIT_DISCOVERY_V1_R5",
     "featureVersions": {
       "microstructure": "migration-microstructure-v2"
     },
@@ -14,68 +14,68 @@
   "policies": [
     {
       "policy": "CORRECTED_CURRENT_QUALITY_SCORE",
-      "eligible": 7,
+      "eligible": 11,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 7,
+      "notEvaluable": 11,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
-        "correctedQualityScore": 7
+        "correctedQualityScore": 11
       }
     },
     {
       "policy": "HARD_GATES_RANDOM",
-      "eligible": 7,
+      "eligible": 11,
       "decisionCoverage": 1,
-      "enter": 4,
-      "rejectedOnSignal": 3,
+      "enter": 7,
+      "rejectedOnSignal": 4,
       "notEvaluable": 0,
       "performanceQuotable": true,
       "unknownFieldHistogram": {}
     },
     {
       "policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
-      "eligible": 7,
+      "eligible": 11,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 7,
+      "notEvaluable": 11,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
-        "creatorNetSellingLamports": 4,
-        "mintBehaviourSafe": 6,
-        "entityConcentration": 7,
-        "largestFirstBuyerEntityShare": 4,
-        "buyerRetention": 4,
-        "lateSellPressure": 4,
-        "migrationPathEntityDominance": 4
+        "creatorNetSellingLamports": 6,
+        "entityConcentration": 11,
+        "largestFirstBuyerEntityShare": 6,
+        "buyerRetention": 6,
+        "lateSellPressure": 6,
+        "migrationPathEntityDominance": 6,
+        "mintBehaviourSafe": 6
       }
     },
     {
       "policy": "SURVIVOR_FLOW_CONTINUATION_V1",
-      "eligible": 7,
+      "eligible": 11,
       "decisionCoverage": 0,
       "enter": 0,
       "rejectedOnSignal": 0,
-      "notEvaluable": 7,
+      "notEvaluable": 11,
       "performanceQuotable": false,
       "unknownFieldHistogram": {
-        "effectiveQuoteReserveTrend": 7,
-        "executableExitCapacityTrend": 7,
-        "continuationSlope": 7,
-        "entityConcentration": 7,
+        "effectiveQuoteReserveTrend": 11,
+        "executableExitCapacityTrend": 11,
+        "continuationSlope": 11,
+        "entityConcentration": 11,
         "mintBehaviourSafe": 6,
-        "independentBuyerPersistence": 4,
-        "creatorNetSellingLamports": 4
+        "independentBuyerPersistence": 6,
+        "creatorNetSellingLamports": 6
       }
     }
   ],
   "provenance": {
     "writer": "policy-coverage.ts",
-    "sourceCommit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
+    "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
     "treeDirty": true,
-    "dirtyFiles": 4,
-    "writtenUtc": "2026-08-18T23:39:27.227Z"
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-18T23:58:08.893Z"
   }
 }
