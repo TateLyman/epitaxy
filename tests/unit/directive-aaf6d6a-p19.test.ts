@@ -934,6 +934,50 @@ describe('P19 — profit discovery, tested as behaviour', () => {
     expect(fetched).toContain('unknown1');
   });
 
+  it('F5 — the cheap signature walk is not truncated by the expensive fetch budget', async () => {
+    /**
+     * Measured: a launch reported "stopped at the 1200-transaction bound"
+     * having fetched 147 transactions, because 1,200 SIGNATURES had been
+     * listed and the walk was bounded by the fetch budget. One
+     * getSignaturesForAddress returns 200 rows and one getTransaction returns
+     * one, so bounding the cheap walk with the expensive budget truncates the
+     * history long before the budget is spent — and it is the walk that
+     * decides whether coverage can be COMPLETE at all.
+     */
+    const PAGE = 200;
+    // 1,400 signatures: more than a 1,200 transaction budget, all of them
+    // failed so the fetch costs nothing at all.
+    const total = 1_400;
+    const all = Array.from({ length: total }, (_, i) => ({
+      signature: `s${i}`,
+      blockTime: 1_700_000 + i,
+      slot: 100 + i,
+      failed: true,
+    }));
+    let listCalls = 0;
+    const rpc = {
+      getSignaturesForAddress: async (_a: string, limit = PAGE, before?: string) => {
+        listCalls++;
+        const start = before === undefined ? 0 : all.findIndex((s) => s.signature === before) + 1;
+        return all.slice(start, start + limit);
+      },
+      getTransactionWithMeta: async () => null,
+    };
+    const r = await fetchPreMigrationHistory(rpc as never, {
+      mint: 'MINT',
+      bondingCurve: 'CURVE',
+      migrationSignature: 'migSig',
+      migrationSlot: 100_000,
+    });
+    // The walk reached the end of the history rather than stopping at 1,200.
+    expect(r.coverage.pages).toBeGreaterThan(total / PAGE - 1);
+    expect(listCalls).toBeGreaterThan(6);
+    expect(r.coverage.coverageReason).not.toMatch(/1200-transaction bound/);
+    // Every signature was known-failed, so not one transaction was fetched.
+    expect(r.coverage.transactionsFetched).toBe(0);
+    expect(r.coverage.transactionsSkippedFailed).toBe(total);
+  });
+
   it('F4 — fees alone cannot refuse a size: a deep pool admits the ceiling', () => {
     /**
      * The defect: the all-in round-trip COST (~190-250 bps of fees at the

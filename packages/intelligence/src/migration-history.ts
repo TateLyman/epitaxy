@@ -68,18 +68,50 @@ export interface HistoryRequest {
   readonly migrationSlot: number;
 }
 
+/**
+ * Two budgets, because there are two costs.
+ *
+ * Listing signatures is cheap: 200 rows per request. Fetching transactions is
+ * not: one per request. A single bound over both starves the cheap walk to
+ * protect the expensive fetch, and the walk is what determines whether the
+ * history is COMPLETE at all.
+ */
 export interface HistoryLimits {
   /** Signatures per page. The RPC caps this at 1000. */
   readonly pageSize: number;
   /** Hard bound on pages, so one pathological token cannot spend a whole quota. */
   readonly maxPages: number;
-  /** Hard bound on transaction fetches. */
+  /** Hard bound on the cheap WALK, in signatures listed. */
+  readonly maxSignatures: number;
+  /** Hard bound on the expensive FETCH, in transactions retrieved. */
   readonly maxTransactions: number;
 }
 
+/**
+ * Measured on 2026-08-18 across six recent migrations, by walking signatures
+ * only (which is cheap enough to price the fetch without paying for it):
+ *
+ *     mint          pages  signatures  pre-migration  failed  to fetch
+ *     24qbVJUa2e        4         797            796     179       617
+ *     8fkseSjM13        2         319            318      23       295
+ *     6UzjhzmKwh        3         501            500     136       364
+ *     9UJiGDgFmU        4         675            674     154       520
+ *     B7LsPdY86b        2         376            303     117       186
+ *     H9UoZx4beV      40+       8000+          7591+   6018+     1573+
+ *
+ * Five of six reach creation inside four pages, and the mean fetch is 396
+ * transactions. So the binding constraint is NOT the transaction budget for a
+ * typical launch — it is the walk, and the walk is cheap. 40 pages covers the
+ * outlier; 1,200 transactions still bounds what we pay to read.
+ *
+ * The failed share is the other half of the story: 23% to 79% of these
+ * histories are failed transactions, which are skipped entirely, so the real
+ * fetch is a fraction of the signature count.
+ */
 export const DEFAULT_HISTORY_LIMITS: HistoryLimits = {
   pageSize: 200,
-  maxPages: 12,
+  maxPages: 40,
+  maxSignatures: 8_000,
   maxTransactions: 1_200,
 };
 
@@ -211,8 +243,23 @@ export async function fetchPreMigrationHistory(
       reachedCreation = true;
       break;
     }
-    if (signatures.length >= limits.maxTransactions) {
-      coverageReason = `stopped at the ${limits.maxTransactions}-transaction bound`;
+    /**
+     * The WALK is bounded by signatures, not by the transaction budget.
+     *
+     * These two costs differ by more than two orders of magnitude: one
+     * `getSignaturesForAddress` returns 200 rows, and one `getTransaction`
+     * returns one. Bounding the cheap walk with the expensive budget truncates
+     * the history long before the budget is spent — measured on 2026-08-18, a
+     * launch stopped "at the 1200-transaction bound" having fetched 147
+     * transactions, because 1,200 SIGNATURES had been listed. It never reached
+     * creation, so every creation-anchored feature was null, and the cause was
+     * a bound on the wrong quantity rather than a real cost.
+     *
+     * The walk is what discovers how much history exists; the fetch is what
+     * pays for it. They get separate limits.
+     */
+    if (signatures.length >= limits.maxSignatures) {
+      coverageReason = `stopped at the ${limits.maxSignatures}-signature walk bound`;
       break;
     }
   }

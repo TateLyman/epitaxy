@@ -112,21 +112,52 @@ export interface CachedMicrostructure {
  * and quota is the binding constraint on how many mints a day this apparatus
  * can characterise.
  */
+/**
+ * A CACHE HIT IS NOT UNCONDITIONAL, AND THE DISTINCTION IS THE WHOLE POINT.
+ *
+ * A COMPLETE history is immutable — the curve is closed, so re-fetching it can
+ * only reproduce it, and never doing so is the entire economic argument for
+ * this layer.
+ *
+ * An INCOMPLETE one is a different object. It records why it stopped, and the
+ * reasons split cleanly:
+ *
+ *   stopped at a BUDGET bound      our limit, not the chain's. A later run with
+ *                                  a larger budget can do better, so caching the
+ *                                  truncated answer freezes a decision we made
+ *                                  about cost into a fact about the token.
+ *   truncated INDEX / pruned       the provider has no more to give. Retrying
+ *                                  spends the budget to obtain the same answer.
+ *
+ * Without this split the fetch budget becomes permanent: raising it later
+ * changes nothing, because every previously-characterised mint answers from a
+ * cache written under the smaller one.
+ */
 export function readCachedMicrostructure(db: DiscoveryDb, mint: string): CachedMicrostructure | null {
   const row = db
     .prepare(
-      `SELECT features, coverage, source_signatures_hash
-         FROM migration_microstructure_features
-        WHERE mint = ? AND feature_version = ?`,
+      `SELECT f.features AS features, f.coverage AS coverage, f.source_signatures_hash AS hash,
+              c.coverage_reason AS reason
+         FROM migration_microstructure_features f
+         LEFT JOIN migration_history_coverage c
+           ON c.mint = f.mint AND c.feature_version = f.feature_version
+        WHERE f.mint = ? AND f.feature_version = ?`,
     )
     .get(mint, MICROSTRUCTURE_FEATURE_VERSION) as
-    | { features: string; coverage: string; source_signatures_hash: string }
+    | { features: string; coverage: string; hash: string; reason: string | null }
     | undefined;
   if (row === undefined) return null;
+
+  const complete = row.coverage === 'COMPLETE';
+  if (!complete && row.reason !== null && /bound/i.test(row.reason)) {
+    // Our budget stopped it, not the chain. Re-fetch under the current budget.
+    return null;
+  }
+
   return {
     features: JSON.parse(row.features) as MicrostructureFeatures,
-    coverage: row.coverage === 'COMPLETE' ? 'COMPLETE' : 'INCOMPLETE',
-    sourceSignaturesHash: row.source_signatures_hash,
+    coverage: complete ? 'COMPLETE' : 'INCOMPLETE',
+    sourceSignaturesHash: row.hash,
     fromCache: true,
   };
 }
@@ -154,7 +185,31 @@ export function persistMicrostructure(
         transactions_failed, transactions_pruned, coverage, coverage_reason,
         source_signatures_hash, fetched_utc_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(mint, feature_version) DO NOTHING`,
+     /*
+      * DO UPDATE, not DO NOTHING.
+      *
+      * A row is only re-fetched when the cached one stopped at OUR budget
+      * rather than at the chain's limit, so reaching this statement a second
+      * time means the new read is strictly better informed than the stored
+      * one. DO NOTHING would compute the improvement and then throw it away,
+      * which is the most expensive way to change nothing.
+      *
+      * The DECISION's inputs are not at risk: every policy decision stores its
+      * own feature snapshot in trajectory_policy_decisions, so what a past
+      * decision saw is preserved there rather than here.
+      */
+     ON CONFLICT(mint, feature_version) DO UPDATE SET
+       newest_signature = excluded.newest_signature,
+       oldest_signature = excluded.oldest_signature,
+       reached_creation = excluded.reached_creation,
+       pages = excluded.pages,
+       transactions_fetched = excluded.transactions_fetched,
+       transactions_failed = excluded.transactions_failed,
+       transactions_pruned = excluded.transactions_pruned,
+       coverage = excluded.coverage,
+       coverage_reason = excluded.coverage_reason,
+       source_signatures_hash = excluded.source_signatures_hash,
+       fetched_utc_ms = excluded.fetched_utc_ms`,
   ).run(
     anchor.mint,
     anchor.bondingCurve,
@@ -179,7 +234,12 @@ export function persistMicrostructure(
        (mint, feature_version, migration_signature, migration_slot, source_signatures_hash,
         coverage, features, features_hash, computed_at_utc_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(mint, feature_version) DO NOTHING`,
+     ON CONFLICT(mint, feature_version) DO UPDATE SET
+       source_signatures_hash = excluded.source_signatures_hash,
+       coverage = excluded.coverage,
+       features = excluded.features,
+       features_hash = excluded.features_hash,
+       computed_at_utc_ms = excluded.computed_at_utc_ms`,
   ).run(
     anchor.mint,
     MICROSTRUCTURE_FEATURE_VERSION,
