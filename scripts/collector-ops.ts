@@ -85,6 +85,80 @@ function listPosix(): CollectorProcess[] {
   }
 }
 
+/**
+ * S096 — how many collector process TREES are alive, not how many processes.
+ *
+ * `pnpm trajectory:collect` is a pnpm script, so one collector is a chain:
+ *
+ *     sh -> npx -> tsx -> node
+ *
+ * Every link carries `trajectory-collect.ts` on its command line, because each
+ * one passed the argument down. The old count was `procs.length`, so ONE
+ * collector reported as four and `singleOwner` went false on a perfectly
+ * healthy single-writer run. An operator who believes there are four writers on
+ * one SQLite file does the wrong thing next — usually kills them — which is how
+ * a correct process gets stopped by its own health check.
+ *
+ * A tree is identified by its ROOT: a matching process whose parent is not
+ * itself a matching process. Anything whose parent is also in the set is a
+ * wrapper of an already-counted tree.
+ *
+ * The DATABASE LOCK REMAINS AUTHORITATIVE. This count answers "how many
+ * launches are on this machine", and `process_locks` answers "who may write";
+ * the two are different questions and the second one is the one that protects
+ * the corpus. A tree count of one with a dead lock row is still a problem, and
+ * it is still reported as one.
+ */
+export interface CollectorTree {
+  readonly rootPid: number;
+  readonly pids: readonly number[];
+  readonly commandLine: string;
+  readonly createdUtc: string | null;
+}
+
+export function collectorTrees(procs: readonly CollectorProcess[]): CollectorTree[] {
+  const byPid = new Map<number, CollectorProcess>();
+  for (const p of procs) byPid.set(p.pid, p);
+
+  /**
+   * Walk to the highest matching ancestor.
+   *
+   * Bounded by the number of processes and guarded against a cycle: a pid table
+   * that reports a loop is a broken reading, and a walk that trusts it hangs
+   * the status command that was supposed to diagnose the problem.
+   */
+  const rootOf = (p: CollectorProcess): number => {
+    const seen = new Set<number>([p.pid]);
+    let cur = p;
+    for (;;) {
+      const parent = byPid.get(cur.parentPid);
+      if (parent === undefined || seen.has(parent.pid)) return cur.pid;
+      seen.add(parent.pid);
+      cur = parent;
+    }
+  };
+
+  const groups = new Map<number, number[]>();
+  for (const p of procs) {
+    const root = rootOf(p);
+    const list = groups.get(root);
+    if (list === undefined) groups.set(root, [p.pid]);
+    else list.push(p.pid);
+  }
+
+  return [...groups.entries()]
+    .map(([rootPid, pids]) => {
+      const root = byPid.get(rootPid);
+      return {
+        rootPid,
+        pids: [...pids].sort((a, b) => a - b),
+        commandLine: root?.commandLine ?? '',
+        createdUtc: root?.createdUtc ?? null,
+      };
+    })
+    .sort((a, b) => a.rootPid - b.rootPid);
+}
+
 export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -210,7 +284,16 @@ function main(): void {
     const procs = listTrajectoryCollectors();
     const trajectoryLock = locks.find((l) => l.lock_name === TRAJECTORY_COLLECTOR_LOCK) ?? null;
 
-    console.log(`processes matching ${TRAJECTORY_PATTERN}: ${procs.length}`);
+    // S096 — the wrapper chain collapsed to the launch it belongs to.
+    const trees = collectorTrees(procs);
+
+    console.log(
+      `collector process trees: ${trees.length}` +
+        ` (${procs.length} process(es) matching ${TRAJECTORY_PATTERN}, wrappers included)`,
+    );
+    for (const t of trees) {
+      console.log(`  tree root pid ${String(t.rootPid).padEnd(7)} ${t.pids.length} process(es): ${t.pids.join(' -> ')}`);
+    }
     console.log('\nlocks:');
     for (const l of locks) {
       console.log(
@@ -221,16 +304,23 @@ function main(): void {
     if (locks.length === 0) console.log('  none');
 
     // The single-owner property, stated as a verdict rather than left to the reader.
+    // Counted in TREES: `sh -> npx -> tsx -> node` is one collector, and calling
+    // it four made a healthy single writer report as a breach.
     const problems: string[] = [];
-    if (procs.length > 1) problems.push(`${procs.length} trajectory collector processes are alive`);
+    if (trees.length > 1) problems.push(`${trees.length} trajectory collector process trees are alive`);
     if (trajectoryLock && !trajectoryLock.pidAlive) problems.push('the trajectory_collector lock names a dead pid');
-    if (procs.length > 0 && trajectoryLock === null)
+    if (trees.length > 0 && trajectoryLock === null)
       problems.push('a trajectory collector is running with no trajectory_collector lock row');
 
     const artifact = writeArtifact('collector-lock-status.json', {
       trajectoryProcesses: procs,
+      trajectoryProcessTrees: trees,
+      trajectoryTreeCount: trees.length,
       locks,
       recentSessions: sessions,
+      // Stated explicitly: the count above is a machine inventory, and the row
+      // below is the thing that actually decides who may write to the corpus.
+      lockIsAuthoritative: true,
       singleOwner: problems.length === 0,
       problems,
     });

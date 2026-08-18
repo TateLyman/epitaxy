@@ -46,6 +46,14 @@ export interface CandidateRiskFacts {
   /** When these were collected. Compared against the decision, not assumed. */
   readonly collectedAtMs: number;
   readonly mint2022: MintFacts;
+  /**
+   * P8 — which token program owns the mint.
+   *
+   * A stratum label, not a gate. `MintFacts` describes the mint's CONTENT and
+   * says nothing about which program holds it, and legacy Token and Token-2022
+   * are different cost and failure populations that must not be pooled.
+   */
+  readonly isToken2022: boolean | null;
   readonly transferFee: TransferFeeState;
   readonly mayhem: MayhemFacts;
   readonly breadth: BreadthUsability;
@@ -206,6 +214,7 @@ export function collectCandidateRiskFacts(p: {
     pool: p.pool,
     collectedAtMs: p.nowMs,
     mint2022: facts,
+    isToken2022: p.isToken2022,
     transferFee: transferFeeState({
       isToken2022: p.isToken2022,
       // A mint that did not decode has no readable extensions, and that is a

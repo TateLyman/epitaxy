@@ -193,13 +193,72 @@ export interface RpcEndpoints {
   readonly fallback: string | null;
 }
 
+/**
+ * S079 — the cross-process gate, injected rather than constructed here.
+ *
+ * `SolanaRpc` is built in ten places, several of which have no database open,
+ * so the budget is optional and its absence is REPORTED rather than silently
+ * meaning "unlimited". `researchRpc()` supplies one for every process that goes
+ * through the shared funnel, which is every collector.
+ */
+export interface EndpointLease {
+  lease(endpointKey: string, method: string): { granted: boolean; waitMs: number; boundBy: string; degraded: boolean };
+}
+
 export class SolanaRpc {
   private nextId = 1;
+  /** Leases refused by the shared budget, so a starved process can say so. */
+  private sharedRefusals = 0;
+  private sharedWaitMs = 0;
 
   constructor(
     private readonly limiter: RateLimiter,
     private readonly endpoints: RpcEndpoints,
+    /**
+     * The endpoint-wide budget. Null means this process is NOT participating in
+     * the shared budget — a fact worth surfacing, because it is exactly the
+     * state that produced 48 quota refusals from three politely-limited
+     * processes.
+     */
+    private readonly sharedBudget: EndpointLease | null = null,
+    private readonly endpointKeyOf: (url: string) => string = (u) => u,
   ) {}
+
+  /** What the shared budget did to this process. Reported by `pnpm rpc:shared-budget`. */
+  get sharedBudgetStats(): { participating: boolean; refusals: number; waitedMs: number } {
+    return { participating: this.sharedBudget !== null, refusals: this.sharedRefusals, waitedMs: Math.round(this.sharedWaitMs) };
+  }
+
+  /**
+   * Wait for endpoint-wide budget before the local limiter is consulted.
+   *
+   * Bounded: a caller that cannot get a lease inside the window is refused
+   * rather than parked, because an unbounded wait here would convert quota
+   * pressure into a hang in the mark scheduler, and a late mark is the one
+   * failure this apparatus has already paid for twice.
+   */
+  private async awaitSharedBudget(url: string, method: string, maxWaitMs = 20_000): Promise<void> {
+    if (this.sharedBudget === null) return;
+    const key = this.endpointKeyOf(url);
+    const started = Date.now();
+    for (;;) {
+      const r = this.sharedBudget.lease(key, method);
+      if (r.granted) {
+        this.sharedWaitMs += Date.now() - started;
+        return;
+      }
+      const wait = r.waitMs < 0 ? maxWaitMs + 1 : r.waitMs;
+      if (Date.now() - started + wait > maxWaitMs) {
+        this.sharedRefusals++;
+        throw new RpcError(
+          'rpc_error',
+          `endpoint budget exhausted for ${method} (bound by ${r.boundBy}${r.degraded ? ', DEGRADED local fallback' : ''}); ` +
+            `next token in ${r.waitMs}ms`,
+        );
+      }
+      await new Promise((res) => setTimeout(res, Math.min(wait, 250)));
+    }
+  }
 
   get configured(): boolean {
     return this.endpoints.primary !== null || this.endpoints.fallback !== null;
@@ -217,6 +276,11 @@ export class SolanaRpc {
     let last: unknown = null;
     for (const url of urls) {
       try {
+        // S079 — the ENDPOINT-WIDE budget first, then this process's own bucket.
+        // In that order: the local limiter protects against this process
+        // bursting, and the shared one protects against three processes each
+        // staying under a limit that belongs to all of them together.
+        await this.awaitSharedBudget(url, method);
         const res = await fetchJson(this.limiter, {
           url,
           source: RPC_SOURCE,

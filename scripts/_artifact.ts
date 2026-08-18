@@ -65,6 +65,54 @@ export function writeArtifact(name: string, body: Record<string, unknown>): stri
 }
 
 /**
+ * P18 — the research context every profit-discovery artifact must name.
+ *
+ * `provenance()` answers "who wrote this, from what commit". It does not answer
+ * "which experiment is this about", and an artifact that cannot say which
+ * contract, context and window it measured is unusable the moment a second
+ * window exists — which is exactly the situation this phase creates.
+ *
+ * Read from the database rather than passed in, so two scripts reporting on the
+ * same window cannot disagree about which window it was.
+ */
+export interface ResearchContext {
+  readonly contract: string | null;
+  readonly contractHash: string | null;
+  readonly evidenceContextId: string | null;
+  readonly windowId: string | null;
+  readonly featureVersions: Readonly<Record<string, string>>;
+  readonly sampleQuery: string;
+}
+
+export interface ContextDb {
+  prepare(sql: string): { get(...p: unknown[]): unknown; all(...p: unknown[]): unknown };
+}
+
+export function researchContext(db: ContextDb, sampleQuery: string, featureVersions: Record<string, string> = {}): ResearchContext {
+  let contract: { contract_id: string; contract_hash: string; evidence_context_id: string; window_id: string | null } | undefined;
+  try {
+    contract = db
+      .prepare(
+        `SELECT contract_id, contract_hash, evidence_context_id, window_id
+           FROM experiment_contracts
+          ORDER BY frozen_utc_ms DESC
+          LIMIT 1`,
+      )
+      .get() as typeof contract;
+  } catch {
+    contract = undefined;
+  }
+  return {
+    contract: contract?.contract_id ?? null,
+    contractHash: contract?.contract_hash ?? null,
+    evidenceContextId: contract?.evidence_context_id ?? null,
+    windowId: contract?.window_id ?? null,
+    featureVersions,
+    sampleQuery,
+  };
+}
+
+/**
  * The artifact for a capability that was NOT exercised.
  *
  * Never emit zeros for this case. A consumer cannot distinguish "measured zero"

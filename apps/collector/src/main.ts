@@ -98,7 +98,10 @@ async function main(): Promise<void> {
    * case keeps the old unconfigured client and says so.
    */
   const resolved =
-    (process.env['RPC_ENDPOINT'] ?? secrets.rpcHttp) === null ? null : researchRpc(secrets as never);
+    // S079 — the screening collector shares the endpoint budget with the
+    // trajectory collector. It was the larger of the two spenders and neither
+    // could see the other's calls.
+    (process.env['RPC_ENDPOINT'] ?? secrets.rpcHttp) === null ? null : researchRpc(secrets as never, db);
   const rpc = resolved?.rpc ?? new SolanaRpc(limiter, { primary: null, fallback: null });
   const host = resolved?.host ?? 'none configured';
   const overridden = resolved?.overridden ?? false;

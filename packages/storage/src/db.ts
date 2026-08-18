@@ -3511,6 +3511,270 @@ CREATE UNIQUE INDEX idx_resv_ordinal
   WHERE status <> 'ABANDONED';
 `,
   },
+  {
+    id: 54,
+    name: 'profit_discovery_v1',
+    sql: `
+-- ===========================================================================
+-- S079 -- ONE ENDPOINT BUDGET, SHARED ACROSS PROCESSES.
+--
+-- The limiter was per process and the quota is per endpoint, so screening,
+-- trajectory collection and every research script each spent the whole
+-- allowance. \`endpoint_key\` is a host plus a digest prefix of the URL: two API
+-- keys against one host are two quotas, and no key can be read back out of it.
+-- The URL itself never reaches this table.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS rpc_endpoint_budget (
+  endpoint_key        TEXT NOT NULL,
+  method_family       TEXT NOT NULL,
+  tokens              REAL NOT NULL,
+  capacity            REAL NOT NULL,
+  rate_per_second     REAL NOT NULL,
+  -- Wall clock, because a monotonic clock cannot be compared across processes.
+  -- A backward step mints nothing; a forward step mints at most \`capacity\`.
+  last_refill_utc_ms  INTEGER NOT NULL,
+  granted             INTEGER NOT NULL DEFAULT 0,
+  refused             INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (endpoint_key, method_family)
+);
+
+-- ===========================================================================
+-- P3 -- THE IMMUTABLE PRE-MIGRATION HISTORY.
+--
+-- A migrated token's bonding-curve history is CLOSED: no transaction can be
+-- added to it after the migration signature. That is what makes it worth
+-- fetching exactly once and caching forever, and it is also what makes leakage
+-- testable -- a feature that changes when a later transaction is appended is
+-- reading the future.
+--
+-- Coverage is a first-class column, not an inference. A history that did not
+-- reach creation produces INCOMPLETE features, and an INCOMPLETE feature is
+-- null rather than zero everywhere it is consumed.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS migration_history_coverage (
+  mint                    TEXT NOT NULL,
+  bonding_curve           TEXT NOT NULL,
+  migration_signature     TEXT NOT NULL,
+  migration_slot          INTEGER NOT NULL,
+  feature_version         TEXT NOT NULL,
+
+  newest_signature        TEXT,
+  oldest_signature        TEXT,
+  reached_creation        INTEGER NOT NULL,
+  pages                   INTEGER NOT NULL,
+  transactions_fetched    INTEGER NOT NULL,
+  transactions_failed     INTEGER NOT NULL,
+  transactions_pruned     INTEGER NOT NULL,
+  -- INCOMPLETE or COMPLETE. Never inferred at read time from the counts: the
+  -- fetch knows why it stopped and the reader does not.
+  coverage                TEXT NOT NULL,
+  coverage_reason         TEXT,
+  -- sha256 over the ordered signature list. Two runs that fetched the same
+  -- history agree here, and a run that silently saw less does not.
+  source_signatures_hash  TEXT NOT NULL,
+  fetched_utc_ms          INTEGER NOT NULL,
+
+  PRIMARY KEY (mint, feature_version)
+);
+CREATE INDEX IF NOT EXISTS idx_mhc_curve ON migration_history_coverage(bonding_curve);
+
+-- The computed features. One row per (mint, feature_version), so recomputing
+-- under a new definition never overwrites the evidence the old decisions used.
+CREATE TABLE IF NOT EXISTS migration_microstructure_features (
+  mint                    TEXT NOT NULL,
+  feature_version         TEXT NOT NULL,
+  migration_signature     TEXT NOT NULL,
+  migration_slot          INTEGER NOT NULL,
+  source_signatures_hash  TEXT NOT NULL,
+  coverage                TEXT NOT NULL,
+  -- The features themselves as JSON, with every unknown present and null.
+  -- Absence of a key would be indistinguishable from a field this version does
+  -- not define, and those are different facts.
+  features                TEXT NOT NULL,
+  features_hash           TEXT NOT NULL,
+  computed_at_utc_ms      INTEGER NOT NULL,
+
+  PRIMARY KEY (mint, feature_version)
+);
+CREATE INDEX IF NOT EXISTS idx_mmf_version ON migration_microstructure_features(feature_version, coverage);
+
+-- ===========================================================================
+-- P4 -- TARGETED POST-MIGRATION FLOW.
+--
+-- Candidate-specific bars, NOT the global Pump firehose that exhausted the
+-- endpoint. One row per (mint, bar), keyed so a re-fetch cannot double a bar.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS targeted_flow_bars (
+  mint                     TEXT NOT NULL,
+  pool                     TEXT NOT NULL,
+  bar                      TEXT NOT NULL,
+  bar_start_ms             INTEGER NOT NULL,
+  bar_end_ms               INTEGER NOT NULL,
+
+  unique_buyer_entities    INTEGER,
+  unique_seller_entities   INTEGER,
+  buy_quote_lamports       TEXT,
+  sell_quote_lamports      TEXT,
+  net_quote_lamports       TEXT,
+  creator_buy_lamports     TEXT,
+  creator_sell_lamports    TEXT,
+  mayhem_buy_lamports      TEXT,
+  mayhem_sell_lamports     TEXT,
+  reserve_change_lamports  TEXT,
+  price_change_ratio       REAL,
+  trade_count              INTEGER,
+  -- COMPLETE, INCOMPLETE or ABSENT. An unobserved bar is not a zero-flow bar.
+  coverage                 TEXT NOT NULL,
+  coverage_reason          TEXT,
+  computed_at_utc_ms       INTEGER NOT NULL,
+
+  PRIMARY KEY (mint, pool, bar)
+);
+
+-- Every flow event that fed a bar, deduped by (signature, event index).
+-- Two swaps in one transaction are TWO events; the same swap seen twice is one.
+CREATE TABLE IF NOT EXISTS targeted_flow_events (
+  signature           TEXT NOT NULL,
+  event_index         INTEGER NOT NULL,
+  mint                TEXT NOT NULL,
+  pool                TEXT NOT NULL,
+  slot                INTEGER NOT NULL,
+  block_time_ms       INTEGER,
+  side                TEXT NOT NULL,
+  quote_lamports      TEXT NOT NULL,
+  base_atoms          TEXT NOT NULL,
+  actor               TEXT,
+  actor_class         TEXT NOT NULL,
+  -- A failed transaction moved no value. Stored so it can be counted as
+  -- observed and excluded from flow, which are different from not seeing it.
+  failed              INTEGER NOT NULL,
+  commitment          TEXT NOT NULL,
+  observed_utc_ms     INTEGER NOT NULL,
+  PRIMARY KEY (signature, event_index)
+);
+CREATE INDEX IF NOT EXISTS idx_tfe_mint ON targeted_flow_events(mint, block_time_ms);
+
+-- Coverage gaps in the targeted subscription. A reconnect that lost N seconds
+-- is a fact about the measurement and it is persisted rather than smoothed.
+CREATE TABLE IF NOT EXISTS targeted_flow_gaps (
+  gap_id              TEXT PRIMARY KEY,
+  reason              TEXT NOT NULL,
+  generation          INTEGER NOT NULL,
+  started_utc_ms      INTEGER NOT NULL,
+  ended_utc_ms        INTEGER,
+  affected_mints      TEXT NOT NULL
+);
+
+-- ===========================================================================
+-- P6 -- TWO PRIMARY ENTRY CLOCKS, PAIRED WITHIN A MINT.
+--
+-- T0 and T120 are different DECISIONS on the same token, each with its own
+-- decision-time snapshot. Sharing a snapshot would make T120 a relabelling of
+-- T0 rather than a treatment.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS entry_opportunities (
+  opportunity_id       TEXT PRIMARY KEY,
+  mint                 TEXT NOT NULL,
+  pool                 TEXT NOT NULL,
+  entry_clock          TEXT NOT NULL,
+  evidence_context_id  TEXT NOT NULL,
+  -- The decision-time snapshot. T0 and T120 must not share one.
+  snapshot_hash        TEXT NOT NULL,
+  decision_utc_ms      INTEGER NOT NULL,
+  migration_slot       INTEGER NOT NULL,
+  age_since_migration_ms INTEGER NOT NULL,
+  mechanically_viable  INTEGER NOT NULL,
+  refusal              TEXT,
+  trajectory_id        TEXT,
+  UNIQUE (mint, entry_clock, evidence_context_id)
+);
+CREATE INDEX IF NOT EXISTS idx_eo_mint ON entry_opportunities(mint, entry_clock);
+
+-- Descriptive post-migration snapshots at 30/60/180/300s. NOT entry treatments.
+CREATE TABLE IF NOT EXISTS post_migration_observations (
+  mint                 TEXT NOT NULL,
+  offset_ms            INTEGER NOT NULL,
+  observed_utc_ms      INTEGER NOT NULL,
+  effective_quote_reserve TEXT,
+  executable_lamports  TEXT,
+  refusal              TEXT,
+  PRIMARY KEY (mint, offset_ms)
+);
+
+-- ===========================================================================
+-- P7 -- THE SIZE RULE'S WHOLE SURFACE, NOT ONLY ITS ANSWER.
+--
+-- Every candidate size is evaluated from ONE coherent snapshot and every one is
+-- stored with the condition that bound it. Storing only the chosen size makes
+-- the rule unfalsifiable: nobody can tell afterwards whether a refusal was the
+-- pool being shallow or the notional being arbitrary.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS size_rule_evaluations (
+  opportunity_id       TEXT NOT NULL,
+  candidate_lamports   TEXT NOT NULL,
+  admissible           INTEGER NOT NULL,
+  bound_by             TEXT,
+  reserve_share_bps    INTEGER,
+  price_impact_bps     INTEGER,
+  counterfactual_impact_bps INTEGER,
+  round_trip_drag_bps  INTEGER,
+  chosen               INTEGER NOT NULL DEFAULT 0,
+  evaluated_utc_ms     INTEGER NOT NULL,
+  PRIMARY KEY (opportunity_id, candidate_lamports)
+);
+
+-- ===========================================================================
+-- P2 -- WHAT EACH POLICY KNEW WHEN IT DECIDED.
+--
+-- A policy that rejects for want of an input is NOT EVALUABLE, and the previous
+-- build could not tell that apart from a policy that looked and declined. One
+-- row per (trajectory or opportunity, policy) recording exactly which fields
+-- were known.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS policy_field_coverage (
+  subject_id           TEXT NOT NULL,
+  subject_kind         TEXT NOT NULL,
+  entry_policy         TEXT NOT NULL,
+  policy_version       TEXT NOT NULL,
+  known_fields         TEXT NOT NULL,
+  unknown_fields       TEXT NOT NULL,
+  required_fields      TEXT NOT NULL,
+  full_coverage        INTEGER NOT NULL,
+  decision             TEXT NOT NULL,
+  -- ENTER, REJECTED_ON_SIGNAL or NOT_EVALUABLE. The third is the repair.
+  evaluability         TEXT NOT NULL,
+  reason               TEXT NOT NULL,
+  recorded_utc_ms      INTEGER NOT NULL,
+  PRIMARY KEY (subject_id, entry_policy, policy_version)
+);
+CREATE INDEX IF NOT EXISTS idx_pfc_policy ON policy_field_coverage(entry_policy, evaluability);
+
+-- ===========================================================================
+-- P8 -- IMMUTABLE MECHANICS STRATA.
+--
+-- One trajectory receives labels; there are not sixteen collectors. Cashback is
+-- kept as four separate quantities because "the pool says cashback" and "we
+-- measured cashback accrue" are different claims and only the second is money.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS mechanics_strata (
+  subject_id           TEXT PRIMARY KEY,
+  subject_kind         TEXT NOT NULL,
+  mint                 TEXT NOT NULL,
+  fee_tier_stratum     TEXT NOT NULL,
+  cashback_stratum     TEXT NOT NULL,
+  mayhem_stratum       TEXT NOT NULL,
+  token_program_stratum TEXT NOT NULL,
+  fee_config_hash      TEXT,
+  market_cap_lamports  TEXT,
+  creator_fee_bps      INTEGER,
+  protocol_fee_bps     INTEGER,
+  lp_fee_bps           INTEGER,
+  labelled_utc_ms      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ms_strata
+  ON mechanics_strata(fee_tier_stratum, cashback_stratum, mayhem_stratum);
+`,
+  },
 ];
 
 export interface OpenOptions {

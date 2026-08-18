@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { openDb } from '../packages/storage/src/db.js';
+import { validateInvalidationReasons } from '../packages/domain/src/invalidation-reason.js';
 import { writeArtifact } from './_artifact.js';
 
 const CONTEXT_ID = '5d24e-pre-repair';
@@ -227,16 +228,82 @@ function demote(contextId: string, reasons: readonly string[], apply: boolean): 
   }
 }
 
+/**
+ * S091 — decide whether a `--context=` invocation may demote anything.
+ *
+ * Exported and pure so the refusal can be exercised as behaviour rather than
+ * as a source grep: a test calls this with the argv a shell would have built
+ * and reads the verdict the CLI acts on. `main` does nothing with the arguments
+ * that this function does not do first.
+ */
+export interface DemotionPlan {
+  readonly kind: 'DEMOTE' | 'REFUSE';
+  readonly contextId: string;
+  readonly reasons: readonly string[];
+  readonly exitCode: number;
+  readonly messages: readonly string[];
+}
+
+export function planDemotion(argv: readonly string[]): DemotionPlan {
+  const ctxArg = argv.find((a) => a.startsWith('--context=')) ?? '';
+  const contextId = ctxArg.slice(10);
+  const raw = argv.filter((a) => a.startsWith('--reason=')).map((a) => a.slice(9));
+
+  if (raw.length === 0) {
+    return {
+      kind: 'REFUSE',
+      contextId,
+      reasons: [],
+      exitCode: 2,
+      messages: ['--context requires at least one --reason='],
+    };
+  }
+
+  /**
+   * The reason text is checked BEFORE the database is opened.
+   *
+   * Demotion is a one-way door — `evidence_contexts` accepts
+   * DEVELOPMENT_EVIDENCE -> INSTRUMENT_DEVELOPMENT_INVALID and never the
+   * reverse — so a reason that explains nothing cannot be corrected later by
+   * rewriting it. It has to be refused before it is written, which means before
+   * anything else happens.
+   */
+  const verdict = validateInvalidationReasons(raw);
+  if (!verdict.ok) {
+    return {
+      kind: 'REFUSE',
+      contextId,
+      reasons: [],
+      exitCode: 2,
+      messages: [
+        `REFUSED: ${verdict.refused.length} of ${raw.length} --reason= argument(s) do not explain anything.`,
+        ...verdict.refused.map((r) => `  ${r.refusal.padEnd(10)} ${r.explanation}`),
+        '',
+        'A demotion is permanent and its reason is the only record of why a window stopped',
+        'counting. Say what the defect did to THIS window, not which code it was filed under.',
+      ],
+    };
+  }
+
+  return {
+    kind: 'DEMOTE',
+    contextId,
+    reasons: verdict.accepted,
+    exitCode: 0,
+    messages: [],
+  };
+}
+
 function main(): void {
   const apply = process.argv.includes('--apply');
   const ctxArg = process.argv.find((a) => a.startsWith('--context='));
   if (ctxArg !== undefined) {
-    const reasons = process.argv.filter((a) => a.startsWith('--reason=')).map((a) => a.slice(9));
-    if (reasons.length === 0) {
-      console.error('--context requires at least one --reason=');
-      process.exit(2);
+    const plan = planDemotion(process.argv);
+    if (plan.kind === 'REFUSE') {
+      for (const m of plan.messages) console.error(m);
+      process.exit(plan.exitCode);
     }
-    demote(ctxArg.slice(10), reasons, apply);
+    demote(plan.contextId, plan.reasons, apply);
     return;
   }
   const db = openDb({ path: process.env['DATABASE_PATH'] ?? './data/runtime.db' });
@@ -368,4 +435,14 @@ function main(): void {
   }
 }
 
-main();
+/**
+ * Run only when this file IS the program.
+ *
+ * `planDemotion` is exported so a test can drive the CLI's own argument path,
+ * and an unconditional `main()` would make importing it open the 9 GB corpus
+ * and call `process.exit`. The guard is what makes the refusal testable as
+ * behaviour instead of as a source grep.
+ */
+if (process.argv[1] !== undefined && /evidence-invalidate-old\.ts$/.test(process.argv[1])) {
+  main();
+}
