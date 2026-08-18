@@ -1,0 +1,29 @@
+{
+  "status": "APPLIED",
+  "contextId": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+  "validity": "DEVELOPMENT_EVIDENCE",
+  "validityChanged": false,
+  "closedUtcMs": 1787093560649,
+  "trajectoriesByState": [
+    {
+      "state": "AWAITING_FILL_OBSERVATION",
+      "n": 5
+    },
+    {
+      "state": "SETTLED",
+      "n": 20
+    }
+  ],
+  "unfinishableTrajectories": 5,
+  "reasons": [
+    "superseded by the profit-discovery window: this window's contract froze at c3add8bff804 and the tree has since advanced, so no further row could be collected under the code the contract names",
+    "its 5 unsettled trajectories are unfinishable rather than unfinished, because every remaining horizon is more than two hours past and a mark taken now would carry the right label on the wrong instant"
+  ],
+  "provenance": {
+    "writer": "window-close.ts",
+    "sourceCommit": "9096899af6d95cba9fef3597a9fd043ebf9633ec",
+    "treeDirty": true,
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-18T22:52:40.701Z"
+  }
+}

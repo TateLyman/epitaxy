@@ -130,6 +130,7 @@
     "trajectory:status": "tsx scripts/database-trajectory-status.ts",
     "trajectory:trace": "tsx scripts/trajectory-trace.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "window:close": "tsx scripts/window-close.ts",
     "window:stamp": "tsx scripts/window-stamp.ts",
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
