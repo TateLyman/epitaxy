@@ -3352,6 +3352,91 @@ CREATE INDEX IF NOT EXISTS idx_cf_marks_class
   ON counterfactual_marks(evidence_class, trajectory_id);
 `,
   },
+{
+    id: 51,
+    name: 'counterfactual_refusal_is_not_a_claim',
+    sql: `
+-- A REFUSAL IS NOT A CLAIM THAT BOUNDED MODE EXISTS.
+--
+-- The CHECK read:
+--
+--   evidence_class <> 'BOUNDED_COUNTERFACTUAL_V1' OR entry_impact_bps <= impact_bound_bps
+--
+-- and its intent is right: bounded mode exists ONLY at or under the frozen
+-- impact bound, so a row carrying that class and a larger impact would be
+-- claiming a contract it does not have.
+--
+-- It also forbade the REFUSAL row. When an entry moves the pool past the bound
+-- the collector records that fact -- class BOUNDED_COUNTERFACTUAL_V1, a null
+-- exit, and the refusal text -- because a mark with no counterfactual row and a
+-- mark whose counterfactual was REFUSED are different facts and only the second
+-- is countable. That insert violated the constraint and threw, which killed the
+-- mark pass mid-run.
+--
+-- Measured 2026-08-17: six mark passes in one window died this way, the --once
+-- pass exited non-zero, and the gate's B-3 and S-3 read the crash as "0 marks
+-- over 0 open trajectories" -- an apparatus failure wearing the shape of an
+-- idle collector.
+--
+-- The guarantee is unchanged and is now stated exactly: no PRICED bounded row
+-- outside the bound. A refusal carries no price, so it asserts nothing to
+-- guard.
+--
+-- SQLite cannot alter a CHECK, so the table is rebuilt and its rows copied.
+PRAGMA foreign_keys = OFF;
+
+CREATE TABLE counterfactual_marks_new (
+  trajectory_id        TEXT NOT NULL,
+  offset_ms            INTEGER NOT NULL,
+  evidence_class       TEXT NOT NULL
+    CHECK (evidence_class IN ('BOUNDED_COUNTERFACTUAL_V1','RESERVE_DELTA_REPLAY_V1')),
+  contract_version     TEXT NOT NULL,
+  entry_base_delta_atoms   TEXT NOT NULL,
+  entry_quote_delta_lamports TEXT NOT NULL,
+  observed_base_reserve  TEXT NOT NULL,
+  observed_quote_reserve TEXT NOT NULL,
+  adjusted_base_reserve  TEXT NOT NULL,
+  adjusted_quote_reserve TEXT NOT NULL,
+  haircut_formula      TEXT NOT NULL,
+  haircut_bps          INTEGER NOT NULL,
+  haircut_lamports     TEXT NOT NULL,
+  entry_impact_bps     INTEGER NOT NULL,
+  impact_bound_bps     INTEGER NOT NULL,
+  counterfactual_exit_lamports TEXT,
+  evidence_grade       TEXT NOT NULL
+    CHECK (evidence_grade IN ('DEVELOPMENT','CALIBRATED')),
+  refusal              TEXT,
+  computed_utc_ms      INTEGER NOT NULL,
+  PRIMARY KEY (trajectory_id, offset_ms, evidence_class),
+  FOREIGN KEY (trajectory_id, offset_ms) REFERENCES trajectory_marks(trajectory_id, offset_ms),
+  -- P8.2: a PRICED bounded row exists ONLY at or under the frozen bound.
+  -- A refusal carries no price and asserts nothing to guard.
+  CHECK (
+    evidence_class <> 'BOUNDED_COUNTERFACTUAL_V1'
+    OR entry_impact_bps <= impact_bound_bps
+    OR (refusal IS NOT NULL AND counterfactual_exit_lamports IS NULL)
+  )
+);
+
+INSERT INTO counterfactual_marks_new
+  SELECT trajectory_id, offset_ms, evidence_class, contract_version,
+         entry_base_delta_atoms, entry_quote_delta_lamports,
+         observed_base_reserve, observed_quote_reserve,
+         adjusted_base_reserve, adjusted_quote_reserve,
+         haircut_formula, haircut_bps, haircut_lamports,
+         entry_impact_bps, impact_bound_bps, counterfactual_exit_lamports,
+         evidence_grade, refusal, computed_utc_ms
+    FROM counterfactual_marks;
+
+DROP TABLE counterfactual_marks;
+ALTER TABLE counterfactual_marks_new RENAME TO counterfactual_marks;
+
+CREATE INDEX IF NOT EXISTS idx_cf_marks_class
+  ON counterfactual_marks(evidence_class, trajectory_id);
+
+PRAGMA foreign_keys = ON;
+`,
+  },
 ];
 
 export interface OpenOptions {

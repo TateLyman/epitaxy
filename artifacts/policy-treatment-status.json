@@ -4,33 +4,33 @@
     "CORRECTED_CURRENT_QUALITY_SCORE",
     "SURVIVOR_FLOW_CONTINUATION_V1"
   ],
-  "trajectories": 351,
-  "decisionRows": 177,
-  "trajectoriesWithAllPolicies": 59,
-  "trajectoriesWherePoliciesDisagree": 33,
+  "trajectories": 372,
+  "decisionRows": 240,
+  "trajectoriesWithAllPolicies": 80,
+  "trajectoriesWherePoliciesDisagree": 50,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 59
+      "n": 80
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 33
+      "n": 50
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 26
+      "n": 30
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 59
+      "n": 80
     }
   ],
-  "riskFactsApplied": 141,
+  "riskFactsApplied": 201,
   "riskFactsChangedADecision": 0,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -39,22 +39,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 296
+      "n": 301
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 296
+      "n": 301
     }
   ],
-  "pairedPaths": 296,
-  "pathsWithDifferentTriggerOffsets": 49,
+  "pairedPaths": 301,
+  "pathsWithDifferentTriggerOffsets": 52,
   "challengerExitedEarlier": 3,
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "3ff21aa45e43e0ee683c78d1ec6d23acb0d124a8",
+    "sourceCommit": "4f9c87d374a02a06fda5a23cdadff50fa8283dbf",
     "treeDirty": true,
     "dirtyFiles": 7,
-    "writtenUtc": "2026-08-17T22:45:55.567Z"
+    "writtenUtc": "2026-08-18T00:06:11.518Z"
   }
 }

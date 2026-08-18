@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../../packages/storage/src/db.js';
 import { reserveCandidate } from '../../packages/storage/src/reservation-repo.js';
+import { insertCounterfactualMark } from '../../packages/pipeline/src/counterfactual.js';
 
 const NOW = 1_760_000_000_000;
 const HASH_A = 'a'.repeat(64);
@@ -240,6 +241,108 @@ describe('an abandoned window must not sterilise a mint forever', () => {
       // EPERM here MASKS the assertions above — that is how a real constraint
       // violation once got reported as a cleanup error. The OS owns the temp
       // directory after this.
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+});
+
+describe('a refused counterfactual is representable; a priced one outside the bound is not', () => {
+  /**
+   * MEASURED 2026-08-17. `boundedCounterfactual` refuses when the entry moved
+   * the pool past the frozen bound, and the collector records that refusal —
+   * class BOUNDED_COUNTERFACTUAL_V1, a null exit, the reason — because a mark
+   * with no counterfactual row and a mark whose counterfactual was REFUSED are
+   * different facts and only the second is countable.
+   *
+   * The table's CHECK forbade exactly that row, so the insert threw and killed
+   * the mark pass mid-run. Six passes in one window died this way and the gate
+   * read the crash as "0 marks over 0 open trajectories" — an apparatus failure
+   * wearing the shape of an idle collector.
+   *
+   * The guarantee is unchanged: no PRICED bounded row outside the bound.
+   */
+  const seedMark = (db: ReturnType<typeof openDb>, id: string, offset: number): void => {
+    db.prepare(
+      `INSERT OR IGNORE INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms,
+          closed_utc_ms, validity, reasons, audit_artifact_hash, notes)
+       VALUES ('ctx-cf', ?, 'aaa', 0, ?, NULL, 'DEVELOPMENT_EVIDENCE', '[]', NULL, NULL)`,
+    ).run(HASH_A, NOW);
+    db.prepare(
+      `INSERT INTO development_trajectories
+         (trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
+          venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
+          migration_age_ms, notional_lamports, entry_policy_inputs, entry_policy, exit_policy,
+          state, evidence_grade, max_attainable_grade, opened_utc_ms, refusals)
+       VALUES (?, ?, ?, ?, 'PUMPSWAP_DIRECT', 'Pool1', ?, ?, 'MintCF', 'FIRST_HOUR', 'S',
+               NULL, '20000000', '{}', 'HARD_GATES_RANDOM', 'FIXED_15M_CONTROL',
+               'AWAITING_FILL_OBSERVATION', 'SIMULATED_EXECUTION', 'SIMULATED_EXECUTION', ?, '[]')`,
+    ).run(id, `obs-${id}`, `job-${id}`, `set-${id}`, HASH_B, HASH_A, NOW);
+    db.prepare(
+      `INSERT INTO trajectory_marks
+         (trajectory_id, offset_ms, observed_utc_ms, executable_lamports, exit_capacity_lamports,
+          effective_quote_reserve, refusal, lateness_ms, sla_status, due_utc_ms, sla_bound_ms)
+       VALUES (?, ?, ?, '1', '1', '1', NULL, 0, 'ON_TIME', ?, 10000)`,
+    ).run(id, offset, NOW, NOW);
+  };
+
+  const row = (over: Record<string, unknown>) => ({
+    trajectoryId: 't-cf',
+    offsetMs: 60_000,
+    evidenceClass: 'BOUNDED_COUNTERFACTUAL_V1' as const,
+    contractVersion: 'counterfactual-v1',
+    entryBaseDeltaAtoms: -1n,
+    entryQuoteDeltaLamports: 1n,
+    observedBaseReserve: 1n,
+    observedQuoteReserve: 1n,
+    adjustedBaseReserve: 0n,
+    adjustedQuoteReserve: 0n,
+    haircutFormula: 'none',
+    haircutBps: 0,
+    haircutLamports: 0n,
+    entryImpactBps: 900,
+    counterfactualExitLamports: null as bigint | null,
+    evidenceGrade: 'DEVELOPMENT' as const,
+    refusal: 'IMPACT_ABOVE_BOUND: the entry moved the pool 900 bps',
+    nowMs: NOW,
+    ...over,
+  });
+
+  it('a REFUSAL far outside the bound is written, not thrown', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedMark(db, 't-cf', 60_000);
+      expect(() => insertCounterfactualMark(db, row({}))).not.toThrow();
+      const stored = db
+        .prepare('SELECT refusal, counterfactual_exit_lamports x FROM counterfactual_marks WHERE trajectory_id = ?')
+        .get('t-cf') as { refusal: string; x: string | null };
+      expect(stored.refusal).toMatch(/IMPACT_ABOVE_BOUND/);
+      expect(stored.x).toBeNull();
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
+  it('a PRICED bounded row outside the bound is still REFUSED by the schema', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      seedMark(db, 't-cf', 60_000);
+      expect(() =>
+        insertCounterfactualMark(db, row({ refusal: null, counterfactualExitLamports: 1_000n })),
+      ).toThrow(/CHECK constraint failed/);
+      db.close();
+    } finally {
       try {
         rmSync(dir, { recursive: true, force: true });
       } catch {
