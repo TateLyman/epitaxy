@@ -43,6 +43,12 @@ import { expectedRemainingTail, decodeUserVolumeAccumulator } from '../../packag
 import { signerAllowed } from '../../packages/domain/src/config.js';
 import { openDb } from '../../packages/storage/src/db.js';
 import { base58Encode } from '../../packages/solana/src/base58.js';
+import {
+  chunkForAccountBatch,
+  MAX_ACCOUNTS_PER_CALL,
+  isBudgetExhausted,
+  RpcError,
+} from '../../packages/solana/src/rpc.js';
 
 /**
  * P19 — the tests that must FAIL against the audited head `aaf6d6a`.
@@ -1016,6 +1022,57 @@ describe('P19 — profit discovery, tested as behaviour', () => {
     // so it could only ever produce null.
     const v = facts('SAFE');
     expect((v.freezeAuthority as unknown) === null).toBe(false);
+  });
+
+  it('F7 — getMultipleAccounts is chunked to the MEASURED bound, not the spec bound', () => {
+    /**
+     * The spec allows 100 keys per call. This endpoint allows 5. Probed
+     * directly, interleaved to rule out an accumulating bucket:
+     *
+     *     n=5 OK 28ms | n=20 429 | n=5 again OK 27ms
+     *     n=6 429 | n=7 429 | n=8 429
+     *     20 addresses as 4x5 -> 20/20 resolved in 468ms
+     *
+     * `getTokenAccountOwners` passes the top TWENTY holders in one call, so it
+     * failed 100% of the time, which made measureEntityTier refuse, which made
+     * entityConcentration null, which made BOTH smart policies NOT_EVALUABLE on
+     * 84% of the corpus. The 429 reads `max usage reached`, so it was diagnosed
+     * as an exhausted account and nearly answered with a subscription purchase.
+     *
+     * After chunking, the same four mints measured 4/4 with trustworthy=true.
+     */
+    expect(MAX_ACCOUNTS_PER_CALL).toBeLessThanOrEqual(5);
+
+    const keys = Array.from({ length: 20 }, (_, i) => `key${i}`);
+    const chunks = chunkForAccountBatch(keys);
+
+    // No chunk may exceed the measured bound — that is the whole point.
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(MAX_ACCOUNTS_PER_CALL);
+    // Nothing lost, nothing duplicated, order preserved.
+    expect(chunks.flat()).toEqual(keys);
+    expect(new Set(chunks.flat()).size).toBe(keys.length);
+    expect(chunks).toHaveLength(Math.ceil(keys.length / MAX_ACCOUNTS_PER_CALL));
+
+    // Edge cases: empty issues no call, and a short list is one chunk.
+    expect(chunkForAccountBatch([])).toEqual([]);
+    expect(chunkForAccountBatch(['a'])).toEqual([['a']]);
+    expect(chunkForAccountBatch(keys.slice(0, MAX_ACCOUNTS_PER_CALL))).toHaveLength(1);
+  });
+
+  it('F8 — our own budget refusal must not fail over and drain the other endpoint', () => {
+    /**
+     * `call()` tries the primary then the fallback, which is right for a
+     * transport failure. A budget refusal is not one: it means this endpoint has
+     * capacity we are choosing not to use yet. Failing over on it spends the
+     * FALLBACK's credits to avoid waiting on a healthy primary.
+     */
+    const budget = new RpcError('budget_exhausted', 'endpoint budget exhausted for getTransaction');
+    const transport = new RpcError('rpc_error', 'connection reset');
+    expect(isBudgetExhausted(budget)).toBe(true);
+    // A real transport failure still fails over.
+    expect(isBudgetExhausted(transport)).toBe(false);
+    expect(isBudgetExhausted(new Error('429'))).toBe(false);
+    expect(isBudgetExhausted(null)).toBe(false);
   });
 
   it('F4 — fees alone cannot refuse a size: a deep pool admits the ceiling', () => {

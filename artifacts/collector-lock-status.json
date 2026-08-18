@@ -1,18 +1,6 @@
 {
   "trajectoryProcesses": [
     {
-      "pid": 32936,
-      "parentPid": 20092,
-      "createdUtc": "2026-08-18T23:37:56.494Z",
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='0ac6932f-52a5-45d1-83e0-fb520c7d7309'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\0ac6932f-52a5-45d1-83e0-fb520c7d7309.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'until npx tsx scripts/collector-ops.ts lock-status 2>/dev/null | grep -qE \\\"trajectory_collector.*DEAD.*heartbeat (9[0-9]|[1-9][0-9]{2,})s\\\"; do sleep 20; done; echo STALE; rm -f data/profit-discovery-collect.log; npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300 2>&1 | tee data/profit-discovery-collect.log' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-6ecf-cwd\""
-    },
-    {
-      "pid": 36096,
-      "parentPid": 32936,
-      "createdUtc": "2026-08-18T23:37:56.506Z",
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\..\\usr\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='0ac6932f-52a5-45d1-83e0-fb520c7d7309'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\0ac6932f-52a5-45d1-83e0-fb520c7d7309.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'until npx tsx scripts/collector-ops.ts lock-status 2>/dev/null | grep -qE \\\"trajectory_collector.*DEAD.*heartbeat (9[0-9]|[1-9][0-9]{2,})s\\\"; do sleep 20; done; echo STALE; rm -f data/profit-discovery-collect.log; npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300 2>&1 | tee data/profit-discovery-collect.log' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-6ecf-cwd\""
-    },
-    {
       "pid": 32752,
       "parentPid": 24732,
       "createdUtc": "2026-08-18T23:38:20.223Z",
@@ -62,29 +50,20 @@
       ],
       "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300",
       "createdUtc": "2026-08-18T23:38:20.223Z"
-    },
-    {
-      "rootPid": 32936,
-      "pids": [
-        32936,
-        36096
-      ],
-      "commandLine": "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"source /c/Users/lyman/.claude/shell-snapshots/snapshot-bash-1786936043415-ytzfjo.sh 2>/dev/null || true && export TEMP='C:\\Users\\lyman\\AppData\\Local\\Temp' TMP='C:\\Users\\lyman\\AppData\\Local\\Temp' && export CODEX_COMPANION_SESSION_ID='0ac6932f-52a5-45d1-83e0-fb520c7d7309'\nexport CODEX_COMPANION_TRANSCRIPT_PATH='C:\\Users\\lyman\\.claude\\projects\\C--Users-lyman-tradseee\\0ac6932f-52a5-45d1-83e0-fb520c7d7309.jsonl'\nexport CLAUDE_PLUGIN_DATA='C:/Users/lyman/.claude/plugins/data/codex-openai-codex'\n: && shopt -u extglob 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'until npx tsx scripts/collector-ops.ts lock-status 2>/dev/null | grep -qE \\\"trajectory_collector.*DEAD.*heartbeat (9[0-9]|[1-9][0-9]{2,})s\\\"; do sleep 20; done; echo STALE; rm -f data/profit-discovery-collect.log; npx tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300 2>&1 | tee data/profit-discovery-collect.log' < /dev/null && pwd -P >| /c/Users/lyman/AppData/Local/Temp/claude-6ecf-cwd\"",
-      "createdUtc": "2026-08-18T23:37:56.494Z"
     }
   ],
-  "trajectoryTreeCount": 2,
+  "trajectoryTreeCount": 1,
   "locks": [
     {
       "lock_name": "collector",
       "pid": 1916,
       "hostname": "TATE",
       "acquired_utc_ms": 1787012700211,
-      "heartbeat_utc_ms": 1787096522222,
+      "heartbeat_utc_ms": 1787096621107,
       "mode": "observe",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 1913,
+      "ageMs": 5677,
       "pidAlive": true,
       "program": "apps/collector/src/main.ts"
     },
@@ -97,7 +76,7 @@
       "mode": "paper",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 323877411,
+      "ageMs": 323980060,
       "pidAlive": false,
       "program": "unknown"
     },
@@ -106,26 +85,24 @@
       "pid": 33760,
       "hostname": "TATE",
       "acquired_utc_ms": 1787096303002,
-      "heartbeat_utc_ms": 1787096513386,
+      "heartbeat_utc_ms": 1787096618429,
       "mode": "observe",
       "source_commit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
       "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300",
-      "ageMs": 10749,
+      "ageMs": 8355,
       "pidAlive": true,
       "program": "apps/collector/src/trajectory-collect.ts"
     }
   ],
   "recentSessions": [],
   "lockIsAuthoritative": true,
-  "singleOwner": false,
-  "problems": [
-    "2 trajectory collector process trees are alive"
-  ],
+  "singleOwner": true,
+  "problems": [],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
+    "sourceCommit": "2b36eb0c818d85d27f2e635b02773875ec40b23f",
     "treeDirty": true,
-    "dirtyFiles": 12,
-    "writtenUtc": "2026-08-18T23:42:04.562Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-18T23:43:47.157Z"
   }
 }

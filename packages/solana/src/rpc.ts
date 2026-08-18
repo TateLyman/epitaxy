@@ -151,12 +151,48 @@ const GetMultipleAccountsSchema = rpcEnvelope(
 
 export class RpcError extends Error {
   constructor(
-    readonly kind: 'rpc_error' | 'no_endpoint' | 'account_missing' | 'not_a_mint',
+    readonly kind: 'rpc_error' | 'no_endpoint' | 'account_missing' | 'not_a_mint' | 'budget_exhausted',
     message: string,
   ) {
     super(message);
     this.name = 'RpcError';
   }
+}
+
+/**
+ * OUR budget saying "wait" is not the endpoint saying "I am broken".
+ *
+ * `call()` tries the primary and then the fallback, which is right for a
+ * transport failure. A shared-budget refusal is not one: it means this endpoint
+ * has capacity we are choosing not to use yet. Failing over on it drains the
+ * FALLBACK's quota to avoid waiting on the primary — and measured on
+ * 2026-08-18 that is exactly what happened. The history family refused 6,662
+ * leases at its own cap while the endpoint total sat idle, each refusal fell
+ * through to the fallback, and the fallback answered `HTTP 429: max usage
+ * reached` because its credits were gone. The entity tier then reported "the
+ * holder owners could not be resolved" and concentration went unmeasured on 84%
+ * of candidates — which read as a quota problem needing a purchase, and was a
+ * budget of our own making.
+ */
+export function isBudgetExhausted(e: unknown): boolean {
+  return e instanceof RpcError && e.kind === 'budget_exhausted';
+}
+
+/**
+ * The measured per-request account bound for `getMultipleAccounts`, and the
+ * chunking that respects it.
+ *
+ * Exported so the bound is testable without a network. See the long comment in
+ * `getMultipleAccountsRaw` for the probe that produced the number.
+ */
+export const MAX_ACCOUNTS_PER_CALL = 5;
+
+export function chunkForAccountBatch(pubkeys: readonly string[]): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < pubkeys.length; i += MAX_ACCOUNTS_PER_CALL) {
+    out.push([...pubkeys.slice(i, i + MAX_ACCOUNTS_PER_CALL)]);
+  }
+  return out;
 }
 
 export interface CoherentRawAccount {
@@ -251,7 +287,7 @@ export class SolanaRpc {
       if (Date.now() - started + wait > maxWaitMs) {
         this.sharedRefusals++;
         throw new RpcError(
-          'rpc_error',
+          'budget_exhausted',
           `endpoint budget exhausted for ${method} (bound by ${r.boundBy}${r.degraded ? ', DEGRADED local fallback' : ''}); ` +
             `next token in ${r.waitMs}ms`,
         );
@@ -301,6 +337,15 @@ export class SolanaRpc {
         // becomes a silent policy change.
         last = e;
         if (e instanceof SourceFetchError && e.kind === 'schema_drift') throw e;
+        /**
+         * A BUDGET refusal does not fail over. See `isBudgetExhausted`.
+         *
+         * Failing over on it spends the fallback's quota to avoid waiting on a
+         * primary that is fine — which is how a budget of our own making became
+         * an `HTTP 429: max usage reached` from the fallback and read as an
+         * endpoint that needed replacing.
+         */
+        if (isBudgetExhausted(e)) throw e;
       }
     }
     throw last instanceof Error ? last : new RpcError('rpc_error', `all RPC endpoints failed for ${method}`);
@@ -715,9 +760,37 @@ export class SolanaRpc {
     pubkeys: readonly string[],
   ): Promise<Map<string, { owner: string; dataBase64: string } | null>> {
     const out = new Map<string, { owner: string; dataBase64: string } | null>();
-    // getMultipleAccounts accepts at most 100 keys per call.
-    for (let i = 0; i < pubkeys.length; i += 100) {
-      const chunk = pubkeys.slice(i, i + 100);
+    /**
+     * FIVE, not 100 — measured, not read off a spec.
+     *
+     * The JSON-RPC spec allows 100 keys per `getMultipleAccounts`. This
+     * endpoint does not. Probed directly on 2026-08-18 against the configured
+     * provider, same addresses, interleaved to rule out an accumulating bucket:
+     *
+     *     n=5   OK 28ms      n=20  429      n=5 again OK 27ms
+     *     n=6   429          n=7   429      n=8       429
+     *     20 addresses as 4 x 5  ->  20/20 resolved in 468ms
+     *
+     * A sharp cliff between 5 and 6, repeatable, with 5 succeeding immediately
+     * after a failure — so it is a per-request bound and not rate.
+     *
+     * The consequence was severe and completely invisible. `getTokenAccountOwners`
+     * passes the top TWENTY holders in one call, so it failed every single time
+     * on this endpoint. That made `measureEntityTier` refuse with "the holder
+     * owners could not be resolved", which made `entityConcentration` null,
+     * which made BOTH smart entry policies NOT_EVALUABLE — on 84% of the corpus.
+     *
+     * The 429 says `max usage reached`, which reads as an exhausted account, so
+     * this was diagnosed as a quota problem and very nearly answered with a
+     * subscription purchase. It is a batch-size limit wearing a quota's error
+     * message.
+     *
+     * Coherence is not at stake here: these are independent owner lookups, and
+     * nothing compares two of them as of one slot. The COHERENT path is
+     * `getMultipleAccountsAtSlot`, which is untouched — its economic set is four
+     * accounts, under the cliff, which is why snapshots never showed this.
+     */
+    for (const chunk of chunkForAccountBatch(pubkeys)) {
       for (const k of chunk) assertPubkey(k, 'account');
       const env = await this.call(
         'getMultipleAccounts',

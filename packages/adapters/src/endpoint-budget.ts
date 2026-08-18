@@ -136,14 +136,35 @@ export interface BudgetLimits {
  * evidence is gathered and they cannot change what any policy decides. They are
  * therefore NOT ledger-registered thresholds.
  */
+/**
+ * EVERY FAMILY MAY REACH THE TOTAL. The total is what binds.
+ *
+ * The comment above this table says families "may borrow each other's idle
+ * capacity, and the total is what actually binds" — and the first version
+ * capped every family BELOW the total, so nothing could ever borrow anything.
+ * Measured after one window: the endpoint total granted 9,986 leases and
+ * refused 0, sitting at 13.65 of 16 tokens, while the history family refused
+ * **6,662** at its own 4/s cap. The budget was throttling the collector against
+ * a limit the endpoint never came close to.
+ *
+ * A per-family cap below the total is only correct if families must be
+ * protected from each other. They must not: there is one collector, its phases
+ * are sequential, and the whole point of the shared total is that whichever
+ * phase is running may use the endpoint.
+ *
+ * So each family's rate equals the total and the burst is a fraction of it.
+ * The family buckets still do real work — they keep any single method family
+ * from monopolising the BURST, and they give `rpc:shared-budget` a per-family
+ * breakdown — but the steady-state limit is now the endpoint's, once.
+ */
 export const CONSERVATIVE_LIMITS: BudgetLimits = {
   totalRatePerSecond: 8,
   totalBurst: 16,
   family: {
-    history: { ratePerSecond: 4, burst: 8 },
-    account: { ratePerSecond: 5, burst: 10 },
-    token: { ratePerSecond: 3, burst: 6 },
-    light: { ratePerSecond: 5, burst: 10 },
+    history: { ratePerSecond: 8, burst: 8 },
+    account: { ratePerSecond: 8, burst: 10 },
+    token: { ratePerSecond: 8, burst: 6 },
+    light: { ratePerSecond: 8, burst: 10 },
   },
 };
 
