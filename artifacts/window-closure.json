@@ -1,20 +1,25 @@
 {
   "status": "APPLIED",
-  "contextId": "ctx-a17e909fa5c5-PROFIT_DISCOVERY_V1",
+  "contextId": "ctx-01f03fc0f760-PROFIT_DISCOVERY_V1_R2",
   "validity": "DEVELOPMENT_EVIDENCE",
   "validityChanged": false,
-  "closedUtcMs": 1787094491830,
-  "trajectoriesByState": [],
-  "unfinishableTrajectories": 0,
+  "closedUtcMs": 1787095188793,
+  "trajectoriesByState": [
+    {
+      "state": "AWAITING_FILL_OBSERVATION",
+      "n": 3
+    }
+  ],
+  "unfinishableTrajectories": 3,
   "reasons": [
-    "aborted after two candidates: the size rule refused every size on every pool because the round-trip fee was tested against the price-impact cap, so no trajectory could open",
-    "superseded by ctx-01f03fc0f760-PROFIT_DISCOVERY_V1_R2 at the commit that repairs it"
+    "the signature walk was bounded by the transaction budget, so histories were truncated at a cost we never paid and every creation-anchored feature came back null",
+    "superseded by the window at the commit that separates the walk bound from the fetch bound"
   ],
   "provenance": {
     "writer": "window-close.ts",
-    "sourceCommit": "01f03fc0f760f79d4c68ddac57163df1bcdde934",
-    "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-18T23:08:11.881Z"
+    "sourceCommit": "ca50a7ada97073a50165afb940fb1e15d0a968f5",
+    "treeDirty": false,
+    "dirtyFiles": 0,
+    "writtenUtc": "2026-08-18T23:19:48.849Z"
   }
 }

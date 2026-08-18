@@ -44,6 +44,7 @@ import {
   type PreEntryFeatures,
 } from '../../../packages/strategy/src/treatments.js';
 import { evaluateWithCoverage } from '../../../packages/strategy/src/policy-coverage.js';
+import { mintBehaviourSafe as mintBehaviourSafeOf } from '../../../packages/intelligence/src/mintfacts.js';
 import { computePreEntrySignals } from '../../../packages/intelligence/src/pre-entry-signals.js';
 import {
   ensureMicrostructure,
@@ -1801,7 +1802,29 @@ async function runCycle(
           // an incomplete history can only understate clustering.
           entityConcentration:
             facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
-          mintBehaviourSafe: facts.mint2022.freezeAuthority === null ? true : null,
+          /**
+           * `FactVerdict` is 'SAFE' | 'HOSTILE' | 'UNKNOWN' — a STRING UNION.
+           *
+           * This read `freezeAuthority === null ? true : null`, which compares
+           * a string union against null and is therefore ALWAYS false. So
+           * `mintBehaviourSafe` was permanently null for every candidate this
+           * collector has ever evaluated, and it is a required input of both
+           * smart policies — which made them NOT_EVALUABLE on 100% of rows for
+           * a reason that had nothing to do with the market.
+           *
+           * TypeScript does not object: comparing any type to null is legal.
+           * It took the P2 coverage histogram naming the same field on every
+           * row to make it visible.
+           *
+           * The mint's OVERALL verdict is the right quantity — it aggregates
+           * freeze authority, mint authority, permanent delegate, default
+           * account state, transfer hook, non-transferable and pausable, which
+           * is what "the mint cannot be frozen, inflated or taxed" means. And
+           * UNKNOWN stays null rather than collapsing to false, because "we
+           * could not read the mint" and "the mint is hostile" are different
+           * facts and only the second is a property of the token.
+           */
+          mintBehaviourSafe: mintBehaviourSafeOf(facts.mint2022),
           mechanicsViable: true,
           correctedQualityScore: null,
           scoreCoverageOk: false,

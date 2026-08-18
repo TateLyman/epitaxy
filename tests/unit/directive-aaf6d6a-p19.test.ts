@@ -16,6 +16,7 @@ import {
   type FlowEvent,
 } from '../../packages/intelligence/src/targeted-flow.js';
 import { computePreEntrySignals } from '../../packages/intelligence/src/pre-entry-signals.js';
+import { mintBehaviourSafe } from '../../packages/intelligence/src/mintfacts.js';
 import { externalPriorScore, refuseExternalPriorInPolicy, ExternalPriorMisuse } from '../../packages/intelligence/src/external-prior.js';
 import { evaluateWithCoverage } from '../../packages/strategy/src/policy-coverage.js';
 import { decideEntry, type PreEntryFeatures } from '../../packages/strategy/src/treatments.js';
@@ -976,6 +977,45 @@ describe('P19 — profit discovery, tested as behaviour', () => {
     // Every signature was known-failed, so not one transaction was fetched.
     expect(r.coverage.transactionsFetched).toBe(0);
     expect(r.coverage.transactionsSkippedFailed).toBe(total);
+  });
+
+  it('F6 — mintBehaviourSafe is a verdict, not a null check, and UNKNOWN stays null', () => {
+    /**
+     * The collector read `freezeAuthority === null ? true : null` against a
+     * STRING UNION, so the answer was permanently null — on every candidate
+     * this system has ever evaluated. It is a required input of both smart
+     * policies, so both were NOT_EVALUABLE on 100% of rows for a reason that
+     * had nothing to do with any token. TypeScript permits comparing a string
+     * union to null, and the expression sat inside a loop that needs a chain to
+     * run, so nothing caught it until the P2 coverage histogram named the same
+     * field on every row.
+     */
+    const facts = (overall: 'SAFE' | 'HOSTILE' | 'UNKNOWN'): Parameters<typeof mintBehaviourSafe>[0] =>
+      ({
+        mintAuthority: overall,
+        freezeAuthority: overall,
+        permanentDelegate: overall,
+        defaultAccountState: overall,
+        transferHook: overall,
+        nonTransferable: overall,
+        pausable: overall,
+        confidential: overall,
+        transferFeeBps: null,
+        decodeFailure: null,
+        overall,
+        reasons: [],
+      }) as never;
+
+    expect(mintBehaviourSafe(facts('SAFE'))).toBe(true);
+    expect(mintBehaviourSafe(facts('HOSTILE'))).toBe(false);
+    // UNKNOWN is null, NOT false: an unread mint is not a hostile one, and
+    // attributing an apparatus failure to an issuer is its own error.
+    expect(mintBehaviourSafe(facts('UNKNOWN'))).toBeNull();
+
+    // The regression itself: the old expression is always false on this type,
+    // so it could only ever produce null.
+    const v = facts('SAFE');
+    expect((v.freezeAuthority as unknown) === null).toBe(false);
   });
 
   it('F4 — fees alone cannot refuse a size: a deep pool admits the ceiling', () => {
