@@ -3,33 +3,69 @@
 **Terminal state:**
 
 ```
-VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING
+MEASUREMENT_REPAIR_REQUIRED
 ```
 
-Measured 2026-08-18T05:49Z against `contract-159d6dc1129230a6`, context
-`ctx-47a91fa1a07b-DEV_WINDOW_5D24E`, at commit `47a91fa`, with the gate's own
-live collector pass reporting `opened 2, marks 16, settled 1; restart PASS`.
-
-**That window is now marked superseded, and this report is why.** The commit
-carrying this document moved HEAD, and the collector refuses a contract whose
-`source_commit` is not HEAD — so continuing to collect required a re-freeze,
-which supersedes the window the numbers below describe. Nothing in it is invalid:
-it is complete, audited clean, and preserved in full. Collection continues in
-`ctx-8e64fba67ca1-DEV_WINDOW_5D24E` under `contract-a4317e98477ff177`, and
-exactly one evidence context is `DEVELOPMENT_EVIDENCE` at any time.
-
-Appendix C states what that costs and why the rule causing it is still right.
+Measured 2026-08-18T19:20Z against `contract-2572f62959ca05ab`, context
+`ctx-c3add8bff804-DEV_WINDOW_5D24E`, at commit `c3add8b`.
 
 ```
-PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+PASS 51    FAIL 2    NOT TESTABLE 0    OUT OF SCOPE 6
 independently recomputed trajectories: 10 (0 failures)
 ```
 
-from `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`, and
-`PASS 37 / FAIL 7 / NOT TESTABLE 4` at the first pass of this directive.
+from `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`.
 
-**No edge is claimed.** Section 23 says exactly what the numbers are and what
-they are not.
+## Why this state and not the stronger one
+
+P19's own gating sentence for `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING` reads:
+
+> Do not output it unless the actual clean collector has produced ten timely
+> trajectories whose full economics independently recompute from durable raw
+> evidence.
+
+**That condition is met, and this is the first window in the directive where it
+is.** P14's milestone list is met line for line:
+
+```
+completed development trajectories        13
+TIMELY completed (zero missed horizons)   10   <- the requirement
+distinct mints                            14
+all links resolve                         evidence:graph-check RESOLVES 13/13
+all raw evidence readable                 evidence:blob-check ALL DURABLE
+all PnL independently recomputes          traced 10, recomputed 10, failures 0
+unexplained = 0                            0 settlements with a residue
+no unobserved writable                     0 legs without full account coverage
+mark SLA held                              0 marks more than 60s late (B-4 PASS)
+entry-policy decisions stored             66
+both exit policies on shared paths        26 outcomes over 13 settled paths
+```
+
+**P13 is separately not met, and P13 is explicit:** `FAIL = 0` and
+`NOT TESTABLE = 0` for every invariant in the active contract. Two claimed
+invariants FAIL:
+
+```
+B-2  a single --once pass opens a trajectory     opened=0, refusals stored=6
+B-3  the same pass marks and settles             follows from B-2
+```
+
+Both failed on a MARKET DRAW, not on the apparatus. The gate's live pass takes a
+six-candidate sample, and all six were refused by real risk gates — entries at
+427.0%, 63.4%, 12.7%, 9.9% and 3.9% of the pool's effective quote reserve,
+plus two holder-concentration refusals. The same collector opened **22
+trajectories** in this same window under normal operation. B-2 measures whether
+the market offered an admissible candidate inside one six-draw at one instant.
+
+The stronger state was not taken, because P13's words do not have an exception
+for "the probe was unlucky", and inventing one to reach a nicer terminal state is
+the substitution this entire directive exists to prevent. The gate was also NOT
+re-run until it drew a luckier sample: selecting a result is not earning one.
+
+The open item is recorded as B-2/B-3 in section 25, with the recommendation that
+the probe be corrected to fail only when a candidate was ADMISSIBLE and not
+opened — the same class of probe repair already made for C-1 (S088) — rather than
+when the market simply had nothing to offer.
 
 ---
 
@@ -37,16 +73,9 @@ they are not.
 
 ```
 starting   5d24e3973ced25b3b873c0223463895a25828e5a   (local == origin/master, CLEAN)
-ending     47a91fa1a07b50a7b0a0c3fae671742cdc5cec81   branch master
-commits    54, none pushed
+ending     c3add8bff8044721c316c0559e6103842c25b396   branch directive/5d24e39-ledger-first
+commits    58
 ```
-
-The docs commit that carries this report moves HEAD past `47a91fa`. It touches
-`docs/` and `artifacts/` only — no file the collector imports — so the running
-apparatus is byte-identical to the commit its contract froze, checkable with
-`git diff --stat 47a91fa..HEAD -- packages apps`. A *restart* after this point
-needs a re-freeze; Appendix A says why, and it cost this directive five frozen
-contracts to learn.
 
 ## 2. Local differences from the directive's premises
 
@@ -620,10 +649,10 @@ Stated plainly rather than quietly claiming a clean gate preceded collection.
 ## 21. Clean-window contract
 
 ```
-contract id      contract-159d6dc1129230a6
-evidence context ctx-47a91fa1a07b-DEV_WINDOW_5D24E    DEVELOPMENT_EVIDENCE
-source commit    47a91fa1a07b50a7b0a0c3fae671742cdc5cec81
-window           DEV_WINDOW_5D24E   stated by the contract (migration 52)
+contract id      contract-2572f62959ca05ab
+evidence context ctx-c3add8bff804-DEV_WINDOW_5D24E    DEVELOPMENT_EVIDENCE
+source commit    c3add8bff8044721c316c0559e6103842c25b396
+window           DEV_WINDOW_5D24E   (stated by the contract; migration 52)
 cohort           FIRST_HOUR         notional 20,000,000 lamports
 entry policies   HARD_GATES_RANDOM, CORRECTED_CURRENT_QUALITY_SCORE,
                  SURVIVOR_FLOW_CONTINUATION_V1
@@ -633,58 +662,22 @@ counterfactual   counterfactual-v1, bounded impact cap 10 bps
 claimed          54 invariants;  out of scope 6
 ```
 
+The contract id now binds the WINDOW as well as the content (S095). Before that
+fix, two freezes at one commit under different window names minted the same id
+and the second silently kept the first window's context.
+
 ## 22. Valid trajectories and distinct mints
 
 ```
-52 trajectories across 52 DISTINCT mints
-15 settled, 30 policy outcomes
-286 counterfactual rows
+22 trajectories across 14 distinct mints
+13 settled, 26 policy outcomes
+10 settled paths with a COMPLETELY CLEAN per-mark SLA record
+138 marks, 3 outside the 10s bound, 0 beyond 60s
 ```
 
-One mint per trajectory — the sampling spread is exact, not merely broad. A
-hundred paths across three pools is three outcomes with a hundred observations of
-them, and no amount of collection turns one into the other.
-
-### What was blocking the window, and what the refusals actually meant
-
-The window opened nothing for its first thirty-five minutes, and the refusal
-histogram explained why in a way that was wrong. Every line read like the market:
-
-```
-the entry is 160.9% of the pool's effective quote reserve, over the 0.5% bound
-the entry is 304.8% …
-the entry is  22.8% …
-```
-
-A 0.02 SOL entry at a 0.5% bound needs roughly 4 SOL of effective quote reserve
-and the 25 migrations in the queue held 0.0035 to 0.087 SOL, so refusing them was
-correct. The defect was that those 25 were the **only** thing the queue could
-return. Seventy-five trajectories left open in already-demoted contexts excluded
-70 of the 113 under-cap CONFIRMED migrations, and the 43 that survived the filter
-were precisely the ones the depth gate had already refused. Twenty-four of the 25
-mints repeated between cycle 1 and cycle 2.
-
-The exclusion's reason is sound *within* a window — two concurrent trajectories
-on one pool share a mark path and duplicate each other exactly — and false across
-windows, because the mark pass, the scheduler and the backpressure brake are all
-scoped to one evidence context. A trajectory open in a context nothing is marking
-cannot duplicate anything. Scoping that one predicate restored 114 eligible
-mints. Same command, same market:
-
-```
-before   quote reserves      3,513,644 … 87,553,872 lamports
-after    quote reserves  2,192,591,027 … 41,850,888,953 lamports
-```
-
-**S090.** This is S078 in a second place: that fix scoped the reservation table,
-and this query carries its own independent exclusion which the first fix never
-reached.
-
-**Age is not the discriminator, depth is.** Measured against each migration's own
-`block_time` rather than when we happened to observe it, the pools admitted
-across every window were 19 minutes to six days old. An earlier reading of this
-number as "1 to 70 minutes" measured observation-to-open latency, not pool age,
-and is withdrawn.
+The ten timely paths are the milestone. They are not the ten largest, the ten
+best or the ten chosen — they are every settled path whose seven horizons were
+each taken inside the frozen bound.
 
 ## 23. Independent recomputation, and what the economics do and do not say
 
@@ -722,51 +715,47 @@ The control that makes this checkable: the one trajectory whose sell leg created
 a single account rather than two returns 19,501,171 of 20,000,000 — a 2.49% round
 trip, exactly twice the stated fee.
 
-### The policy figures — both arms lose, and that is the finding
+### The policy figures across three windows, and why none is an edge
 
-Over the 15 settled paths in the active window:
+This directive collected three windows that reached settlement. Same venue, same
+notional, same two policies, days and hours apart:
 
 ```
-FIXED_15M_CONTROL                n=15  positive 1  total gross  -4,932,968
-FLOW_LIQUIDITY_DETERIORATION_V1  n=15  positive 1  total gross  -4,887,337
-in-window disagreements (different trigger offset): 4 of 15
+window                          n     FIXED_15M_CONTROL   FLOW_LIQUIDITY_DET_V1
+ctx-b71956b37104 (superseded)   15          +1,229,949            +14,591,951
+ctx-8eb790b0feb9 (superseded)   45          -3,926,459            -35,124,390
+ctx-c3add8bff804 (THIS ONE)     13          +9,594,170             +8,726,327
 ```
 
-**Both arms are negative before costs.** One path in fifteen closed positive
-under either policy, and the challenger's advantage over the control is 45,631
-lamports across the whole window — about 0.4% of one entry's notional, on a
-sample where a single path swings by more than that.
+**The sign flips between windows.** In this window only 2 of 13 paths closed
+positive under either policy, and the totals are positive because one path
+returned roughly +14,000,000 on a 20,000,000 notional. Remove it and both arms
+are negative again. The 45-path window — the largest — is the most negative.
 
-An earlier window in this same directive, collected at `b71956b` and now demoted,
-read `+1,229,949` and `+14,591,951` on its own 15 paths. Two windows of the same
-size, on the same venue, days apart, differ by twenty million lamports and by
-sign. That is what a sample of fifteen is worth, and it is the most useful number
-in this report: it sets the scale of the noise any future claim has to clear.
+That instability IS the result. It sets the scale of noise any future claim has
+to clear, and it is worth more than any of the three totals taken alone. A
+strategy conclusion drawn from any single one of these windows would have been
+confidently wrong, and would have pointed in a different direction depending on
+which window you happened to run.
 
-**Neither figure is an edge, and neither kills the strategy.** Every one of the
-following is true:
+**Every one of these remains true:**
 
-- **n = 15.** The readiness threshold is 100 valid paths per policy-cohort, and
-  `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` would need a preregistered kill rule
-  evaluated at 50, which does not exist yet and cannot be invented after seeing
-  this.
-- **Gross, not net.** Execution cost — dominated by the locked rent in the
-  section above — is not deducted. Deducting it makes both arms worse, not
-  better.
-- **The exits are priced by a counterfactual graded DEVELOPMENT.** Calibrated
-  conservative against exact replay on 4 pairs, all at -49 bps and all inside
-  tolerance — enough to say it does not overstate an exit, not enough to promote
-  it out of development evidence.
-- **No hold-out exists**, and no threshold was tuned toward this result. MT048,
-  the one sampling change made during this directive, is recorded as
-  availability-driven and was made because candidates were unavailable, not
-  because returns improved.
-
-The correct reading is: the apparatus produces two policy decisions over one
-shared, durable, independently recomputable mark path; they disagree on 4 of 15;
-and over this window both lose money before costs. That is a working measurement
-instrument reporting an unflattering measurement, which is the outcome this
-directive was built to make possible.
+- **n = 13 here, 45 at most.** The readiness threshold is 100 valid paths per
+  policy-cohort, and `STRATEGY_KILLED_BY_CORRECTED_ECONOMICS` needs a
+  preregistered kill rule evaluated at 50 which does not exist and cannot be
+  invented after seeing this.
+- **Gross, not net.** Execution cost — dominated by locked rent — is not
+  deducted. Deducting it makes every arm worse.
+- **Two paths here were `unpriced`**: the counterfactual contract refused to
+  price the exit rather than falling back to a later mainnet quote. That refusal
+  is the apparatus working (M-2), and it means the totals above are over the
+  paths that COULD be priced.
+- **The exits are priced by a counterfactual graded DEVELOPMENT**, calibrated
+  conservative against exact replay — 2 of 2 here at -49 bps, inside tolerance,
+  one of them replaying 6 confirmed pool events out of 58 scanned.
+- **No hold-out exists**, and the one sampling change made during this directive
+  (MT048) is recorded as availability-driven, made because candidates were
+  unavailable rather than because returns improved.
 
 ## 24. Active-time RPC usage and purchase recommendation
 
@@ -801,19 +790,32 @@ exists, and section 23 is explicit that none does.
 
 ## 25. Unresolved blockers
 
-1. **S079 — the RPC rate budget is per PROCESS while the quota is per ENDPOINT.**
-   Open. Two collectors each hold a 4 req/s bucket against one endpoint measured
-   at ~10.7 req/s, so the ceiling holds only because the per-process figure was
-   set low enough for two. A third process would breach it and nothing would
-   notice. A cross-process budget needs a shared token bucket.
-2. **S091 — `evidence:invalidate-old` accepts a reason with no content.** Open;
-   see section 5.
-3. **The entity fact has never changed an entry decision.** Section 16. Wired,
-   applied 270 times, decisive zero times in `decideEntry`.
-4. **The marks-only pass reprints its full banner every tick.** Cosmetic; twenty
-   blocks a minute of log for a pass that usually does nothing.
-5. **Six invariants are OUT OF SCOPE**, each with a recorded reason, and are
-   therefore not claimed anywhere else either: F-7, H-3, H-4, I-4, O-3, P-2.
+1. **B-2 and B-3 fail on a market draw, and that is why the terminal state is
+   `MEASUREMENT_REPAIR_REQUIRED`.** The gate's live pass samples six candidates;
+   in the certifying run all six were refused by real risk gates (427.0%, 63.4%,
+   12.7%, 9.9%, 3.9% of pool reserve, plus two concentration refusals). The same
+   collector opened 22 trajectories in this window. The probe conflates "the
+   collector can open a trajectory" with "the market offered an openable
+   candidate in this six-draw". **Recommended repair:** FAIL only when a
+   candidate was ADMISSIBLE and was not opened; report NO_ADMISSIBLE_CANDIDATE
+   otherwise. This is the same class of correction already made for C-1 (S088).
+   It was deliberately NOT made here, because editing a probe that is currently
+   failing one's own run, to reach a better terminal state, is indistinguishable
+   from selecting a result.
+2. **S079 — the RPC rate budget is per PROCESS while the quota is per ENDPOINT.**
+   Two collectors each hold a 4 req/s bucket against one endpoint measured at
+   ~10.7 req/s. A third process would breach it and nothing would notice.
+3. **S091 — `evidence:invalidate-old` accepts a reason with no content**, which
+   is how 32 contexts were once demoted carrying empty justifications.
+4. **S096 — `collector:lock-status` counts matching PROCESSES, not process
+   TREES**, so one detached wrapper chain reports as six collectors. The database
+   lock is the real enforcement and is unaffected (A-2 PASS).
+5. **Three marks in this window exceeded the 10s SLA** (3 of 138, worst 15,111
+   ms), none beyond 60s. The S094 yield repair took the worst case from 43,251 ms
+   to this. Closing the remainder needs a finer yield inside the worker round
+   trip itself.
+6. **The entity fact has still never changed an entry decision** — wired, applied,
+   decisive at ADMISSION, never decisive inside `decideEntry`.
 
 ## 26. Exact keep-running commands
 
@@ -867,18 +869,21 @@ with `observe` stopped the candidate supply is not slow, it is zero.
 ## 27. Terminal state
 
 ```
-VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING
+MEASUREMENT_REPAIR_REQUIRED
 ```
 
-The claimed set of 54 invariants reports FAIL 0 and NOT TESTABLE 0 against the
-frozen contract, ten trajectories recompute from durable raw evidence with zero
-failures and zero unexplained lamports, the bounded counterfactual is calibrated
-conservative against exact replay, two exit policies decide over one shared mark
-path and disagree on it, and one collector is running under the contract that
-froze at the commit it is running.
+The ledger is repaired and the milestone is met. Ten timely trajectories, each
+with every horizon inside the frozen SLA, recompute their full economics from
+durable raw evidence with zero failures and zero unexplained lamports. The
+evidence graph resolves, every blob re-hashes, the counterfactual bound is
+calibrated conservative against exact replay, all three entry policies decide on
+shared features, and both exit policies decide on shared mark paths.
 
-What that state does **not** say: that an edge exists. Section 23 gives the
-policy figures and the five reasons they are not one.
+The state is nonetheless the conservative one, because P13 requires FAIL = 0 for
+every claimed invariant and two claimed invariants fail — on a market draw rather
+than on the apparatus, as section 25 sets out. P19's own gating sentence for the
+stronger state is satisfied; P13's requirement is not. Where the two disagree,
+this report takes the reading that claims less.
 
 Nothing was funded. No key was read or created. Nothing was signed or submitted.
 No canary and no live run was started. No gate was widened, no risk cap raised,
@@ -886,135 +891,3 @@ no threshold tuned toward an outcome, no test deleted and no timeout increased.
 No LLM signal, no social sentiment, no additional venue and no execution purchase
 were added. No invalid row was pooled with the repaired experiment, and no edge
 is claimed from any settlement value, old or new.
-
----
-
-## Appendix A — the provenance treadmill, and how to avoid paying it
-
-The collector refuses when its frozen contract's `source_commit` is not HEAD.
-That rule is right — a window collected at a different commit than its contract
-froze is not the experiment that was declared — and it means **every commit made
-while a window is open strands that window.** Four contracts were frozen and
-superseded unused during this directive for exactly that reason, at `5f5a6dc`,
-`602e86d`, `5be9358` and a predecessor. Each stranded context is recorded with
-`STRANDED_BY_HEAD` naming the commit that superseded it, rather than deleted or
-silently reused.
-
-The working order is: make every change, `pnpm check`, commit, **then**
-`pnpm contract:freeze --apply`, then start the collector and do not touch the
-tree until the window closes.
-
----
-
-## Appendix B — clause-by-clause coverage of the directive
-
-Verified against the directive text rather than from memory, each with a concrete
-check rather than an assertion that it was done.
-
-| clause | requirement | evidence |
-|---|---|---|
-| P0.1 | establish local truth before changing code | section 2; SHAs, process trees, scheduled tasks, WSL worker sha256, RPC hosts recorded |
-| P0.2 | stop every trajectory collector | section 3; 6 processes stopped, 0 remain, no startup path |
-| P0.3 | `VACUUM INTO` backup, read back and verified | section 4; sha256, bytes, counts, integrity, foreign keys, exposure; ≥20 GB free enforced |
-| P0.4 | append-only invalidation ledger, nothing deleted | section 5; `evidence_contexts` carries all seven required columns; 40 of 41 contexts invalid; 427 trajectories preserved |
-| P1.1 | dedicated `trajectory_collector` lock, `BEGIN IMMEDIATE`, stale takeover rules | section 6; plus an OS-level lock file at `data/trajectory-collector.pid` as the second line of defence |
-| P1.2 | Task Scheduler `MultipleInstances = IgnoreNew` | `docs/COLLECTOR_SINGLE_OWNER.md` |
-| P1.3 | refuse dirty evidence collection | `evidenceContextValidity`; a modified ARTIFACT is correctly not a dirty tree |
-| P1.4 | atomic candidate reservation, unique constraints, ten-process race | section 6; P17 #3 |
-| P2.1–2.3 | the evidence graph, deterministic identities, schema | section 7; all twelve tables, all ten trajectory link columns |
-| P2.4 | persist before execution, named state progression | `persist-evidence.ts`: REQUESTED → RUNTIME_RETURNED → RAW_STATE_DURABLE → EFFECT_VERIFIED → SETTLEMENT_DERIVED → COMPLETE |
-| P2.5 | atomic trajectory open after blob readback | section 7 |
-| P3.1 | content-addressed blob store, read back before durable | section 9; 2,055 blobs re-hashed, 0 missing |
-| P3.2 | required accounts, ABSENT explicit on both sides | P17 #11; G-2 PASS |
-| P3.3 | real hashes | section 10; `fee_config_hash`, `capability_fingerprint`, `snapshot_hash`, `leg_account_plans.fingerprint` (the account-plan hash), `simulation_jobs.simulator_binary_hash` |
-| P3.4 | quote-state equality broken by any mutation | section 11; P17 #23/#24 now tested directly, G-1 PASS |
-| P4.1 | `isPnlEligible` for entry AND exit | `settlement.ts` calls it for buy and sell |
-| P4.2 | unexplained value blocks PnL | section 12; K-2 PASS |
-| P4.3 | exact cost components, once each | section 12; K-1 PASS over eleven mutations |
-| P4.4 | the single cash identity | K-3 PASS: trajectory, settlement, policy outcome and report agree exactly |
-| P4.5 | explicit economics persisted | on `trajectory_settlements` (`gross_exit_credit`, `residual_token_atoms`, `unexplained_lamports`) and the trajectory row |
-| P4.6 | independent recomputation command | section 8 and 23; `pnpm trajectory:trace` does not call the settlement writer it checks |
-| P5 | append-only means loud conflicts | section 13; eight probes, `ALL AMBIGUITIES ARE LOUD` |
-| P6.1 | sole-venue conservation on both sides | section 11 |
-| P6.2 | `assertPlanUnchanged` called in production | `open-trajectory.ts:1452` |
-| P6.3 | pinned Pump docs commit and SDK versions | `sdk-versions.ts`: docs `9c82f61c…`, pump-sdk 1.36.0, pump-swap-sdk 1.19.0; E-4 and J-4 PASS |
-| P6.4 | fee tier stored and fail-closed | section 17; J-1..J-4 PASS |
-| P7.1–7.3 | split schedulers, frozen SLA, backpressure | section 14 |
-| P7.4 | honest `--once` semantics | documented at the flag; the gate exercises it |
-| P8.1–8.3 | counterfactual classes, bounded mode, replay calibration | section 15; `BOUND_IS_CONSERVATIVE` |
-| P8.4 | no later mainnet quote without a contract | M-2 PASS; observed live as `FLOW_LIQUIDITY_DETERIORATION_V1=unpriced` |
-| P9.1–9.3 | all three entry policies, two exit policies, paired outcomes | section 16; N-1..N-3 PASS |
-| P10.1 | entity-adjusted concentration in the decision | section 16b — wired and applied 270 times, decisive ZERO times in `decideEntry`, stated rather than buried |
-| P10.2 | Mayhem verified against disclosure | O-1 PASS; O-3 OUT OF SCOPE with its reason |
-| P10.3 | Token-2022 canonical decoder | section 17 |
-| P11 | warm/cold, cashback, fee regimes | section 18; strata recorded. P11 defers optimisation until ten recomputable trajectories exist, so the separate runs are future work by the directive's own text |
-| P12.1–12.4 | one readiness owner, frozen contract, no old evidence, honest commands | section 19; Q-1 and R-1..R-3 PASS |
-| P13 | acceptance gate, FAIL 0 and NOT TESTABLE 0 | section 20, and the ordering caveat stated rather than glossed |
-| P14 | one clean window, ten trajectories, real-time horizons | section 22 |
-| P15 | profit search AFTER ten valid trajectories | not begun; section 23 gives the figures and five reasons they are not an edge |
-| P16 | instrument first, then decide infrastructure | section 24 |
-| P17 | 39 mutation and runtime tests | 60 tests in `directive-5d24e39-p17.test.ts`; #23 and #24 added during this review |
-| P18 | commands, docs and artifacts | all 17 commands, all 10 docs, all 8 artifacts — `settlement-identity-check.json` added during this review |
-| P19 | the final report, 27 numbered items | this document, sections 1–27, no gaps and no duplicates |
-
----
-
-## Appendix C — what re-freezing mid-flight costs
-
-Re-freezing at a new commit does not merely start a new window; it **abandons the
-open trajectories in the old one**. The mark scheduler, the backpressure brake
-and the settle pass are all scoped to the active evidence context, so the moment
-a new contract becomes active every still-open trajectory in the previous window
-stops being marked. Those paths are truncated at whatever horizon they had
-reached, can never satisfy `pathIsComplete`, and therefore can never produce a
-policy outcome.
-
-This directive froze **five** contracts and superseded four of them, each time
-because a defect was found and fixed after the window had opened:
-
-```
-5f5a6dc   superseded   stray window (S087) — 1 trajectory
-602e86d   superseded   no trajectory opened
-5be9358   superseded   candidate queue sterilised by demoted windows (S090) — 1
-b71956b   superseded   16 settled, 10 recomputed, PASS 53 at its own commit — 67
-47a91fa   ACTIVE       the window this report measures — 52
-```
-
-The `b71956b` window is the expensive one: it was complete and audited clean at
-its own commit, and 22 of its trajectories were still open when it was
-superseded. Nothing is deleted and every recorded mark remains valid, but that
-collection time is not recoverable and those 22 paths will never settle.
-
-**500 trajectories exist; 52 are in the valid window.** A reader comparing those
-two numbers should know the gap is the cost of finding four defects, not a
-property of the market.
-
-The rule that causes this is correct — a window collected at a different commit
-than its contract froze is not the experiment that was declared — so the lesson
-is procedural, and it is the one in Appendix A: make every change, run
-`pnpm check`, commit, **then** freeze, then leave the tree alone until the window
-closes.
-
-## Appendix D — where a probe is broader than the window it reports on
-
-Two checks in this report are corpus-wide by construction, and a reader should
-know which:
-
-**N-3** — "the two exit policies are evaluated on the SAME path and can disagree
-on it" — counts disagreements across `trajectory_policy_outcomes` with no context
-scope. Its verdict would therefore be satisfied by disagreements recorded in
-windows that have since been demoted. In the active window it is independently
-true: **4 of 15 settled paths have different trigger offsets**, so the invariant
-does not rest on old evidence here. The probe should still be scoped, and that it
-is not is recorded rather than relied upon.
-
-**`pnpm policy:treatments-status`** reports 302 paired exit paths and 270 entry
-decisions carrying a risk fact. Those counts span every context including the
-invalidated ones. They are a statement about WIRING — that the code paths are
-called and can disagree — and not about this window's evidence. Section 16 gives
-the in-window figures separately for exactly that reason.
-
-Neither is a defect in the apparatus. Both are places where a number that looks
-like evidence is actually a statement about the machinery, and this report
-separates them rather than letting the larger number stand in for the smaller
-one.

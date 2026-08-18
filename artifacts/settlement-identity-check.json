@@ -1,8 +1,8 @@
 {
  "artifact": "settlement-identity-check",
  "writtenBy": "scripts/runtime-adversarial-audit.ts",
- "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
- "generatedUtcMs": 1787072283042,
+ "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+ "generatedUtcMs": 1787080574252,
  "invariant": "each settlement component enters exactly once and a mutation is visible",
  "verdict": "PASS",
  "baseline": {

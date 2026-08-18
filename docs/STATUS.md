@@ -1,132 +1,38 @@
 # STATUS
 
-> **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, second pass.
-> State: `VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING`.**
+> **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, final.
+> State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
-> Full account: `docs/5D24E39_FINAL_REPORT.md`. Gate ledger:
-> `artifacts/runtime-adversarial-audit-b71956b.json`. Re-runnable end to end
-> with `pnpm gate --with-live-run`.
+> Full account: `docs/5D24E39_FINAL_REPORT.md` (27 sections + appendices A-D).
 >
 > ```
-> against contract-159d6dc1129230a6 at 47a91fa, which claims 54 invariants
-> PASS 53    FAIL 0    NOT TESTABLE 0    OUT OF SCOPE 6
+> against contract-2572f62959ca05ab at c3add8b, which claims 54 invariants
+> PASS 51    FAIL 2    NOT TESTABLE 0    OUT OF SCOPE 6
 > independently recomputed trajectories: 10 (0 failures)
 > ```
 >
-> against `PASS 37 / FAIL 7 / NOT TESTABLE 4` at the first pass, and
-> `PASS 25 / FAIL 26 / NOT TESTABLE 8` at `8f73cef`.
+> **P14's milestone IS met** — 10 settled trajectories with every horizon inside
+> the frozen 10s SLA, 0 marks beyond 60s, 0 unexplained lamports, 0 legs without
+> full account coverage, graph RESOLVES, blobs ALL DURABLE, bound CONSERVATIVE.
+> **P13 is not** — B-2 and B-3 fail because the gate's six-candidate live draw
+> found every candidate refused by real risk gates (427%, 63%, 13%, 10%, 4% of
+> pool reserve, plus concentration). The same collector opened 22 trajectories in
+> that window. The probe measures the market, not the apparatus; the repair is
+> named in section 25 and was deliberately not made, because editing a failing
+> probe to reach a better state is indistinguishable from selecting a result.
 >
-> **NO EDGE IS CLAIMED, AND BOTH ARMS LOSE.** Over the 15 settled paths in the
-> active window, `FIXED_15M_CONTROL` totals **-4,932,968** gross and
-> `FLOW_LIQUIDITY_DETERIORATION_V1` totals **-4,887,337**, with one positive path
-> each and 4 of 15 disagreeing on the trigger offset. An earlier window of the
-> same size in this same directive read **+1,229,949** and **+14,591,951** — two
-> samples of fifteen, same venue, differing by twenty million lamports and by
-> sign. That is the scale of the noise any future claim has to clear, and it is
-> the most useful number here. n=15 against a threshold of 100; the figures are
-> GROSS of an execution cost dominated by locked rent; the exits are priced by a
-> counterfactual graded DEVELOPMENT. Section 23 states it in full.
+> **NO EDGE. THE SIGN FLIPS BETWEEN WINDOWS.** Three settled windows, same venue,
+> same notional: `+1.2M/+14.6M` (n=15), `-3.9M/-35.1M` (n=45), `+9.6M/+8.7M`
+> (n=13). In the last, only 2 of 13 paths closed positive and one path carried
+> the whole total. That instability is the result; it sets the noise scale any
+> future claim must clear.
 >
-> Eight defects found and fixed during this pass, each with the measurement that
-> found it. Four of them — **S078**, **S090**, **S092**, **S093** — were
-> bookkeeping scopes that presented as market facts: a queue of drained pools, a
-> gate refusing everything, a cap reached, a race lost in a single-process
-> window. None of them were about the market. The others: **S086** a bounded-counterfactual refusal violated its own table's
-> CHECK and the exception killed the mark pass mid-run; **S087** the freeze and
-> the collector had different default window ids and nothing compared them;
-> **S088** the C-1 trace probe carried a link hardwired to `SELECT 0`, so the
-> invariant could never pass; **S089** the screening collector never read
-> `RPC_ENDPOINT`, so the two halves of one system could read two endpoints;
-> **S090** trajectories left open in DEMOTED windows excluded their mints from
-> every future candidate queue — 75 of them held 70 of 113 under-cap migrations
-> hostage; **S092** the per-mint cap counted each sample twice, so the effective
-> cap was half the configured one and 113 of 160 migrations were refused while
-> 124 were genuinely admissible; **S093** reservation slots were keyed by a
-> window NAME every contract reuses, so once S092 stopped the double count the
-> corrected ordinals collided with earlier windows' slots and 24 of 25 candidates
-> reported a race in a window with one process. The last two were masking each
-> other.
->
-> ### What is now true, and how it is enforced
->
-> - **A non-zero unexplained remainder BLOCKS net PnL** and raises two identity
->   violations carrying the exact residue. `buildTrajectorySettlement` calls
->   `isPnlEligible` rather than restating three of its four clauses.
-> - **Identities are content-bound and resolve.** The id passed to the worker IS
->   the id inserted. `trajectory_evidence_links` declares a real foreign key on
->   every arrow, so the 292 legacy rows **cannot be represented in it** — "0 of
->   292 resolve" is unexpressible rather than merely fixed.
-> - **`snapshot_hash` is a sha256 over the account manifest**, refused as a slot
->   number by a domain check AND a database trigger. The capability fingerprint
->   is a different value over named capability fields and moves with seven of
->   them.
-> - **Raw pre/post account state is persisted**, content-addressed, read back and
->   re-hashed before it is marked durable, with ABSENT explicit on both sides.
-> - **`pnpm trajectory:trace` recomputes a trajectory's economics** from the raw
->   blob graph, deriving every cash figure from the payer's own lamports. It
->   calls no function whose output it checks.
-> - **Every append-only ambiguity fails loudly.** Eight probes, all refusing,
->   with identical content still idempotent.
-> - **Marks have their own clock** — a 3-second tick against a frozen 10-second
->   SLA — and discovery is deferred whenever a mark is past it. A late mark is
->   `MISSED_HORIZON` and is excluded from the sample.
-> - **One collector owns the queue**, under its own lock name, with per-mint
->   reservations enforced by unique indexes and a CHECK inside `BEGIN IMMEDIATE`.
->   A ten-process race takes exactly the cap.
-> - **All three entry policies decide**, twice each — once with the
->   entity-adjusted concentration and once with the raw share — so a risk fact
->   that never changes an outcome is visible as such.
-> - **The two readiness gates have separate artifacts**, and readiness loads ONE
->   frozen `experiment_contracts` row instead of sixteen hardcoded nulls.
->
-> ### What is NOT true, and it is one thing
->
-> **The active window has ZERO trajectories.** All eleven remaining gate
-> blockers — B-2, B-3, C-1, I-1, M-1, M-2, N-2, N-3, O-2, S-3, S-4 — are that
-> single fact.
->
-> Both configured RPC endpoints are out of credits (QuickNode: *daily request
-> limit reached*; Helius: *max usage reached*) and the public endpoint refuses
-> `getTokenLargestAccounts` outright — **0 of 8 attempts at 5 s spacing**. That is
-> the call the concentration gate needs, so `admitCandidate` refuses every
-> candidate with *"neither entity-adjusted nor raw concentration could be read"*.
->
-> **That refusal is correct.** Unknown concentration is not safe concentration.
-> The endpoint is the blocker, not the gate, and the remedy is capacity — a human
-> purchasing act. See `docs/CLEAN_WINDOW_RUNBOOK.md`.
->
-> A repaired `--once` pass on 2026-08-17 confirmed the rest of the path runs: the
-> lock was taken, the provenance gate passed, marks were taken with SLA verdicts,
-> and the pass settled cleanly.
->
-> ### Not claimed
->
-> Eight invariants are removed from the contract with a recorded reason each
-> (E-4, F-7, H-3, H-4, I-4, J-4, O-3, P-2) and are therefore not asserted
-> anywhere else either.
->
-> ### The pre-repair corpus
->
-> 292 trajectories, 52 settlements, 1,460 marks: **preserved, and closed** as
-> `INSTRUMENT_DEVELOPMENT_INVALID` under evidence context `5d24e-pre-repair`.
-> Nothing was deleted. The −215,427,510 lamport aggregate is **not** a strategy
-> result: 51 of the 52 settlements behind it do not close their payer identity,
-> and in the worst case the residue is 71 % of the loss the row reports. See
-> `docs/5D24E_INVALID_WINDOW.md`.
+> Eleven defects found and fixed (S086-S096). Five were one mistake in five
+> places — a scope reading "per experiment" that meant "per corpus" or "per name,
+> forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
+> window). Every one presented as a market fact.
 
----
-
-
-> **2026-08-14 — true-stateful directive from `3bc708d`. State:
-> `MEASUREMENT_REPAIR_REQUIRED`.**
-> The sequential runtime produces complete, correctly classified
-> buy → sell → close lifecycles whose economics reconcile to **one lamport**.
-> The shadow lifecycle now triggers and awaits a later fill, which voided all
-> **1,038** shadow results that existed before it
-> (`docs/SHADOW_TRIGGER_FILL_INVALIDATION.md`). **No trajectory has completed
-> through the repaired lifecycle.** `docs/3BC708D_FINAL_REPORT.md`.
-
-Last updated: 2026-08-18T05:55Z
+Last updated: 2026-08-18T19:25Z
 
 ## Operational right now
 

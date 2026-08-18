@@ -1,45 +1,25 @@
 {
-  "boundedRows": 2110,
-  "replayRows": 18,
-  "pairedRows": 4,
+  "boundedRows": 2253,
+  "replayRows": 22,
+  "pairedRows": 2,
   "toleranceBps": 200,
   "results": [
     {
-      "trajectoryId": "142ac750-ba7f-4fb4-be8e-ac1bff2ed850",
-      "offsetMs": 900000,
-      "boundedExitLamports": "17920078",
-      "replayExitLamports": "18009891",
-      "errorLamports": "-89813",
-      "errorBps": -49,
-      "conservative": true,
-      "withinTolerance": true
-    },
-    {
-      "trajectoryId": "36909329-9e19-4a83-a7b0-a32f3bcd69a9",
-      "offsetMs": 900000,
-      "boundedExitLamports": "19654605",
-      "replayExitLamports": "19753086",
-      "errorLamports": "-98481",
-      "errorBps": -49,
-      "conservative": true,
-      "withinTolerance": true
-    },
-    {
-      "trajectoryId": "9c7ed692-ac48-4914-acd0-c2a950780a28",
-      "offsetMs": 900000,
-      "boundedExitLamports": "19314958",
-      "replayExitLamports": "19411740",
-      "errorLamports": "-96782",
-      "errorBps": -49,
-      "conservative": true,
-      "withinTolerance": true
-    },
-    {
-      "trajectoryId": "c893e983-b819-4e91-a0c4-3d74c2c92c24",
+      "trajectoryId": "5fcadad5-08b4-4273-99d5-2ab84ca47fad",
       "offsetMs": 900000,
       "boundedExitLamports": "19654607",
       "replayExitLamports": "19753087",
       "errorLamports": "-98480",
+      "errorBps": -49,
+      "conservative": true,
+      "withinTolerance": true
+    },
+    {
+      "trajectoryId": "d36a83ec-5cdb-4f27-bfe3-08ff537e9f80",
+      "offsetMs": 900000,
+      "boundedExitLamports": "18921599",
+      "replayExitLamports": "19016432",
+      "errorLamports": "-94833",
       "errorBps": -49,
       "conservative": true,
       "withinTolerance": true
@@ -50,9 +30,9 @@
   "verdict": "BOUND_IS_CONSERVATIVE",
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "8eb790b0feb9cdecd21dc041de265b60656db244",
+    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-18T16:54:18.537Z"
+    "dirtyFiles": 11,
+    "writtenUtc": "2026-08-18T19:12:58.036Z"
   }
 }
