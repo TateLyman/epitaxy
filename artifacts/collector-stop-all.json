@@ -1,18 +1,18 @@
 {
   "stoppedPids": [
-    27156,
-    31760,
-    30700,
-    33640,
-    7800,
-    37708
+    8336,
+    8784,
+    36656,
+    37876,
+    32456,
+    5880
   ],
   "remainingPids": [],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "47a91fa1a07b50a7b0a0c3fae671742cdc5cec81",
+    "sourceCommit": "96c0581344bfa0c3f4a7f5e33cac43dc0c48f773",
     "treeDirty": true,
-    "dirtyFiles": 2,
-    "writtenUtc": "2026-08-18T05:40:31.797Z"
+    "dirtyFiles": 4,
+    "writtenUtc": "2026-08-18T12:42:46.534Z"
   }
 }

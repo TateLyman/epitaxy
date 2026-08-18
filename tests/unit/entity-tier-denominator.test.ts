@@ -657,3 +657,51 @@ describe('S093 — the reservation slot namespace is the experiment', () => {
     }
   });
 });
+
+/**
+ * S094 — the entity walk must be interruptible, or the mark SLA is decorative.
+ *
+ * The walk is the longest uninterruptible stretch in a discovery cycle: up to
+ * `maxHolders` addresses, each up to `maxPages` sequential signature pages,
+ * against a bucket deliberately set to a few requests a second. Nothing inside
+ * it yielded, so a horizon that came due mid-walk was served when the walk
+ * ended.
+ *
+ * Measured 2026-08-18 on the audited window: the worst collector mark was
+ * 43,251 ms late against a frozen 10,000 ms bound, 53 of 250 marks missed, and
+ * only **4 of 15** settled paths carried a clean SLA record — against P14's
+ * requirement of ten timely trajectories. The apparatus was sound and the
+ * milestone was not met.
+ */
+describe('S094 — the entity walk yields to due marks', () => {
+  const pageOf = (n: number) => Array.from({ length: n }, (_, i) => ({ signature: `sig-${i}` }));
+
+  it('oldestSignatureOf yields between PAGES, not only at the end', async () => {
+    let pages = 0;
+    const yields: number[] = [];
+    const rpc = {
+      getSignaturesForAddress: async () => {
+        pages += 1;
+        // A full page every time, so the walk runs to its page bound.
+        return pageOf(1_000);
+      },
+      getTransactionFeePayer: async () => null,
+    };
+    await oldestSignatureOf(rpc as never, 'ADDR', 4, async () => {
+      yields.push(pages);
+    });
+    expect(pages).toBe(4);
+    // One yield BEFORE each page — so a mark due after page 1 is not held
+    // hostage until page 4.
+    expect(yields).toEqual([0, 1, 2, 3]);
+  });
+
+  it('a walk with no hook still works, because most callers have no marks', async () => {
+    const rpc = {
+      getSignaturesForAddress: async () => pageOf(0),
+      getTransactionFeePayer: async () => null,
+    };
+    const r = await oldestSignatureOf(rpc as never, 'ADDR', 3);
+    expect(r.reachedEarliest).toBe(true);
+  });
+});

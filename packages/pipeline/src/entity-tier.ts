@@ -101,10 +101,24 @@ export async function oldestSignatureOf(
   rpc: SignatureReader,
   address: string,
   maxPages: number = MAX_HISTORY_PAGES,
+  /**
+   * Called between PAGES, so a mark whose horizon arrives mid-walk is taken.
+   *
+   * A walk is up to `maxPages` sequential reads against a rate-limited
+   * endpoint, and it is one of the two stretches that cost this repository its
+   * mark SLA: measured 2026-08-18, the worst collector mark was 43,251 ms late
+   * against a frozen 10,000 ms bound, because a horizon that came due inside a
+   * candidate's entity walk waited for the whole walk to finish.
+   *
+   * Optional, because every other caller of this function is a script that has
+   * no marks to take.
+   */
+  yieldTo?: () => Promise<void>,
 ): Promise<OldestSignature> {
   let before: string | undefined;
   let oldest: string | null = null;
   for (let page = 1; page <= maxPages; page++) {
+    if (yieldTo !== undefined) await yieldTo();
     let sigs: Awaited<ReturnType<SignatureReader['getSignaturesForAddress']>> | null = null;
     for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt++) {
       try {
@@ -207,6 +221,19 @@ export async function measureEntityTier(
      */
     readonly holders?: { readonly address: string; readonly amount: bigint }[] | null;
     readonly supplyAtoms?: bigint | null;
+    /**
+     * Called between every address walk and every fee-payer lookup.
+     *
+     * The entity walk is the LONGEST unyielded stretch in a discovery cycle:
+     * up to `maxHolders` addresses, each up to `maxPages` sequential reads,
+     * against a bucket deliberately set to a few requests a second. Nothing
+     * inside it was interruptible, so a one-minute horizon that came due while
+     * it ran was served when it ended.
+     *
+     * Passing the collector's mark hook here turns one 30-second stretch into
+     * a few dozen sub-second ones.
+     */
+    readonly yieldTo?: () => Promise<void>;
   },
 ): Promise<EntityTierReading> {
   let accounts: { address: string; amount: bigint }[];
@@ -259,8 +286,9 @@ export async function measureEntityTier(
   const built = await buildEntityLinks(
     {
       oldestSignatures: async (address, limit) => {
+        if (p.yieldTo !== undefined) await p.yieldTo();
         const seen = walked.get(address);
-        const o = seen ?? (await oldestSignatureOf(rpc, address, p.maxPages ?? MAX_HISTORY_PAGES));
+        const o = seen ?? (await oldestSignatureOf(rpc, address, p.maxPages ?? MAX_HISTORY_PAGES, p.yieldTo));
         if (seen === undefined) walked.set(address, o);
         // The interface wants oldest-first. There is exactly one that matters —
         // the creation — and returning more would invite a caller to treat a
@@ -271,6 +299,7 @@ export async function measureEntityTier(
       // catches a throw here as "history unreadable", and an unreadable history
       // becomes an independent entity, which deflates the share.
       feePayerOf: async (signature) => {
+        if (p.yieldTo !== undefined) await p.yieldTo();
         for (let attempt = 0; ; attempt++) {
           try {
             return await rpc.getTransactionFeePayer(signature);

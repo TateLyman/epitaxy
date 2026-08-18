@@ -432,6 +432,17 @@ async function candidateFacts(
   rpc: Awaited<ReturnType<typeof researchRpc>>['rpc'],
   mint: string,
   count: (kind: string, detail?: string) => void,
+  /**
+   * The mark hook, threaded down into the ENTITY WALK.
+   *
+   * The walk is the longest uninterruptible stretch in a discovery cycle — up
+   * to twenty addresses, each up to six sequential pages, against a bucket set
+   * to a few requests a second. Measured 2026-08-18: the worst collector mark
+   * was 43,251 ms late against a frozen 10,000 ms bound, and only 4 of 15
+   * settled paths carried a clean SLA record, because a horizon that came due
+   * inside a candidate waited for the whole candidate.
+   */
+  yieldToMarks?: () => Promise<void>,
 ): Promise<CandidateRiskFacts> {
   const nowMs = Date.now();
   let pool = '';
@@ -577,6 +588,8 @@ async function candidateFacts(
   const depthCouldAdmit = entryFraction !== null && entryFraction <= SMALL_IMPACT_BOUND;
   const entity: EntityTierReading = depthCouldAdmit
     ? await measureEntityTier(rpc as never, {
+        // The mark hook, threaded into the walk itself. See `yieldToMarks`.
+        yieldTo: yieldToMarks,
         mint,
         poolBaseVault,
         holders: holderList,
@@ -996,7 +1009,7 @@ async function runCycle(
        * reading a fact collected after selection is a post-hoc annotation and
        * the position was taken either way.
        */
-      const facts = await candidateFacts(rpc, c.mint, count);
+      const facts = await candidateFacts(rpc, c.mint, count, opts.yieldToMarks);
 
       /**
        * A SPENT DAILY QUOTA IS NOT A REFUSAL. Stop.
