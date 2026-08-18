@@ -10,6 +10,7 @@ import { counters, recordHealth, recordSourceHealth, rejectionBreakdown } from '
 import { RateLimiter } from '../../../packages/adapters/src/ratelimit.js';
 import { JupiterClient } from '../../../packages/adapters/src/jupiter/client.js';
 import { SourceFetchError } from '../../../packages/adapters/src/http.js';
+import { researchRpc } from '../../../packages/solana/src/endpoint.js';
 import { SolanaRpc } from '../../../packages/solana/src/rpc.js';
 import { emptyStats, runCycle } from '../../../packages/pipeline/src/cycle.js';
 import { tokenAgeMs } from '../../../packages/strategy/src/screen.js';
@@ -74,7 +75,33 @@ async function main(): Promise<void> {
 
   const limiter = RateLimiter.fromConfig(secrets.jupiterApiKey !== null);
   const jupiter = new JupiterClient({ limiter, apiKey: secrets.jupiterApiKey });
-  const rpc = new SolanaRpc(limiter, { primary: secrets.rpcHttp, fallback: secrets.rpcHttpFallback });
+  /**
+   * THROUGH `researchRpc`, which is the module written to stop exactly this.
+   *
+   * This constructed `new SolanaRpc(limiter, {primary: secrets.rpcHttp, …})`
+   * directly and so never read `RPC_ENDPOINT` — the override every other
+   * research entry point honours. `researchRpc`'s own comment names the
+   * failure: "three scripts grew an RPC_ENDPOINT override and three did not,
+   * and the ones that did not silently kept using the configured provider".
+   * This was one of the three that did not.
+   *
+   * The two halves of one system are supposed to read one chain. An operator
+   * who points the trajectory collector at a working endpoint and leaves the
+   * screening collector on an exhausted one gets a trajectory window with no
+   * candidate supply and a screening log full of "max usage reached", and
+   * nothing connects the two.
+   *
+   * `researchRpc` THROWS when no endpoint resolves, and observe is designed to
+   * degrade without one — `runCycle` takes `rpc.configured ? rpc : null` and
+   * screens on provider data alone. Turning a supported degraded mode into a
+   * hard stop would be a different change from the one this is, so the absent
+   * case keeps the old unconfigured client and says so.
+   */
+  const resolved =
+    (process.env['RPC_ENDPOINT'] ?? secrets.rpcHttp) === null ? null : researchRpc(secrets as never);
+  const rpc = resolved?.rpc ?? new SolanaRpc(limiter, { primary: null, fallback: null });
+  const host = resolved?.host ?? 'none configured';
+  const overridden = resolved?.overridden ?? false;
 
   log.info(
     {
@@ -84,6 +111,9 @@ async function main(): Promise<void> {
       maxQuotesPerCycle: config.maxQuotesPerCycle,
       keyed: secrets.jupiterApiKey !== null,
       db: secrets.databasePath,
+      // Host only: the configured endpoints carry API keys in their query strings.
+      rpcHost: host,
+      rpcOverridden: overridden,
     },
     'observe mode starting',
   );

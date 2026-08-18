@@ -553,7 +553,31 @@ function sectionC(db: DatabaseSync): Record<string, unknown> {
     link('created accounts', id, 'SELECT COUNT(*) c FROM created_accounts WHERE trajectory_id = ?', id),
     link('leg cashback', id, 'SELECT COUNT(*) c FROM leg_cashback WHERE trajectory_id = ?', id),
     link('exit observation', t['exit_observation_id'], 'SELECT COUNT(*) c FROM execution_observations WHERE observation_id = ?', t['exit_observation_id']),
-    link('exit worker job/step', null, 'SELECT 0 c', []),
+    /**
+     * THE EXIT LEG IS A STEP, NOT A JOB OF ITS OWN.
+     *
+     * This read `link('exit worker job/step', null, 'SELECT 0 c', [])` — a
+     * placeholder hardwired to return zero, so C-1 could never pass no matter
+     * what the data said. A probe pinned to FAIL is worth exactly as much as
+     * one pinned to PASS: neither can tell you anything changed.
+     *
+     * `sequentialRoundTrip` runs the buy and the sell inside ONE worker job, so
+     * there is no separate exit job to resolve. What the trajectory records is
+     * `(exit_simulation_job_id, exit_step_index)`, and the fact worth checking
+     * is that the pair lands on a real step whose leg is the SELL — not merely
+     * that a job by that id exists, which the entry link already establishes.
+     *
+     * Measured 2026-08-18: 85 of the 85 trajectories carrying an exit step
+     * resolve to a `simulation_steps` row with `leg = 'sell'`.
+     */
+    link(
+      'exit worker job/step',
+      `${String(t['exit_simulation_job_id'])}#${String(t['exit_step_index'])}`,
+      `SELECT COUNT(*) c FROM simulation_steps
+        WHERE job_id = ? AND step_index = ? AND leg = 'sell'`,
+      t['exit_simulation_job_id'],
+      t['exit_step_index'],
+    ),
   ];
 
   const broken = links.filter((l) => !l.resolves);
