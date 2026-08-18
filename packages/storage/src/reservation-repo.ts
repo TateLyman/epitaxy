@@ -144,6 +144,16 @@ export function reserveCandidate(
 ): Reservation {
   const { windowId, mint, maxPerMint, ownerSessionId, nowMs } = opts;
   const contextId = opts.evidenceContextId ?? null;
+  /**
+   * THE SLOT NAMESPACE.
+   *
+   * Ordinals are unique within the EXPERIMENT that took them, not within a
+   * window NAME that every contract reuses. Falling back to `windowId` keeps
+   * legacy rows — written before the reservation carried a context — in the
+   * namespace they were numbered under, which is the same expression the two
+   * unique indexes use (migration 53).
+   */
+  const scope = contextId ?? windowId;
   if (maxPerMint < 1) throw new ReservationRefused(mint, 'CAP_REACHED', `maxPerMint is ${maxPerMint}`);
 
   db.exec('BEGIN IMMEDIATE');
@@ -194,9 +204,9 @@ export function reserveCandidate(
                 s.ended_utc_ms, s.heartbeat_utc_ms, s.pid
            FROM trajectory_reservations r
            LEFT JOIN collector_sessions s ON s.session_id = r.owner_session_id
-          WHERE r.window_id = ? AND r.mint = ? AND r.status = 'RESERVED'`,
+          WHERE COALESCE(r.evidence_context_id, r.window_id) = ? AND r.mint = ? AND r.status = 'RESERVED'`,
       )
-      .all(windowId, mint) as {
+      .all(scope, mint) as {
       reservation_id: string;
       reserved_utc_ms: number;
       owner_session_id: string;
@@ -289,11 +299,11 @@ export function reserveCandidate(
       .prepare(
         opts.includeHistoric === true
           ? `SELECT COUNT(*) AS c FROM trajectory_reservations
-              WHERE window_id = ? AND mint = ? AND status = 'RESERVED'`
+              WHERE COALESCE(evidence_context_id, window_id) = ? AND mint = ? AND status = 'RESERVED'`
           : `SELECT COUNT(*) AS c FROM trajectory_reservations
-              WHERE window_id = ? AND mint = ? AND status <> 'ABANDONED'`,
+              WHERE COALESCE(evidence_context_id, window_id) = ? AND mint = ? AND status <> 'ABANDONED'`,
       )
-      .get(windowId, mint) as { c: number };
+      .get(scope, mint) as { c: number };
     const historic = opts.includeHistoric
       ? Number(
           (db.prepare('SELECT COUNT(*) AS c FROM development_trajectories WHERE mint = ?').get(mint) as { c: number })
@@ -324,19 +334,21 @@ export function reserveCandidate(
         db
           .prepare(
             `SELECT COUNT(*) AS c FROM trajectory_reservations
-              WHERE window_id = ? AND mint = ? AND reservation_ordinal = ?`,
+              WHERE COALESCE(evidence_context_id, window_id) = ? AND mint = ? AND reservation_ordinal = ?`,
           )
-          .get(windowId, mint, ordinal) as { c: number }
+          .get(scope, mint, ordinal) as { c: number }
       ).c,
     );
-    const id = reservationId(windowId, mint, ordinal, priorAttempts + 1);
+    // Keyed by the SCOPE, so a retry in a new experiment cannot collide with the
+    // id an earlier experiment minted for the same (mint, ordinal).
+    const id = reservationId(scope, mint, ordinal, priorAttempts + 1);
     try {
       db.prepare(
         `INSERT INTO trajectory_reservations
-           (reservation_id, window_id, mint, reservation_ordinal, max_per_mint, trajectory_id,
-            status, reserved_utc_ms, resolved_utc_ms, owner_session_id)
-         VALUES (?, ?, ?, ?, ?, NULL, 'RESERVED', ?, NULL, ?)`,
-      ).run(id, windowId, mint, ordinal, maxPerMint, nowMs, ownerSessionId);
+           (reservation_id, window_id, evidence_context_id, mint, reservation_ordinal, max_per_mint,
+            trajectory_id, status, reserved_utc_ms, resolved_utc_ms, owner_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, 'RESERVED', ?, NULL, ?)`,
+      ).run(id, windowId, contextId, mint, ordinal, maxPerMint, nowMs, ownerSessionId);
     } catch (e) {
       throw new ReservationRefused(
         mint,

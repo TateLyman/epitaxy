@@ -3465,6 +3465,52 @@ PRAGMA foreign_keys = ON;
 ALTER TABLE experiment_contracts ADD COLUMN window_id TEXT;
 `,
   },
+  {
+    id: 53,
+    name: 'a_reservation_belongs_to_its_experiment',
+    sql: `
+-- THE SLOT NAMESPACE IS THE EXPERIMENT, NOT A REUSED WINDOW NAME.
+--
+-- \`trajectory_reservations\` numbered its slots within (window_id, mint), and
+-- every contract froze with the same default window name, so five successive
+-- experiments shared one set of ordinals. Combined with the S092 count repair
+-- the two disagreed: the corrected sample count produced ordinal 3 for a mint
+-- whose slot 3 was already held by an OPENED row from an earlier window, and
+-- the unique index refused the insert as RESERVATION_RACE_LOST -- 24 of 25
+-- candidates, with no concurrent writer anywhere.
+--
+-- The old double count had been hiding this by overshooting the occupied slots.
+--
+-- The cap and the slot are different things and are now separated:
+--
+--   the CAP    is a COUNT of samples, corpus-wide via the trajectory table,
+--              and is unchanged at maxPerMint;
+--   the SLOT   is a unique id WITHIN the experiment that took it.
+--
+-- Legacy rows keep their old namespace through COALESCE, so nothing that was
+-- already consistent is rewritten into a conflict. Rows that can be attributed
+-- to a context are backfilled to it, which is strictly more precise than the
+-- window name they carried.
+ALTER TABLE trajectory_reservations ADD COLUMN evidence_context_id TEXT;
+
+UPDATE trajectory_reservations
+   SET evidence_context_id = (
+         SELECT x.evidence_context_id FROM trajectory_evidence_context x
+          WHERE x.trajectory_id = trajectory_reservations.trajectory_id)
+ WHERE trajectory_id IS NOT NULL;
+
+DROP INDEX IF EXISTS idx_resv_open;
+DROP INDEX IF EXISTS idx_resv_ordinal;
+
+CREATE UNIQUE INDEX idx_resv_open
+  ON trajectory_reservations(COALESCE(evidence_context_id, window_id), mint)
+  WHERE status = 'RESERVED';
+
+CREATE UNIQUE INDEX idx_resv_ordinal
+  ON trajectory_reservations(COALESCE(evidence_context_id, window_id), mint, reservation_ordinal)
+  WHERE status <> 'ABANDONED';
+`,
+  },
 ];
 
 export interface OpenOptions {

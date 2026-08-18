@@ -543,3 +543,117 @@ describe('S092 — the per-mint cap counts samples, not rows', () => {
     }
   });
 });
+
+/**
+ * S093 — a reservation slot belongs to its EXPERIMENT, not to a window name.
+ *
+ * Ordinals were numbered within (window_id, mint), and every contract froze with
+ * the same default window name, so successive experiments shared one set of
+ * slots. Once S092 stopped the count double-counting, the corrected count
+ * produced ordinal 3 for a mint whose slot 3 was already held by an OPENED row
+ * from an earlier window, and the unique index refused the insert as
+ * RESERVATION_RACE_LOST — 24 of 25 candidates, with no concurrent writer.
+ *
+ * The cap is a COUNT and stays corpus-wide. The slot is a unique id within the
+ * experiment that took it.
+ */
+describe('S093 — the reservation slot namespace is the experiment', () => {
+  const session = (db: ReturnType<typeof openDb>, id: string): void => {
+    db.prepare(
+      `INSERT INTO collector_sessions
+         (session_id, started_utc_ms, heartbeat_utc_ms, mode, source_commit, dirty, pid, endpoint)
+       VALUES (?, ?, ?, 'observe', 'c', 0, 1, 'test')`,
+    ).run(id, NOW, NOW);
+  };
+  const ctx = (db: ReturnType<typeof openDb>, id: string): void => {
+    db.prepare(
+      `INSERT OR IGNORE INTO evidence_contexts
+         (evidence_context_id, context_hash, source_commit, tree_dirty, opened_utc_ms, validity, reasons)
+       VALUES (?, ?, ?, 0, ?, 'DEVELOPMENT_EVIDENCE', '[]')`,
+    ).run(id, 'c'.repeat(64), 'd'.repeat(40), NOW);
+  };
+
+  it('an OPENED slot in ANOTHER experiment does not block the same ordinal here', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      session(db, 'sess-new');
+      ctx(db, 'ctx-old');
+      ctx(db, 'ctx-new');
+      // One prior sample, recorded in a DIFFERENT experiment, holding slot 1.
+      db.prepare(
+        `INSERT INTO development_trajectories
+           (trajectory_id, entry_observation_id, entry_simulation_job_id, entry_settlement_id,
+            venue, pool, capability_fingerprint, snapshot_hash, mint, cohort, stratum,
+            migration_age_ms, notional_lamports, entry_policy_inputs, entry_policy, exit_policy,
+            state, evidence_grade, max_attainable_grade, quote_impact_ratio, base_impact_ratio,
+            max_impact_ratio, haircut_bps, within_small_impact, opened_utc_ms, refusals)
+         VALUES ('t-old','o','j','s','PUMPSWAP_DIRECT','p','f','h','MINT','FIRST_HOUR','S',
+                 NULL,'1','{}','E','X','SETTLED','SIMULATED_EXECUTION','SIMULATED_EXECUTION',0,0,0,0,1,0,'[]')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO trajectory_reservations
+           (reservation_id, window_id, evidence_context_id, mint, reservation_ordinal, max_per_mint,
+            trajectory_id, status, reserved_utc_ms, owner_session_id)
+         VALUES ('r-old','DEV_WINDOW_5D24E','ctx-old','MINT',1,3,'t-old','OPENED',?, 'sess-old')`,
+      ).run(NOW);
+
+      // The new experiment reuses the window NAME but is a different study.
+      const r = reserveCandidate(db, {
+        windowId: 'DEV_WINDOW_5D24E',
+        mint: 'MINT',
+        maxPerMint: 3,
+        ownerSessionId: 'sess-new',
+        nowMs: NOW,
+        includeHistoric: true,
+        evidenceContextId: 'ctx-new',
+        pidAlive: () => false,
+      });
+      // Ordinal 2 because ONE sample exists corpus-wide; the old slot does not collide.
+      expect(r.ordinal).toBe(2);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+
+  it('the same experiment still cannot take one slot twice', () => {
+    const dir = tmp();
+    try {
+      const db = freshDb(dir);
+      session(db, 'sess-a');
+      session(db, 'sess-b');
+      ctx(db, 'ctx-live');
+      db.prepare(
+        `INSERT INTO trajectory_reservations
+           (reservation_id, window_id, evidence_context_id, mint, reservation_ordinal, max_per_mint,
+            trajectory_id, status, reserved_utc_ms, owner_session_id)
+         VALUES ('r-live','W','ctx-live','MINT',1,3,NULL,'RESERVED',?, 'sess-a')`,
+      ).run(NOW);
+      // A live holder in the SAME experiment refuses, which is the rule intact.
+      expect(() =>
+        reserveCandidate(db, {
+          windowId: 'W',
+          mint: 'MINT',
+          maxPerMint: 3,
+          ownerSessionId: 'sess-b',
+          nowMs: NOW,
+          includeHistoric: true,
+          evidenceContextId: 'ctx-live',
+          pidAlive: () => true,
+        }),
+      ).toThrow(/unresolved reservation|already/i);
+      db.close();
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* the OS owns the temp directory after this */
+      }
+    }
+  });
+});
