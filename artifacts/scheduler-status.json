@@ -1,83 +1,55 @@
 {
-  "activeContext": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 25,
-      "onTime": 23,
-      "missed": 2,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 180000,
-      "total": 25,
-      "onTime": 24,
-      "missed": 1,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 300000,
-      "total": 25,
-      "onTime": 22,
-      "missed": 3,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 600000,
-      "total": 25,
-      "onTime": 24,
-      "missed": 1,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 900000,
-      "total": 25,
-      "onTime": 24,
-      "missed": 1,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 1800000,
-      "total": 22,
-      "onTime": 22,
+      "total": 2,
+      "onTime": 2,
       "missed": 0,
       "unclassified": 0
     },
     {
-      "offsetMs": 3600000,
-      "total": 20,
-      "onTime": 16,
-      "missed": 4,
+      "offsetMs": 180000,
+      "total": 2,
+      "onTime": 2,
+      "missed": 0,
+      "unclassified": 0
+    },
+    {
+      "offsetMs": 300000,
+      "total": 2,
+      "onTime": 2,
+      "missed": 0,
       "unclassified": 0
     }
   ],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 678,
-      "onTime": 320,
+      "total": 691,
+      "onTime": 333,
       "missed": 66,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 390,
-      "onTime": 362,
+      "total": 399,
+      "onTime": 371,
       "missed": 28,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 658,
-      "onTime": 308,
+      "total": 663,
+      "onTime": 313,
       "missed": 58,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 361,
-      "onTime": 321,
+      "total": 362,
+      "onTime": 322,
       "missed": 40,
       "unclassified": 0
     },
@@ -106,14 +78,14 @@
   "dueNow": 8,
   "overdue": 8,
   "nextWakeMs": 0,
-  "activeTotal": 167,
-  "activeMissedOrUnclassified": 12,
+  "activeTotal": 6,
+  "activeMissedOrUnclassified": 0,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 5,
-    "writtenUtc": "2026-08-18T22:02:04.826Z"
+    "dirtyFiles": 34,
+    "writtenUtc": "2026-08-19T03:57:25.041Z"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "generatedUtcMs": 1787093439727,
+  "generatedUtcMs": 1787111846347,
   "bySide": [
     {
       "side": "buy",
@@ -52,7 +52,7 @@
     },
     {
       "validity": "VALID_DEVELOPMENT",
-      "n": 546,
+      "n": 559,
       "effect_ok": 82
     }
   ],

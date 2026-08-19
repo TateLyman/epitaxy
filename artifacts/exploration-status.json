@@ -1,11 +1,27 @@
 {
   "artifact": "exploration-status",
   "directiveSection": "item 55",
-  "generatedUtcMs": 1786929412393,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "generatedUtcMs": 1787111843012,
+  "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
   "dirty": true,
   "frozenFraction": 0.25,
   "ledger": [
+    {
+      "windowId": "DEV_WINDOW_5D24E",
+      "stratum": "CANONICAL_CASHBACK",
+      "fraction": 0.25,
+      "granted": 73,
+      "consumed": 10,
+      "remaining": 63
+    },
+    {
+      "windowId": "DEV_WINDOW_5D24E",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "fraction": 0.25,
+      "granted": 135,
+      "consumed": 0,
+      "remaining": 135
+    },
     {
       "windowId": "DEV_WINDOW_V1",
       "stratum": "CANONICAL_NONCASHBACK",
@@ -13,21 +29,39 @@
       "granted": 1,
       "consumed": 0,
       "remaining": 1
+    },
+    {
+      "windowId": "PROFIT_DISCOVERY_V1_R4",
+      "stratum": "CANONICAL_NONCASHBACK",
+      "fraction": 0.25,
+      "granted": 2,
+      "consumed": 0,
+      "remaining": 2
     }
   ],
   "byWindow": [
     {
+      "windowId": "DEV_WINDOW_5D24E",
+      "granted": 208,
+      "consumed": 10
+    },
+    {
       "windowId": "DEV_WINDOW_V1",
       "granted": 1,
+      "consumed": 0
+    },
+    {
+      "windowId": "PROFIT_DISCOVERY_V1_R4",
+      "granted": 2,
       "consumed": 0
     }
   ],
   "realised": {
-    "trajectories": 292,
-    "explore": 0,
-    "exploit": 1,
+    "trajectories": 704,
+    "explore": 10,
+    "exploit": 403,
     "unassigned": 291,
-    "realisedFraction": 0
+    "realisedFraction": 0.024213075060532687
   },
   "supersedes": "the cohort:status alias, which answers which cells are under-filled",
   "notClaimed": "an entitlement is a budget, not an outcome. A spent entitlement says the draw happened, not that the drawn rows were informative."

@@ -1,53 +1,63 @@
 {
-  "generatedUtcMs": 1786929393638,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f+dirty",
+  "generatedUtcMs": 1787111841589,
+  "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48+dirty",
   "database": "./data/runtime.db",
   "what": "development trajectories as the DATABASE has them. No artifact is read.",
   "trajectories": {
-    "total": 292,
-    "settled": 238,
+    "total": 704,
+    "settled": 521,
     "byState": {
-      "AWAITING_FILL_OBSERVATION": 54,
-      "SETTLED": 238
+      "AWAITING_FILL_OBSERVATION": 183,
+      "SETTLED": 521
     }
   },
   "byStratum": {
-    "CANONICAL_CASHBACK": 108,
-    "CANONICAL_NONCASHBACK": 184
+    "CANONICAL_CASHBACK": 218,
+    "CANONICAL_NONCASHBACK": 486
   },
   "marksByOffsetMs": [
     {
       "offsetMs": 60000,
-      "marks": 292,
-      "backfilled": 136
+      "marks": 691,
+      "backfilled": 143
+    },
+    {
+      "offsetMs": 180000,
+      "marks": 399,
+      "backfilled": 9
     },
     {
       "offsetMs": 300000,
-      "marks": 292,
-      "backfilled": 50
+      "marks": 663,
+      "backfilled": 60
+    },
+    {
+      "offsetMs": 600000,
+      "marks": 362,
+      "backfilled": 17
     },
     {
       "offsetMs": 900000,
-      "marks": 289,
-      "backfilled": 63
+      "marks": 632,
+      "backfilled": 79
     },
     {
       "offsetMs": 1800000,
-      "marks": 280,
-      "backfilled": 56
+      "marks": 588,
+      "backfilled": 71
     },
     {
       "offsetMs": 3600000,
-      "marks": 243,
-      "backfilled": 63
+      "marks": 521,
+      "backfilled": 102
     }
   ],
   "policyOutcomes": {
-    "FIXED_15M_CONTROL": 238,
-    "FLOW_LIQUIDITY_DETERIORATION_V1": 238
+    "FIXED_15M_CONTROL": 521,
+    "FLOW_LIQUIDITY_DETERIORATION_V1": 521
   },
-  "frozenAccountPlans": 482,
-  "timelyCompletePaths": 101,
+  "frozenAccountPlans": 1306,
+  "timelyCompletePaths": 400,
   "proofArtifactsCounted": 0,
   "proofArtifactNote": "live-one-pass-trajectory.json is instrument evidence, never a trajectory. This command cannot read it."
 }

@@ -153,7 +153,7 @@ if (maxMeasured > 0n) {
 
 mkdirSync('artifacts', { recursive: true });
 writeFileSync(
-  'artifacts/cost-surface.json',
+  'artifacts/route-cost-surface.json',
   `${JSON.stringify(
     {
       takenAtUtcMs: Date.now(),
@@ -168,4 +168,4 @@ writeFileSync(
     2,
   )}\n`,
 );
-console.log('\nwrote artifacts/cost-surface.json');
+console.log('\nwrote artifacts/route-cost-surface.json');

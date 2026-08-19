@@ -1,0 +1,791 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1787111603517,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "phase-b-fee-tiers-v1",
+    "contextHash": null,
+    "sampleInclusionQuery": "every coherent_snapshots row, its stored fee-config account decoded through the pinned @pump-fun/pump-swap-sdk, plus every snapshot_manifests program manifest and every leg_account_plans row"
+  },
+  "label": "DEVELOPMENT_RECONSTRUCTED",
+  "isEvidence": false,
+  "directive": "Phase B §1.1",
+  "feeConfigAddress": "5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx",
+  "snapshotsRead": 413,
+  "feeConfigsDecoded": 413,
+  "feeConfigMissing": 0,
+  "feeConfigUndecodable": 0,
+  "scheduleHashes": [
+    {
+      "hash": "5464ad69e325282f10d418817f229e22827011c72aab206b9adf9c795f5e5d86",
+      "count": 413,
+      "firstUtcMs": 1786970963672,
+      "lastUtcMs": 1787097530852
+    }
+  ],
+  "distinctSchedules": 1,
+  "storedFeeConfigHashes": [
+    {
+      "hash": "7e3892e1c25b9bbd59c28548067f4c222c7e640bb4f696d59a6061b425c11813",
+      "count": 413
+    }
+  ],
+  "accountDiscriminators": [
+    {
+      "hex": "8f3492bbdb7b4c9b",
+      "count": 413
+    }
+  ],
+  "flatFee": {
+    "lpFeeBps": 25,
+    "protocolFeeBps": 5,
+    "creatorFeeBps": 0,
+    "totalBps": 30
+  },
+  "tierCount": 25,
+  "tiers": [
+    {
+      "tierIndex": 0,
+      "marketCapThresholdLamports": "0",
+      "marketCapThresholdSol": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "totalBps": 125,
+      "oneWayBps": 125,
+      "roundTripBps": 250
+    },
+    {
+      "tierIndex": 1,
+      "marketCapThresholdLamports": "420000000000",
+      "marketCapThresholdSol": 420,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 95,
+      "totalBps": 120,
+      "oneWayBps": 120,
+      "roundTripBps": 240
+    },
+    {
+      "tierIndex": 2,
+      "marketCapThresholdLamports": "1470000000000",
+      "marketCapThresholdSol": 1470,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 90,
+      "totalBps": 115,
+      "oneWayBps": 115,
+      "roundTripBps": 230
+    },
+    {
+      "tierIndex": 3,
+      "marketCapThresholdLamports": "2460000000000",
+      "marketCapThresholdSol": 2460,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 85,
+      "totalBps": 110,
+      "oneWayBps": 110,
+      "roundTripBps": 220
+    },
+    {
+      "tierIndex": 4,
+      "marketCapThresholdLamports": "3440000000000",
+      "marketCapThresholdSol": 3440,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 80,
+      "totalBps": 105,
+      "oneWayBps": 105,
+      "roundTripBps": 210
+    },
+    {
+      "tierIndex": 5,
+      "marketCapThresholdLamports": "4420000000000",
+      "marketCapThresholdSol": 4420,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 75,
+      "totalBps": 100,
+      "oneWayBps": 100,
+      "roundTripBps": 200
+    },
+    {
+      "tierIndex": 6,
+      "marketCapThresholdLamports": "9820000000000",
+      "marketCapThresholdSol": 9820,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 70,
+      "totalBps": 95,
+      "oneWayBps": 95,
+      "roundTripBps": 190
+    },
+    {
+      "tierIndex": 7,
+      "marketCapThresholdLamports": "14740000000000",
+      "marketCapThresholdSol": 14740,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 65,
+      "totalBps": 90,
+      "oneWayBps": 90,
+      "roundTripBps": 180
+    },
+    {
+      "tierIndex": 8,
+      "marketCapThresholdLamports": "19650000000000",
+      "marketCapThresholdSol": 19650,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 60,
+      "totalBps": 85,
+      "oneWayBps": 85,
+      "roundTripBps": 170
+    },
+    {
+      "tierIndex": 9,
+      "marketCapThresholdLamports": "24560000000000",
+      "marketCapThresholdSol": 24560,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 55,
+      "totalBps": 80,
+      "oneWayBps": 80,
+      "roundTripBps": 160
+    },
+    {
+      "tierIndex": 10,
+      "marketCapThresholdLamports": "29470000000000",
+      "marketCapThresholdSol": 29470,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 50,
+      "totalBps": 75,
+      "oneWayBps": 75,
+      "roundTripBps": 150
+    },
+    {
+      "tierIndex": 11,
+      "marketCapThresholdLamports": "34380000000000",
+      "marketCapThresholdSol": 34380,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 45,
+      "totalBps": 70,
+      "oneWayBps": 70,
+      "roundTripBps": 140
+    },
+    {
+      "tierIndex": 12,
+      "marketCapThresholdLamports": "39300000000000",
+      "marketCapThresholdSol": 39300,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 40,
+      "totalBps": 65,
+      "oneWayBps": 65,
+      "roundTripBps": 130
+    },
+    {
+      "tierIndex": 13,
+      "marketCapThresholdLamports": "44210000000000",
+      "marketCapThresholdSol": 44210,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 35,
+      "totalBps": 60,
+      "oneWayBps": 60,
+      "roundTripBps": 120
+    },
+    {
+      "tierIndex": 14,
+      "marketCapThresholdLamports": "49120000000000",
+      "marketCapThresholdSol": 49120,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 30,
+      "totalBps": 55,
+      "oneWayBps": 55,
+      "roundTripBps": 110
+    },
+    {
+      "tierIndex": 15,
+      "marketCapThresholdLamports": "54030000000000",
+      "marketCapThresholdSol": 54030,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 28,
+      "totalBps": 53,
+      "oneWayBps": 53,
+      "roundTripBps": 106
+    },
+    {
+      "tierIndex": 16,
+      "marketCapThresholdLamports": "58940000000000",
+      "marketCapThresholdSol": 58940,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 25,
+      "totalBps": 50,
+      "oneWayBps": 50,
+      "roundTripBps": 100
+    },
+    {
+      "tierIndex": 17,
+      "marketCapThresholdLamports": "63860000000000",
+      "marketCapThresholdSol": 63860,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 23,
+      "totalBps": 48,
+      "oneWayBps": 48,
+      "roundTripBps": 96
+    },
+    {
+      "tierIndex": 18,
+      "marketCapThresholdLamports": "68770000000000",
+      "marketCapThresholdSol": 68770,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 20,
+      "totalBps": 45,
+      "oneWayBps": 45,
+      "roundTripBps": 90
+    },
+    {
+      "tierIndex": 19,
+      "marketCapThresholdLamports": "73681000000000",
+      "marketCapThresholdSol": 73681,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 18,
+      "totalBps": 43,
+      "oneWayBps": 43,
+      "roundTripBps": 86
+    },
+    {
+      "tierIndex": 20,
+      "marketCapThresholdLamports": "78590000000000",
+      "marketCapThresholdSol": 78590,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 15,
+      "totalBps": 40,
+      "oneWayBps": 40,
+      "roundTripBps": 80
+    },
+    {
+      "tierIndex": 21,
+      "marketCapThresholdLamports": "83500000000000",
+      "marketCapThresholdSol": 83500,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 13,
+      "totalBps": 38,
+      "oneWayBps": 38,
+      "roundTripBps": 76
+    },
+    {
+      "tierIndex": 22,
+      "marketCapThresholdLamports": "88400000000000",
+      "marketCapThresholdSol": 88400,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 10,
+      "totalBps": 35,
+      "oneWayBps": 35,
+      "roundTripBps": 70
+    },
+    {
+      "tierIndex": 23,
+      "marketCapThresholdLamports": "93330000000000",
+      "marketCapThresholdSol": 93330,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 8,
+      "totalBps": 33,
+      "oneWayBps": 33,
+      "roundTripBps": 66
+    },
+    {
+      "tierIndex": 24,
+      "marketCapThresholdLamports": "98240000000000",
+      "marketCapThresholdSol": 98240,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 5,
+      "totalBps": 30,
+      "oneWayBps": 30,
+      "roundTripBps": 60
+    }
+  ],
+  "boundaries": [
+    {
+      "marketCapSol": 420,
+      "belowRoundTripBps": 250,
+      "aboveRoundTripBps": 240,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 1470,
+      "belowRoundTripBps": 240,
+      "aboveRoundTripBps": 230,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 2460,
+      "belowRoundTripBps": 230,
+      "aboveRoundTripBps": 220,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 3440,
+      "belowRoundTripBps": 220,
+      "aboveRoundTripBps": 210,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 4420,
+      "belowRoundTripBps": 210,
+      "aboveRoundTripBps": 200,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 9820,
+      "belowRoundTripBps": 200,
+      "aboveRoundTripBps": 190,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 14740,
+      "belowRoundTripBps": 190,
+      "aboveRoundTripBps": 180,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 19650,
+      "belowRoundTripBps": 180,
+      "aboveRoundTripBps": 170,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 24560,
+      "belowRoundTripBps": 170,
+      "aboveRoundTripBps": 160,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 29470,
+      "belowRoundTripBps": 160,
+      "aboveRoundTripBps": 150,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 34380,
+      "belowRoundTripBps": 150,
+      "aboveRoundTripBps": 140,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 39300,
+      "belowRoundTripBps": 140,
+      "aboveRoundTripBps": 130,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 44210,
+      "belowRoundTripBps": 130,
+      "aboveRoundTripBps": 120,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 49120,
+      "belowRoundTripBps": 120,
+      "aboveRoundTripBps": 110,
+      "stepBps": -10
+    },
+    {
+      "marketCapSol": 54030,
+      "belowRoundTripBps": 110,
+      "aboveRoundTripBps": 106,
+      "stepBps": -4
+    },
+    {
+      "marketCapSol": 58940,
+      "belowRoundTripBps": 106,
+      "aboveRoundTripBps": 100,
+      "stepBps": -6
+    },
+    {
+      "marketCapSol": 63860,
+      "belowRoundTripBps": 100,
+      "aboveRoundTripBps": 96,
+      "stepBps": -4
+    },
+    {
+      "marketCapSol": 68770,
+      "belowRoundTripBps": 96,
+      "aboveRoundTripBps": 90,
+      "stepBps": -6
+    },
+    {
+      "marketCapSol": 73681,
+      "belowRoundTripBps": 90,
+      "aboveRoundTripBps": 86,
+      "stepBps": -4
+    },
+    {
+      "marketCapSol": 78590,
+      "belowRoundTripBps": 86,
+      "aboveRoundTripBps": 80,
+      "stepBps": -6
+    },
+    {
+      "marketCapSol": 83500,
+      "belowRoundTripBps": 80,
+      "aboveRoundTripBps": 76,
+      "stepBps": -4
+    },
+    {
+      "marketCapSol": 88400,
+      "belowRoundTripBps": 76,
+      "aboveRoundTripBps": 70,
+      "stepBps": -6
+    },
+    {
+      "marketCapSol": 93330,
+      "belowRoundTripBps": 70,
+      "aboveRoundTripBps": 66,
+      "stepBps": -4
+    },
+    {
+      "marketCapSol": 98240,
+      "belowRoundTripBps": 66,
+      "aboveRoundTripBps": 60,
+      "stepBps": -6
+    }
+  ],
+  "floorRange": {
+    "minBps": 60,
+    "maxBps": 250,
+    "spreadBps": 190
+  },
+  "fingerprint": {
+    "sdkVersionSets": [
+      {
+        "versions": "{\"@pump-fun/pump-sdk\":\"unknown\",\"@pump-fun/pump-swap-sdk\":\"unknown\"}",
+        "count": 8
+      },
+      {
+        "versions": "{\"@pump-fun/pump-sdk\":\"1.36.0\",\"@pump-fun/pump-swap-sdk\":\"1.19.0\"}",
+        "count": 405
+      }
+    ],
+    "capabilityFingerprints": [
+      {
+        "hash": "d298e6cf68ccb7355f40fda69393d148f4dfda45f40635bc8b55e524639c5970",
+        "count": 2
+      },
+      {
+        "hash": "d808630a4b7175487e980059606ad4f6e93bdc09780964a7e6c738b9817bc5b7",
+        "count": 4
+      },
+      {
+        "hash": "341f9fdaaed49aff2b65dc858017965ca3e01a08916937abbd10385aa619fe1e",
+        "count": 2
+      },
+      {
+        "hash": "d7a568ed1e253668ede1c9db7431c2c338c1dd3777a8a0de097a41405aff73bf",
+        "count": 163
+      },
+      {
+        "hash": "5cde7c92495f8bab9247dab04f99ad30e89942decd4bbf7603e63c28cce69ce7",
+        "count": 102
+      },
+      {
+        "hash": "ea054b856f54c5a81904091b286b718ae49eb950e3b504cf600e1136a6e7938e",
+        "count": 1
+      },
+      {
+        "hash": "2bbe26af2b921a25fe04a51bcbd25c48d1fd6650d6e49015534dbdafbb4d6c5e",
+        "count": 120
+      },
+      {
+        "hash": "fa3611fd572d8abf3fdfca3823cfe77f7e6f9b6e3260f11727c6aba805f4dd3f",
+        "count": 2
+      },
+      {
+        "hash": "f6474761cbb507067e9f4bd2fed2dc444f4772d74fb1b4c5eb6a36415b2d3d19",
+        "count": 1
+      },
+      {
+        "hash": "29b898b62a96849f513d6a932f7d47832e9d73ef0eb98f5c3a316c113f70a652",
+        "count": 7
+      },
+      {
+        "hash": "39ddaed2732011703da96793aece3d5a9fc47a5dbdaa460c2a3961deedc3df0b",
+        "count": 1
+      },
+      {
+        "hash": "d47a1da0aad5461abc6b5aecd0397b8e946a71f14363055a59ada2d3f61cf715",
+        "count": 3
+      },
+      {
+        "hash": "242d1846730d1dd3c7e128237b2642d9a60c88076bdc6b7d4e9fcc9206c5cbfb",
+        "count": 1
+      },
+      {
+        "hash": "8e33e19dac4f2558327df0ba9ab9d36802b6042a547a5a06e705c73e75ee7da3",
+        "count": 1
+      },
+      {
+        "hash": "2d520567edafb66e2c4131dd492a7ffb9686ff09ce8246174c904f2b2f909898",
+        "count": 1
+      },
+      {
+        "hash": "e7b02b80922d052ed157d27ee4d2229f30c4f291b542856c93dddb61f9b16a75",
+        "count": 2
+      }
+    ],
+    "programElfHashes": [
+      {
+        "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "hashes": [
+          {
+            "elfHash": "3b3a05adc7649ec5f43ff033b651e82b89e691939fbf657eafb9f67892df63ee",
+            "count": 115
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+        "hashes": [
+          {
+            "elfHash": "7d5210caa4ab8c375e27150d034e4afab5d22f41ecf8d3dd6ece8e7fc32a59b5",
+            "count": 115
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "hashes": [
+          {
+            "elfHash": "5fa99486114fbcef7ae66ea55140cd230d796c7df3805419fa8d1cbeefff5c43",
+            "count": 115
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+        "hashes": [
+          {
+            "elfHash": "74b2ecdd5b8f12797503a0e5db317206658cd19ab6cfc7706878a95a6ac1ae91",
+            "count": 113
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+        "hashes": [
+          {
+            "elfHash": "3bf58731fdbc35b3e6953f1b7b07a2787d725a7c7d55be425889b583d238b663",
+            "count": 115
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "hashes": [
+          {
+            "elfHash": "bcfad0b3b3ecd869048caf5c7cee3e6692cd6a2f61a89d87b29b3eb6351dc9f9",
+            "count": 104
+          }
+        ],
+        "distinctHashes": 1
+      },
+      {
+        "pubkey": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+        "hashes": [
+          {
+            "elfHash": "0de2ed58abbc6ff29dbc5877796e322f218512c56f299a95ab57a6cbec65687f",
+            "count": 2
+          }
+        ],
+        "distinctHashes": 1
+      }
+    ]
+  },
+  "poolTierAssignment": {
+    "poolsClassified": 413,
+    "byTierIndex": [
+      {
+        "tierIndex": "0",
+        "count": 393
+      },
+      {
+        "tierIndex": "2",
+        "count": 2
+      },
+      {
+        "tierIndex": "1",
+        "count": 12
+      },
+      {
+        "tierIndex": "13",
+        "count": 1
+      },
+      {
+        "tierIndex": "24",
+        "count": 1
+      },
+      {
+        "tierIndex": "7",
+        "count": 1
+      },
+      {
+        "tierIndex": "8",
+        "count": 1
+      },
+      {
+        "tierIndex": "16",
+        "count": 2
+      }
+    ],
+    "marketCapSol": {
+      "min": 17.827324503,
+      "p50": 29.629839387,
+      "max": 192853.512079031
+    },
+    "refusals": 0
+  },
+  "instructionShape": {
+    "upgradeUtcMs": 1777334400000,
+    "upgradeUtc": "2026-04-28T00:00:00.000Z",
+    "storedPlans": 1306,
+    "earliestBuildUtc": "2026-08-15T06:42:19.653Z",
+    "latestBuildUtc": "2026-08-18T23:58:51.352Z",
+    "buildsBeforeUpgrade": 0,
+    "swapAccountCounts": [
+      {
+        "key": "buy:26",
+        "count": 455
+      },
+      {
+        "key": "buy:27",
+        "count": 208
+      },
+      {
+        "key": "sell:26",
+        "count": 199
+      },
+      {
+        "key": "sell:24",
+        "count": 438
+      },
+      {
+        "key": "buy:25",
+        "count": 3
+      },
+      {
+        "key": "sell:23",
+        "count": 3
+      }
+    ],
+    "distinctShapes": 6,
+    "shapesDifferentiallyRebuilt": 6,
+    "differentials": [
+      {
+        "trajectoryId": "0e7ac867-f6f5-449d-86ac-40bc661283b9",
+        "leg": "buy",
+        "storedAccounts": 25,
+        "rebuiltAccounts": 25,
+        "storedFingerprint": "7ae37cba97080ea61b65ab7ff5c0b2fdbb024e2d081136331ba092534616ff6c",
+        "rebuiltFingerprint": "fa5f38f1338eb6e1cb60e4e8662bb1484232b1822328f1c67168a4b295eb0e42",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
+        "trailingAccountRebuilt": "CASRL2zkwDnppxEFQ4LgdwgR9pdz5Q8R8nEMKVZ9QoLp",
+        "refusal": null
+      },
+      {
+        "trajectoryId": "0e7ac867-f6f5-449d-86ac-40bc661283b9",
+        "leg": "sell",
+        "storedAccounts": 23,
+        "rebuiltAccounts": 23,
+        "storedFingerprint": "65738204db5973a6d16131c42635b7a536a17d05870d20348ac923d920c8c37b",
+        "rebuiltFingerprint": "e048de769fed9422435ec9df5cbfd9fa1678a70d5489d3e45ba69fd154c2f2d8",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
+        "trailingAccountRebuilt": "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck",
+        "refusal": null
+      },
+      {
+        "trajectoryId": "756cb1b4-5df2-43d4-9a0a-c35a4010d19f",
+        "leg": "buy",
+        "storedAccounts": 26,
+        "rebuiltAccounts": 26,
+        "storedFingerprint": "dfdc43a0b13579c0e29770aa79038ad36313d6f1c0940fbdfdcb94614ed8f05a",
+        "rebuiltFingerprint": "7719bedd95e1e46a4c360dacba3e602b4ee918ac5ece23336f2add6d8d41f8a2",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
+        "trailingAccountRebuilt": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
+        "refusal": null
+      },
+      {
+        "trajectoryId": "756cb1b4-5df2-43d4-9a0a-c35a4010d19f",
+        "leg": "sell",
+        "storedAccounts": 24,
+        "rebuiltAccounts": 24,
+        "storedFingerprint": "a5840a3a3eb51073a9ed975b36036aab7745c292402e34c666baf7a8d551bc27",
+        "rebuiltFingerprint": "a3d8ff06c22de9e7e98dde5d591908628f3714ddde9576cf5b9d91c3e1a5efba",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "CASRL2zkwDnppxEFQ4LgdwgR9pdz5Q8R8nEMKVZ9QoLp",
+        "trailingAccountRebuilt": "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck",
+        "refusal": null
+      },
+      {
+        "trajectoryId": "abc00a8d-c32e-4a69-9948-fa72d6e6bc07",
+        "leg": "buy",
+        "storedAccounts": 27,
+        "rebuiltAccounts": 27,
+        "storedFingerprint": "bbbcdf5e4486fd2ff50b61819275e5cf4e354ef40e5d86881129f15be1618520",
+        "rebuiltFingerprint": "cb4bd1406cf5f5393eb36fec2344a0851c8b0707dbf8c77b7a30d205a08a1fe9",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "AktftA98kSWAxn6kVSoqBXBELUArjKu2H9WmKB48ULFY",
+        "trailingAccountRebuilt": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
+        "refusal": null
+      },
+      {
+        "trajectoryId": "abc00a8d-c32e-4a69-9948-fa72d6e6bc07",
+        "leg": "sell",
+        "storedAccounts": 26,
+        "rebuiltAccounts": 26,
+        "storedFingerprint": "1ed5463995606007ac73116f085eb2f6939cdc8fa052c46be4a531d7e236a415",
+        "rebuiltFingerprint": "c5ccc751e56c8da7962c1058fc1a6db76438cd3891d3818693518bbb7f18b996",
+        "fingerprintsMatch": false,
+        "shapeMatches": true,
+        "trailingAccountStored": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+        "trailingAccountRebuilt": "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
+        "refusal": null
+      }
+    ],
+    "verdict": "CURRENT_INSTRUCTION_SHAPE",
+    "fingerprintMismatchIsExpected": true
+  },
+  "unmodelledCosts": {
+    "quoteToLandSlippage": "UNKNOWN",
+    "crowding": "UNKNOWN",
+    "note": "neither is measurable from stored state; the floor here excludes both"
+  }
+}

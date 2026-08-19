@@ -1,6 +1,191 @@
 # STATUS
 
-> **2026-08-18 (LATEST) — Profit Discovery V1, from audited head `aaf6d6a`.
+> **2026-08-19 (LATEST) — wallet persistence, both preregistered hypotheses, RUN.
+> State: `H1_CONFIRMED_H2_UNDECIDABLE_NEITHER_TRADABLE`.**
+>
+> Full account: `docs/WALLET_PERSISTENCE_RESULTS.md` (9 sections).
+>
+> ```
+> pnpm check green: 137 files, 2,076 tests (from 135 / 2,059)
+>
+> H1  top decile minus the rest, holdout mean return per position, day-clustered
+>     95% CI over 30 days, 11.85M positions, 211,225 qualifying wallets:
+>       fit-MEAN cut (preregistered)   +36.74%  [+33.57%, +40.03%]   PASSES
+>       fit-MEDIAN cut (beside it)     +12.67%  [+11.38%, +14.00%]   PASSES
+>     positive on 30 of 30 days; survives closed-positions-only, unmarkable-at
+>     -100%, SOL weighting, both venues, and dropping the best day.
+>
+> H2  flag set on 82.6% of 85,615 mints; outcome censored 77-93%; as-priced
+>     passes both tests and censored-at--100% fails both. NO ANSWER.
+> ```
+>
+> **Wallet performance persists out of sample, strongly, and it is still not
+> tradable.** The return is measured at the WALLET's own fill in the pool it just
+> moved. A copier is behind it by construction, and this apparatus has never
+> measured its own quote-to-land slippage — MT072 UNKNOWN. **+36.74% is the
+> wallet's number, not ours**, and nothing in this dataset converts one into the
+> other.
+>
+> **The followable population turns over by a third to a half per month.** Deciles
+> 1–2 vanish at 36.7%/41.8% (mean cut) and 40.3%/46.6% (median cut) against
+> 8.6–13% at deciles 7–9. The wallets worth copying are the ones most likely to be
+> gone, and *stopped*, *rotated to a fresh address* and *blew up* are one column
+> this data cannot separate.
+>
+> **The two ranking statistics disagree about half the top decile** — 10,859 of
+> 21,123 — and both gradients are monotone. They select different kinds of wallet:
+> +39.09% on a 36.7% win rate against +2.43% on 53.6%. Query 1 found the mean of
+> the reconstructed return contaminated by residual marks on open pumpswap
+> positions, so the preregistered cut is reported *with* the cut a single broken
+> mark cannot move, and they agree.
+>
+> **Three artifact channels were closed and one is still open.** Closed:
+> a ranking that saw the future (the delivered SQL aggregated positions across
+> both windows), a broken mark doing the ranking (closed-only, no marks at all:
+> +17.94%/+13.83%), and differential unmarkability (6–17× worse in the top
+> cohorts; adding every one back at −100% still leaves +32.12%/+10.37%). Open:
+> **external inflow**, 11.13% of TOP_BOTH against 5.98% of the rest, where `sol_in`
+> is not the cost basis so no return exists at all — not conservatively, not
+> adversarially.
+>
+> **H2, the screening version that needs no latency race, is undecidable.** The
+> top decile is 21,123 addresses, the median flagged mint had 80 of them buy in its
+> first 10 minutes, and 77–93% of mints have no exit price because nobody was still
+> trading them. The two defensible censoring treatments disagree in sign. No
+> threshold search follows: a sharper flag is a new hypothesis with its own row.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. The next step
+> is observation, not capital: our own executable quote against a flagged token at
+> the moment the flag fires, which costs nothing but time and is the only thing
+> that closes the gap above.
+
+> **2026-08-18 — Phase B, fee tier and conditional mean.
+> State: `NO_DECIDABLE_CELL`.**
+>
+> Full account: `docs/PHASE_B_REPORT.md` (8 sections).
+>
+> ```
+> pnpm check green: 135 files, 2,059 tests
+>
+> 720 cells examined, 549 evaluable, 360 tradable. Of the 270 evaluable tradable
+> cells, 81 carry a positive point estimate net of cost and ZERO survive a
+> day-clustered lower bound; 72 clear the 120-day calendar and none of those has a
+> positive lower bound. 13.5 false positives were expected at a=0.05.
+> ```
+>
+> **The conditional mean Phase B went looking for exists, and it is not ours.** A
+> market-cap crossing at 2–45 minutes of age returns **+193% to +341%** at the
+> 60-minute mark — on a population this apparatus cannot enter. A fee tier is a
+> property of a PumpSwap POOL; **276 of 158,085** snapshotted mints ever migrated;
+> and of the 4,580 mints firing the 420-SOL trigger, **26 had a pool when it
+> fired** (0.57%). Restricted to those, the same trigger returns **−73.2%**.
+>
+> The sign flips on every trigger, at every tier, under both exit rules. The
+> no-condition baseline is +3.3% over all snapshotted mints and **−65.7%** over
+> the migrated ones; tier 2 is +482.3% against **−98.7%**.
+>
+> **D70B4A9A's one surviving result is retro-qualified.** Its +3.04% cohort mean —
+> the four-of-36 cells that cleared the cost floor — is a property of
+> pre-migration bonding-curve tokens. Removing the 1.1% of mints that reach tier 1
+> or better moves that cohort's mean from +2.7% to −0.03%; 270 tier-2 mints alone
+> carried 82% of the summed return.
+>
+> **Corroborated without a mid price anywhere.** The collector's own executable
+> marks, on 455 trajectories its risk gates admitted, are **−2.7% at the median**
+> an hour in — almost exactly the measured cost floor, i.e. the mid price has not
+> moved and the fee is the whole story — with a mean of −17.4% and a p10 of
+> −69.6%.
+>
+> **The tier thesis is confirmed on the cost side and it is not enough.** One fee
+> schedule across all 413 stored snapshots (hash `5464ad69`), 25 tiers, 250 bps
+> round trip at 0–420 SOL down to 60 bps at 98,240+. The floor falls monotonically
+> — 2.669% / 2.469% / 2.350% / 1.722% / 1.025% at tiers 0 / 1 / 2 / 8 / 16 — and
+> depth rises with it, which matters more: a tier-0 pool cannot take 0.50 SOL under
+> the unchanged frozen bounds and a tier-8 pool can take 1.00. 1.69% of mints reach
+> tier 2 inside 2m–60m, ~273/day.
+>
+> **No stored build predates the 2026-04-28 shape change.** Earliest build
+> 2026-08-15, and all SIX distinct stored swap shapes rebuilt through the pinned
+> SDK reproduced their stored account counts: `CURRENT_INSTRUCTION_SHAPE`.
+>
+> Both unmodelled costs stay UNKNOWN — quote-to-land slippage and crowding — so
+> **every Phase B figure is an upper bound**, the negative ones included.
+>
+> **Next question, preregistered: wallet persistence.** A Dune query set arrived to
+> test whether wallets that traded well in a fit window trade well in a disjoint
+> holdout. Reviewed, corrected and preregistered as MT073-MT075; the corrected SQL
+> is `ops/dune/wallet-persistence.sql` and the review is
+> `docs/WALLET_PERSISTENCE_REVIEW.md`. **RUN on 2026-08-19** once a key with credits
+> was supplied — see the latest block and `docs/WALLET_PERSISTENCE_RESULTS.md`. It
+> has no local substitute: `targeted_flow_events`, the one local table with an actor
+> column, is empty.
+>
+> Four defects in the delivered version changed an answer. The largest: it
+> aggregated each position across BOTH windows, so the fit ranking was computed
+> partly from holdout-window sells. The most consequential: it instructed
+> subtracting our 2.69% cost floor from a wallet's realised return, which double
+> counts 2.63 of those points - the AMM fee and the impact are already inside the
+> on-chain amounts, and only the 6 bps of fixed cost is missing.
+
+> **2026-08-18 — d70b4a9a, measurement power and the cost floor, from
+> `d8ede90`. State: `MEASUREMENT_REPAIR_REQUIRED`.**
+>
+> Full account: `docs/D70B4A9A_FINAL_REPORT.md` (12 sections).
+>
+> ```
+> pnpm check green: 134 files, 2,041 tests (from 129 / 1,957)
+>
+> notional  0.02   0.05   0.10   0.20   0.35   0.50   1.00 SOL
+> cost %    2.69   2.88   3.26   4.02   5.14   6.23   9.61
+> pools     142    142    118     34     12      6      2   of 142 admissible
+> ```
+>
+> **The cost curve does not have its maximum at 0.02 SOL; it has its minimum
+> there.** The directive's premise was ATA rent at 10.2% of notional and priority
+> fees at ~5%. Measured: the base ATA closes in the same transaction as the exit
+> swap and `leg_settlements` records 2,063,690 of its 2,067,391 lamports coming
+> back on every one of 412 sells, so rent is locked capital and not a cost; and
+> the router's median unit price of 3,810 µlamports/CU against a two-pass frozen
+> limit of 274,782 units is 1,047 lamports a leg, 0.01% of notional. `cost_floor_pct`
+> is **2.6858%** at `notional_min_cost` = **0.02 SOL**, and the true minimum is
+> 0.01 SOL, 2 bps below it.
+>
+> **NOT KILLED, AND NOTHING DEMONSTRATED.** Four of 36 (cohort × notional)
+> combinations clear the floor — all 2m–60m, at 0.05 SOL and below, by 16 to 38
+> bps against a reconstructed +3.04% mid-price mean. At that mean's own 95%
+> day-clustered lower bound of +1.72%, **zero of the 36 clear it**, and the
+> reconstruction is 34.5% censored.
+>
+> **THE CONFIRMATORY WINDOW CANNOT BE COLLECTED.** Measured CV is 21 to 127 by
+> cohort against the 15 the directive assumed, so required n is 3,441 to 127,151
+> rather than 1,670. 2m–60m is the only cohort whose required n is identified —
+> the other three have mean intervals containing zero, and 24h–7d has 16,790
+> mints on ONE UTC entry day because a 7-day horizon inside a 10-day corpus can
+> only be met by mints that were already old. At 49,854 required and 79 mints
+> settling per day, that is **632 calendar days** against §3.1's 120-day limit:
+> `REFUSED_CANNOT_FINISH`, and no window was opened.
+>
+> The bottleneck is eligible signal arrival at 79 positions/day, exactly as the
+> directive predicted. The simulator could carry 8,174 and the router budget
+> 22,511, so the daemon and encoder work stays deferred.
+>
+> The tail IS the edge: in 2m–60m the top 10 mints of 59,197 carry 83.6% of the
+> summed return and 22.7% of all the gain, the median mint returns −0.22%, and
+> the largest single observation is +28,890%. §19's tail-removal criteria are now
+> recorded diagnostics rather than gates (MT062), its sample rule is
+> `max(300, 7.84 × CV_observed²)` (MT063), and a pass whose tail concentration is
+> not disclosed now FAILS.
+>
+> One blocking item is not independently asserted: 36/37, both shadow books
+> opening on accepted AND refused signals. It is implemented unconditionally at
+> `paper.ts:914` and no test executes it, because the function is private to a
+> module that calls `main()` at import time. First thing to fix before a window
+> opens.
+>
+> Repository is verified PUBLIC. Recommendation is Option A, private, with the
+> exact command in the report. **Nothing was changed.**
+
+> **2026-08-18 — Profit Discovery V1, from audited head `aaf6d6a`.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
 > Full account: `docs/PROFIT_DISCOVERY_V1_REPORT.md` (21 sections).
@@ -80,27 +265,38 @@
 > forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
 > window). Every one presented as a market fact.
 
-Last updated: 2026-08-18T19:25Z
+Last updated: 2026-08-19T01:10Z
 
 ## Operational right now
 
 | | |
 |---|---|
-| mode | `observe` for the trajectory collector; nothing capital-bearing is running |
+| mode | `observe` only; nothing capital-bearing is running and no window is open |
 | schema | **v53** (`a_reservation_belongs_to_its_experiment`) |
 | strategy version | `delayed-momentum-v0.6.0` |
-| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — collecting. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
+| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — **not collecting**; the window is closed and preserved. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
 | positions with executable PnL | **0** |
 | development trajectories, ACTIVE context | **52** across **52** distinct mints; 15 settled, 30 policy outcomes, 4 pairs disagreeing |
 | independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
 | mark timeliness, the collector's own marks | 53 of 250 `MISSED_HORIZON` (21.2%), worst 20.1 s against a 10 s SLA, and **0 more than 60 s late** |
 | counterfactual calibration | `BOUND_IS_CONSERVATIVE`, 0 of 4 non-conservative |
 | evidence contexts | **44**, of which **43** are `INSTRUMENT_DEVELOPMENT_INVALID`; 500 trajectories preserved, none deleted |
-| trajectory collectors running | **1**, under the contract frozen at the commit it is running |
+| trajectory collectors running | **0** — the pid in `data/trajectory-collector.pid` (31276) is dead; nothing capital-bearing has run since |
 | default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
-| tests | 1,867 passing across 125 files |
+| tests | **2,059** passing across **135** files, 4 skipped |
+| fee schedule | ONE across all 413 stored snapshots, hash `5464ad69`; 25 tiers, 250 bps round trip at 0-420 SOL down to 60 bps at 98,240+ |
+| cost floor by tier | 2.669% / 2.469% / 2.350% / 1.722% / 1.025% at tiers 0 / 1 / 2 / 8 / 16, and depth rises with the tier |
+| tier reach, 2m-60m | 3.97% of mints reach tier 1+, **1.69%** reach tier 2+ (~273/day) |
+| tradable universe | **276 of 158,085** snapshotted mints ever migrated; a fee tier belongs to a pool, so 99.4% of trigger firings are not enterable |
+| conditional mean, migrated at entry | **negative on every trigger examined** - baseline -65.7%, T1 -73.2%, T2 -28.2% - against +3.3% to +341% on the untradable population |
+| measured cost floor | **2.6858%** of notional at `notional_min_cost` **0.02 SOL**; `artifacts/cost-surface.json`, monotone increasing to 9.61% at 1.00 SOL |
+| confirmatory cohort | **2m-60m**, selected on lowest IDENTIFIED required n = **49,854** mints; owes an untouched future test |
+| confirmatory notional | **0.02 SOL**, frozen identically for the development window |
+| confirmatory sample rule | `max(300, 7.84 x CV_observed^2)`, and a window that supplies no CV FAILS |
+| projected days to required n | **632** at the median arrival rate of 79 settled mints/day; §3.1 limit is 120, so the window is `REFUSED_CANNOT_FINISH` |
+| throughput bottleneck | eligible signal arrival (79/day). The simulator could carry 8,174/day and the router budget 22,511/day |
 | collector candidate lane | live migration socket primary; history paging is bounded recovery |
-| RPC | **daily quota exhausted** — the binding constraint, measured |
+| RPC | **daily quota exhausted** as last measured 2026-08-18, which bounds how many candidates a day can be characterised. For POSITIONS the binding constraint is the launch rate itself — see the throughput budget |
 | direct mint facts collected | yes, in every mode (was capital-only) |
 | exploration arm | **running**, entitlement is a ledger keyed by window; granted on rows OPENED, not selected |
 | full event replay | **built and run** (`pnpm replay:calibrate`); one live run, zero-event case only |

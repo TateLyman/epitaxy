@@ -28,6 +28,15 @@
     "collector:stop-all": "tsx scripts/collector-ops.ts stop-all",
     "contract:freeze": "tsx scripts/contract-freeze.ts",
     "cost:surface": "tsx scripts/cost-surface.ts",
+    "cost:floor": "tsx scripts/phase-a-cost-surface.ts",
+    "edge:distribution": "tsx scripts/phase-a-gross-edge.ts",
+    "throughput:budget": "tsx scripts/phase-c-throughput-budget.ts",
+    "phase-a:decision": "tsx scripts/phase-a-decision.ts",
+    "tier:decode": "tsx scripts/phase-b-fee-tiers.ts",
+    "tier:assign": "tsx scripts/phase-b-tier-assignment.ts",
+    "cost:by-tier": "tsx scripts/phase-b-cost-by-tier.ts",
+    "trigger:cells": "tsx scripts/phase-b-triggers.ts",
+    "dune:assemble": "tsx scripts/dune-assemble.ts",
     "counterfactual:calibrate": "tsx scripts/counterfactual-calibrate.ts",
     "counterfactual:replay": "tsx scripts/counterfactual-replay.ts",
     "db:migrate": "tsx scripts/migrate-and-backup.ts",
@@ -135,7 +144,9 @@
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
-    "wss:status": "tsx scripts/wss-status.ts"
+    "wss:status": "tsx scripts/wss-status.ts",
+    "wallet:interval": "tsx scripts/wallet-persistence-interval.ts",
+    "token:h2": "tsx scripts/token-forward-return-test.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

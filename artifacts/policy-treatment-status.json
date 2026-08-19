@@ -2,36 +2,42 @@
   "entryPoliciesDefined": [
     "HARD_GATES_RANDOM",
     "CORRECTED_CURRENT_QUALITY_SCORE",
-    "SURVIVOR_FLOW_CONTINUATION_V1"
+    "SURVIVOR_FLOW_CONTINUATION_V1",
+    "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
-  "trajectories": 688,
-  "decisionRows": 1188,
-  "trajectoriesWithAllPolicies": 396,
-  "trajectoriesWherePoliciesDisagree": 227,
+  "trajectories": 704,
+  "decisionRows": 1249,
+  "trajectoriesWithAllPolicies": 13,
+  "trajectoriesWherePoliciesDisagree": 238,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 396
+      "n": 412
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 227
+      "n": 238
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 169
+      "n": 174
+    },
+    {
+      "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
+      "decision": "REJECT",
+      "n": 13
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 396
+      "n": 412
     }
   ],
-  "riskFactsApplied": 1143,
-  "riskFactsChangedADecision": 0,
+  "riskFactsApplied": 1160,
+  "riskFactsChangedADecision": 2,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
     "FLOW_LIQUIDITY_DETERIORATION_V1"
@@ -39,22 +45,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 514
+      "n": 521
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 514
+      "n": 521
     }
   ],
-  "pairedPaths": 514,
-  "pathsWithDifferentTriggerOffsets": 127,
+  "pairedPaths": 521,
+  "pathsWithDifferentTriggerOffsets": 129,
   "challengerExitedEarlier": 5,
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 10,
-    "writtenUtc": "2026-08-18T19:12:57.598Z"
+    "dirtyFiles": 28,
+    "writtenUtc": "2026-08-19T03:56:49.180Z"
   }
 }

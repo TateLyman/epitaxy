@@ -1,6 +1,6 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 71474,
+  "activeSeconds": 67768,
   "sessionsNeverEnded": 31,
   "sessionsFromDirtyTree": 1,
   "byKind": [
@@ -13,37 +13,37 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 24326,
+      "n": 24371,
       "q": 48
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 6911,
+      "n": 6923,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 6911,
+      "n": 6923,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 3635,
+      "n": 3642,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "entityTierWalk",
-      "n": 835,
+      "n": 837,
       "q": 0
     },
     {
       "kind": "microstructure",
       "detail": "fetched",
-      "n": 10,
+      "n": 21,
       "q": 0
     },
     {
@@ -53,21 +53,21 @@
       "q": 0
     }
   ],
-  "totalCalls": 136566,
-  "callsPerActiveSecond": 1.9107087892100625,
+  "totalCalls": 136655,
+  "callsPerActiveSecond": 2.0165122181560617,
   "quotaErrors": 48,
-  "trajectories": 702,
-  "trajectoriesPerActiveDay": 848.5994907238995,
+  "trajectories": 704,
+  "trajectoriesPerActiveDay": 897.5563687876283,
   "recommendations": [
-    "48 quota refusal(s) at 1.91 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "48 quota refusal(s) at 2.02 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "2b36eb0c818d85d27f2e635b02773875ec40b23f",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 2,
-    "writtenUtc": "2026-08-18T23:47:36.042Z"
+    "dirtyFiles": 61,
+    "writtenUtc": "2026-08-19T04:28:39.772Z"
   }
 }

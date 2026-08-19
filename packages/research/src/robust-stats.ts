@@ -286,3 +286,175 @@ export function pairedDeltas(
     unpairedB: [...byMintB.keys()].filter((m) => !byMintA.has(m)).length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// The same interval, from sufficient statistics
+// ---------------------------------------------------------------------------
+
+/**
+ * One cluster's sufficient statistics for a MEAN: how many observations it
+ * contributed and what they summed to.
+ */
+export interface ClusterAggregate {
+  /** The cluster key. For a day-clustered bootstrap, the UTC day. */
+  readonly cluster: string;
+  readonly n: number;
+  readonly sum: number;
+}
+
+/**
+ * A day-clustered bootstrap of a mean, computed from per-day (n, sum) instead of
+ * from the rows.
+ *
+ * WHY THIS IS NOT AN APPROXIMATION
+ *
+ * `clusterBootstrap` resamples whole clusters and takes the unweighted mean of
+ * every row drawn, so the statistic on a resample is
+ *
+ *     SUM over drawn clusters of (cluster sum) / SUM over drawn clusters of (cluster n)
+ *
+ * which depends on the rows ONLY through each cluster's n and sum. Replacing a
+ * cluster's rows by n copies of its own mean leaves both unchanged, so the two
+ * functions compute the same number on the same draws. The unit test asserts
+ * exactly that against an expanded sample rather than asserting it approximately.
+ *
+ * WHY IT IS NEEDED AT ALL
+ *
+ * The wallet-persistence holdout is 11.85M positions over 30 days. Dune bills on
+ * datapoints returned, and exporting one row per position to get an interval that
+ * needs only 60 (n, sum) pairs would cost more than the monthly allowance — and
+ * then 2,000 resamples x 11.85M pushes would not finish. This is O(resamples x
+ * days).
+ *
+ * WHAT IT CANNOT DO: a median, a percentile, or a fragility drop. Those are not
+ * functions of (n, sum) and they need the rows.
+ */
+export function clusterBootstrapAggregated(
+  aggregates: readonly ClusterAggregate[],
+  resamples = 2_000,
+  alpha = 0.05,
+): BootstrapInterval {
+  const byCluster = new Map<string, { n: number; sum: number }>();
+  for (const a of aggregates) {
+    const at = byCluster.get(a.cluster);
+    if (at === undefined) byCluster.set(a.cluster, { n: a.n, sum: a.sum });
+    else {
+      at.n += a.n;
+      at.sum += a.sum;
+    }
+  }
+  const ids = [...byCluster.keys()].sort();
+  const totalN = ids.reduce((acc, id) => acc + (byCluster.get(id) as { n: number }).n, 0);
+  if (ids.length === 0 || totalN === 0) {
+    return { point: null, lower: 0, upper: 0, resamples: 0, clusterKind: 'UTC_DAY' };
+  }
+
+  // The identical seed string clusterBootstrap would build for the expanded
+  // sample, so the two draw the same clusters in the same order.
+  const rng = seededRng(`UTC_DAY|${ids.join(',')}|${totalN}`);
+  const means: number[] = [];
+  for (let r = 0; r < resamples; r++) {
+    let n = 0;
+    let sum = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const pick = byCluster.get(ids[Math.floor(rng() * ids.length)] as string) as { n: number; sum: number };
+      n += pick.n;
+      sum += pick.sum;
+    }
+    if (n > 0) means.push(sum / n);
+  }
+  means.sort((a, b) => a - b);
+  const totalSum = ids.reduce((acc, id) => acc + (byCluster.get(id) as { sum: number }).sum, 0);
+  return {
+    point: totalSum / totalN,
+    lower: means[Math.floor(means.length * (alpha / 2))] ?? 0,
+    upper: means[Math.min(means.length - 1, Math.floor(means.length * (1 - alpha / 2)))] ?? 0,
+    resamples: means.length,
+    clusterKind: 'UTC_DAY',
+  };
+}
+
+/**
+ * The day-clustered interval for the DIFFERENCE between two cohorts' means.
+ *
+ * The two cohorts are resampled on the SAME drawn days. A market-wide day moves
+ * both cohorts together, and an interval built from two independently resampled
+ * bootstraps would attribute that shared movement to each side separately and
+ * come out far too wide — which for a difference test means failing to reject
+ * for a reason that is an artifact of the procedure. This is the paired form:
+ * draw a day, take both cohorts' statistics from it.
+ *
+ * `a` and `b` need not cover the same days. A day present in one and absent from
+ * the other contributes to whichever side has it, which is the honest treatment
+ * when a cohort simply did not trade that day; `daysBothPresent` is returned so a
+ * caller can see how much of the sample is actually paired.
+ */
+export function clusterBootstrapDifference(
+  a: readonly ClusterAggregate[],
+  b: readonly ClusterAggregate[],
+  resamples = 2_000,
+  alpha = 0.05,
+): BootstrapInterval & { readonly daysBothPresent: number } {
+  const fold = (xs: readonly ClusterAggregate[]): Map<string, { n: number; sum: number }> => {
+    const m = new Map<string, { n: number; sum: number }>();
+    for (const x of xs) {
+      const at = m.get(x.cluster);
+      if (at === undefined) m.set(x.cluster, { n: x.n, sum: x.sum });
+      else {
+        at.n += x.n;
+        at.sum += x.sum;
+      }
+    }
+    return m;
+  };
+  const A = fold(a);
+  const B = fold(b);
+  const ids = [...new Set([...A.keys(), ...B.keys()])].sort();
+  const both = ids.filter((id) => A.has(id) && B.has(id)).length;
+  const pooled = (m: Map<string, { n: number; sum: number }>): { n: number; sum: number } => {
+    let n = 0;
+    let sum = 0;
+    for (const v of m.values()) {
+      n += v.n;
+      sum += v.sum;
+    }
+    return { n, sum };
+  };
+  const pa = pooled(A);
+  const pb = pooled(B);
+  if (ids.length === 0 || pa.n === 0 || pb.n === 0) {
+    return { point: null, lower: 0, upper: 0, resamples: 0, clusterKind: 'UTC_DAY', daysBothPresent: both };
+  }
+
+  const rng = seededRng(`UTC_DAY|DIFF|${ids.join(',')}|${pa.n}|${pb.n}`);
+  const diffs: number[] = [];
+  for (let r = 0; r < resamples; r++) {
+    let an = 0;
+    let asum = 0;
+    let bn = 0;
+    let bsum = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[Math.floor(rng() * ids.length)] as string;
+      const av = A.get(id);
+      const bv = B.get(id);
+      if (av !== undefined) {
+        an += av.n;
+        asum += av.sum;
+      }
+      if (bv !== undefined) {
+        bn += bv.n;
+        bsum += bv.sum;
+      }
+    }
+    if (an > 0 && bn > 0) diffs.push(asum / an - bsum / bn);
+  }
+  diffs.sort((x, y) => x - y);
+  return {
+    point: pa.sum / pa.n - pb.sum / pb.n,
+    lower: diffs[Math.floor(diffs.length * (alpha / 2))] ?? 0,
+    upper: diffs[Math.min(diffs.length - 1, Math.floor(diffs.length * (1 - alpha / 2)))] ?? 0,
+    resamples: diffs.length,
+    clusterKind: 'UTC_DAY',
+    daysBothPresent: both,
+  };
+}

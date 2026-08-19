@@ -3,31 +3,35 @@
     "runtime": "litesvm",
     "runtimeVersion": "0.1.0",
     "litesvmVersion": "0.6.1",
-    "binarySha256": "b811d50fa62b484b8c5faea7bd94867126dbf8e2501a80f4d0c6fff89611057b",
+    "binarySha256": "be02d7855a2b130a4460cdce923a53429f740877a2f151dcacf713686392d7d8",
     "programsLoaded": []
   },
-  "initIncompleteness": [],
+  "initIncompleteness": [
+    "Clock DERIVED from slot; epoch is slot/432000, not the captured epoch",
+    "no Rent captured; the runtime default is in use",
+    "no EpochSchedule captured; the runtime default is in use"
+  ],
   "runtimeIsPersistent": {
-    "firstStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
-    "secondStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "firstStateHash": "57f26ff0521472796ea1693a06d8ad4203d9021700c94e9ed100b9b9d71b7310",
+    "secondStateHash": "57f26ff0521472796ea1693a06d8ad4203d9021700c94e9ed100b9b9d71b7310",
     "stableAcrossCommands": true,
     "accountsSeen": 2
   },
   "restoredExactly": {
-    "lamports": 5000000,
+    "lamports": "5000000",
     "owner": "11111111111111111111111111111111",
-    "expectedLamports": 5000000,
+    "expectedLamports": "5000000",
     "matches": true
   },
   "refusalDoesNotMoveState": {
     "status": "REFUSED",
     "error": "not a versioned transaction: io error: unexpected end of file",
-    "stateHashBefore": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
-    "stateHashAfter": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "stateHashBefore": "57f26ff0521472796ea1693a06d8ad4203d9021700c94e9ed100b9b9d71b7310",
+    "stateHashAfter": "57f26ff0521472796ea1693a06d8ad4203d9021700c94e9ed100b9b9d71b7310",
     "unchanged": true
   },
   "quoteStateSurvivedToExecution": {
-    "quotedStateHash": "dd2d1d73dbe0bc49d760e36e90b6d636375d7d130a8c54eac53e96207318153f",
+    "quotedStateHash": "57f26ff0521472796ea1693a06d8ad4203d9021700c94e9ed100b9b9d71b7310",
     "quotedAccounts": [
       {
         "pubkey": "EPjFWdd5",
@@ -51,12 +55,12 @@
     "survived": true,
     "error": null
   },
-  "detectsAMovedAccount": true,
+  "detectsAMovedAccount": false,
   "absentAccountIsNamed": {
     "unobserved": [
       "So11111111111111111111111111111111111111112"
     ],
     "accounts": 0
   },
-  "ok": true
+  "ok": false
 }

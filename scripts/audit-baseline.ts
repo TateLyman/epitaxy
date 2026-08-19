@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { loadSecrets } from '../packages/domain/src/config.js';
@@ -66,8 +74,35 @@ function counts(db: DatabaseSync): Record<string, number> {
   return out;
 }
 
+/**
+ * Hash a file of any size, in chunks.
+ *
+ * `readFileSync` throws `ERR_FS_FILE_TOO_LARGE` above Node's buffer limit, and
+ * the thing this script exists to hash is the research corpus — 9.4 GB and
+ * growing. So `pnpm audit:state` died on the one file whose integrity it was
+ * written to record, after 218 seconds of doing the rest of the work correctly.
+ *
+ * Read in 64 MiB slices with an explicit position, which is bounded in memory
+ * regardless of the file, and produces the same digest as the one-shot version
+ * for every file small enough for the one-shot version to have worked.
+ */
 function sha256File(p: string): string {
-  return createHash('sha256').update(readFileSync(p)).digest('hex');
+  const CHUNK = 64 * 1024 * 1024;
+  const h = createHash('sha256');
+  const fd = openSync(p, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(CHUNK);
+    let position = 0;
+    for (;;) {
+      const read = readSync(fd, buf, 0, CHUNK, position);
+      if (read <= 0) break;
+      h.update(buf.subarray(0, read));
+      position += read;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return h.digest('hex');
 }
 
 function git(args: string[]): string {
@@ -180,12 +215,17 @@ const manifest = {
 
 writeFileSync(`${OUT_DIR}/baseline-${stamp}.manifest.json`, JSON.stringify(manifest, null, 2));
 
-// A file copy of the same database, kept only long enough to demonstrate why it
-// is not used: with WAL active it is a different, older artifact.
-const naive = `${backupPath}.naive-copy`;
-writeFileSync(naive, readFileSync(dbPath));
-const naiveSha = sha256File(naive);
-unlinkSync(naive);
+// The digest of the main `.db` file AS IT SITS, to demonstrate why a file copy
+// is not used: with WAL active it is a different, older artifact than the
+// `VACUUM INTO` snapshot beside it.
+//
+// This used to materialise the copy — `writeFileSync(naive, readFileSync(dbPath))`
+// — which threw ERR_FS_FILE_TOO_LARGE at 9.4 GB and killed the script after four
+// minutes of otherwise correct work, having already written a 9.2 GB backup. It
+// also cost a second 9.2 GB of disk and a full read per run to prove something a
+// hash proves on its own: a copy of a file has the file's digest, so copying it
+// first adds I/O and nothing else.
+const naiveSha = sha256File(dbPath);
 
 console.log(`baseline captured\n`);
 console.log(`  repo HEAD          ${manifest.repo.head}`);
@@ -197,7 +237,7 @@ console.log(`  wal present        ${manifest.database.walPresent}`);
 console.log(`  backup             ${backupPath}`);
 console.log(`  backup sha256      ${manifest.backup.sha256}`);
 console.log(`  backup integrity   ${snapIntegrity}`);
-console.log(`  naive copy sha256  ${naiveSha}  <- differs; this is why VACUUM INTO is used`);
+console.log(`  main .db sha256    ${naiveSha}  <- differs from the backup; this is why VACUUM INTO is used`);
 console.log(`  bounds check       ${violations.length === 0 ? 'PASS (before <= backup <= after on every table)' : 'FAIL'}`);
 for (const v of violations) console.log(`    ${v.table}: ${v.before} / ${v.backup} / ${v.after}`);
 console.log(`\n  position states    ${positionStates.map((p) => `${p.state}=${p.n}`).join(' ')}`);

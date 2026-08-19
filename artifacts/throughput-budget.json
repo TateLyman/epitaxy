@@ -1,0 +1,260 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1787111592651,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "phase-c-throughput-v1",
+    "contextHash": null,
+    "sampleInclusionQuery": "trajectory_marks, execution_observations, simulation_jobs/steps, confirmed_migrations, development_trajectories and trajectory_settlements over the whole corpus"
+  },
+  "directive": "d70b4a9a §3.1",
+  "maxProjectedDays": 120,
+  "confirmatoryFloorN": 300,
+  "marks": {
+    "scheduledOffsetsMs": [
+      60000,
+      180000,
+      300000,
+      600000,
+      900000,
+      1800000,
+      3600000
+    ],
+    "scheduledPerPosition": 7,
+    "marksPerPositionPerHourScheduled": 7,
+    "realisedPerPosition": 5.580318379160636,
+    "slaBoundMs": 10000,
+    "judged": 2396,
+    "onTime": 2033,
+    "missedHorizon": 363,
+    "unjudged": 1460,
+    "onTimeFraction": 0.8484974958263773,
+    "latenessP50Ms": 4607,
+    "latenessP90Ms": 183190,
+    "latenessMaxMs": 125005460,
+    "marksPerPositionPerHourWithinSla": 5.939482470784641
+  },
+  "jupiter": {
+    "buildObservationsTotal": 43922,
+    "trajectories": 704,
+    "distinctMints": 174,
+    "buildsPerMint": 252.42528735632183,
+    "trajectoryEraStart": 1786760811823,
+    "byFamilyInEra": [
+      {
+        "family": "BUILD_CUSTOM",
+        "n": 436,
+        "mints": 2
+      },
+      {
+        "family": "DIRECT_VENUE",
+        "n": 826,
+        "mints": 142
+      }
+    ],
+    "routerCallsInEra": 436,
+    "directVenueCallsInEra": 826,
+    "mintsInEra": 142,
+    "routerCallsPerMint": 3.0704225352112675,
+    "requestsPerSecondAvailable": 0.8,
+    "callsPerDayAvailable": 69120,
+    "callsPerDayRequired": 243,
+    "callsPerDayIfEveryMarkPricedThroughTheRouter": 19942,
+    "note": "the collector builds its legs DIRECTLY from stored pool bytes, so the router is not on its critical path. The corpus-wide 252 builds per mint belong to the older paper-engine shadow books, which priced every mark through the router; that ratio is reported as the cost of going back to a router-priced mark path."
+  },
+  "simulator": {
+    "maxActiveSurfnets": 1,
+    "jobsWithCompletion": 675,
+    "jobsWithMeasurableElapsed": 258,
+    "attachedWithoutRunning": 417,
+    "medianSimulationMs": 1894,
+    "p90SimulationMs": 4052,
+    "maxSimulationMs": 11698,
+    "stepsPerJob": 2,
+    "surfnetStartupMs": null,
+    "surfnetStartupBasis": "not measured: these jobs ran in the offline LiteSVM worker, not Surfpool",
+    "simulationsPerDayAchievable": 45617
+  },
+  "arrivals": {
+    "confirmedMigrationsPerDay": {
+      "days": 8,
+      "median": 25,
+      "best": 109,
+      "worst": 6,
+      "byDay": [
+        {
+          "d": "2026-08-11",
+          "n": 6
+        },
+        {
+          "d": "2026-08-12",
+          "n": 37
+        },
+        {
+          "d": "2026-08-13",
+          "n": 22
+        },
+        {
+          "d": "2026-08-14",
+          "n": 28
+        },
+        {
+          "d": "2026-08-15",
+          "n": 16
+        },
+        {
+          "d": "2026-08-16",
+          "n": 10
+        },
+        {
+          "d": "2026-08-17",
+          "n": 109
+        },
+        {
+          "d": "2026-08-18",
+          "n": 48
+        }
+      ]
+    },
+    "distinctMintsOpenedPerDay": {
+      "days": 4,
+      "median": 52.5,
+      "best": 138,
+      "byDay": [
+        {
+          "d": "2026-08-15",
+          "n": 6
+        },
+        {
+          "d": "2026-08-16",
+          "n": 22
+        },
+        {
+          "d": "2026-08-17",
+          "n": 83
+        },
+        {
+          "d": "2026-08-18",
+          "n": 138
+        }
+      ]
+    },
+    "distinctMintsSettledPerDay": {
+      "days": 3,
+      "median": 79,
+      "best": 138,
+      "byDay": [
+        {
+          "d": "2026-08-16",
+          "n": 17
+        },
+        {
+          "d": "2026-08-17",
+          "n": 79
+        },
+        {
+          "d": "2026-08-18",
+          "n": 138
+        }
+      ]
+    },
+    "trajectoriesPerMint": 4.045977011494253
+  },
+  "positionsPerDayUsed": 79,
+  "positionsPerDayBest": 138,
+  "simulationsPerDayRequired": 441,
+  "bottleneck": {
+    "candidates": [
+      {
+        "name": "eligible signal arrival (distinct mints settled per day)",
+        "positionsPerDay": 79
+      },
+      {
+        "name": "Jupiter router budget (collector era, router families only)",
+        "positionsPerDay": 22511
+      },
+      {
+        "name": "Jupiter router budget IF every mark priced through the router",
+        "positionsPerDay": 273
+      },
+      {
+        "name": "simulator at MAX_ACTIVE_SURFNETS=1",
+        "positionsPerDay": 8174
+      }
+    ],
+    "tightest": "eligible signal arrival (distinct mints settled per day)"
+  },
+  "projections": [
+    {
+      "cohort": "2m-60m",
+      "selectable": true,
+      "notSelectableBecause": [],
+      "requiredN": 49854,
+      "projectedDaysAtMedianRate": 632,
+      "projectedDaysAtBestObservedRate": 362,
+      "requiredNAtCostFloorTarget": 64025,
+      "projectedDaysAtCostFloorTarget": 811,
+      "withinCalendar": false,
+      "withinCalendarAtCostFloorTarget": false
+    },
+    {
+      "cohort": "24h-7d",
+      "selectable": false,
+      "notSelectableBecause": [
+        "only 1 distinct UTC entry day(s)",
+        "the mean has no estimable interval"
+      ],
+      "requiredN": 3441,
+      "projectedDaysAtMedianRate": 44,
+      "projectedDaysAtBestObservedRate": 25,
+      "requiredNAtCostFloorTarget": 300,
+      "projectedDaysAtCostFloorTarget": 4,
+      "withinCalendar": true,
+      "withinCalendarAtCostFloorTarget": true
+    },
+    {
+      "cohort": "5h-24h",
+      "selectable": false,
+      "notSelectableBecause": [
+        "the mean 95% interval [-0.0216, 0.0698] contains zero, so CV is unbounded"
+      ],
+      "requiredN": 19780,
+      "projectedDaysAtMedianRate": 251,
+      "projectedDaysAtBestObservedRate": 144,
+      "requiredNAtCostFloorTarget": 4074,
+      "projectedDaysAtCostFloorTarget": 52,
+      "withinCalendar": false,
+      "withinCalendarAtCostFloorTarget": true
+    },
+    {
+      "cohort": "1h-5h",
+      "selectable": false,
+      "notSelectableBecause": [
+        "the mean 95% interval [-0.0737, 0.0051] contains zero, so CV is unbounded"
+      ],
+      "requiredN": 127151,
+      "projectedDaysAtMedianRate": 1610,
+      "projectedDaysAtBestObservedRate": 922,
+      "requiredNAtCostFloorTarget": 1649,
+      "projectedDaysAtCostFloorTarget": 21,
+      "withinCalendar": false,
+      "withinCalendarAtCostFloorTarget": true
+    }
+  ],
+  "selectedCohort": "2m-60m",
+  "selectedProjection": {
+    "cohort": "2m-60m",
+    "selectable": true,
+    "notSelectableBecause": [],
+    "requiredN": 49854,
+    "projectedDaysAtMedianRate": 632,
+    "projectedDaysAtBestObservedRate": 362,
+    "requiredNAtCostFloorTarget": 64025,
+    "projectedDaysAtCostFloorTarget": 811,
+    "withinCalendar": false,
+    "withinCalendarAtCostFloorTarget": false
+  },
+  "verdict": "REFUSED_CANNOT_FINISH",
+  "verdictMeaning": "the confirmatory window for the selected cohort cannot finish inside the limit, so §3.1 forbids beginning it"
+}

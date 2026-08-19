@@ -5,19 +5,19 @@
     "totalBurst": 16,
     "family": {
       "history": {
-        "ratePerSecond": 4,
+        "ratePerSecond": 8,
         "burst": 8
       },
       "account": {
-        "ratePerSecond": 5,
+        "ratePerSecond": 8,
         "burst": 10
       },
       "token": {
-        "ratePerSecond": 3,
+        "ratePerSecond": 8,
         "burst": 6
       },
       "light": {
-        "ratePerSecond": 5,
+        "ratePerSecond": 8,
         "burst": 10
       }
     }
@@ -26,28 +26,28 @@
     {
       "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
       "methodFamily": "__endpoint_total__",
-      "tokens": 13.648,
+      "tokens": 0.7599999999999851,
       "capacity": 16,
       "ratePerSecond": 8,
-      "granted": 9986,
-      "refused": 0
+      "granted": 15852,
+      "refused": 1508
     },
     {
       "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
       "methodFamily": "account",
-      "tokens": 6.279999999999999,
+      "tokens": 8.8,
       "capacity": 10,
-      "ratePerSecond": 5,
-      "granted": 1066,
+      "ratePerSecond": 8,
+      "granted": 1411,
       "refused": 162
     },
     {
       "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
       "methodFamily": "history",
-      "tokens": 7,
+      "tokens": 6.808,
       "capacity": 8,
-      "ratePerSecond": 4,
-      "granted": 8742,
+      "ratePerSecond": 8,
+      "granted": 14179,
       "refused": 6662
     },
     {
@@ -55,17 +55,17 @@
       "methodFamily": "light",
       "tokens": 9,
       "capacity": 10,
-      "ratePerSecond": 5,
-      "granted": 146,
+      "ratePerSecond": 8,
+      "granted": 180,
       "refused": 0
     },
     {
       "endpointKey": "dimensional-cosmological-sheet.solana-mainnet.quiknode.pro#f7e1caf0a728",
       "methodFamily": "token",
-      "tokens": 4.003,
+      "tokens": 4.536,
       "capacity": 6,
-      "ratePerSecond": 3,
-      "granted": 32,
+      "ratePerSecond": 8,
+      "granted": 82,
       "refused": 0
     },
     {
@@ -74,7 +74,7 @@
       "tokens": 15,
       "capacity": 16,
       "ratePerSecond": 8,
-      "granted": 17,
+      "granted": 33,
       "refused": 0
     },
     {
@@ -82,26 +82,26 @@
       "methodFamily": "account",
       "tokens": 9,
       "capacity": 10,
-      "ratePerSecond": 5,
-      "granted": 17,
+      "ratePerSecond": 8,
+      "granted": 33,
       "refused": 0
     }
   ],
-  "totalGranted": 20006,
-  "totalRefused": 6824,
+  "totalGranted": 31770,
+  "totalRefused": 8332,
   "context": {
-    "contract": "contract-623ce9c59e896474",
-    "contractHash": "623ce9c59e89647447df95b458632187cb8ca4090332acaa82fdc7db364676b5",
-    "evidenceContextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
-    "windowId": "PROFIT_DISCOVERY_V1_R4",
+    "contract": "contract-7346e383d6266fbb",
+    "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
+    "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "windowId": "PROFIT_DISCOVERY_V1_R5",
     "featureVersions": {},
     "sampleQuery": "SELECT endpoint_key, method_family, tokens, capacity, rate_per_second, granted, refused FROM rpc_endpoint_budget"
   },
   "provenance": {
     "writer": "rpc-shared-budget.ts",
-    "sourceCommit": "2b36eb0c818d85d27f2e635b02773875ec40b23f",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-18T23:47:34.804Z"
+    "dirtyFiles": 61,
+    "writtenUtc": "2026-08-19T04:28:41.071Z"
   }
 }

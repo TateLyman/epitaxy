@@ -1,14 +1,14 @@
 {
   "artifact": "rate-budget-v2",
   "directiveSection": "P13",
-  "generatedUtcMs": 1786929416469,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "generatedUtcMs": 1787113718428,
+  "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
   "dirty": true,
   "activeTime": {
-    "activeSeconds": 16562.487,
-    "wallSeconds": 21639.407,
-    "sessions": 30,
-    "diedWithoutClosing": 6
+    "activeSeconds": 103712.073,
+    "wallSeconds": 189678.268,
+    "sessions": 116,
+    "diedWithoutClosing": 55
   },
   "limitsPerActiveSecond": {
     "jupiter_order": 1,
@@ -19,23 +19,26 @@
     "solana_rpc:getSignaturesForAddress": 10
   },
   "report": {
-    "activeSeconds": 16562.487,
-    "wallSeconds": 21639.407,
-    "dutyCycle": 0.7653854377802498,
+    "activeSeconds": 103712.073,
+    "wallSeconds": 189678.268,
+    "dutyCycle": 0.5467788908743093,
     "perResourcePerActiveSecond": {
-      "wss_events:logs": 5.671551621444292,
-      "solana_rpc:getAccountInfo": 0.3722870846630702,
-      "solana_rpc:getTokenLargestAccounts": 0.10264158999792723,
-      "solana_rpc:getTokenSupply": 0.10264158999792723,
-      "mark_jobs": 0.07287552889852834
+      "wss_events:logs": 0.9057286898507949,
+      "solana_rpc:getAccountInfo": 0.23498710704586917,
+      "solana_rpc:getTokenLargestAccounts": 0.06675211284225319,
+      "solana_rpc:getTokenSupply": 0.06675211284225319,
+      "mark_jobs": 0.03511645167867775,
+      "solana_rpc:entityTierWalk": 0.00807042011396301,
+      "microstructure:fetched": 0.00020248365877326548,
+      "microstructure:cache_hit": 0.000028926236967609354
     },
     "rateLimitErrors": {
-      "solana_rpc:getAccountInfo": 16
+      "solana_rpc:getAccountInfo": 48
     },
-    "validTrajectoriesPerDay": 1241.5526726149278,
-    "validTrajectoriesPerCandidate": 3.26027397260274,
+    "validTrajectoriesPerDay": 434.0324004515848,
+    "validTrajectoriesPerCandidate": 1.8090277777777777,
     "canonicalPoolYield": 1,
-    "cashbackPoolYield": 0.4657534246575342,
+    "cashbackPoolYield": 0.25,
     "apparatusFailureRate": 0,
     "duplicateObservationRate": 0,
     "workerUtilization": 0,
@@ -44,16 +47,16 @@
       "p95": null
     },
     "markLagMs": {
-      "p50": 749,
-      "p95": 1595
+      "p50": 1360,
+      "p95": 2377
     },
     "triggerToFillMs": {
       "p50": null,
       "p95": null
     },
-    "bindingConstraint": "solana_rpc:getAccountInfo: the DAILY QUOTA is exhausted (16 observed), which no per-second headroom relieves",
+    "bindingConstraint": "solana_rpc:getAccountInfo: the DAILY QUOTA is exhausted (48 observed), which no per-second headroom relieves",
     "notes": [
-      "the busiest limited resource is at 3.7% of its limit, so per-second rate capacity is NOT the constraint — buying more requests per second would not produce more completed trajectories",
+      "the busiest limited resource is at 2.3% of its limit, so per-second rate capacity is NOT the constraint — buying more requests per second would not produce more completed trajectories",
       "a daily allowance was spent, not a per-second limit. Backing off does not help: every retry today fails, and the refusals it produces read as facts about the chain rather than about the account.",
       "rate-limit or quota errors were observed on: solana_rpc:getAccountInfo"
     ]
@@ -69,28 +72,49 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "count": 6166,
+      "count": 24371,
       "errors_429": 0,
-      "quota_errors": 16
+      "quota_errors": 48
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "count": 1700,
+      "count": 6923,
       "errors_429": 0,
       "quota_errors": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "count": 1700,
+      "count": 6923,
       "errors_429": 0,
       "quota_errors": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "count": 1207,
+      "count": 3642,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "solana_rpc",
+      "detail": "entityTierWalk",
+      "count": 837,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "microstructure",
+      "detail": "fetched",
+      "count": 21,
+      "errors_429": 0,
+      "quota_errors": 0
+    },
+    {
+      "kind": "microstructure",
+      "detail": "cache_hit",
+      "count": 3,
       "errors_429": 0,
       "quota_errors": 0
     }

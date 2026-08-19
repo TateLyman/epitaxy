@@ -42,7 +42,12 @@ const FROZEN: FrozenConfirmatoryContract = {
 };
 
 const PASSING: ConfirmatoryEvidence = {
-  completedPositions: 210,
+  // d70b4a9a Correction 1: 210 no longer clears anything. The requirement is
+  // max(300, 7.84 x CV squared), so a CV of 6 demands 300 and a CV of 15 - the
+  // figure the directive assumed - demands 1,764.
+  completedPositions: 400,
+  cvObserved: 6,
+  tailConcentrationDisclosed: true,
   distinctUtcDays: 24,
   netPnlLamports: 50_000_000n,
   expectedLogGrowth: 0.02,
@@ -155,10 +160,31 @@ describe('P22 — the gate, one condition at a time', () => {
     expect(v.failures).toEqual([]);
   });
 
-  it('refuses 199 positions', () => {
-    const v = judgeConfirmatory({ ...PASSING, completedPositions: 199 });
+  it('refuses 299 positions, because the floor is 300 and not 200', () => {
+    const v = judgeConfirmatory({ ...PASSING, completedPositions: 299 });
     expect(v.passed).toBe(false);
     expect(v.sufficientSample).toBe(false);
+  });
+
+  it('demands the sample the MEASURED CV implies, not a constant', () => {
+    // At the CV the directive assumed, 200 positions were never enough.
+    const atCv15 = judgeConfirmatory({ ...PASSING, cvObserved: 15, completedPositions: 400 });
+    expect(atCv15.requiredPositions).toBe(1_764);
+    expect(atCv15.passed).toBe(false);
+    // At the CV this corpus measured for the selected cohort, nothing reachable is.
+    const atCv80 = judgeConfirmatory({ ...PASSING, cvObserved: 79.74, completedPositions: 400 });
+    expect(atCv80.requiredPositions).toBeGreaterThan(49_000);
+    expect(atCv80.passed).toBe(false);
+  });
+
+  it('refuses a window that did not supply a CV at all', () => {
+    // The only alternative is falling back to a constant, which would let an
+    // underpowered window pass by omitting one field.
+    const v = judgeConfirmatory({ ...PASSING, cvObserved: null });
+    expect(v.passed).toBe(false);
+    expect(v.sufficientSample).toBe(false);
+    expect(v.requiredPositions).toBeNull();
+    expect(v.failures.join(' ')).toContain('CV_observed');
   });
 
   it('refuses 20 distinct days however many positions', () => {
@@ -170,15 +196,12 @@ describe('P22 — the gate, one condition at a time', () => {
     ['net PnL not positive', { netPnlLamports: 0n }],
     ['expected log growth not positive', { expectedLogGrowth: 0 }],
     ['robust lower bound not positive', { robustLowerBound: -0.001 }],
-    ['profit factor below 1.25', { profitFactor: 1.24 }],
+
     ['drawdown over bound', { maxDrawdownBps: 1_501 }],
     ['CVaR over bound', { cvarBps: 1_501 }],
     ['catastrophic incidence', { catastrophicIncidence: 0.06 }],
     ['blocked exits', { blockedExitIncidence: 0.21 }],
     ['recent fifty not positive', { recentFiftyNetLamports: -1n }],
-    ['not positive without the top three', { netWithoutTopThreeLamports: 0n }],
-    ['one day carries it', { maxSingleDayShare: 0.51 }],
-    ['one mint carries it', { maxSingleMintShare: 0.51 }],
     ['not positive at 2x costs', { netUnderDoubleCostsLamports: 0n }],
     ['not positive under latency stress', { netUnderLatencyStressLamports: 0n }],
     ['canary-size shadow not positive', { exactCanarySizeShadowNetLamports: 0n }],
@@ -193,20 +216,47 @@ describe('P22 — the gate, one condition at a time', () => {
     });
   }
 
-  it('every condition is AND — one failure is a failure', () => {
+  it('every GATE is AND — one failure is a failure', () => {
     // No scoring, no weighting, no "mostly passed". A window that fails one
-    // condition failed, and the answer is another window.
-    const v = judgeConfirmatory({ ...PASSING, profitFactor: 1.0, netPnlLamports: 1n });
+    // gate failed, and the answer is another window.
+    const v = judgeConfirmatory({ ...PASSING, expectedLogGrowth: 0, netPnlLamports: 1n });
     expect(v.passed).toBe(false);
     expect(v.failures.length).toBeGreaterThan(0);
+  });
+
+  it('records the tail removals and lets none of them fail the verdict', () => {
+    // d70b4a9a Correction 2. For a tail-driven asset class, requiring positive
+    // expectancy after the top outcomes are removed asks the strategy to stop
+    // being the strategy that was measured.
+    const tailDriven = judgeConfirmatory({
+      ...PASSING,
+      netWithoutTopThreeLamports: -40_000_000n,
+      maxSingleDayShare: 0.9,
+      maxSingleMintShare: 0.8,
+      profitFactor: 1.0,
+    });
+    expect(tailDriven.passed).toBe(true);
+    expect(tailDriven.adverseDiagnostics).toHaveLength(4);
+    expect(tailDriven.diagnostics.map((d) => d.name)).toContain('net without the top three');
+    // And none of them appears as a failure.
+    expect(tailDriven.failures).toEqual([]);
+  });
+
+  it('refuses a pass whose tail concentration is not disclosed', () => {
+    // The removals stopped being pass/fail conditions. Publishing a positive
+    // result without them did not become acceptable.
+    const v = judgeConfirmatory({ ...PASSING, tailConcentrationDisclosed: false });
+    expect(v.passed).toBe(false);
+    expect(v.failures.join(' ')).toContain('not disclosed');
   });
 
   it('the thresholds have no configuration path', () => {
     // The only way to pass a window that failed is to edit a constant, which is
     // a diff a reviewer sees.
-    expect(CONFIRMATORY_THRESHOLDS.minCompletedPositions).toBe(200);
+    expect(CONFIRMATORY_THRESHOLDS.minCompletedPositionsFloor).toBe(300);
     expect(CONFIRMATORY_THRESHOLDS.minDistinctUtcDays).toBe(21);
-    expect(CONFIRMATORY_THRESHOLDS.minProfitFactor).toBe(1.25);
+    expect(CONFIRMATORY_THRESHOLDS.diagnosticProfitFactorReference).toBe(1.25);
+    expect(CONFIRMATORY_THRESHOLDS.powerConstant).toBe(7.84);
     expect(judgeConfirmatory.length).toBe(1);
   });
 });

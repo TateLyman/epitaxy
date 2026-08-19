@@ -1,0 +1,83 @@
+{
+  "status": "MEASURED",
+  "severeLossFraction": 0.5,
+  "policies": [
+    {
+      "policy": "HARD_GATES_RANDOM",
+      "evaluable": true,
+      "descriptive": false,
+      "summary": {
+        "nMints": 10,
+        "nUtcDays": 1,
+        "meanLogReturn": -0.3200577180255066,
+        "medianLogReturn": -0.3696062656763727,
+        "medianOfMeans": -0.33049254016092455,
+        "profitFactor": 0.0853,
+        "catastrophicIncidence": 0,
+        "blockedExitIncidence": 0,
+        "cvar95": -0.5628519938053936,
+        "maxDrawdown": -8.321500668663171
+      },
+      "fragility": {
+        "full": -0.3200577180255066,
+        "withoutTop1": -0.3693635717778084,
+        "withoutTop3": -0.38245583604064837,
+        "withoutTop5": -0.3856682376764964,
+        "withoutTop10": null,
+        "withoutBestDay": null,
+        "withoutBestFiveMints": -0.3856682376764964,
+        "survivesAll": false
+      },
+      "bootstrapMint": {
+        "point": -0.3200577180255066,
+        "lower": -0.40770548416438157,
+        "upper": -0.18746046777088907,
+        "resamples": 2000,
+        "clusterKind": "MINT"
+      },
+      "bootstrapUtcDay": {
+        "point": -0.3200577180255066,
+        "lower": -0.3200577180255066,
+        "upper": -0.3200577180255066,
+        "resamples": 2000,
+        "clusterKind": "UTC_DAY"
+      },
+      "paired": null
+    },
+    {
+      "policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
+      "evaluable": false,
+      "reason": "zero entered positions",
+      "descriptive": false
+    },
+    {
+      "policy": "SURVIVOR_FLOW_CONTINUATION_V1",
+      "evaluable": false,
+      "reason": "zero entered positions",
+      "descriptive": false
+    },
+    {
+      "policy": "CORRECTED_CURRENT_QUALITY_SCORE",
+      "evaluable": false,
+      "reason": "zero entered positions",
+      "descriptive": true
+    }
+  ],
+  "context": {
+    "contract": "contract-7346e383d6266fbb",
+    "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
+    "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "windowId": "PROFIT_DISCOVERY_V1_R5",
+    "featureVersions": {
+      "microstructure": "migration-microstructure-v2"
+    },
+    "sampleQuery": "SELECT d.entry_policy            AS entry_policy,\n         o.exit_policy             AS exit_policy,\n         t.mint                    AS mint,\n         strftime('%Y-%m-%d', t.opened_utc_ms / 1000, 'unixepoch') AS utc_day,\n         o.gross_delta_lamports    AS gross_delta,\n         o.entry_cash_out_lamports AS entry_cash_out,\n         t.execution_cost_lamports AS execution_cost,\n         t.pnl_blocked_reasons     AS blocked\n    FROM trajectory_policy_outcomes o\n    JOIN trajectory_policy_decisions d\n      ON d.trajectory_id = o.trajectory_id AND d.decision = 'ENTER'\n    JOIN development_trajectories t ON t.trajectory_id = o.trajectory_id\n    JOIN trajectory_evidence_context x ON x.trajectory_id = t.trajectory_id\n    JOIN evidence_contexts c ON c.evidence_context_id = x.evidence_context_id\n   WHERE c.validity = 'DEVELOPMENT_EVIDENCE'\n     AND o.gross_delta_lamports IS NOT NULL\n     AND o.entry_cash_out_lamports IS NOT NULL"
+  },
+  "provenance": {
+    "writer": "development-robustness.ts",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "treeDirty": true,
+    "dirtyFiles": 27,
+    "writtenUtc": "2026-08-19T03:56:47.841Z"
+  }
+}

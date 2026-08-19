@@ -1,61 +1,37 @@
 {
   "offsetMs": 900000,
-  "contextId": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+  "contextId": null,
   "replayed": [
     {
-      "trajectoryId": "bdba0806-a75d-4f18-93cf-c2bbcd4b5871",
-      "mint": "2ZCmGGn9EosMuoZ7WdpSmXvyuM6QZ4Hi9vAPBnukpump",
+      "trajectoryId": "ad3fbeb2-8f04-45d5-9e74-53c96da722d2",
+      "mint": "FFA4Sfz27jUU5LdJDhmoLHy91959QLW4P3w81tAupump",
       "offsetMs": 900000,
       "eventsApplied": 0,
-      "signaturesScanned": 1,
-      "unresolved": 0,
-      "replayExitLamports": "19753088",
-      "boundedExitLamports": null,
-      "conservative": null,
-      "errorBps": null
-    },
-    {
-      "trajectoryId": "5d596121-29f1-4a22-b830-cfb010f120f8",
-      "mint": "8DUJk5PFkQmuQU6R5i2rAgHoMXRe2LMJ9RxnB9ojpump",
-      "offsetMs": 900000,
-      "eventsApplied": 0,
-      "signaturesScanned": 1,
-      "unresolved": 0,
-      "replayExitLamports": "19753088",
-      "boundedExitLamports": null,
-      "conservative": null,
-      "errorBps": null
-    },
-    {
-      "trajectoryId": "5fcadad5-08b4-4273-99d5-2ab84ca47fad",
-      "mint": "4uC16DfJePiYY28BRYLeU5Mn5GX43YUJXgyNdv6eT3No",
-      "offsetMs": 900000,
-      "eventsApplied": 0,
-      "signaturesScanned": 2,
+      "signaturesScanned": 3,
       "unresolved": 0,
       "replayExitLamports": "19753087",
-      "boundedExitLamports": "19654607",
+      "boundedExitLamports": "19654615",
       "conservative": true,
       "errorBps": -49
     },
     {
-      "trajectoryId": "d36a83ec-5cdb-4f27-bfe3-08ff537e9f80",
-      "mint": "814cisd8oJCCn4hAN7Ca2295HwWodiyFpNnm8xPspump",
+      "trajectoryId": "b0468291-28ab-4e62-8149-31556020138e",
+      "mint": "CTFaKHRfEUy5irjJMRMv5XKzLBYYAT47s3w8h4zXTw6D",
       "offsetMs": 900000,
-      "eventsApplied": 6,
-      "signaturesScanned": 58,
+      "eventsApplied": 23,
+      "signaturesScanned": 232,
       "unresolved": 0,
-      "replayExitLamports": "19016432",
-      "boundedExitLamports": "18921599",
+      "replayExitLamports": "18064982",
+      "boundedExitLamports": "17974901",
       "conservative": true,
       "errorBps": -49
     }
   ],
   "provenance": {
     "writer": "counterfactual-replay.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 4,
-    "writtenUtc": "2026-08-18T19:10:40.022Z"
+    "dirtyFiles": 52,
+    "writtenUtc": "2026-08-19T04:04:16.169Z"
   }
 }

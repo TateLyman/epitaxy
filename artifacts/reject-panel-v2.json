@@ -1,8 +1,8 @@
 {
   "artifact": "reject-panel-v2",
   "directiveSection": "P12 / reject:panel-v2",
-  "generatedUtcMs": 1786929847234,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "generatedUtcMs": 1787112366502,
+  "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
   "dirty": true,
   "panel": {
     "panelId": "REJECT_PANEL_V1",
@@ -27,77 +27,97 @@
       3600000
     ],
     "metric": "EXECUTABLE_QUOTE_LAMPORTS_AT_DEVELOPMENT_NOTIONAL",
-    "samples": 8920,
+    "samples": 237296,
     "marked": 0,
-    "outstanding": 44600,
+    "outstanding": 1186480,
     "byReason": [
       {
         "reason": "stale_source",
-        "n": 5509
+        "n": 215411
       },
       {
         "reason": "insufficient_liquidity",
-        "n": 2807
+        "n": 20396
       },
       {
         "reason": "excessive_impact",
-        "n": 230
-      },
-      {
-        "reason": "soft:high_round_trip",
-        "n": 131
+        "n": 385
       },
       {
         "reason": "dev_holds_too_much",
-        "n": 114
+        "n": 277
+      },
+      {
+        "reason": "soft:high_round_trip",
+        "n": 168
       },
       {
         "reason": "insufficient_flow",
-        "n": 37
+        "n": 134
       },
       {
-        "reason": "soft:concentration_unknown",
-        "n": 34
+        "reason": "concentrated_ownership",
+        "n": 112
       },
       {
         "reason": "soft:extreme_churn",
-        "n": 12
+        "n": 79
+      },
+      {
+        "reason": "soft:concentration_unknown",
+        "n": 54
+      },
+      {
+        "reason": "mint_authority_live",
+        "n": 49
       },
       {
         "reason": "soft:high_tx_per_trader",
-        "n": 10
+        "n": 47
+      },
+      {
+        "reason": "soft:organic_score_unavailable",
+        "n": 37
       },
       {
         "reason": "soft:vertical_move",
-        "n": 9
-      },
-      {
-        "reason": "round_trip_too_expensive",
-        "n": 8
-      },
-      {
-        "reason": "insufficient_net_buyers",
-        "n": 7
-      },
-      {
-        "reason": "soft:no_holder_growth",
-        "n": 5
-      },
-      {
-        "reason": "soft:provider_concentration_high",
-        "n": 2
-      },
-      {
-        "reason": "soft:price_up_liquidity_down",
-        "n": 2
-      },
-      {
-        "reason": "freeze_authority_live",
-        "n": 2
+        "n": 36
       },
       {
         "reason": "too_few_holders",
-        "n": 1
+        "n": 29
+      },
+      {
+        "reason": "round_trip_too_expensive",
+        "n": 17
+      },
+      {
+        "reason": "insufficient_net_buyers",
+        "n": 17
+      },
+      {
+        "reason": "freeze_authority_live",
+        "n": 13
+      },
+      {
+        "reason": "soft:provider_concentration_high",
+        "n": 12
+      },
+      {
+        "reason": "soft:no_holder_growth",
+        "n": 7
+      },
+      {
+        "reason": "soft:price_up_liquidity_down",
+        "n": 6
+      },
+      {
+        "reason": "provider_flagged_suspicious",
+        "n": 6
+      },
+      {
+        "reason": "soft:single_wallet_dominant",
+        "n": 4
       }
     ]
   },
@@ -133,7 +153,7 @@
       "dueUtcMs": 1786928541208
     }
   ],
-  "retrospectiveRejectTrackingRows": 1211739,
+  "retrospectiveRejectTrackingRows": 1668615,
   "supersedes": "the trajectory-status.ts alias, which answers what the OPENED trajectories are doing",
   "notClaimed": "an admitted sample is a row, not a result. No filter cost is established until the declared horizons are marked and the metric computed over an adequate sample."
 }
