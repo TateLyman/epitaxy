@@ -1,6 +1,64 @@
 # STATUS
 
-> **2026-08-18 (LATEST) — Profit Discovery V1, from audited head `aaf6d6a`.
+> **2026-08-18 (LATEST) — d70b4a9a, measurement power and the cost floor, from
+> `d8ede90`. State: `MEASUREMENT_REPAIR_REQUIRED`.**
+>
+> Full account: `docs/D70B4A9A_FINAL_REPORT.md` (12 sections).
+>
+> ```
+> pnpm check green: 134 files, 2,041 tests (from 129 / 1,957)
+>
+> notional  0.02   0.05   0.10   0.20   0.35   0.50   1.00 SOL
+> cost %    2.69   2.88   3.26   4.02   5.14   6.23   9.61
+> pools     142    142    118     34     12      6      2   of 142 admissible
+> ```
+>
+> **The cost curve does not have its maximum at 0.02 SOL; it has its minimum
+> there.** The directive's premise was ATA rent at 10.2% of notional and priority
+> fees at ~5%. Measured: the base ATA closes in the same transaction as the exit
+> swap and `leg_settlements` records 2,063,690 of its 2,067,391 lamports coming
+> back on every one of 412 sells, so rent is locked capital and not a cost; and
+> the router's median unit price of 3,810 µlamports/CU against a two-pass frozen
+> limit of 274,782 units is 1,047 lamports a leg, 0.01% of notional. `cost_floor_pct`
+> is **2.6858%** at `notional_min_cost` = **0.02 SOL**, and the true minimum is
+> 0.01 SOL, 2 bps below it.
+>
+> **NOT KILLED, AND NOTHING DEMONSTRATED.** Four of 36 (cohort × notional)
+> combinations clear the floor — all 2m–60m, at 0.05 SOL and below, by 16 to 38
+> bps against a reconstructed +3.04% mid-price mean. At that mean's own 95%
+> day-clustered lower bound of +1.72%, **zero of the 36 clear it**, and the
+> reconstruction is 34.5% censored.
+>
+> **THE CONFIRMATORY WINDOW CANNOT BE COLLECTED.** Measured CV is 21 to 127 by
+> cohort against the 15 the directive assumed, so required n is 3,441 to 127,151
+> rather than 1,670. 2m–60m is the only cohort whose required n is identified —
+> the other three have mean intervals containing zero, and 24h–7d has 16,790
+> mints on ONE UTC entry day because a 7-day horizon inside a 10-day corpus can
+> only be met by mints that were already old. At 49,854 required and 79 mints
+> settling per day, that is **632 calendar days** against §3.1's 120-day limit:
+> `REFUSED_CANNOT_FINISH`, and no window was opened.
+>
+> The bottleneck is eligible signal arrival at 79 positions/day, exactly as the
+> directive predicted. The simulator could carry 8,174 and the router budget
+> 22,511, so the daemon and encoder work stays deferred.
+>
+> The tail IS the edge: in 2m–60m the top 10 mints of 59,197 carry 83.6% of the
+> summed return and 22.7% of all the gain, the median mint returns −0.22%, and
+> the largest single observation is +28,890%. §19's tail-removal criteria are now
+> recorded diagnostics rather than gates (MT062), its sample rule is
+> `max(300, 7.84 × CV_observed²)` (MT063), and a pass whose tail concentration is
+> not disclosed now FAILS.
+>
+> One blocking item is not independently asserted: 36/37, both shadow books
+> opening on accepted AND refused signals. It is implemented unconditionally at
+> `paper.ts:914` and no test executes it, because the function is private to a
+> module that calls `main()` at import time. First thing to fix before a window
+> opens.
+>
+> Repository is verified PUBLIC. Recommendation is Option A, private, with the
+> exact command in the report. **Nothing was changed.**
+
+> **2026-08-18 — Profit Discovery V1, from audited head `aaf6d6a`.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
 > Full account: `docs/PROFIT_DISCOVERY_V1_REPORT.md` (21 sections).
@@ -80,27 +138,33 @@
 > forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
 > window). Every one presented as a market fact.
 
-Last updated: 2026-08-18T19:25Z
+Last updated: 2026-08-18T23:05Z
 
 ## Operational right now
 
 | | |
 |---|---|
-| mode | `observe` for the trajectory collector; nothing capital-bearing is running |
+| mode | `observe` only; nothing capital-bearing is running and no window is open |
 | schema | **v53** (`a_reservation_belongs_to_its_experiment`) |
 | strategy version | `delayed-momentum-v0.6.0` |
-| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — collecting. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
+| active contract | `contract-a4317e98477ff177`, context `ctx-8e64fba67ca1-DEV_WINDOW_5D24E` — **not collecting**; the window is closed and preserved. The AUDITED window is `ctx-47a91fa1a07b`, superseded by the report commit and preserved in full |
 | positions with executable PnL | **0** |
 | development trajectories, ACTIVE context | **52** across **52** distinct mints; 15 settled, 30 policy outcomes, 4 pairs disagreeing |
 | independently recomputed | **10 of 10**, 0 failures, 0 unexplained lamports |
 | mark timeliness, the collector's own marks | 53 of 250 `MISSED_HORIZON` (21.2%), worst 20.1 s against a 10 s SLA, and **0 more than 60 s late** |
 | counterfactual calibration | `BOUND_IS_CONSERVATIVE`, 0 of 4 non-conservative |
 | evidence contexts | **44**, of which **43** are `INSTRUMENT_DEVELOPMENT_INVALID`; 500 trajectories preserved, none deleted |
-| trajectory collectors running | **1**, under the contract frozen at the commit it is running |
+| trajectory collectors running | **0** — the pid in `data/trajectory-collector.pid` (31276) is dead; nothing capital-bearing has run since |
 | default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
-| tests | 1,867 passing across 125 files |
+| tests | **2,041** passing across **134** files, 4 skipped |
+| measured cost floor | **2.6858%** of notional at `notional_min_cost` **0.02 SOL**; `artifacts/cost-surface.json`, monotone increasing to 9.61% at 1.00 SOL |
+| confirmatory cohort | **2m-60m**, selected on lowest IDENTIFIED required n = **49,854** mints; owes an untouched future test |
+| confirmatory notional | **0.02 SOL**, frozen identically for the development window |
+| confirmatory sample rule | `max(300, 7.84 x CV_observed^2)`, and a window that supplies no CV FAILS |
+| projected days to required n | **632** at the median arrival rate of 79 settled mints/day; §3.1 limit is 120, so the window is `REFUSED_CANNOT_FINISH` |
+| throughput bottleneck | eligible signal arrival (79/day). The simulator could carry 8,174/day and the router budget 22,511/day |
 | collector candidate lane | live migration socket primary; history paging is bounded recovery |
-| RPC | **daily quota exhausted** — the binding constraint, measured |
+| RPC | **daily quota exhausted** as last measured 2026-08-18, which bounds how many candidates a day can be characterised. For POSITIONS the binding constraint is the launch rate itself — see the throughput budget |
 | direct mint facts collected | yes, in every mode (was capital-only) |
 | exploration arm | **running**, entitlement is a ledger keyed by window; granted on rows OPENED, not selected |
 | full event replay | **built and run** (`pnpm replay:calibrate`); one live run, zero-event case only |
