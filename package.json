@@ -31,6 +31,7 @@
     "cost:floor": "tsx scripts/phase-a-cost-surface.ts",
     "edge:distribution": "tsx scripts/phase-a-gross-edge.ts",
     "throughput:budget": "tsx scripts/phase-c-throughput-budget.ts",
+    "phase-a:decision": "tsx scripts/phase-a-decision.ts",
     "counterfactual:calibrate": "tsx scripts/counterfactual-calibrate.ts",
     "counterfactual:replay": "tsx scripts/counterfactual-replay.ts",
     "db:migrate": "tsx scripts/migrate-and-backup.ts",
