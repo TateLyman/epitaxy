@@ -223,6 +223,16 @@ the brief's arithmetic describes a real tier; it is simply not the tier the appa
 
 ### 3.2 Measured on the operator's own pools, LP loses to holding
 
+> **CORRECTED 2026-08-19 by `docs/LP_DECOMPOSITION_REPORT.md` (directive 40c005ff). The figures in
+> this section understate the loss.** `observed_quote_reserve` is `quoteReserveRaw +
+> virtualQuoteReserves`, and `virtualQuoteReserves` is 17.5845 SOL on every pool it could be decoded
+> for. The AMM prices on the combined quantity — so the price path below is right — but an LP can
+> only withdraw the real vault, so LP capital is `2q − v`, not the `2q` used here. Every figure in
+> this section was divided by a denominator **1.27× too large**. Corrected: **−0.353%** (not
+> −0.278%), **−0.694%** (not −0.546%), **−2.123%** (not −1.674%). The share of pools where the LP
+> beat holding, 8.0%, is unaffected — it is a sign test. See MT100.
+
+
 `trajectory_marks` stores `observed_base_reserve` and `observed_quote_reserve` at offsets of 60s,
 180s, 300s, 600s, 900s, 1,800s and 3,600s. Because PumpSwap fees accrue into the reserves, that path
 records what an LP actually earned, fees included, with nothing modelled. For a constant-product pool,

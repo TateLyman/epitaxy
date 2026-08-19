@@ -1,6 +1,65 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Research brief 7a8d7564, where money is actually made.
+> **2026-08-19 (LATEST) — Decompose the LP result, directive 40c005ff.
+> State: `MECHANISM_FAILS_AT_ANY_FEE_SHARE`.**
+>
+> Full account: `docs/LP_DECOMPOSITION_REPORT.md`. Directive transcribed from PDF and committed
+> before execution, with its two PDF losses marked rather than reconstructed:
+> `docs/directives/DIRECTIVE_40C005FF_DECOMPOSE_THE_LP_RESULT.md`. Ledger: MT100.
+> Reproducible: `pnpm lp:decompose`.
+>
+> ```
+> 0 Dune credits, as the directive required. No query created, run or paid for.
+> pnpm check green: 144 files, 2,203 tests.
+> ```
+>
+> **THE TWO TERMS ARE NOT THE SAME ORDER OF MAGNITUDE.** #66's −0.278% was `fee_income − LVR`
+> with the terms never separated. Separated exactly, from the reserve path alone: **fee_income
+> 0.0077%, LVR_implied 0.3612% — LVR is 47× fee income**, and 54× on the 61 pools that moved
+> more than 10%. **The break-even fee share is 93.7 bps**, against **22 bps** from Raydium AMM
+> v4, **21 bps** from Raydium CPMM/CLMM, and **125 bps** for the *entire* PumpSwap fee across
+> LP and protocol and creator together. Rescaling the fee term by 10.5× moves the pooled figure
+> from −0.353% to −0.280% — it closes **21%** of the gap and lifts the share of pools clearing
+> zero from 8.0% to 17.5%.
+>
+> **THE CAUSE IS TURNOVER, NOT THE FEE.** The median pool turns over **0.000038** of LP capital
+> in the hour; the p90 pool turns over **0.390**. Break-even at 21 bps needs **1.72×**. Even at
+> Raydium's fee share, even at the 90th percentile of activity, turnover is **4.4× short**.
+>
+> **#66 IS CORRECTED, IN THE DIRECTION THAT HURTS THE HYPOTHESIS.** `observed_quote_reserve` is
+> `quoteReserveRaw + virtualQuoteReserves`, and the stored pool bytes give `virtualQuoteReserves`
+> = **17.5845 SOL on all 142 pools** it could be read for — near-constant because every pump.fun
+> token graduates at the same threshold. The AMM **prices** on the combined quantity (conservation
+> to 6.6e−6 on `b·(q_raw+v)` against 9.1e−3 on `b·q_raw`, three orders of magnitude), so #66's
+> price path was right. But an LP can only **withdraw** the real vault, so LP capital is `2q − v`,
+> not `2q`. #66 divided a correct numerator by a denominator **1.27× too large**. Corrected:
+> **−0.353%** not −0.278%, **−0.694%** not −0.546%, **−2.123%** not −1.674%.
+>
+> **THERE IS NO TRADE TAPE, AND NO QUERY WAS RUN IN ITS PLACE.** `targeted_flow_events` has
+> **0 rows** and `chain_events` covers only 2026-08-14 against trajectories of 2026-08-17/18.
+> Volume came from the invariant instead: the LP fee that stays in the vault makes `k` grow, so
+> `V/q = (κ−1)/f`. That the fee accrues is **measured** — `k` grew in **99.0%** of the 623 steps
+> where the price moved. The retained rate is recovered without the decoder: `φ_upper` floors at
+> **1.9958 bps** at p10 against a decoded `lpFeeBps` of **2**.
+>
+> **THE DECOMPOSITION REPRODUCES #66 TO THE DIGIT.** Under #66's own convention it returns
+> −0.2779%, −0.5457% and −1.6739% against −0.278%, −0.546% and −1.674%, by a route using only the
+> invariant ratio and the price ratio. `DECOMPOSITION_FAILED` is not the state.
+>
+> **THE TWO-CLUSTER DEFECT CARRIES FORWARD IN FULL.** 377 trajectories on two days is two
+> clusters; only the point estimate stands. **Every rescaled figure here is a point estimate on
+> two clusters — a hypothesis worth testing, not a result.** The state is claimed anyway, on the
+> ground that a sampling defect able to reverse a **47× ratio** would be a different order of
+> problem than two clusters. Unchanged and unweakened: the population is PumpSwap not Raydium,
+> entry and exit are unpriced, and **total loss is not IL** — one hour observes no deaths.
+>
+> `LP closes for good` is the directive's own phrase and it is adopted. The hypothesis has now
+> been wrong on the fee split, wrong on the theory, and wrong on the magnitude, and the magnitude
+> is the one no better venue can repair.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Research brief 7a8d7564, where money is actually made.
 > State: `FEE_ON_FLOW_SURVEYED: ONE_ACCESSIBLE_MECHANISM, AND IT IS NOT A MEASUREMENT BUSINESS`.**
 >
 > Full account: `docs/FEE_ON_FLOW_RESEARCH_REPORT.md`. Directive transcribed from PDF and
