@@ -1,0 +1,2235 @@
+{
+  "generatedFrom": {
+    "path": "ops/dune/results/q5-copier-lag-sweep.json",
+    "queryId": 8381799,
+    "executionId": "01M0DD6RPEA5B84STFS3EC6RVW"
+  },
+  "rule": "MT079",
+  "primaryFloor": 0.02669,
+  "floors": {
+    "tier0": 0.02669,
+    "tier2": 0.0235,
+    "tier8": 0.01722
+  },
+  "resamples": 10000,
+  "utcDays": 30,
+  "lags": [
+    2,
+    5,
+    15,
+    30,
+    60,
+    300
+  ],
+  "state": "UNDECIDABLE_CENSORING",
+  "cells": [
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 2,
+      "follows": 9799,
+      "followable": 9183,
+      "priced": 1424,
+      "censored": 7759,
+      "pricedWide": 2487,
+      "censoredWide": 6696,
+      "noEntryPrice": 608,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.34060654006905844,
+        "lower": -0.03132443005039482,
+        "upper": 0.8919864418374864
+      },
+      "censoredTreatment": {
+        "point": -0.7921132839966961,
+        "lower": -0.8591883889688144,
+        "upper": -0.7122410343335609
+      },
+      "asPricedWide": {
+        "point": -0.05220259447406203,
+        "lower": -0.23296380073934136,
+        "upper": 0.24892916075546015
+      },
+      "censoredWideTreatment": {
+        "point": -0.7433113200976798,
+        "lower": -0.8029932956809511,
+        "upper": -0.6747816771111673
+      },
+      "requiredN": 3749,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.6396684204582977,
+      "copierRetMatched": 0.3406065400690584,
+      "selectionShare": 0.5324735897154762,
+      "entrySlippage": 0.34862622519720715
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 5,
+      "follows": 9799,
+      "followable": 9118,
+      "priced": 1421,
+      "censored": 7697,
+      "pricedWide": 2483,
+      "censoredWide": 6635,
+      "noEntryPrice": 673,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.39226547458566957,
+        "lower": -0.039014244541360286,
+        "upper": 1.0895357102467458
+      },
+      "censoredTreatment": {
+        "point": -0.7830215793610179,
+        "lower": -0.859699968840883,
+        "upper": -0.686462217221267
+      },
+      "asPricedWide": {
+        "point": -0.017992713169177367,
+        "lower": -0.23132679202926884,
+        "upper": 0.3661375897451333
+      },
+      "censoredWideTreatment": {
+        "point": -0.7325812576002486,
+        "lower": -0.8012049159693896,
+        "upper": -0.6437005037867752
+      },
+      "requiredN": 4507,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.6408725802416859,
+      "copierRetMatched": 0.3922654745856696,
+      "selectionShare": 0.6120802897164651,
+      "entrySlippage": 0.36092742389006566
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 15,
+      "follows": 9799,
+      "followable": 8906,
+      "priced": 1415,
+      "censored": 7491,
+      "pricedWide": 2469,
+      "censoredWide": 6437,
+      "noEntryPrice": 885,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.42840856606694544,
+        "lower": -0.03990414484949926,
+        "upper": 1.2324593275391675
+      },
+      "censoredTreatment": {
+        "point": -0.7730520861234303,
+        "lower": -0.8564837124332851,
+        "upper": -0.6613505129963868
+      },
+      "asPricedWide": {
+        "point": 0.018203585700769638,
+        "lower": -0.2261296389370761,
+        "upper": 0.4810069751310867
+      },
+      "censoredWideTreatment": {
+        "point": -0.7177246066589714,
+        "lower": -0.7938412956785099,
+        "upper": -0.6143240203217387
+      },
+      "requiredN": 5255,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.6396331461647909,
+      "copierRetMatched": 0.4284085660669453,
+      "selectionShare": 0.6697723040709539,
+      "entrySlippage": 0.385442799551765
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 30,
+      "follows": 9799,
+      "followable": 8587,
+      "priced": 1408,
+      "censored": 7179,
+      "pricedWide": 2454,
+      "censoredWide": 6133,
+      "noEntryPrice": 1204,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.4411251541575922,
+        "lower": -0.034205369881497534,
+        "upper": 1.3472323310509087
+      },
+      "censoredTreatment": {
+        "point": -0.7637004521889028,
+        "lower": -0.8521345664590464,
+        "upper": -0.6420380080134892
+      },
+      "asPricedWide": {
+        "point": 0.04782954275288843,
+        "lower": -0.2139502266244792,
+        "upper": 0.5655147980657852
+      },
+      "censoredWideTreatment": {
+        "point": -0.7005504020128579,
+        "lower": -0.7823408375248416,
+        "upper": -0.5838207396081533
+      },
+      "requiredN": 5785,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.64575458963972,
+      "copierRetMatched": 0.4411251541575921,
+      "selectionShare": 0.6831157861436263,
+      "entrySlippage": 0.4082040075954583
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 60,
+      "follows": 9799,
+      "followable": 8001,
+      "priced": 1401,
+      "censored": 6600,
+      "pricedWide": 2440,
+      "censoredWide": 5561,
+      "noEntryPrice": 1791,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.4942199548253323,
+        "lower": -0.04250583298231424,
+        "upper": 1.591418093357413
+      },
+      "censoredTreatment": {
+        "point": -0.7383574357317472,
+        "lower": -0.8395294572355156,
+        "upper": -0.5841491068115419
+      },
+      "asPricedWide": {
+        "point": 0.11062724745364079,
+        "lower": -0.20193609864156045,
+        "upper": 0.7208761471654193
+      },
+      "censoredWideTreatment": {
+        "point": -0.6613010268982771,
+        "lower": -0.7587841062682891,
+        "upper": -0.5090097951159605
+      },
+      "requiredN": 6901,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.6447855130536787,
+      "copierRetMatched": 0.49421995482533265,
+      "selectionShare": 0.7664873742040612,
+      "entrySlippage": 0.41789506612409244
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 300,
+      "follows": 9799,
+      "followable": 5624,
+      "priced": 1359,
+      "censored": 4265,
+      "pricedWide": 2315,
+      "censoredWide": 3309,
+      "noEntryPrice": 4169,
+      "exitTruncated": 8,
+      "asPriced": {
+        "point": 0.5484294775757462,
+        "lower": -0.044946897425912756,
+        "upper": 1.8834246940660457
+      },
+      "censoredTreatment": {
+        "point": -0.625832919625633,
+        "lower": -0.7719313008605108,
+        "upper": -0.35024815336730486
+      },
+      "asPricedWide": {
+        "point": 0.18411957005639235,
+        "lower": -0.1828158414422133,
+        "upper": 0.9313946286593017
+      },
+      "censoredWideTreatment": {
+        "point": -0.5125823604764317,
+        "lower": -0.6615699255060363,
+        "upper": -0.23943786459553168
+      },
+      "requiredN": 8284,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.6829415384004294,
+      "copierRetMatched": 0.5484294775757463,
+      "selectionShare": 0.8030401531297477,
+      "entrySlippage": 0.5656299844777498
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 2,
+      "follows": 1941,
+      "followable": 1461,
+      "priced": 938,
+      "censored": 523,
+      "pricedWide": 1156,
+      "censoredWide": 305,
+      "noEntryPrice": 479,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.05157842871261944,
+        "lower": -0.1300043575109261,
+        "upper": 0.03991216427562743
+      },
+      "censoredTreatment": {
+        "point": -0.3910886831844196,
+        "lower": -0.45716757431390276,
+        "upper": -0.3165381237191304
+      },
+      "asPricedWide": {
+        "point": -0.07672611162815716,
+        "lower": -0.16465204159798214,
+        "upper": 0.025113501403048542
+      },
+      "censoredWideTreatment": {
+        "point": -0.26946980495698125,
+        "lower": -0.348482145226517,
+        "upper": -0.17650029353233448
+      },
+      "requiredN": 5371,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.08255284384783136,
+      "copierRetMatched": -0.05157842871261942,
+      "selectionShare": -0.6247928757935135,
+      "entrySlippage": 0.019362321880659887
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 5,
+      "follows": 1941,
+      "followable": 1452,
+      "priced": 936,
+      "censored": 516,
+      "pricedWide": 1148,
+      "censoredWide": 304,
+      "noEntryPrice": 488,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.04981385001783048,
+        "lower": -0.1279203553067055,
+        "upper": 0.040946917864443745
+      },
+      "censoredTreatment": {
+        "point": -0.38748330827595684,
+        "lower": -0.45459177475915136,
+        "upper": -0.31267467876898103
+      },
+      "asPricedWide": {
+        "point": -0.07598114541871674,
+        "lower": -0.16530642911497936,
+        "upper": 0.028512263242317273
+      },
+      "censoredWideTreatment": {
+        "point": -0.2694396383889027,
+        "lower": -0.3476211739277645,
+        "upper": -0.17481513626308487
+      },
+      "requiredN": 5809,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.08415022616605958,
+      "copierRetMatched": -0.04981385001783046,
+      "selectionShare": -0.5919633527725674,
+      "entrySlippage": 0.019554622351940804
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 15,
+      "follows": 1941,
+      "followable": 1434,
+      "priced": 936,
+      "censored": 498,
+      "pricedWide": 1140,
+      "censoredWide": 294,
+      "noEntryPrice": 506,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.07306408168211022,
+        "lower": -0.1413381356689124,
+        "upper": 0.008775729041197597
+      },
+      "censoredTreatment": {
+        "point": -0.3949706976669842,
+        "lower": -0.4545984300750911,
+        "upper": -0.3253764726314264
+      },
+      "asPricedWide": {
+        "point": 0.01066737141033978,
+        "lower": -0.18005764591340365,
+        "upper": 0.3110831909615594
+      },
+      "censoredWideTreatment": {
+        "point": -0.19654058339763789,
+        "lower": -0.35423589315370624,
+        "upper": 0.06162406330362623
+      },
+      "requiredN": 2157,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.056644814542478175,
+      "copierRetMatched": -0.0730640816821102,
+      "selectionShare": -1.2898635518935129,
+      "entrySlippage": 0.020156588932176166
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 30,
+      "follows": 1941,
+      "followable": 1400,
+      "priced": 925,
+      "censored": 475,
+      "pricedWide": 1119,
+      "censoredWide": 281,
+      "noEntryPrice": 540,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.06361717546307419,
+        "lower": -0.13638116686276572,
+        "upper": 0.022864556818046677
+      },
+      "censoredTreatment": {
+        "point": -0.38131849093095965,
+        "lower": -0.44352141287284375,
+        "upper": -0.31033202120160464
+      },
+      "asPricedWide": {
+        "point": 0.014309652902648757,
+        "lower": -0.18181174704520536,
+        "upper": 0.34283763166725106
+      },
+      "censoredWideTreatment": {
+        "point": -0.1892767845728114,
+        "lower": -0.35117846375277784,
+        "upper": 0.08244125478161206
+      },
+      "requiredN": 3013,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.06829739220871334,
+      "copierRetMatched": -0.06361717546307419,
+      "selectionShare": -0.9314729802371275,
+      "entrySlippage": 0.016208207523368046
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 60,
+      "follows": 1941,
+      "followable": 1380,
+      "priced": 921,
+      "censored": 459,
+      "pricedWide": 1118,
+      "censoredWide": 262,
+      "noEntryPrice": 560,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.07177567884655062,
+        "lower": -0.13981316818016584,
+        "upper": 0.007493988752144344
+      },
+      "censoredTreatment": {
+        "point": -0.380511159578024,
+        "lower": -0.4408547636363027,
+        "upper": -0.31268689581125664
+      },
+      "asPricedWide": {
+        "point": -0.12475939843065145,
+        "lower": -0.1846000991524738,
+        "upper": -0.06319370724983535
+      },
+      "censoredWideTreatment": {
+        "point": -0.29092826626483215,
+        "lower": -0.34283596001572386,
+        "upper": -0.23558024884718842
+      },
+      "requiredN": 2152,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.0670605154403309,
+      "copierRetMatched": -0.07177567884655064,
+      "selectionShare": -1.0703120662771404,
+      "entrySlippage": 0.020160473116645053
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 300,
+      "follows": 1941,
+      "followable": 1274,
+      "priced": 913,
+      "censored": 361,
+      "pricedWide": 1095,
+      "censoredWide": 179,
+      "noEntryPrice": 666,
+      "exitTruncated": 1,
+      "asPriced": {
+        "point": -0.08595215494247549,
+        "lower": -0.14481372295923858,
+        "upper": -0.015259382197626147
+      },
+      "censoredTreatment": {
+        "point": -0.3449562931416642,
+        "lower": -0.4014073288568834,
+        "upper": -0.2787737872780026
+      },
+      "asPricedWide": {
+        "point": -0.15040682001823888,
+        "lower": -0.19240211083653277,
+        "upper": -0.11098741253620814
+      },
+      "censoredWideTreatment": {
+        "point": -0.2697766624175601,
+        "lower": -0.3103392928614889,
+        "upper": -0.2272557438529156
+      },
+      "requiredN": 1367,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.06694104842217322,
+      "copierRetMatched": -0.08595215494247548,
+      "selectionShare": -1.2839977408242251,
+      "entrySlippage": 0.08437120488127092
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 2,
+      "follows": 118750,
+      "followable": 116080,
+      "priced": 12366,
+      "censored": 103714,
+      "pricedWide": 21540,
+      "censoredWide": 94540,
+      "noEntryPrice": 2585,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 2.120647835739273,
+        "lower": 1.3106210169230368,
+        "upper": 3.4312295844210063
+      },
+      "censoredTreatment": {
+        "point": -0.6675574505793257,
+        "lower": -0.7552562751511931,
+        "upper": -0.5286281774198736
+      },
+      "asPricedWide": {
+        "point": 1.150997399808203,
+        "lower": 0.5782871159124068,
+        "upper": 2.0252266797437706
+      },
+      "censoredWideTreatment": {
+        "point": -0.6008573053767343,
+        "lower": -0.7011459221052607,
+        "upper": -0.45387331224745964
+      },
+      "requiredN": 6394,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.712121591260569,
+      "copierRetMatched": 2.1206478357392724,
+      "selectionShare": 0.450040983592693,
+      "entrySlippage": 0.7813972730630055
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 5,
+      "follows": 118750,
+      "followable": 114732,
+      "priced": 12333,
+      "censored": 102399,
+      "pricedWide": 21473,
+      "censoredWide": 93259,
+      "noEntryPrice": 3933,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 2.1155215433287324,
+        "lower": 1.2949785922744614,
+        "upper": 3.5420017550577363
+      },
+      "censoredTreatment": {
+        "point": -0.6651001708862981,
+        "lower": -0.7556331601911206,
+        "upper": -0.5241877589743569
+      },
+      "asPricedWide": {
+        "point": 1.192175194402804,
+        "lower": 0.5881868902690421,
+        "upper": 2.0852531026981835
+      },
+      "censoredWideTreatment": {
+        "point": -0.5897170976762245,
+        "lower": -0.6984085873758274,
+        "upper": -0.4370593924786822
+      },
+      "requiredN": 6939,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.724387742525622,
+      "copierRetMatched": 2.115521543328732,
+      "selectionShare": 0.44778745069679443,
+      "entrySlippage": 0.826686634367749
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 15,
+      "follows": 118750,
+      "followable": 109236,
+      "priced": 12287,
+      "censored": 96949,
+      "pricedWide": 21355,
+      "censoredWide": 87881,
+      "noEntryPrice": 9434,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 2.08857259207913,
+        "lower": 1.2527229243079145,
+        "upper": 3.5363084783292917
+      },
+      "censoredTreatment": {
+        "point": -0.652593545727816,
+        "lower": -0.7467994964388948,
+        "upper": -0.4936243031745146
+      },
+      "asPricedWide": {
+        "point": 1.3116238508006695,
+        "lower": 0.5902664459281902,
+        "upper": 2.299231440051889
+      },
+      "censoredWideTreatment": {
+        "point": -0.5480910383587069,
+        "lower": -0.6822999063036763,
+        "upper": -0.36050267495375515
+      },
+      "requiredN": 7670,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.739417799166369,
+      "copierRetMatched": 2.0885725920791294,
+      "selectionShare": 0.4406812567667056,
+      "entrySlippage": 0.9217601248121002
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 30,
+      "follows": 118750,
+      "followable": 101666,
+      "priced": 12196,
+      "censored": 89470,
+      "pricedWide": 21152,
+      "censoredWide": 80514,
+      "noEntryPrice": 17004,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 2.1697555640892983,
+        "lower": 1.2101358730620042,
+        "upper": 3.8025673643512135
+      },
+      "censoredTreatment": {
+        "point": -0.6197515505711538,
+        "lower": -0.7337231439500244,
+        "upper": -0.42565436644376614
+      },
+      "asPricedWide": {
+        "point": 1.4008333876110153,
+        "lower": 0.5877402652307084,
+        "upper": 2.5435013272800413
+      },
+      "censoredWideTreatment": {
+        "point": -0.5004974345922119,
+        "lower": -0.6649473734802855,
+        "upper": -0.27633141605481243
+      },
+      "requiredN": 10431,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.766687396415775,
+      "copierRetMatched": 2.169755564089298,
+      "selectionShare": 0.4551914954021962,
+      "entrySlippage": 1.0286580424791278
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 60,
+      "follows": 118750,
+      "followable": 89839,
+      "priced": 12085,
+      "censored": 77754,
+      "pricedWide": 20872,
+      "censoredWide": 68967,
+      "noEntryPrice": 28837,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 1.4701646546790759,
+        "lower": 1.130632842643327,
+        "upper": 1.8847841452869525
+      },
+      "censoredTreatment": {
+        "point": -0.6677173627066572,
+        "lower": -0.710581733853209,
+        "upper": -0.6168795680709183
+      },
+      "asPricedWide": {
+        "point": 1.2718819762880906,
+        "lower": 0.4722822023537046,
+        "upper": 2.4811661585344518
+      },
+      "censoredWideTreatment": {
+        "point": -0.4721811172309905,
+        "lower": -0.6494956331868863,
+        "upper": -0.20336049429115682
+      },
+      "requiredN": 1060,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.788123812703465,
+      "copierRetMatched": 1.4701646546790756,
+      "selectionShare": 0.30704399305184066,
+      "entrySlippage": 1.182385190492171
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 300,
+      "follows": 118750,
+      "followable": 54448,
+      "priced": 11556,
+      "censored": 42892,
+      "pricedWide": 19347,
+      "censoredWide": 35101,
+      "noEntryPrice": 64248,
+      "exitTruncated": 87,
+      "asPriced": {
+        "point": 1.1241436182716358,
+        "lower": 0.6175686460429309,
+        "upper": 1.9047283547434024
+      },
+      "censoredTreatment": {
+        "point": -0.5491734562748489,
+        "lower": -0.6529331113820137,
+        "upper": -0.3889923839838693
+      },
+      "asPricedWide": {
+        "point": 0.9080861450271187,
+        "lower": 0.23519265475452156,
+        "upper": 1.917131112131621
+      },
+      "censoredWideTreatment": {
+        "point": -0.3220000248339762,
+        "lower": -0.5532669344702977,
+        "upper": 0.025163435447206596
+      },
+      "requiredN": 7536,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.979870639108335,
+      "copierRetMatched": 1.1241436182716356,
+      "selectionShare": 0.22573751403167328,
+      "entrySlippage": 1.9675097480938162
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 2,
+      "follows": 12595,
+      "followable": 11494,
+      "priced": 6182,
+      "censored": 5312,
+      "pricedWide": 7768,
+      "censoredWide": 3726,
+      "noEntryPrice": 1083,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.244544089628674,
+        "lower": 0.09916587593622293,
+        "upper": 0.3944712015722193
+      },
+      "censoredTreatment": {
+        "point": -0.3306271478959054,
+        "lower": -0.4558438831708599,
+        "upper": -0.18678038836229874
+      },
+      "asPricedWide": {
+        "point": 0.054232947259729304,
+        "lower": -0.07490686259113158,
+        "upper": 0.18759427994085964
+      },
+      "censoredWideTreatment": {
+        "point": -0.28751683188502025,
+        "lower": -0.4185922203433112,
+        "upper": -0.13765285869584323
+      },
+      "requiredN": 443,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.33725299016648747,
+      "copierRetMatched": 0.24454408962867402,
+      "selectionShare": 0.7251057715098479,
+      "entrySlippage": 0.02830027235522054
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 5,
+      "follows": 12595,
+      "followable": 11483,
+      "priced": 6179,
+      "censored": 5304,
+      "pricedWide": 7755,
+      "censoredWide": 3728,
+      "noEntryPrice": 1094,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.24235979018983503,
+        "lower": 0.09981940833029534,
+        "upper": 0.38970755317650113
+      },
+      "censoredTreatment": {
+        "point": -0.33148644573865793,
+        "lower": -0.45876953032815826,
+        "upper": -0.18833530827728145
+      },
+      "asPricedWide": {
+        "point": 0.05247366044596535,
+        "lower": -0.07769617109866109,
+        "upper": 0.18431931709018395
+      },
+      "censoredWideTreatment": {
+        "point": -0.28921595081786455,
+        "lower": -0.4217257641950217,
+        "upper": -0.14162934066275648
+      },
+      "requiredN": 450,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.336683842138789,
+      "copierRetMatched": 0.24235979018983506,
+      "selectionShare": 0.7198438411841833,
+      "entrySlippage": 0.03538226909586012
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 15,
+      "follows": 12595,
+      "followable": 11436,
+      "priced": 6171,
+      "censored": 5265,
+      "pricedWide": 7733,
+      "censoredWide": 3703,
+      "noEntryPrice": 1141,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.23387636578144538,
+        "lower": 0.08986546601622811,
+        "upper": 0.38261976446414414
+      },
+      "censoredTreatment": {
+        "point": -0.33418581206389475,
+        "lower": -0.4591499265274611,
+        "upper": -0.1971479198531203
+      },
+      "asPricedWide": {
+        "point": 0.061882652878042524,
+        "lower": -0.07153347546616386,
+        "upper": 0.19845790317035228
+      },
+      "censoredWideTreatment": {
+        "point": -0.28195710434540894,
+        "lower": -0.41723601521064624,
+        "upper": -0.13619556993673798
+      },
+      "requiredN": 470,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.33320495938817185,
+      "copierRetMatched": 0.23387636578144544,
+      "selectionShare": 0.7018994141350334,
+      "entrySlippage": 0.04402536229778276
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 30,
+      "follows": 12595,
+      "followable": 11375,
+      "priced": 6153,
+      "censored": 5222,
+      "pricedWide": 7700,
+      "censoredWide": 3675,
+      "noEntryPrice": 1201,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.22997220395452028,
+        "lower": 0.08691204018483457,
+        "upper": 0.37730276425757237
+      },
+      "censoredTreatment": {
+        "point": -0.33467965090706253,
+        "lower": -0.4624017815334085,
+        "upper": -0.19659337412402714
+      },
+      "asPricedWide": {
+        "point": 0.05864717860993477,
+        "lower": -0.07746784447465628,
+        "upper": 0.19454383135482298
+      },
+      "censoredWideTreatment": {
+        "point": -0.2833772944794288,
+        "lower": -0.41990782653123226,
+        "upper": -0.13711664065570303
+      },
+      "requiredN": 495,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.33482178401167356,
+      "copierRetMatched": 0.22997220395452034,
+      "selectionShare": 0.6868495866639979,
+      "entrySlippage": 0.054122689454768426
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 60,
+      "follows": 12595,
+      "followable": 11341,
+      "priced": 6159,
+      "censored": 5182,
+      "pricedWide": 7705,
+      "censoredWide": 3636,
+      "noEntryPrice": 1235,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.22308262040557775,
+        "lower": 0.0850357616762018,
+        "upper": 0.3660215212255193
+      },
+      "censoredTreatment": {
+        "point": -0.3357758699340488,
+        "lower": -0.4644538837818682,
+        "upper": -0.1977961994276178
+      },
+      "asPricedWide": {
+        "point": 0.028244229221624215,
+        "lower": -0.09462920199087739,
+        "upper": 0.15813110797989358
+      },
+      "censoredWideTreatment": {
+        "point": -0.3014177068906962,
+        "lower": -0.43276312302601816,
+        "upper": -0.15837281638201037
+      },
+      "requiredN": 573,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.33289223772423054,
+      "copierRetMatched": 0.2230826204055777,
+      "selectionShare": 0.670134641560433,
+      "entrySlippage": 0.06570275689973935
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 300,
+      "follows": 12595,
+      "followable": 10784,
+      "priced": 6104,
+      "censored": 4680,
+      "pricedWide": 7600,
+      "censoredWide": 3184,
+      "noEntryPrice": 1794,
+      "exitTruncated": 19,
+      "asPriced": {
+        "point": 0.17609884274687818,
+        "lower": 0.04929122040633804,
+        "upper": 0.3053573433540151
+      },
+      "censoredTreatment": {
+        "point": -0.3343001357449051,
+        "lower": -0.45724225727380646,
+        "upper": -0.2037474759873757
+      },
+      "asPricedWide": {
+        "point": -0.0015577278594552362,
+        "lower": -0.11334471115307924,
+        "upper": 0.11800171517308781
+      },
+      "censoredWideTreatment": {
+        "point": -0.29635003076148553,
+        "lower": -0.4214483185468227,
+        "upper": -0.16127261854789302
+      },
+      "requiredN": 968,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.3387815066216704,
+      "copierRetMatched": 0.17609884274687815,
+      "selectionShare": 0.5198006364129377,
+      "entrySlippage": 0.12491585723104451
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 2,
+      "follows": 18212,
+      "followable": 18139,
+      "priced": 1543,
+      "censored": 16596,
+      "pricedWide": 2675,
+      "censoredWide": 15464,
+      "noEntryPrice": 70,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 3.481567899873999,
+        "lower": 1.969338103892109,
+        "upper": 5.491066748741876
+      },
+      "censoredTreatment": {
+        "point": -0.618773952836122,
+        "lower": -0.7556723407878254,
+        "upper": -0.4485766472959965
+      },
+      "asPricedWide": {
+        "point": 1.194702386404921,
+        "lower": 0.6656452467850261,
+        "upper": 1.8096520267940512
+      },
+      "censoredWideTreatment": {
+        "point": -0.676342197274758,
+        "lower": -0.7621958971404694,
+        "upper": -0.57367997210231
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 16.998346386461744,
+      "copierRetMatched": 3.481567899874,
+      "selectionShare": 0.20481803469112023,
+      "entrySlippage": 2.3300916975983417
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 5,
+      "follows": 18212,
+      "followable": 17957,
+      "priced": 1543,
+      "censored": 16414,
+      "pricedWide": 2675,
+      "censoredWide": 15282,
+      "noEntryPrice": 252,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 3.3645772313052418,
+        "lower": 1.87857717334317,
+        "upper": 5.332689391931864
+      },
+      "censoredTreatment": {
+        "point": -0.624962818516234,
+        "lower": -0.7589941492600137,
+        "upper": -0.4476880475040443
+      },
+      "asPricedWide": {
+        "point": 1.140802508307636,
+        "lower": 0.6252453288872334,
+        "upper": 1.744192741089345
+      },
+      "censoredWideTreatment": {
+        "point": -0.6810911226973921,
+        "lower": -0.766254156462227,
+        "upper": -0.5802362730479265
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 16.998346386461744,
+      "copierRetMatched": 3.364577231305242,
+      "selectionShare": 0.19793556118993696,
+      "entrySlippage": 2.443460813405072
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 15,
+      "follows": 18212,
+      "followable": 17091,
+      "priced": 1539,
+      "censored": 15552,
+      "pricedWide": 2669,
+      "censoredWide": 14422,
+      "noEntryPrice": 1118,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 3.1522914104135955,
+        "lower": 1.7620204242219197,
+        "upper": 5.03801065718547
+      },
+      "censoredTreatment": {
+        "point": -0.6260969820006714,
+        "lower": -0.7589904082127036,
+        "upper": -0.4542203965528994
+      },
+      "asPricedWide": {
+        "point": 1.05380928509934,
+        "lower": 0.5534072705666327,
+        "upper": 1.607251105499693
+      },
+      "censoredWideTreatment": {
+        "point": -0.6792687974998457,
+        "lower": -0.7626607509270911,
+        "upper": -0.5827696637308941
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 17.042892291123582,
+      "copierRetMatched": 3.1522914104135955,
+      "selectionShare": 0.184962232734135,
+      "entrySlippage": 2.6621343705911373
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 30,
+      "follows": 18212,
+      "followable": 15643,
+      "priced": 1536,
+      "censored": 14107,
+      "pricedWide": 2658,
+      "censoredWide": 12985,
+      "noEntryPrice": 2567,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 2.9161085301849394,
+        "lower": 1.62680969031443,
+        "upper": 4.721333093703091
+      },
+      "censoredTreatment": {
+        "point": -0.6154738411836563,
+        "lower": -0.7508722409614882,
+        "upper": -0.4431323704651085
+      },
+      "asPricedWide": {
+        "point": 0.9617158932155129,
+        "lower": 0.5078399658510963,
+        "upper": 1.488330738877111
+      },
+      "censoredWideTreatment": {
+        "point": -0.6666725791621279,
+        "lower": -0.751718242799033,
+        "upper": -0.5655280772893487
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 17.076352732906667,
+      "copierRetMatched": 2.916108530184939,
+      "selectionShare": 0.17076881555424342,
+      "entrySlippage": 2.900296202910818
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 60,
+      "follows": 18212,
+      "followable": 13478,
+      "priced": 1528,
+      "censored": 11950,
+      "pricedWide": 2636,
+      "censoredWide": 10842,
+      "noEntryPrice": 4733,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 2.3951377733981736,
+        "lower": 1.416860433583192,
+        "upper": 3.6604335382051945
+      },
+      "censoredTreatment": {
+        "point": -0.615093447265736,
+        "lower": -0.737397535807627,
+        "upper": -0.46144734747041444
+      },
+      "asPricedWide": {
+        "point": 0.8090756219732278,
+        "lower": 0.42209711784618703,
+        "upper": 1.2403087610180672
+      },
+      "censoredWideTreatment": {
+        "point": -0.6461846461254319,
+        "lower": -0.7323367213553296,
+        "upper": -0.5483724485450656
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 17.16388359201491,
+      "copierRetMatched": 2.3951377733981736,
+      "selectionShare": 0.13954521193050126,
+      "entrySlippage": 3.291315318580944
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpdotfun",
+      "lagSeconds": 300,
+      "follows": 18212,
+      "followable": 7159,
+      "priced": 1439,
+      "censored": 5720,
+      "pricedWide": 2411,
+      "censoredWide": 4748,
+      "noEntryPrice": 11053,
+      "exitTruncated": 3,
+      "asPriced": {
+        "point": 1.0388349688756104,
+        "lower": 0.6381374269999991,
+        "upper": 1.4874057868042287
+      },
+      "censoredTreatment": {
+        "point": -0.5901824947322247,
+        "lower": -0.6861802470097068,
+        "upper": -0.4828929045790468
+      },
+      "asPricedWide": {
+        "point": 0.3173311283279395,
+        "lower": 0.07280053526680416,
+        "upper": 0.595022107229411
+      },
+      "censoredWideTreatment": {
+        "point": -0.5563506983658805,
+        "lower": -0.6514015384226518,
+        "upper": -0.44733433603857725
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 18.233728130233068,
+      "copierRetMatched": 1.0388349688756102,
+      "selectionShare": 0.05697326193830508,
+      "entrySlippage": 5.6333871857109274
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 2,
+      "follows": 137,
+      "followable": 134,
+      "priced": 76,
+      "censored": 58,
+      "pricedWide": 99,
+      "censoredWide": 35,
+      "noEntryPrice": 3,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": 0.03867013047314376,
+        "lower": -0.1923490396969747,
+        "upper": 0.3533526524303109
+      },
+      "censoredTreatment": {
+        "point": -0.41090350808985876,
+        "lower": -0.6037093730353675,
+        "upper": -0.2050477866849957
+      },
+      "asPricedWide": {
+        "point": -0.1789351849151277,
+        "lower": -0.377620980402414,
+        "upper": 0.05548565697878468
+      },
+      "censoredWideTreatment": {
+        "point": -0.39339241273580333,
+        "lower": -0.581927960346325,
+        "upper": -0.18510023492277608
+      },
+      "requiredN": 8239,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.1112588979688455,
+      "copierRetMatched": 0.038670130473143764,
+      "selectionShare": 0.347568879245704,
+      "entrySlippage": 0.0385611914662305
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 5,
+      "follows": 137,
+      "followable": 134,
+      "priced": 76,
+      "censored": 58,
+      "pricedWide": 99,
+      "censoredWide": 35,
+      "noEntryPrice": 3,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": 0.03642722226616602,
+        "lower": -0.19407014634028355,
+        "upper": 0.350184268187237
+      },
+      "censoredTreatment": {
+        "point": -0.41217560528187597,
+        "lower": -0.6047158588100464,
+        "upper": -0.20596189257402242
+      },
+      "asPricedWide": {
+        "point": -0.18009904572851748,
+        "lower": -0.37844309367784074,
+        "upper": 0.05457210425291763
+      },
+      "censoredWideTreatment": {
+        "point": -0.39425228005315843,
+        "lower": -0.5823505043858507,
+        "upper": -0.18423699407915814
+      },
+      "requiredN": 9222,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.11125889796884546,
+      "copierRetMatched": 0.03642722226616598,
+      "selectionShare": 0.32740951897947324,
+      "entrySlippage": 0.04174833701302127
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 15,
+      "follows": 137,
+      "followable": 134,
+      "priced": 76,
+      "censored": 58,
+      "pricedWide": 99,
+      "censoredWide": 35,
+      "noEntryPrice": 3,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": 0.02457793341606933,
+        "lower": -0.20479695941934264,
+        "upper": 0.3353301736914021
+      },
+      "censoredTreatment": {
+        "point": -0.418896097465513,
+        "lower": -0.6070466893746893,
+        "upper": -0.21603315556605404
+      },
+      "asPricedWide": {
+        "point": -0.18730849330017627,
+        "lower": -0.38440182383478044,
+        "upper": 0.04643928625234844
+      },
+      "censoredWideTreatment": {
+        "point": -0.3995786629605779,
+        "lower": -0.583067773729872,
+        "upper": -0.19351114783060874
+      },
+      "requiredN": 19668,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.1112588979688455,
+      "copierRetMatched": 0.024577933416069363,
+      "selectionShare": 0.2209075756165734,
+      "entrySlippage": 0.05515388562854357
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 30,
+      "follows": 137,
+      "followable": 135,
+      "priced": 76,
+      "censored": 59,
+      "pricedWide": 99,
+      "censoredWide": 36,
+      "noEntryPrice": 2,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": 0.01274309051100728,
+        "lower": -0.21619678955084468,
+        "upper": 0.32333637790899405
+      },
+      "censoredTreatment": {
+        "point": -0.4298631490456551,
+        "lower": -0.614341199271051,
+        "upper": -0.22796818359205512
+      },
+      "asPricedWide": {
+        "point": -0.19613345857409129,
+        "lower": -0.3919625115614787,
+        "upper": 0.03735787651941856
+      },
+      "censoredWideTreatment": {
+        "point": -0.4104978696210003,
+        "lower": -0.5937045771516032,
+        "upper": -0.20355014301465524
+      },
+      "requiredN": 70736,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.11125889796884546,
+      "copierRetMatched": 0.012743090511007298,
+      "selectionShare": 0.11453547306010166,
+      "entrySlippage": 0.06737850608563405
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 60,
+      "follows": 137,
+      "followable": 133,
+      "priced": 76,
+      "censored": 57,
+      "pricedWide": 99,
+      "censoredWide": 34,
+      "noEntryPrice": 4,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": -0.005559730915801618,
+        "lower": -0.23522768116940274,
+        "upper": 0.3121158486374507
+      },
+      "censoredTreatment": {
+        "point": -0.4317484176661723,
+        "lower": -0.616068528047408,
+        "upper": -0.23045542870928637
+      },
+      "asPricedWide": {
+        "point": -0.21074121635922724,
+        "lower": -0.40695087350430487,
+        "upper": 0.02657673983435153
+      },
+      "censoredWideTreatment": {
+        "point": -0.41250661969596614,
+        "lower": -0.5976817567209259,
+        "upper": -0.20833686881088237
+      },
+      "requiredN": 353817,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.11125889796884546,
+      "copierRetMatched": -0.005559730915801614,
+      "selectionShare": -0.04997111257886485,
+      "entrySlippage": 0.09041446385299949
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "venue": "pumpswap",
+      "lagSeconds": 300,
+      "follows": 137,
+      "followable": 129,
+      "priced": 76,
+      "censored": 53,
+      "pricedWide": 99,
+      "censoredWide": 30,
+      "noEntryPrice": 8,
+      "exitTruncated": 0,
+      "asPriced": {
+        "point": -0.08432610722235087,
+        "lower": -0.2964647746527634,
+        "upper": 0.2222818487304561
+      },
+      "censoredTreatment": {
+        "point": -0.46053321045657875,
+        "lower": -0.6397288334612383,
+        "upper": -0.26024412915933004
+      },
+      "asPricedWide": {
+        "point": -0.2431514615661142,
+        "lower": -0.4336032557943167,
+        "upper": -0.0001869178979688874
+      },
+      "censoredWideTreatment": {
+        "point": -0.4191627495739946,
+        "lower": -0.6006031240791131,
+        "upper": -0.20692223557430667
+      },
+      "requiredN": 1202,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 0.1112588979688455,
+      "copierRetMatched": -0.08432610722235087,
+      "selectionShare": -0.7579268603394194,
+      "entrySlippage": 0.13635516913249707
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 2,
+      "follows": 268931,
+      "followable": 267407,
+      "priced": 13665,
+      "censored": 253742,
+      "pricedWide": 24428,
+      "censoredWide": 242979,
+      "noEntryPrice": 1247,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 1.9202553294347784,
+        "lower": 1.2179308179237256,
+        "upper": 3.120044621915012
+      },
+      "censoredTreatment": {
+        "point": -0.8507694672288822,
+        "lower": -0.888762995034401,
+        "upper": -0.7880441669054022
+      },
+      "asPricedWide": {
+        "point": 0.7430682894471323,
+        "lower": 0.36730768236455735,
+        "upper": 1.4096940786454717
+      },
+      "censoredWideTreatment": {
+        "point": -0.8407682963624195,
+        "lower": -0.876510778351165,
+        "upper": -0.7786812488654641
+      },
+      "requiredN": 7412,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.563389977878508,
+      "copierRetMatched": 1.9202553294347786,
+      "selectionShare": 0.42079579846197884,
+      "entrySlippage": 0.821262405282994
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 5,
+      "follows": 268931,
+      "followable": 261839,
+      "priced": 13647,
+      "censored": 248192,
+      "pricedWide": 24393,
+      "censoredWide": 237446,
+      "noEntryPrice": 6816,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 1.8901126648056346,
+        "lower": 1.175385971355834,
+        "upper": 3.056084671670415
+      },
+      "censoredTreatment": {
+        "point": -0.8493678652278596,
+        "lower": -0.8885783954425426,
+        "upper": -0.7869019972459793
+      },
+      "asPricedWide": {
+        "point": 0.73211613641679,
+        "lower": 0.3467128219056196,
+        "upper": 1.4168447041457188
+      },
+      "censoredWideTreatment": {
+        "point": -0.8386355397186257,
+        "lower": -0.8761731245230427,
+        "upper": -0.7752511278090021
+      },
+      "requiredN": 8107,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.569351673478809,
+      "copierRetMatched": 1.8901126648056348,
+      "selectionShare": 0.41365007551861843,
+      "entrySlippage": 0.881327584425688
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 15,
+      "follows": 268931,
+      "followable": 239467,
+      "priced": 13573,
+      "censored": 225894,
+      "pricedWide": 24240,
+      "censoredWide": 215227,
+      "noEntryPrice": 29212,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 1.8441016517186721,
+        "lower": 1.1067739766421179,
+        "upper": 3.0886078720797783
+      },
+      "censoredTreatment": {
+        "point": -0.8387961943867943,
+        "lower": -0.8823597634424745,
+        "upper": -0.7679272744690735
+      },
+      "asPricedWide": {
+        "point": 0.7281749707710585,
+        "lower": 0.3264774924299431,
+        "upper": 1.4500126499576529
+      },
+      "censoredWideTreatment": {
+        "point": -0.8250658283125005,
+        "lower": -0.8670020198063573,
+        "upper": -0.7528701518451154
+      },
+      "requiredN": 9504,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.5886881465827996,
+      "copierRetMatched": 1.8441016517186721,
+      "selectionShare": 0.40187992576744974,
+      "entrySlippage": 1.020637853816596
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 30,
+      "follows": 268931,
+      "followable": 210082,
+      "priced": 13496,
+      "censored": 196586,
+      "pricedWide": 24031,
+      "censoredWide": 186051,
+      "noEntryPrice": 58623,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 1.851864410674192,
+        "lower": 1.0225567203204593,
+        "upper": 3.285029441362001
+      },
+      "censoredTreatment": {
+        "point": -0.8167917190122957,
+        "lower": -0.871568888988076,
+        "upper": -0.7238657701415487
+      },
+      "asPricedWide": {
+        "point": 0.7692489651257197,
+        "lower": 0.3078829426413661,
+        "upper": 1.6360424192331686
+      },
+      "censoredWideTreatment": {
+        "point": -0.7976179687886817,
+        "lower": -0.8525319035040935,
+        "upper": -0.7019484994231524
+      },
+      "requiredN": 12992,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.607538337649674,
+      "copierRetMatched": 1.8518644106741924,
+      "selectionShare": 0.4019205647280271,
+      "entrySlippage": 1.1680796636096302
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 60,
+      "follows": 268931,
+      "followable": 169234,
+      "priced": 13367,
+      "censored": 155867,
+      "pricedWide": 23678,
+      "censoredWide": 145556,
+      "noEntryPrice": 99518,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 1.1962721797819476,
+        "lower": 0.8894867538609994,
+        "upper": 1.5571687375305234
+      },
+      "censoredTreatment": {
+        "point": -0.8265267604196241,
+        "lower": -0.8521439050872485,
+        "upper": -0.7960497693025854
+      },
+      "asPricedWide": {
+        "point": 0.5503251924496138,
+        "lower": 0.25433485692399055,
+        "upper": 1.0308748538120058
+      },
+      "censoredWideTreatment": {
+        "point": -0.7830896870202089,
+        "lower": -0.8257855806262742,
+        "upper": -0.7173714661470444
+      },
+      "requiredN": 1426,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 4.634617870009304,
+      "copierRetMatched": 1.1962721797819473,
+      "selectionShare": 0.2581166804545087,
+      "entrySlippage": 1.3798279113614271
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpdotfun",
+      "lagSeconds": 300,
+      "follows": 268931,
+      "followable": 74553,
+      "priced": 12729,
+      "censored": 61824,
+      "pricedWide": 21822,
+      "censoredWide": 52731,
+      "noEntryPrice": 194318,
+      "exitTruncated": 279,
+      "asPriced": {
+        "point": 0.8010550613820028,
+        "lower": 0.42007046486946326,
+        "upper": 1.4393508238567376
+      },
+      "censoredTreatment": {
+        "point": -0.6924921884252611,
+        "lower": -0.7618574963863995,
+        "upper": -0.5792026062308483
+      },
+      "asPricedWide": {
+        "point": 0.22254716297380442,
+        "lower": -0.017637109649539608,
+        "upper": 0.5942982411650777
+      },
+      "censoredWideTreatment": {
+        "point": -0.6421549207890446,
+        "lower": -0.7113696371561198,
+        "upper": -0.5331742605147396
+      },
+      "requiredN": 12802,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": false,
+        "c4": false
+      },
+      "copyable": false,
+      "walletRet60m": 4.81568210222435,
+      "copierRetMatched": 0.8010550613820027,
+      "selectionShare": 0.1663430110995071,
+      "entrySlippage": 2.3376800773175077
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 2,
+      "follows": 4191,
+      "followable": 3845,
+      "priced": 2039,
+      "censored": 1806,
+      "pricedWide": 2559,
+      "censoredWide": 1286,
+      "noEntryPrice": 341,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.3055578970732056,
+        "lower": 0.11941473370967473,
+        "upper": 0.4832507275113762
+      },
+      "censoredTreatment": {
+        "point": -0.3076638355962897,
+        "lower": -0.44125180359287586,
+        "upper": -0.16175316171307286
+      },
+      "asPricedWide": {
+        "point": 0.09416366565167077,
+        "lower": -0.07153493344248842,
+        "upper": 0.2508286109903443
+      },
+      "censoredWideTreatment": {
+        "point": -0.2717906839004875,
+        "lower": -0.4134339254045094,
+        "upper": -0.11852325618762756
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.39235280243508897,
+      "copierRetMatched": 0.3055578970732056,
+      "selectionShare": 0.7787835213022525,
+      "entrySlippage": 0.03713200670351188
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 5,
+      "follows": 4191,
+      "followable": 3842,
+      "priced": 2037,
+      "censored": 1805,
+      "pricedWide": 2556,
+      "censoredWide": 1286,
+      "noEntryPrice": 344,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.30481476904114896,
+        "lower": 0.11526530880279472,
+        "upper": 0.4891603409405326
+      },
+      "censoredTreatment": {
+        "point": -0.30819685462342006,
+        "lower": -0.440197301787435,
+        "upper": -0.1652613049633924
+      },
+      "asPricedWide": {
+        "point": 0.09337883108427222,
+        "lower": -0.07022618026271528,
+        "upper": 0.2591020894803658
+      },
+      "censoredWideTreatment": {
+        "point": -0.27259857047074443,
+        "lower": -0.40947934579982265,
+        "upper": -0.12324368764600038
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.39199569325669414,
+      "copierRetMatched": 0.30481476904114896,
+      "selectionShare": 0.777597239675652,
+      "entrySlippage": 0.04204431491904704
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 15,
+      "follows": 4191,
+      "followable": 3823,
+      "priced": 2035,
+      "censored": 1788,
+      "pricedWide": 2547,
+      "censoredWide": 1276,
+      "noEntryPrice": 363,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.2932593096007689,
+        "lower": 0.10387253287880609,
+        "upper": 0.4749265662850581
+      },
+      "censoredTreatment": {
+        "point": -0.31159228484500007,
+        "lower": -0.44820090625134446,
+        "upper": -0.17078297612582968
+      },
+      "asPricedWide": {
+        "point": 0.0866278753695025,
+        "lower": -0.0832608556277711,
+        "upper": 0.25209846198844105
+      },
+      "censoredWideTreatment": {
+        "point": -0.27605514031751954,
+        "lower": -0.4189182759455124,
+        "upper": -0.1260732541346487
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.387350957324959,
+      "copierRetMatched": 0.29325930960076896,
+      "selectionShare": 0.7570894147932774,
+      "entrySlippage": 0.06299982925031994
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 30,
+      "follows": 4191,
+      "followable": 3803,
+      "priced": 2029,
+      "censored": 1774,
+      "pricedWide": 2540,
+      "censoredWide": 1263,
+      "noEntryPrice": 383,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.2865861211982395,
+        "lower": 0.1031567979789966,
+        "upper": 0.4595725066981657
+      },
+      "censoredTreatment": {
+        "point": -0.3135726426738817,
+        "lower": -0.4484453379715649,
+        "upper": -0.16857191519617648
+      },
+      "asPricedWide": {
+        "point": 0.08155879646307759,
+        "lower": -0.0843651170390827,
+        "upper": 0.24152209810612119
+      },
+      "censoredWideTreatment": {
+        "point": -0.2776336200325487,
+        "lower": -0.4179757943632002,
+        "upper": -0.1262198024383954
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.3936784618597428,
+      "copierRetMatched": 0.28658612119823956,
+      "selectionShare": 0.7279700287498649,
+      "entrySlippage": 0.08769328604703712
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 60,
+      "follows": 4191,
+      "followable": 3792,
+      "priced": 2028,
+      "censored": 1764,
+      "pricedWide": 2539,
+      "censoredWide": 1253,
+      "noEntryPrice": 394,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.27588690971888025,
+        "lower": 0.09183398343134823,
+        "upper": 0.44931730588022456
+      },
+      "censoredTreatment": {
+        "point": -0.3176427603085735,
+        "lower": -0.45087918805817767,
+        "upper": -0.1773285390483287
+      },
+      "asPricedWide": {
+        "point": 0.06516394298275101,
+        "lower": -0.10185037268849374,
+        "upper": 0.2163380540133462
+      },
+      "censoredWideTreatment": {
+        "point": -0.2868008303709903,
+        "lower": -0.4273800957195133,
+        "upper": -0.139224121808385
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.3933450878660107,
+      "copierRetMatched": 0.2758869097188803,
+      "selectionShare": 0.7013864370739481,
+      "entrySlippage": 0.1177156008074247
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "venue": "pumpswap",
+      "lagSeconds": 300,
+      "follows": 4191,
+      "followable": 3598,
+      "priced": 2011,
+      "censored": 1587,
+      "pricedWide": 2499,
+      "censoredWide": 1099,
+      "noEntryPrice": 588,
+      "exitTruncated": 5,
+      "asPriced": {
+        "point": 0.17219179223016795,
+        "lower": 0.012408153462403575,
+        "upper": 0.32540084098092636
+      },
+      "censoredTreatment": {
+        "point": -0.3448366608741334,
+        "lower": -0.465261433898589,
+        "upper": -0.21582763972439004
+      },
+      "asPricedWide": {
+        "point": -0.002109911285496562,
+        "lower": -0.14475227201285829,
+        "upper": 0.1357706086616793
+      },
+      "censoredWideTreatment": {
+        "point": -0.3069129150368138,
+        "lower": -0.436145018430517,
+        "upper": -0.1674833670299742
+      },
+      "requiredN": 641,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false,
+      "walletRet60m": 0.3979976496367014,
+      "copierRetMatched": 0.17219179223016795,
+      "selectionShare": 0.4326452490042274,
+      "entrySlippage": 0.15658003015221936
+    }
+  ]
+}

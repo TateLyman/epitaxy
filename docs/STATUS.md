@@ -1,6 +1,67 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — wallet persistence, both preregistered hypotheses, RUN.
+> **2026-08-19 (LATEST) — Phase C, the copier's price.
+> State: `UNDECIDABLE_CENSORING`.**
+>
+> Full account: `docs/PHASE_C_REPORT.md` (8 sections). Directive committed verbatim
+> before execution: `docs/directives/DIRECTIVE_B4B269BB_PHASE_C_COPIER_LAG.md`.
+>
+> ```
+> pnpm check green: 138 files, 2,102 tests (from 137 / 2,076)
+>
+> selection share, horizon-matched, same t+3600s exit on both sides, pumpswap:
+>   lag        2s     5s    15s    30s    60s   300s
+>   mean-rank  .725   .720  .702   .687   .670   .520
+>   med-rank   .779   .778  .757   .728   .701   .433
+>
+> MT079: 0 of 24 primary cells copyable. 12 clear condition 1 and all 12 fail the
+> sign agreement; the 8 that agree in sign are negative. The failing sets are
+> DISJOINT, so every route through the table says no copyable lag.
+> ```
+>
+> **MT072 IS NO LONGER UNKNOWN.** Quote-to-land slippage against the wallet's own
+> fill, measured on 11,494 followable positions: on the AMM **+2.94% mean and +0.03%
+> median at a 2-second lag**, rising to +12.79% mean and **−0.94% median** at 300
+> seconds. The cost lives in a tail — the mean is a hundred times the median — so a
+> copier's sizing rule matters more than its speed. On the bonding curve the same
+> figure is **+86.13% mean at 2 seconds**: the latency race exists there and not on
+> the AMM, which is a second independent reason not to enter it.
+>
+> **The edge is NOT purely execution.** `EDGE_IS_EXECUTION_ONLY` would have closed
+> the copy branch and it is not the state: a copier two seconds behind keeps roughly
+> three quarters of the same-horizon appreciation. The decay curve's knee is in
+> **minutes, not milliseconds** — losing 58 seconds costs about 5 points of share —
+> so if a decidable version of this ever holds the same shape, the infrastructure is
+> an ordinary RPC poll at 1–2 second cadence, not co-location or a bundle race.
+>
+> **What refuses is the exit, not the threshold.** 46 of every 100 followable
+> positions on the AMM have no exit price in the 60-second window at t+3600s. The two
+> defensible treatments disagree in sign: **+24.45%** as-priced against **−33.06%**
+> with unpriceable positions at −100%. Widening the window to 5 minutes at the *same*
+> horizon admits 26% more positions and cuts the as-priced figure to **+5.42%**, so
+> the narrow window is inflated by survivorship and the truth is between two numbers
+> of opposite sign. No threshold search follows, and the fix is an exit whose price
+> exists for every position — which the collector's own executable quotes already
+> produce.
+>
+> **The vanishing is attrition, not renaming.** 12.8% / 15.6% / 11.8% of vanished top
+> cohorts sent SOL to an address that then traded, against **12.6% for everyone
+> else**; fresh-address rotation is 4.5–5.3% flat across every decile. So ~5% of
+> decile 1 rotated and ~32% stopped or blew up, and rotation cannot be the mechanism
+> behind a 36.7%-versus-8.6% vanishing gradient. The entity-level H1 re-run **did not
+> run**: the transfers scan cost 218 credits and put the phase at 367 of the
+> directive's 400-credit stop-and-report ceiling. H1 stands as an address-level
+> result.
+>
+> `top_fraction` moved from 0.10 to {0.001, 0.01} before anything ran (MT080), and
+> the sharpest cut is the one the power condition rejects — 212 wallets give 76–938
+> priced positions against 1,367–353,817 required. Two columns were added to the
+> query after its first execution had been read (MT081); both make the result more
+> conservative and neither touched the decision rule.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — wallet persistence, both preregistered hypotheses, RUN.
 > State: `H1_CONFIRMED_H2_UNDECIDABLE_NEITHER_TRADABLE`.**
 >
 > Full account: `docs/WALLET_PERSISTENCE_RESULTS.md` (9 sections).

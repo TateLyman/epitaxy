@@ -146,7 +146,8 @@
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
     "wss:status": "tsx scripts/wss-status.ts",
     "wallet:interval": "tsx scripts/wallet-persistence-interval.ts",
-    "token:h2": "tsx scripts/token-forward-return-test.ts"
+    "token:h2": "tsx scripts/token-forward-return-test.ts",
+    "lag:sweep": "tsx scripts/phase-c-lag-sweep.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

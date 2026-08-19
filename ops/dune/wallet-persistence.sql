@@ -36,11 +36,13 @@
 --   token_bought_mint_address, token_sold_mint_address,
 --   token_bought_amount, token_sold_amount
 --
--- THE BASE BLOCK BETWEEN THE >>> MARKERS IS IDENTICAL IN ALL FOUR QUERIES.
--- Dune runs one statement at a time and cannot share a CTE across queries, so
--- it is repeated rather than assembled by hand — v1's "prepend the shared base"
--- instruction is the kind of step that silently gets done differently twice.
--- If you edit it, edit all four copies.
+-- THE BASE BLOCK BETWEEN THE >>> MARKERS IS WRITTEN ONCE AND COMPOSED INTO EVERY
+-- QUERY BY `pnpm dune:assemble`. Dune runs one statement at a time and cannot
+-- share a CTE across queries, so v1 said "prepend the shared base" — the kind of
+-- step that silently gets done differently twice — and v2 wrote it out four times,
+-- which traded that for four copies that can drift. Neither is acceptable when the
+-- corpus is this expensive to scan: edit this ONE copy and re-run the assembler.
+-- The generated files under ops/dune/generated/ are derived and committed.
 -- ============================================================================
 
 
@@ -87,6 +89,31 @@ WITH params AS (
        price. 5 trades and 1 SOL are about OBSERVABILITY and reference no return. */
     5    AS mark_min_trades,
     1.0  AS mark_min_sol,
+    /* PHASE C SELECTIVITY, MT080. top_fraction = 0.10 is 21,123 wallets and a
+       decile cannot be mostly skill: published all-time base rates put roughly
+       0.4% of pump.fun wallets above $10,000 realised and about 0.002% above $1M.
+       These two cuts admit 212 and 2,113 wallets. Availability-driven, chosen from
+       external base rates before any copier return existed, and they cost
+       something real - the per-cell n falls by two orders of magnitude, which
+       makes MT079's power condition binding rather than a formality. 0.10 is not
+       re-run; it stands as reported in H1. */
+    0.001 AS frac_tight,
+    0.01  AS frac_mid,
+    /* PHASE C LAG SWEEP. The copier's entry window is [T+L, T+L+entry_window_s)
+       on the wallet's buy at T; the exit is [T+exit_at_s, T+exit_at_s+exit_window_s).
+       The 60-minute exit is the Phase B convention and is deliberately NOT a new
+       horizon: this phase introduces a new estimand and changing both at once
+       would make the two incomparable. */
+    60   AS entry_window_s,
+    3600 AS exit_at_s,
+    60   AS exit_window_s,
+    /* EXIT WINDOW SENSITIVITY. A 60-second window with no trade in it does not
+       prove a position was unexitable - it proves nothing traded in that
+       particular minute, and H2 became undecidable on exactly this ambiguity. The
+       wide window is 5 minutes from the same t+3600s horizon, so the HORIZON is
+       unchanged and only the granularity moves. It is a sensitivity and never the
+       primary: MT079 is decided on the 60-second window. */
+    300  AS exit_wide_window_s,
     -- PARTITION BOUNDS. `dex_solana.trades` is partitioned on block_date, and a
     -- predicate on block_time alone does not prune partitions — it reads them and
     -- then filters. These must agree with the timestamps above; they are declared
@@ -396,7 +423,17 @@ flagged AS (
   SELECT
     r.*,
     r.rank_by_mean   <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_mean,
-    r.rank_by_median <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_median
+    r.rank_by_median <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_median,
+    -- MT080's sharper cuts, added for Phase C. The 0.10 flags above are untouched
+    -- so that queries 1 to 4 keep returning exactly what H1 and H2 reported: a
+    -- sharper cut is a new arm, not a retrospective edit of a test that has run.
+    -- 0.001 is a strict subset of 0.01, which is a strict subset of 0.10, so a
+    -- position can appear in more than one arm. The arms are reported separately
+    -- and are never summed.
+    r.rank_by_mean   <= CEIL((SELECT frac_tight FROM params) * r.wallets_qualifying) AS top_mean_001,
+    r.rank_by_median <= CEIL((SELECT frac_tight FROM params) * r.wallets_qualifying) AS top_median_001,
+    r.rank_by_mean   <= CEIL((SELECT frac_mid FROM params) * r.wallets_qualifying)   AS top_mean_01,
+    r.rank_by_median <= CEIL((SELECT frac_mid FROM params) * r.wallets_qualifying)   AS top_median_01
   FROM ranked r
 ),
 
@@ -724,3 +761,439 @@ ORDER BY 1, 2, 3;
 --   racing. Phase B recorded both as UNKNOWN and every figure it produced as an
 --   upper bound; the same applies to every number this file returns.
 -- ============================================================================
+
+-- ############################################################################
+-- QUERY 5 — PHASE C, THE COPIER'S PRICE AS A FUNCTION OF LAG
+--
+-- H1 measured the WALLET's realised return, which is SELECTION (they chose a
+-- mint that appreciated - transferable) plus EXECUTION (their fill, their sizing,
+-- their exit - not transferable). A copier inherits the first and forfeits the
+-- second, so H1 is an UPPER BOUND on a copy strategy and says nothing about its
+-- value. This query measures the copier's own return directly, at six lags, on
+-- the same wallet buys H1 already validated, and pairs it position by position
+-- with the wallet's own return so the ratio is computable.
+--
+-- The ratio is the estimand. The level is secondary.
+--
+-- FOUR THINGS IT DELIBERATELY DOES NOT DO
+--
+--   1. It does not apply the cost floor here. The floor is applied offline, in
+--      scripts/phase-c-lag-sweep.ts, because MT079 requires it on the COPIER side
+--      only (that trade is ours) and never on the wallet side (the AMM fee and
+--      the impact are already inside the on-chain amounts, per MT075), and
+--      because the tier-sensitivity of the floor should not cost a re-run.
+--   2. It does not filter censored or unenterable positions. They are returned as
+--      counts. That convention is what surfaced the unmarkability gradient in H1.
+--   3. It does not pool the fit-mean and fit-median cohorts. They are different
+--      populations - +39.09% at a 36.7% win rate against +2.43% at 53.6% - and a
+--      36.7% win rate paying +39% is tail capture, which is mostly EXIT skill.
+--      Pooling them averages two mechanisms into one uninterpretable number.
+--   4. It does not compute an interval. Day-clustered intervals come from
+--      clusterBootstrapAggregated offline, the same machinery H1 used.
+--
+-- WHY ONE PASS OVER THE TAPE AND THEN AN UNNEST, rather than six joins: the trade
+-- join is the expensive half, the six entry windows are all inside [T+2s,
+-- T+3660s), and computing twelve conditional aggregates in one pass costs one
+-- scan instead of six. The UNNEST that follows turns the wide row into six long
+-- rows for free.
+-- ############################################################################
+
+--#Q5 needs=BASE,RANK
+,
+lag_grid AS (
+  -- MT079's frozen lag set. 2s is about as fast as a public-mempool copier could
+  -- plausibly be; 300s is included to show the curve flat rather than to propose
+  -- it as a strategy.
+  SELECT * FROM (VALUES (2), (5), (15), (30), (60), (300)) AS t(lag_s)
+),
+
+/* THE WALLET'S OWN ENTRY PRICE, from the legs of its first buy.
+
+   This is what makes the ratio a ratio of like things. The directive's
+   wallet_return is the wallet's realised return over the WHOLE position - its own
+   exit, whenever it took it, with a carry-forward mark if it never did - while
+   copier_return is a fixed 60-minute round trip. Dividing one by the other
+   compares two different holding periods and answers no clean question.
+
+   With the wallet's entry price in hand, the same 60-minute exit can be applied to
+   BOTH sides, and then the decomposition the directive asks for is exact:
+
+     wallet_ret_60m  = exit / THEIR price  - 1     selection, at their fill
+     copier_ret(L)   = exit / OUR price(L) - 1     selection, at our fill
+     ratio           = copier_ret / wallet_ret_60m the share of the same
+                                                   appreciation a copier keeps
+
+   Both are reported. The specified ratio against the wallet's realised return is
+   reported too, and labelled for what it is. */
+first_buy_px AS (
+  SELECT
+    w.trader_id,
+    w.mint,
+    w.block_time                                          AS t0,
+    SUM(w.sol_amount) / NULLIF(SUM(w.token_amount), 0)     AS wallet_entry_px,
+    SUM(w.sol_amount)                                      AS first_buy_sol
+  FROM windowed w
+  WHERE w.side = 'BUY' AND w.window_tag = 'HOLD'
+  GROUP BY 1, 2, 3
+),
+
+copy_entries AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)      AS utc_day,
+    pp.trader_id,
+    pp.mint,
+    pp.first_buy                    AS t0,
+    pp.entry_project,
+    pp.sol_in,
+    pp.is_closed,
+    -- The wallet's own return, net of OUR fixed cost only. MT075: subtracting the
+    -- full 2.69% floor here would double count 2.63 of those points.
+    pp.ret_carryfwd - pp.fixed_cost_fraction AS wallet_ret,
+    pp.unmarkable,
+    fbp.wallet_entry_px,
+    fbp.first_buy_sol,
+    -- TRUNCATION IS NOT DEATH. A buy in the last 61 minutes of the holdout window
+    -- has no exit mark because the WINDOW ends, not because the token did, and
+    -- counting it as a -100% censored position would manufacture a loss out of a
+    -- boundary. Flagged, excluded from both treatments, and counted.
+    date_add('second', (SELECT exit_at_s + exit_window_s FROM params), pp.first_buy)
+      > (SELECT hold_end FROM params)        AS exit_truncated,
+    f.top_mean_001,
+    f.top_median_001,
+    f.top_mean_01,
+    f.top_median_01
+  FROM position_pnl pp
+  JOIN flagged f ON f.trader_id = pp.trader_id
+  LEFT JOIN first_buy_px fbp
+    ON fbp.trader_id = pp.trader_id AND fbp.mint = pp.mint AND fbp.t0 = pp.first_buy
+  WHERE pp.window_tag = 'HOLD'
+    AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
+    -- 0.01 is the superset of 0.001, so this admits every arm in one pass.
+    AND (f.top_mean_01 OR f.top_median_01)
+),
+
+/* ONE PASS OVER THE TAPE.
+
+   Every price here is a VWAP of OTHER traders' fills in a 60-second window - the
+   copier's own order is not in it, and could not be. That is the honest reading
+   of a public tape and it is also the limit of what this measures: our own impact
+   beyond what the 2.69% floor already contains is not in these numbers, and it is
+   worst exactly where a copier operates. Stated in MT079 before the run.
+
+   The entry window starts at T+L, so it never overlaps the wallet's own buy at T.
+   Other copiers' fills ARE in it, which is the crowding that already exists in
+   the tape and should be there. */
+copy_px AS (
+  SELECT
+    e.utc_day, e.trader_id, e.mint, e.t0, e.entry_project, e.sol_in, e.is_closed,
+    e.wallet_ret, e.unmarkable, e.exit_truncated, e.wallet_entry_px, e.first_buy_sol,
+    e.top_mean_001, e.top_median_001, e.top_mean_01, e.top_median_01,
+    ARRAY[
+      SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t0)
+                AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t0)
+                           AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t0)
+                AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t0)
+                           AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t0)
+                AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t0)
+                           AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t0)
+                AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t0)
+                           AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t0)
+                AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t0)
+                           AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t0)
+                AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t0)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t0)
+                           AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t0)
+                          THEN w.token_amount ELSE 0 END), 0)
+    ]                                                             AS entry_px_by_lag,
+    SUM(CASE WHEN w.block_time >= date_add('second', (SELECT exit_at_s FROM params), e.t0)
+              AND w.block_time <  date_add('second', (SELECT exit_at_s + exit_window_s FROM params), e.t0)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', (SELECT exit_at_s FROM params), e.t0)
+                         AND w.block_time <  date_add('second', (SELECT exit_at_s + exit_window_s FROM params), e.t0)
+                        THEN w.token_amount ELSE 0 END), 0)        AS exit_px,
+    -- SENSITIVITY, never the primary: same horizon, 5-minute window.
+    SUM(CASE WHEN w.block_time >= date_add('second', (SELECT exit_at_s FROM params), e.t0)
+              AND w.block_time <  date_add('second', (SELECT exit_at_s + exit_wide_window_s FROM params), e.t0)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', (SELECT exit_at_s FROM params), e.t0)
+                         AND w.block_time <  date_add('second', (SELECT exit_at_s + exit_wide_window_s FROM params), e.t0)
+                        THEN w.token_amount ELSE 0 END), 0)        AS exit_px_wide,
+    COUNT(*)                                                      AS tape_legs
+  FROM copy_entries e
+  JOIN windowed w
+    ON w.mint = e.mint
+   AND w.block_time >= date_add('second', 2, e.t0)
+   AND w.block_time <  date_add('second', (SELECT exit_at_s + exit_wide_window_s FROM params), e.t0)
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+),
+
+-- Wide to long: six rows per position, one per lag, at the cost of no extra scan.
+copy_long AS (
+  SELECT
+    c.utc_day, c.trader_id, c.mint, c.entry_project, c.sol_in, c.is_closed,
+    c.wallet_ret, c.unmarkable, c.exit_truncated, c.exit_px, c.exit_px_wide,
+    c.wallet_entry_px, c.first_buy_sol, c.tape_legs,
+    c.top_mean_001, c.top_median_001, c.top_mean_01, c.top_median_01,
+    u.lag_s,
+    u.entry_px
+  FROM copy_px c
+  CROSS JOIN UNNEST(ARRAY[2, 5, 15, 30, 60, 300], c.entry_px_by_lag) AS u(lag_s, entry_px)
+),
+
+-- The four arms, reported separately and never summed. A position in the 0.001
+-- arm is also in the 0.01 arm by construction.
+arms AS (
+  SELECT * FROM (VALUES
+    ('MEAN',   0.001),
+    ('MEDIAN', 0.001),
+    ('MEAN',   0.01),
+    ('MEDIAN', 0.01)
+  ) AS t(rank_stat, top_fraction)
+)
+
+SELECT
+  c.utc_day,
+  a.rank_stat,
+  a.top_fraction,
+  c.entry_project,
+  c.lag_s,
+  -- COVERAGE. n_no_entry_px is not a loss and not a censoring: it is a position
+  -- the copier could not have entered at all, because nobody traded the mint in
+  -- its 60-second entry window. A strategy that can only enter a fraction of the
+  -- buys it follows has that fraction as a hard ceiling on its deployment, and
+  -- burying it inside a mean would hide the single most operationally relevant
+  -- number in this table.
+  COUNT(*)                                                        AS n_all,
+  COUNT_IF(c.entry_px IS NULL OR c.entry_px <= 0)                 AS n_no_entry_px,
+  COUNT_IF(c.exit_truncated)                                      AS n_exit_truncated,
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NULL) AS n_censored,
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL) AS n,
+  -- The copier's GROSS return. The floor is subtracted offline, per MT079.
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+           THEN c.exit_px / c.entry_px - 1e0 ELSE 0e0 END)        AS sum_copier_ret,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+           THEN POWER(c.exit_px / c.entry_px - 1e0, 2) ELSE 0e0 END) AS sum_copier_ret_sq,
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px > c.entry_px)   AS n_positive_copier,
+  APPROX_PERCENTILE(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                         THEN c.exit_px / c.entry_px - 1e0 END, 0.5) AS median_copier_ret,
+  -- THE WALLET SIDE, ON EXACTLY THE SAME POSITIONS. A ratio whose numerator and
+  -- denominator are computed over different sets is not a ratio of anything.
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+           AND c.wallet_ret IS NOT NULL)                          AS n_paired,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_ret IS NOT NULL THEN c.wallet_ret ELSE 0e0 END) AS sum_wallet_ret_paired,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_ret IS NOT NULL THEN c.exit_px / c.entry_px - 1e0 ELSE 0e0 END)
+                                                                  AS sum_copier_ret_paired,
+  -- HORIZON-MATCHED PAIR. Same positions, same t+3600s exit, the only difference
+  -- being whose entry price is in the denominator: theirs, or ours at lag L. This
+  -- is the decomposition the phase exists to produce, and it is the only form of
+  -- the ratio in which numerator and denominator answer the same question.
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+           AND c.wallet_entry_px > 0)                             AS n_matched,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_entry_px > 0 THEN c.exit_px / c.wallet_entry_px - 1e0 ELSE 0e0 END)
+                                                                  AS sum_wallet_ret_60m,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_entry_px > 0 THEN POWER(c.exit_px / c.wallet_entry_px - 1e0, 2) ELSE 0e0 END)
+                                                                  AS sum_wallet_ret_60m_sq,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_entry_px > 0 THEN c.exit_px / c.entry_px - 1e0 ELSE 0e0 END)
+                                                                  AS sum_copier_ret_matched,
+  -- The slippage a copier eats on entry alone: our VWAP against their fill.
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+                AND c.wallet_entry_px > 0 THEN c.entry_px / c.wallet_entry_px - 1e0 ELSE 0e0 END)
+                                                                  AS sum_entry_slippage,
+  -- WIDE EXIT WINDOW, the censoring sensitivity. Same horizon, 5 minutes instead
+  -- of 60 seconds. If most of the censoring is window granularity rather than
+  -- illiquidity, n_wide is much larger than n and the two treatments converge.
+  COUNT_IF(NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px_wide IS NOT NULL) AS n_wide,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px_wide IS NOT NULL
+           THEN c.exit_px_wide / c.entry_px - 1e0 ELSE 0e0 END)   AS sum_copier_ret_wide,
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px_wide IS NOT NULL
+           THEN POWER(c.exit_px_wide / c.entry_px - 1e0, 2) ELSE 0e0 END) AS sum_copier_ret_wide_sq,
+  -- Size and liquidity, for the record: a copier's feasible notional is bounded
+  -- by what actually traded in its entry window.
+  SUM(CASE WHEN NOT c.exit_truncated AND c.entry_px > 0 AND c.exit_px IS NOT NULL
+           THEN c.sol_in ELSE 0e0 END)                            AS sum_wallet_sol_in,
+  APPROX_PERCENTILE(CASE WHEN c.entry_px > 0 AND c.wallet_entry_px > 0
+                         THEN c.entry_px / c.wallet_entry_px - 1e0 END, 0.5) AS median_entry_slippage,
+  APPROX_PERCENTILE(c.tape_legs, 0.5)                             AS median_tape_legs,
+  COUNT(DISTINCT c.trader_id)                                     AS wallets_in_cell
+FROM copy_long c
+CROSS JOIN arms a
+WHERE (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.001 AND c.top_mean_001)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.001 AND c.top_median_001)
+   OR (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.01  AND c.top_mean_01)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.01  AND c.top_median_01)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 2, 3, 4, 5, 1;
+
+--#END
+
+-- ############################################################################
+-- QUERY 6 — PHASE C §4, ROTATION OR DEATH
+--
+-- Deciles 1-2 of the H1 ranking vanish at 36.7-46.6% against 8.6-13% at deciles
+-- 7-9, and `stopped`, `rotated to a fresh address` and `blew up` are one column.
+-- H1 passed, so ADDRESS persistence is established; this asks whether the thing
+-- that persists is an address or an operator.
+--
+-- It cuts two ways and both matter:
+--   - if much of the vanishing is rotation, H1's estimate is conditioned on a
+--     non-random survivor set;
+--   - and separately, any live copy list decays to nothing within weeks, which
+--     governs everything downstream of a positive Phase C result.
+--
+-- THE TEST. For every vanished top-cohort wallet, follow its outbound native-SOL
+-- transfers and ask whether the recipient then traded pump tokens:
+--
+--   funds moved to an address that subsequently traded   -> ROTATION
+--   funds dispersed, or the recipient never traded       -> STOPPED_OR_BLEW_UP
+--
+-- WHAT IT CANNOT SEE, stated before the numbers: a rotation funded from a third
+-- address rather than from the vanished one, a rotation through a CEX or a mixer,
+-- an operator running many addresses concurrently rather than sequentially, and a
+-- transfer whose recipient trades on a venue outside `project IN (pumpdotfun,
+-- pumpswap)`. Every one of those makes this an UNDERCOUNT of rotation, so the
+-- rotation share here is a floor and the STOPPED_OR_BLEW_UP share is a ceiling.
+-- ############################################################################
+
+--#Q6 needs=BASE,RANK
+,
+-- The vanished: flagged in the fit window, zero qualifying holdout positions.
+vanished AS (
+  SELECT
+    ha.trader_id,
+    ha.fit_decile,
+    ha.top_by_mean,
+    ha.top_by_median,
+    ha.mean_ret_fit,
+    ha.median_ret_fit
+  FROM holdout_activity ha
+  WHERE ha.n_hold = 0
+),
+
+/* Outbound native SOL. `amount_display` is SOL, not lamports.
+
+   The 0.05 SOL floor is about SIGNAL, not size: a wallet closing token accounts
+   and paying fees emits a long tail of dust transfers, and a rotation moves a
+   working balance. It is declared here rather than tuned, and the count below the
+   floor is returned so the choice is visible. */
+outflows AS (
+  SELECT
+    t.from_owner                  AS trader_id,
+    t.to_owner                    AS successor,
+    SUM(t.amount_display)         AS sol_moved,
+    MIN(t.block_time)             AS first_move,
+    COUNT(*)                      AS n_transfers
+  FROM tokens_solana.sol_transfers t
+  JOIN vanished v ON v.trader_id = t.from_owner
+  CROSS JOIN params p
+  WHERE t.block_date >= DATE '2026-07-08'
+    AND t.block_date <= p.hold_end_date
+    AND t.block_time <  p.hold_end
+    AND t.to_owner <> t.from_owner
+    AND t.amount_display >= 0.05
+  GROUP BY 1, 2
+),
+
+-- Dust, counted rather than assumed negligible.
+outflow_dust AS (
+  SELECT t.from_owner AS trader_id, COUNT(*) AS n_dust_transfers
+  FROM tokens_solana.sol_transfers t
+  JOIN vanished v ON v.trader_id = t.from_owner
+  CROSS JOIN params p
+  WHERE t.block_date >= DATE '2026-07-08'
+    AND t.block_date <= p.hold_end_date
+    AND t.block_time <  p.hold_end
+    AND t.to_owner <> t.from_owner
+    AND t.amount_display < 0.05
+  GROUP BY 1
+),
+
+/* Did the recipient trade AFTER receiving?
+
+   `block_time > first_move` is what makes this a succession test rather than a
+   correlation: an address that was already trading before the transfer is not a
+   fresh identity, and it is counted separately as ACTIVE_RECIPIENT. */
+successors AS (
+  SELECT
+    o.trader_id,
+    o.successor,
+    o.sol_moved,
+    o.first_move,
+    MIN(CASE WHEN w.block_time > o.first_move THEN w.block_time END)  AS first_trade_after,
+    MIN(w.block_time)                                                AS first_trade_ever,
+    COUNT(CASE WHEN w.block_time > o.first_move THEN 1 END)           AS legs_after
+  FROM outflows o
+  LEFT JOIN windowed w ON w.trader_id = o.successor
+  GROUP BY 1, 2, 3, 4
+),
+
+classified AS (
+  SELECT
+    v.trader_id,
+    v.fit_decile,
+    v.top_by_mean,
+    v.top_by_median,
+    COALESCE(SUM(s.sol_moved), 0)                                    AS sol_out_total,
+    COUNT(s.successor)                                               AS n_recipients,
+    COUNT(CASE WHEN s.legs_after > 0 THEN 1 END)                     AS n_trading_recipients,
+    COUNT(CASE WHEN s.legs_after > 0 AND s.first_trade_ever > s.first_move THEN 1 END)
+                                                                     AS n_fresh_recipients,
+    MAX(CASE WHEN s.legs_after > 0 THEN s.sol_moved END)              AS largest_trading_transfer,
+    COALESCE(MAX(d.n_dust_transfers), 0)                             AS n_dust_transfers
+  FROM vanished v
+  LEFT JOIN successors s   ON s.trader_id = v.trader_id
+  LEFT JOIN outflow_dust d ON d.trader_id = v.trader_id
+  GROUP BY 1, 2, 3, 4
+)
+
+SELECT
+  CASE WHEN top_by_mean AND top_by_median THEN 'TOP_BOTH'
+       WHEN top_by_mean                   THEN 'TOP_MEAN_ONLY'
+       WHEN top_by_median                 THEN 'TOP_MEDIAN_ONLY'
+       ELSE 'REST_NEITHER' END                                       AS cohort,
+  fit_decile,
+  COUNT(*)                                                           AS vanished_wallets,
+  -- The classification. FRESH is the strong form: the recipient had never traded
+  -- before the transfer, so it is a new identity rather than an existing one.
+  COUNT_IF(n_fresh_recipients > 0)                                   AS rotation_fresh,
+  COUNT_IF(n_trading_recipients > 0 AND n_fresh_recipients = 0)      AS rotation_to_active,
+  COUNT_IF(n_recipients > 0 AND n_trading_recipients = 0)            AS moved_to_non_trader,
+  COUNT_IF(n_recipients = 0)                                         AS no_outflow_at_all,
+  -- Size, because a 0.06 SOL transfer to a fresh address that trades once is not
+  -- the same evidence as 40 SOL to an address that then trades hundreds of times.
+  APPROX_PERCENTILE(sol_out_total, 0.5)                              AS median_sol_out,
+  APPROX_PERCENTILE(CASE WHEN n_fresh_recipients > 0 THEN largest_trading_transfer END, 0.5)
+                                                                     AS median_rotation_size,
+  SUM(n_recipients)                                                  AS total_recipients,
+  SUM(n_dust_transfers)                                              AS total_dust_transfers
+FROM classified
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+--#END
