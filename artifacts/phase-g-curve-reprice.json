@@ -1,0 +1,124 @@
+{
+  "label": "DEVELOPMENT_RECONSTRUCTED",
+  "isEvidence": false,
+  "directive": "Phase G addendum §A.3 validation 2 and §A.4",
+  "rule": "MT095",
+  "curveFloor": 0.025,
+  "population": {
+    "t1t7HoldoutPositions": 5598,
+    "onACurve": 999,
+    "curvePricedBothLegs": 865,
+    "t0Excluded": 38802,
+    "t0ExcludedReason": "T0 fired on 38,802 mints, whose inline target list is about 2.5 MB of SQL and Dune refuses a query that size. T0 is the baseline, so no re-priced trigger here can be compared against a re-priced baseline."
+  },
+  "validation2": {
+    "n": 225,
+    "note": "curve-priced return against the return Phase B observed, on positions it could already mark"
+  },
+  "cells": [
+    {
+      "trigger": "T1",
+      "fired": 141,
+      "nReported": 14,
+      "nCurve": 95,
+      "asReported": -0.3246695809821875,
+      "curveMean": -0.0032473399192592617,
+      "lower": -0.010031220796388005,
+      "upper": 0.017989156739578537,
+      "netCurve": -0.028247339919259262,
+      "netLower": -0.035031220796388006,
+      "previouslyUnmarkableMean": -0.0026225366967492555,
+      "nPreviouslyUnmarkable": 83
+    },
+    {
+      "trigger": "T2",
+      "fired": 26,
+      "nReported": 4,
+      "nCurve": 20,
+      "asReported": -0.16370499501468921,
+      "curveMean": 0.009617673471046733,
+      "lower": -0.000008881261514913166,
+      "upper": 0.014801202942426083,
+      "netCurve": -0.015382326528953268,
+      "netLower": -0.025008881261514914,
+      "previouslyUnmarkableMean": 0.012121920086595968,
+      "nPreviouslyUnmarkable": 16
+    },
+    {
+      "trigger": "T3",
+      "fired": 6,
+      "nReported": 1,
+      "nCurve": 5,
+      "asReported": 0.3297435221799754,
+      "curveMean": 0,
+      "lower": 0,
+      "upper": 0,
+      "netCurve": -0.025,
+      "netLower": -0.025,
+      "previouslyUnmarkableMean": 0,
+      "nPreviouslyUnmarkable": 4
+    },
+    {
+      "trigger": "T4",
+      "fired": 141,
+      "nReported": 14,
+      "nCurve": 95,
+      "asReported": -0.3246695809821875,
+      "curveMean": -0.000963058679253667,
+      "lower": -0.010031220796388005,
+      "upper": 0.027424231426558168,
+      "netCurve": -0.025963058679253668,
+      "netLower": -0.035031220796388006,
+      "previouslyUnmarkableMean": -0.000007997928068153,
+      "nPreviouslyUnmarkable": 83
+    },
+    {
+      "trigger": "T5",
+      "fired": 26,
+      "nReported": 4,
+      "nCurve": 20,
+      "asReported": -0.16370499501468921,
+      "curveMean": 0.009617673471046733,
+      "lower": -0.000008881261514913166,
+      "upper": 0.014801202942426083,
+      "netCurve": -0.015382326528953268,
+      "netLower": -0.025008881261514914,
+      "previouslyUnmarkableMean": 0.012121920086595968,
+      "nPreviouslyUnmarkable": 16
+    },
+    {
+      "trigger": "T6",
+      "fired": 444,
+      "nReported": 128,
+      "nCurve": 412,
+      "asReported": 0.049557637469788696,
+      "curveMean": -0.1886692146715902,
+      "lower": -0.25411679835509154,
+      "upper": -0.11753641818978473,
+      "netCurve": -0.2136692146715902,
+      "netLower": -0.27911679835509157,
+      "previouslyUnmarkableMean": -0.20310257075435004,
+      "nPreviouslyUnmarkable": 284
+    },
+    {
+      "trigger": "T7",
+      "fired": 215,
+      "nReported": 66,
+      "nCurve": 189,
+      "asReported": 0.2174200528467881,
+      "curveMean": -0.15984651424462054,
+      "lower": -0.24994597559780576,
+      "upper": 0.08179524572164687,
+      "netCurve": -0.18484651424462054,
+      "netLower": -0.27494597559780576,
+      "previouslyUnmarkableMean": -0.24127431555055998,
+      "nPreviouslyUnmarkable": 125
+    }
+  ],
+  "pooled": {
+    "nPreviouslyUnmarkable": 611,
+    "previouslyUnmarkableMean": -0.14348748358288738,
+    "nSurvivors": 231,
+    "survivorMean": 0.045984659647541906
+  }
+}

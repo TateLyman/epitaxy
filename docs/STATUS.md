@@ -1,6 +1,57 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase G, a horizon where prices exist.
+> **2026-08-19 (LATEST) — Phase G addendum, price the curve not the tape.
+> State: `PRE_MIGRATION_CURVE_PRICED: RECONSTRUCTION_FAILED_VALIDATION`.**
+>
+> Full account: `docs/PHASE_G_ADDENDUM_REPORT.md`. Directive transcribed from PDF and
+> committed before execution, with its three PDF losses marked rather than reconstructed:
+> `docs/directives/DIRECTIVE_C5C33404_PHASE_G_ADDENDUM_PRICE_THE_CURVE.md`.
+>
+> ```
+> pnpm check green: 143 files, 2,175 tests
+> 33 credits. The decisive query cost 27 and read 93.9M events over 892,607 mints.
+> ```
+>
+> **THE CURVE STATE IS OBSERVED, NOT RECONSTRUCTED.** `pump_evt_tradeevent` carries
+> `virtualSolReserves` and `virtualTokenReserves` as the pump program computed them after
+> every trade, so the Global-account parameters the addendum called the technical risk are
+> never used — and the corpus holds neither a curve account nor a Global account anyway
+> (MT096). Rolling the token reserve forward on token amounts alone reproduces the
+> program's own numbers at **p50 1.00000 with 97.9–99.5% within 1%, flat across all five
+> trade-count buckets**. The invariant cross-check FAILS at 58.5–80.0%, so `k` is not
+> constant over a curve's life and nothing derives SOL from it.
+>
+> **AND THE PRICE STILL FAILS, for a reason worth more than the method would have been.**
+> Curve price against traded price on the 225 markable positions: p50 1.00189 but only
+> **23.6% within 1%**, p90 **18.19**. The failures are isolated exactly: **39 of 225
+> positions had zero curve trades between entry and exit, and their median error is 17.185
+> against 0.032 for the rest.** A curve with no trades between two instants returns the
+> same price at both, so it reports **+0.00%** where the token actually did **−94.50%**.
+>
+> **The censoring did not disappear; it changed clothes.** Phase F had no price for those
+> positions. Curve pricing has a price that is confidently wrong in the *favourable*
+> direction. Curve pricing adds coverage exactly where it adds error — where the token was
+> still trading it agrees to within a few points, and where it was still trading Phase B
+> already had a price.
+>
+> **TWO FINDINGS THAT DO NOT DEPEND ON THE VALIDATION.** Only **999 of 5,598** T1–T7
+> holdout positions (**17.8%**) are on a pump.fun bonding curve at all — the rest are other
+> launchpads and unaffiliated tokens Jupiter discovery admitted — so "the pre-migration
+> bonding-curve branch" mostly is not one. And on the subset that *is* a curve, T1's
+> as-reported mean is **−32.47%**, not +234.2%: the positive figures belong to the 82% that
+> is not a bonding curve. Pooled, 611 previously unmarkable positions average **−14.35%**
+> against **+4.60%** for 231 survivors — the opposite direction from Phase F's weak
+> 27-mint signal — but the sign is **not established**, because the instrument fails
+> precisely on the positions being corrected.
+>
+> §B, §C and §D of the addendum were already delivered in PR #63. §A.3's flat table
+> independently corroborates §C's finding from the other side: the AMM base side carries no
+> fee and drifted; the curve token side carries no fee and does not. **The difference
+> between the venues is data completeness, not fees.**
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase G, a horizon where prices exist.
 > State: `NO_COPYABLE_HORIZON`. THE PHASE C CELL IS CLOSED BY MEASUREMENT, AND NEGATIVE.**
 >
 > Full account: `docs/PHASE_G_REPORT.md`. Directive committed verbatim before execution:
