@@ -1,6 +1,63 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase E, mirror the fraction not the event.
+> **2026-08-19 (LATEST) — Phase F, the three deferred measurements. All three run.
+> `PRE_MIGRATION: UNDECIDABLE`. `PHASE_C_CELL: RECONSTRUCTION_FAILED_VALIDATION`.
+> H1 CONFIRMED AT ENTITY LEVEL.**
+>
+> Full account: `docs/PHASE_F_REPORT.md`. Directive committed verbatim before
+> execution: `docs/directives/DIRECTIVE_4923AA9D_PHASE_F_CONFIRM_THE_DEFERRED.md`.
+>
+> ```
+> pnpm check green: 142 files, 2,156 tests (from 141 / 2,146)
+> 174 credits of a 400 target. The decisive query cost 3.
+> ```
+>
+> **H1 HOLDS AT ENTITY LEVEL — the one deferred item that could have moved a number
+> up, and it moved it down by a quarter of a point.** Stitching rotated successors to
+> their predecessors as one entity: fit-mean cut **+36.47% [+33.38%, +39.84%]** against
+> the address-level +36.74% [+33.57%, +40.03%]; median cut +12.49% [+11.28%, +13.85%]
+> against +12.67%. Positive on 30/30 days on both, every adversarial re-cut within 0.1
+> points. Successors contribute **1.07% of positions** against ~5% of wallets — they are
+> barely active — and they *underperform* the cohorts they join (+12.35% against
+> TOP_BOTH's +26.43%). H1 is no longer address-level only.
+>
+> **THE RESERVE RECONSTRUCTION FAILS VALIDATION, and the failure is diagnosed.** Rolling
+> 271 consecutive stored snapshots forward through the trades between their slots — no
+> anchor, no assumption — the p50 passes at **1.000011** and agreement within 1% is
+> **55.7%/52.8%** against a required 95%; among the 184 pairs that actually traded it is
+> 34.8%/30.4%. The error is **exact at one trade and grows monotonically**: p50 1.00000
+> at one trade, 1.18 at 21–100, **1.93 at 101+** with a quote p50 of −0.97, and 42 of 271
+> pairs imply a **negative reserve**. That is a per-trade bias, not a liquidity event:
+> `dex_solana.trades` records the *trader's* amounts and a PumpSwap fee splits between
+> pool, protocol and creator, so the portion leaving the pool compounds unexplained.
+> Option B fails too — 103 of 133 implied migration deposits are negative, quote spread
+> 420×. **§2.4 did not run**, so Phase C's 12 cells remain unevaluated at honest
+> coverage. A working reconstruction needs the per-trade fee split, which is a different
+> data source rather than a better estimator.
+>
+> **THE PRE-MIGRATION MEANS SURVIVE CARRY-FORWARD AND THE BRANCH IS STILL UNDECIDABLE.**
+> T1 +234.2% → **+247.6%**, T2 +392.7% → +394.2%, T3 +362.5% → +349.3%; all 252 positive
+> cells stay positive and 225 clear a 2.50% floor on a lower bound. But residual-at-zero
+> flips **every one** (T1 → −79.2%), and the three treatments disagree in sign in all 279
+> evaluable cells. **Carry-forward cannot decide it because 97.5% of censored mints have
+> no post-entry price at all** — they are not stale, they stopped being snapshotted.
+> Censoring runs 75.4–98.1%, median 92.6%. One measurement cuts against the assumption
+> that uncovered positions are worse: on the 2.5% that *are* markable they average
+> **+282.9% against +234.2%** for the survivors — 27 mints, weak, and the only evidence
+> there is.
+>
+> The tradable population is negative under all three treatments, so Phase B's verdict
+> stands. Every net curve figure is an **upper bound**: impact and the 6 bps fixed cost
+> are additional and unmeasured on the bonding curve.
+>
+> What is left: our own market impact (only the collector's executable quotes can
+> measure it), **an exit rule that is not the wallet's** (never tested), an exit price
+> for mints the collector stopped snapshotting (a collection problem), and the per-trade
+> fee split. Entity-level persistence is no longer on that list.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase E, mirror the fraction not the event.
 > State: `UNDECIDABLE_CENSORING`. The copy branch is closed on condition 5.**
 >
 > Full account: `docs/PHASE_E_REPORT.md` (9 sections, including the closing account).
