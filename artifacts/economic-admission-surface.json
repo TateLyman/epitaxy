@@ -1,6 +1,6 @@
 {
-  "generatedUtcMs": 1786669981345,
-  "strategyVersion": "delayed-momentum-v0.4.0",
+  "generatedUtcMs": 1787113726867,
+  "strategyVersion": "delayed-momentum-v0.6.0",
   "nav": {
     "lamports": "9582071288",
     "sol": 9.582071288

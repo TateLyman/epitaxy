@@ -1,24 +1,521 @@
 {
   "provenance": {
-    "generatedUtcMs": 1786929636616,
-    "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+    "generatedUtcMs": 1787111940147,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "dirty": true,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "schema-v34",
     "contextHash": null,
     "sampleInclusionQuery": null
   },
-  "scanned": 239,
-  "found": 0,
-  "legacyBase": [],
+  "scanned": 240,
+  "found": 33,
+  "legacyBase": [
+    "4uC16DfJePiYY28BRYLeU5Mn5GX43YUJXgyNdv6eT3No",
+    "CzTrgCFaw2ZkzUkLirWz8NoLDQULkHWbVDmSbveYngKv",
+    "CTFaKHRfEUy5irjJMRMv5XKzLBYYAT47s3w8h4zXTw6D",
+    "DVF6rwMxSSVyc5VbhGjaKyb3pCB15u5VCudHdXqAYfHi",
+    "AFSx1427YbPmy6A9xbJF5be33YjeGZFHWyiaym1eWQLE",
+    "8Do5g718wVppdu5XCvJ97uT3fnpSvRo9miqnUhqZsHU8",
+    "9C2cdz9stP2VtrWBJQs9a4YaLZdRV2tmSuHWN3jAvPXb",
+    "8SFexpaBMvVStRzFMASSP8w76Q4bFSj5YXfGmKPg9w9F",
+    "C5L12t4ivPKJErCr2SC8pEsvZZZsZuRYaAcmhR4Apa3f",
+    "FU8nx4tPkoWtpeXsfL4m5syRH217wPCVdPypabKYtEsm",
+    "EFRJe4LXQzv6tVBpLgikhPHu5gWwv9eRMnKiWcoMfrw2",
+    "FtvybnZJ3dRM39C3pNCrd6qkAefHa9eh5jPCPrg6Km4G",
+    "41LdTbGZnHJbucWxBoAXTH1axQugTNdN89nXsw2bHCdm",
+    "3RUXCjJyz7QqtnaLT8wKRbcaUmLcEZtEJEzoU83jpAAX",
+    "FZSTXVV8iUVyigv1u1pyWK2ZdNsgkYarG11tJ919qaeP",
+    "8HqqP7Q8tPUKDrxpdafsKAmHpFc635TGEG2zMWFg8YWX",
+    "2mFrMqKYGcBgN8XaXR74YyVwBeeaYEYLTnSvBkAihAoo",
+    "JAkyMbwPiZTLnBY5JbPNfxJY4TuxL2oVo9xoWBRoAuCV",
+    "Ezyc1EfUg4akLRTmkRsQBgAWTb4E1H9Nq29jKs9dHSqd",
+    "4hmGo8j15g5rbAJpkZPMibADRb6XVxNw3YP9XcVouHmi",
+    "2N2fSMcAGukuc94j9Xgs1WHGmFgSjQhZmES84G2Nnggf",
+    "FK3LfcsPqVWQV1id7dxJVvvuYpZF4eeeCMKGNkc7aYJn",
+    "CDUvV5NgiHUchBU5jwQ3Guot2JgbXJ9wiEZLeXuomfVP",
+    "2DLbVPRN4WLKtPGaz3P1KKH1UqySEh9i4ph94Y7BqJLm",
+    "9NyAqjoLaXaUMNAnzEj6ro72VyzATP7BxdHFoXb5nBaL",
+    "3Te1eTsgagj9yn3NFoYiR4PGGwMeBfibcZGBiStiquYe",
+    "nETZJv8ea6thGUm8ranuLmvkTRZnwXhfSDvqDfezXAP",
+    "9rdR7HqqRvEdwuv2iyzeDtyBxPYnFigD8eX2ti76PAHM",
+    "H1PfYmjRQf9ZhfXYnC9HdrvSnNCu65ak4LSvYth6j1WC",
+    "5Y7AN1oi5c6rtRRGmEkhZTG5ohiFqoY9rJgKgGzBhs6y",
+    "8MBrU5U8ja7JRaePJupjNBxC8dqnPAZ9jqqEE1BmbBMQ",
+    "9a2atVSjhAmFMLwUGqZukoSZQYYMb7p2MNxZUuCnJKZp",
+    "CrBqvprEuNcNWYx8q6MqUhde2n5GeSjwoXVrH9p5i9Dp"
+  ],
   "nonSolQuote": [],
   "aboveBottomTier": [],
-  "feeTableLoaded": false,
-  "boundariesAvailable": null,
-  "candidates": [],
+  "feeTableLoaded": true,
+  "boundariesAvailable": 24,
+  "candidates": [
+    {
+      "mint": "4uC16DfJePiYY28BRYLeU5Mn5GX43YUJXgyNdv6eT3No",
+      "pool": "XSCM46HqeDf3kA9ti3aJFL4RWyyrGnNXePap9GXip3d",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "725320533308837",
+      "quoteReserve": "6692301015",
+      "effectiveQuoteLamports": "24276806645",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "CzTrgCFaw2ZkzUkLirWz8NoLDQULkHWbVDmSbveYngKv",
+      "pool": "GquBssLnQPj7wXeNfxKAgS1CwAWMzVgajL7EawZp3V2i",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "464186008659617",
+      "quoteReserve": "20472291100",
+      "effectiveQuoteLamports": "38056796399",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "CTFaKHRfEUy5irjJMRMv5XKzLBYYAT47s3w8h4zXTw6D",
+      "pool": "7isNzrKSRvjj4tXv9BkMyogUYjGB8Bdz1H1Za3HKBAU",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "561069460427623",
+      "quoteReserve": "14405231027",
+      "effectiveQuoteLamports": "31989736687",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "DVF6rwMxSSVyc5VbhGjaKyb3pCB15u5VCudHdXqAYfHi",
+      "pool": "8ywQpS4n6dxsxLih4bfKaRP7nKuXTcBNMZ8NTiy8hdLy",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "684625316849016",
+      "quoteReserve": "8251457483",
+      "effectiveQuoteLamports": "25835963047",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "AFSx1427YbPmy6A9xbJF5be33YjeGZFHWyiaym1eWQLE",
+      "pool": "HrSRKC8Nmuy6TokEYQx65m2SHJBd51brL85xLHyunSCP",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "778447971224985",
+      "quoteReserve": "5511594131",
+      "effectiveQuoteLamports": "23096099544",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "8Do5g718wVppdu5XCvJ97uT3fnpSvRo9miqnUhqZsHU8",
+      "pool": "8ZE51K3cjaCUvf2S4djCdE7X52BUBCiSryUVVPRjhW5s",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "577265338546662",
+      "quoteReserve": "13364639045",
+      "effectiveQuoteLamports": "30949144496",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "9C2cdz9stP2VtrWBJQs9a4YaLZdRV2tmSuHWN3jAvPXb",
+      "pool": "C3RNatGx8scQccHi9LimuGbNBnfyGqrMsYja78iWc2qi",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "433288733473094",
+      "quoteReserve": "25073625021",
+      "effectiveQuoteLamports": "42658130546",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "8SFexpaBMvVStRzFMASSP8w76Q4bFSj5YXfGmKPg9w9F",
+      "pool": "GkWrAdYdSGDNx6aDSUf3o1jC6Lwbx7pA1QBijixVopDC",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "717189234523434",
+      "quoteReserve": "7372998913",
+      "effectiveQuoteLamports": "24957504312",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "C5L12t4ivPKJErCr2SC8pEsvZZZsZuRYaAcmhR4Apa3f",
+      "pool": "CL7Bt7XapSCD1GGrFwSrtNciZr6vz1qSwTmj2dick3d",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "662740205764380",
+      "quoteReserve": "9488254418",
+      "effectiveQuoteLamports": "27072759890",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "FU8nx4tPkoWtpeXsfL4m5syRH217wPCVdPypabKYtEsm",
+      "pool": "2YEHtJ6wYzD3qUyFEUJaWbhrCnefd1VZmP8w7QGyYxKw",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "683735549041683",
+      "quoteReserve": "8300818408",
+      "effectiveQuoteLamports": "25885323855",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "EFRJe4LXQzv6tVBpLgikhPHu5gWwv9eRMnKiWcoMfrw2",
+      "pool": "BZLBQWHyDC4XJTwJ5to2YhwvrkbSaBsuVLpqfmWYZMtm",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "830093641144802",
+      "quoteReserve": "3681140272",
+      "effectiveQuoteLamports": "21265645651",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "FtvybnZJ3dRM39C3pNCrd6qkAefHa9eh5jPCPrg6Km4G",
+      "pool": "F2ziGapDg9RPVsE7y3LhMEDjQ1Xj735EE4sCFWC2AB89",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "841960871994995",
+      "quoteReserve": "3338557745",
+      "effectiveQuoteLamports": "20923063138",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "41LdTbGZnHJbucWxBoAXTH1axQugTNdN89nXsw2bHCdm",
+      "pool": "CDQS3Zc4j3e9K2mxQFDeZBjcT6TWt71vGF4qHPBgDCdu",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "527077051038845",
+      "quoteReserve": "16448544074",
+      "effectiveQuoteLamports": "34033049463",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "3RUXCjJyz7QqtnaLT8wKRbcaUmLcEZtEJEzoU83jpAAX",
+      "pool": "ArNVHcmpp4fPThDKA8Hhc2kSsjC2otzC9KLNvGk4h8B",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "731420300546961",
+      "quoteReserve": "7103523260",
+      "effectiveQuoteLamports": "24688028843",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "FZSTXVV8iUVyigv1u1pyWK2ZdNsgkYarG11tJ919qaeP",
+      "pool": "C4cwq6nYUrqbvNxBDk1rrpyMrG61KyURKpDNZNxKewwn",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "632434164685632",
+      "quoteReserve": "11393859293",
+      "effectiveQuoteLamports": "28978364593",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "8HqqP7Q8tPUKDrxpdafsKAmHpFc635TGEG2zMWFg8YWX",
+      "pool": "68Fqmxv8XuYVgXgjM6fMGokmJf2mJRnt3iCBasnCCKF3",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "518634373961790",
+      "quoteReserve": "18124966440",
+      "effectiveQuoteLamports": "35709471967",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "2mFrMqKYGcBgN8XaXR74YyVwBeeaYEYLTnSvBkAihAoo",
+      "pool": "3xbU3HkeRdjeh5kv7oeAqfpkvzdXoKPdfKSkFyUBH8y9",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "732140523792623",
+      "quoteReserve": "7801922016",
+      "effectiveQuoteLamports": "25386427762",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "JAkyMbwPiZTLnBY5JbPNfxJY4TuxL2oVo9xoWBRoAuCV",
+      "pool": "5z9z3JKQ3kYHGUENZheUjkUxwC4qFVhzso8CLJ9CGEhd",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "852351770142809",
+      "quoteReserve": "3101562473",
+      "effectiveQuoteLamports": "20686068057",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "Ezyc1EfUg4akLRTmkRsQBgAWTb4E1H9Nq29jKs9dHSqd",
+      "pool": "CUZaEYmQPofv5svzqUsoaSgK2LJ7fcPaSqR7upPdxQys",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "840356921997129",
+      "quoteReserve": "3359042829",
+      "effectiveQuoteLamports": "20943548138",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "4hmGo8j15g5rbAJpkZPMibADRb6XVxNw3YP9XcVouHmi",
+      "pool": "AyTTBjZrjf2z6fcJdyDyBrQX8ao84c6jC8bkJCrRunRw",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "759376887049982",
+      "quoteReserve": "6511621280",
+      "effectiveQuoteLamports": "24096126594",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "2N2fSMcAGukuc94j9Xgs1WHGmFgSjQhZmES84G2Nnggf",
+      "pool": "FkQZ7SLpop7xPmRryFkJ74s4Ln6k7LLFXHbsfftMeT4t",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "872041025716709",
+      "quoteReserve": "2954122489",
+      "effectiveQuoteLamports": "20538627946",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "FK3LfcsPqVWQV1id7dxJVvvuYpZF4eeeCMKGNkc7aYJn",
+      "pool": "9FG8xAmMBLAL1yMPs4Y7cYeQbFdtUpRU3jggD6wCp2qK",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "806750289448414",
+      "quoteReserve": "4629813792",
+      "effectiveQuoteLamports": "22214319143",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "CDUvV5NgiHUchBU5jwQ3Guot2JgbXJ9wiEZLeXuomfVP",
+      "pool": "DrK2XXFDT8bbuD4SypXvLzroh5eZq3qUScRANQagDsCJ",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "550528630553842",
+      "quoteReserve": "15918969816",
+      "effectiveQuoteLamports": "33503475302",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "2DLbVPRN4WLKtPGaz3P1KKH1UqySEh9i4ph94Y7BqJLm",
+      "pool": "36t85JcMrtWBEqmmnLzDqxgMKy4rNLTdBNfTDiGxys2E",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "397066863387515",
+      "quoteReserve": "28696451988",
+      "effectiveQuoteLamports": "46280957384",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "9NyAqjoLaXaUMNAnzEj6ro72VyzATP7BxdHFoXb5nBaL",
+      "pool": "GXoRH7k4wovzYDtZNHVyaBKgTYj5Ks2pyVV6UTBTmkgm",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "496351254237692",
+      "quoteReserve": "20931897606",
+      "effectiveQuoteLamports": "38516402913",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "3Te1eTsgagj9yn3NFoYiR4PGGwMeBfibcZGBiStiquYe",
+      "pool": "26WifweTveK3TFXLeQUQdAfHQK62m8pLDd8GSnqSm8gb",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "678040623285619",
+      "quoteReserve": "9374700849",
+      "effectiveQuoteLamports": "26959206174",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "nETZJv8ea6thGUm8ranuLmvkTRZnwXhfSDvqDfezXAP",
+      "pool": "3SAXqsy2NB8Huoka17bu23q63f6FZ1zVFst97x4rWGJ7",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "400773506256694",
+      "quoteReserve": "28552389423",
+      "effectiveQuoteLamports": "46136894765",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "9rdR7HqqRvEdwuv2iyzeDtyBxPYnFigD8eX2ti76PAHM",
+      "pool": "CKjyj7bD34DWF8KrxFsPcknvuik4JvF1scnPX92WseQF",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "470093277180119",
+      "quoteReserve": "22698509532",
+      "effectiveQuoteLamports": "40283014851",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "H1PfYmjRQf9ZhfXYnC9HdrvSnNCu65ak4LSvYth6j1WC",
+      "pool": "8r29BGgVTaFabvSVKsio7TNLN7B4AJrHwM1eeoUW8BX3",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "734452522312480",
+      "quoteReserve": "6858761617",
+      "effectiveQuoteLamports": "24443266912",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "5Y7AN1oi5c6rtRRGmEkhZTG5ohiFqoY9rJgKgGzBhs6y",
+      "pool": "GMcbMKpSr1bosXDGw6TL2S3sYkeUkXBdqV2f2RHmiqcy",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "424273530654383",
+      "quoteReserve": "27341798854",
+      "effectiveQuoteLamports": "44926304185",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "8MBrU5U8ja7JRaePJupjNBxC8dqnPAZ9jqqEE1BmbBMQ",
+      "pool": "6tm1AL5qqJTHCmoDF8uNZZ99pZPPzHN4Q6wxteiqNJTF",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "499768316916563",
+      "quoteReserve": "21348681004",
+      "effectiveQuoteLamports": "38933186316",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "9a2atVSjhAmFMLwUGqZukoSZQYYMb7p2MNxZUuCnJKZp",
+      "pool": "Er4eDHZdTHzYCKzW97hDDhgxH8qJ7a1D9xSGDfTmrK9a",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "302624432502220",
+      "quoteReserve": "42312043663",
+      "effectiveQuoteLamports": "59896548967",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    },
+    {
+      "mint": "CrBqvprEuNcNWYx8q6MqUhde2n5GeSjwoXVrH9p5i9Dp",
+      "pool": "9vYQ9oWYKurQC5yLxDPawJExeEV5NQrfNJ6dBYzFawqH",
+      "baseTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "quoteMint": "So11111111111111111111111111111111111111112",
+      "baseReserve": "486755122306955",
+      "quoteReserve": "27164271395",
+      "effectiveQuoteLamports": "44748776692",
+      "tierThresholdLamports": null,
+      "tierRoundTripBps": null,
+      "categories": [
+        "LEGACY_BASE"
+      ]
+    }
+  ],
   "reading": [
-    "no legacy-base pool found among the scanned mints; the corpus has legacy MINTS but they may not have pools",
+    "33 legacy-base pool(s) found — the cell is samplable",
     "every pool scanned quotes wrapped SOL",
-    "the fee config could not be read, so NO pool was assigned a tier; this says nothing about where they sit and must not be read as \"all in the bottom tier\""
+    "every pool scanned sits in the bottom fee tier, so no straddle is available from this sample"
   ]
 }

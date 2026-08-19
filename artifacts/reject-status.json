@@ -1,39 +1,44 @@
 {
-  "generatedUtcMs": 1787012515873,
+  "generatedUtcMs": 1787111838087,
   "rejects": {
     "byOutcome": [
       {
         "outcome": "(unclassified)",
-        "n": 1031975
+        "n": 1214375
       },
       {
         "outcome": "UNKNOWN",
-        "n": 202931
+        "n": 338730
       },
       {
         "outcome": "PROVIDER_MISSING",
-        "n": 69002
+        "n": 115510
       }
     ],
     "byReason": [
       {
         "primary_reason": "stale_source",
-        "n": 845038,
+        "n": 1116624,
         "still_tradeable": 0
       },
       {
         "primary_reason": "insufficient_liquidity",
-        "n": 450660,
+        "n": 540980,
         "still_tradeable": 0
       },
       {
         "primary_reason": "excessive_impact",
-        "n": 2642,
+        "n": 3271,
         "still_tradeable": 0
       },
       {
         "primary_reason": "dev_holds_too_much",
-        "n": 931,
+        "n": 1320,
+        "still_tradeable": 0
+      },
+      {
+        "primary_reason": "concentrated_ownership",
+        "n": 850,
         "still_tradeable": 0
       },
       {
@@ -42,28 +47,23 @@
         "still_tradeable": 0
       },
       {
-        "primary_reason": "concentrated_ownership",
-        "n": 566,
+        "primary_reason": "mint_authority_live",
+        "n": 646,
         "still_tradeable": 0
       },
       {
-        "primary_reason": "mint_authority_live",
-        "n": 518,
+        "primary_reason": "soft:high_round_trip",
+        "n": 626,
         "still_tradeable": 0
       },
       {
         "primary_reason": "too_few_holders",
-        "n": 450,
+        "n": 582,
         "still_tradeable": 0
       },
       {
-        "primary_reason": "too_old",
-        "n": 438,
-        "still_tradeable": 0
-      },
-      {
-        "primary_reason": "freeze_authority_live",
-        "n": 265,
+        "primary_reason": "soft:extreme_churn",
+        "n": 480,
         "still_tradeable": 0
       }
     ]

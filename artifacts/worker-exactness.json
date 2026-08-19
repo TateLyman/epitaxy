@@ -1,5 +1,5 @@
 {
-  "generatedUtcMs": 1786774871872,
+  "generatedUtcMs": 1787111955516,
   "what": "P3 worker exactness and output scaling, against the real binary",
   "findings": {
     "u64ExactAcrossTheWire": {
@@ -9,8 +9,9 @@
       "sentRentEpoch": "18446744073709551615",
       "readRentEpoch": "18446744073709551615",
       "rentEpochExact": true,
-      "throughADoubleWouldHaveRead": "18446744073709552000",
-      "lostToADouble": "1"
+      "throughADoubleExactly": "18446744073709551616",
+      "throughADoublePrintedAs": "18446744073709552000",
+      "errorIntroducedByADouble": "1"
     },
     "outputIsScoped": {
       "economicAccount": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -29,8 +30,8 @@
       "failsTheNewSurvivalCheck": true
     },
     "initResetsTheJob": {
-      "firstInstance": "exactness-1:99513:1",
-      "secondInstance": "exactness-2:99513:2",
+      "firstInstance": "exactness-1:1988:1",
+      "secondInstance": "exactness-2:1988:2",
       "instanceIdChanged": true,
       "accountsInSecondRuntime": 1,
       "previousJobAccountAbsent": true
@@ -69,14 +70,14 @@
     },
     "outputBudgetIsPerJob": {
       "refusedWithinTheJob": true,
-      "detail": "sequential runtime unavailable: job output budget exhausted: 2678 bytes emitted, bound is 2000. Name fewer economic accounts, or raise max_job_output_bytes on init.",
+      "detail": "sequential runtime unavailable: job output budget exhausted: 2676 bytes emitted, bound is 2000. Name fewer economic accounts, or raise max_job_output_bytes on init.",
       "succeedsAfterInit": true
     },
     "runtimeIdentity": {
       "runtime": "litesvm",
       "runtimeVersion": "0.1.0",
       "litesvmVersion": "0.6.1",
-      "binarySha256": "c792eacaaff4f35808395ba17f913cc957af1326c0d8bd9d66fa5c7c86270d59",
+      "binarySha256": "be02d7855a2b130a4460cdce923a53429f740877a2f151dcacf713686392d7d8",
       "programsLoaded": []
     },
     "instanceMismatchIsDetectable": {

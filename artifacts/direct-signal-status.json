@@ -1,9 +1,9 @@
 {
-  "generatedUtcMs": 1786929431428,
-  "sourceCommit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f",
+  "generatedUtcMs": 1787111876703,
+  "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
   "dirty": true,
   "strategyVersion": "delayed-momentum-v0.6.0",
-  "schemaVersion": 46,
+  "schemaVersion": 54,
   "windowSeconds": 52603.494,
   "throughput": {
     "receivedPerSecond": 0,
@@ -17,7 +17,7 @@
     "barRows": 0,
     "unknownSampleRows": 0,
     "totalRowsPerDay": 0,
-    "databaseBytes": 7349755904
+    "databaseBytes": 9460637696
   },
   "yield": {
     "byKind": [],

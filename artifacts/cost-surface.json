@@ -1,8 +1,8 @@
 {
   "provenance": {
-    "generatedUtcMs": 1787101310282,
-    "sourceCommit": "34c7d5db05f405a92cb5666ee4c8c9e2968068d2",
-    "dirty": true,
+    "generatedUtcMs": 1787111579217,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "dirty": false,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "phase-a-cost-surface-v1",
     "contextHash": null,

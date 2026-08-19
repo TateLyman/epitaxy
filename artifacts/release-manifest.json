@@ -1,17 +1,17 @@
 {
-  "generatedUtc": "2026-08-17T01:23:59.777Z",
+  "generatedUtc": "2026-08-19T03:56:53.063Z",
   "source": {
-    "commit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f+dirty",
+    "commit": "8e7d184a12a886d4748bd2c507d65af908f8fb48+dirty",
     "dirty": true,
-    "branch": "master",
-    "describe": "8f73cef-dirty",
+    "branch": "directive/d70b4a9a-measurement-power",
+    "describe": "8e7d184-dirty",
     "remote": "https://github.com/TateLyman/epitaxy.git"
   },
   "toolchain": {
     "node": "v24.12.0",
     "pnpm": "11.21.0",
     "lockfileSha256": "a3bfb34dd5e56b0679a0b8280950ad4a9befb2e0e66e7557b3822e9ffbe15f05",
-    "packageJsonSha256": "76427eb3c15e6c1f9bf36365c7882efc7b5564f07accbc2199b65371ae7962ec",
+    "packageJsonSha256": "a41595a03ca5eb461a878ccea1d3c598ee8ad7d804f45dc800b5fd48089d8eb4",
     "tsconfigSha256": "a9b66ab18c143b138ab979fd1154c7c1fb9e528a89c1c8ea60bf8541e6bc4800"
   },
   "configs": [
@@ -57,11 +57,11 @@
     }
   ],
   "programsAllowlistSha256": "7f2572664931ad44989ce5952a345fedb22941e098d72b17d9197c31d03e0920",
-  "sourceLimitsSha256": "29d48cd164b015f80860856925e63ce2bb3a02812f1d29bcf132f1bea596715f",
+  "sourceLimitsSha256": "ccdd3630f15ab9dd47aa4e8a702ca6935ab0090b88ced0b1414c1d044c6de5c0",
   "docs": {
     "auditBaseline": "72600e1711be1c57dc26a3391f0bd56b427852c61b9aad99c4b107c38af046f1",
     "invalidation": "e3c1e9c2ae45965f6cc2ea34a3fbbe94a9f70a6cedaa4fb5d7add34bd766cb31",
-    "multipleTestingLedger": "56bcc85edfecd109787e0e5ea05770d20b1bc5d42a0f26208d52a8aa2b5d4dea"
+    "multipleTestingLedger": "fabb9aaf33c459952bcae2753c4994f245e0f4de474d9551ea0d35410ad2173c"
   },
   "knownBlockers": [
     "requireLocalSimulation is true and no local SVM fixture is wired, so paper mode books no fills. This is deliberate: a mainnet simulateTransaction cannot validate either leg for an unfunded taker that holds none of the hypothetical tokens.",

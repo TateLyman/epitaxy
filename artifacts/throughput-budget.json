@@ -1,7 +1,7 @@
 {
   "provenance": {
-    "generatedUtcMs": 1787102442712,
-    "sourceCommit": "36e6fb3c87f62aa9b709735b8b0b94025145bc56",
+    "generatedUtcMs": 1787111592651,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "dirty": true,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "phase-c-throughput-v1",

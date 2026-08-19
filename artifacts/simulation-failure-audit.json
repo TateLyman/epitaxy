@@ -1,6 +1,14 @@
 {
-  "takenAtUtcMs": 1786929842601,
+  "takenAtUtcMs": 1787111961018,
   "split": [
+    {
+      "side": null,
+      "purpose": null,
+      "mode": "SEQUENTIAL_RUNTIME",
+      "status": "SIMULATED_OK",
+      "transaction_error": null,
+      "n": 413
+    },
     {
       "side": "buy",
       "purpose": "shadow_entry",
@@ -51,6 +59,12 @@
     }
   ],
   "bySide": [
+    {
+      "side": null,
+      "ok": 413,
+      "failed": 0,
+      "total": 413
+    },
     {
       "side": "buy",
       "ok": 117,

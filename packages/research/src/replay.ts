@@ -3,6 +3,9 @@ import type { Db } from '../../storage/src/db.js';
 import type { ExecutableQuote, RoundTrip } from '../../domain/src/types.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import { finalizeScreen, screenCheap } from '../../strategy/src/screen.js';
+import { cohortOf, isCohort, COHORT_BOUNDS } from '../../domain/src/cohort.js';
+import { gateFactsFrom, type DirectMintFacts } from '../../intelligence/src/mintfacts-source.js';
+import type { FactVerdict } from '../../intelligence/src/mintfacts.js';
 import type { ConcentrationInput } from '../../intelligence/src/gates.js';
 import { parseImpact } from '../../domain/src/impact.js';
 
@@ -154,6 +157,71 @@ export function loadQuote(db: Db, quoteId: string | null): ExecutableQuote | nul
   };
 }
 
+/**
+ * P14 — the Token-2022 facts the decision was screened against, read back.
+ *
+ * `replayOne` passed `null` here, so `token2022_money_critical` — a 0.6 soft-risk
+ * contribution, the largest single term in the table — could not fire on replay.
+ * Six stored decisions carried it and replayed 0.27 lower on `softRiskScore`.
+ * The divergence was invisible until the cohort-window defect above was fixed,
+ * because those same rows were already failing on `hardVetoes` and the report
+ * names one field per row.
+ *
+ * The facts ARE stored: the cycle writes them to `direct_mint_facts` at the same
+ * moment it screens. What is not stored is a HISTORY — the table is keyed on
+ * mint, so a re-read overwrites, and `read_utc_ms` is the only witness of when
+ * the surviving row was taken. A row read AFTER the snapshot is a later fact
+ * about the mint and using it would be lookahead, so it is refused: the gate then
+ * sees "not read", which is exactly what the live path would have passed had the
+ * read failed, and any divergence that follows is REPORTED rather than papered
+ * over with a later fact that happens to make the numbers agree.
+ */
+export function loadMintFacts(db: Db, mint: string, takenUtcMs: number): DirectMintFacts | null {
+  const r = db
+    .prepare(
+      `SELECT token_program, mint_authority, freeze_authority, permanent_delegate, default_account_state,
+              transfer_hook, non_transferable, pausable, confidential, overall,
+              current_epoch_fee_bps, worst_case_fee_bps, maximum_fee_atoms,
+              extension_types, has_unknown_extension, decode_failure, reasons, read_utc_ms
+         FROM direct_mint_facts WHERE mint = ?`,
+    )
+    .get(mint) as Record<string, string | number | null> | undefined;
+  if (r === undefined) return null;
+  const readUtcMs = Number(r['read_utc_ms'] ?? 0);
+  // A fact read after the decision is not the fact the decision saw.
+  if (readUtcMs > takenUtcMs) return null;
+  const verdict = (k: string): FactVerdict => (r[k] as FactVerdict | null) ?? 'UNKNOWN';
+  const num = (k: string): number | null => (r[k] === null || r[k] === undefined ? null : Number(r[k]));
+  return {
+    mint,
+    tokenProgram: (r['token_program'] as string | null) ?? null,
+    mintAuthority: verdict('mint_authority'),
+    freezeAuthority: verdict('freeze_authority'),
+    permanentDelegate: verdict('permanent_delegate'),
+    defaultAccountState: verdict('default_account_state'),
+    transferHook: verdict('transfer_hook'),
+    nonTransferable: verdict('non_transferable'),
+    pausable: verdict('pausable'),
+    confidential: verdict('confidential'),
+    overall: verdict('overall'),
+    transferFeeBps: num('current_epoch_fee_bps'),
+    currentEpochTransferFeeBps: num('current_epoch_fee_bps'),
+    worstCaseTransferFeeBps: num('worst_case_fee_bps'),
+    maximumFeeAtoms: r['maximum_fee_atoms'] == null ? null : BigInt(r['maximum_fee_atoms'] as string),
+    readUtcMs,
+    extensionTypes: String(r['extension_types'] ?? '')
+      .split(',')
+      .filter((s) => s.length > 0)
+      .map((s) => Number(s)),
+    hasUnknownExtension: Number(r['has_unknown_extension'] ?? 0) === 1,
+    decodeFailure: (r['decode_failure'] as string | null) ?? null,
+    reasons: String(r['reasons'] ?? '')
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  };
+}
+
 function roundTripFrom(db: Db, raw: RawInputs, features: Record<string, unknown>): RoundTrip | null {
   const buy = loadQuote(db, raw.buyQuoteId);
   if (buy === null) return null;
@@ -182,7 +250,35 @@ export function replayOne(db: Db, config: AppConfig, row: SnapshotRow): Mismatch
   // a snapshot taken when freshness was unknown must replay as unknown.
   const freshness = JSON.parse(row.freshness_json) as { jupiter_tokens: number | null };
 
-  const { gates } = screenCheap(info, config, row.taken_utc_ms, freshness.jupiter_tokens);
+  /**
+   * P9 — replay under THE SAME AGE WINDOW the decision was screened under.
+   *
+   * This called `screenCheap` with four arguments, so `cohortAgeBounds` took its
+   * default of null and every snapshot replayed against the GLOBAL 2m-60m
+   * window. The live cycle does not do that: it looks the candidate's cohort up
+   * in the maturing queue and passes `COHORT_BOUNDS[cohort]`, so a token that
+   * matured into AGE_1H_5H is screened under a 1h-5h bound.
+   *
+   * The consequence was a systematic, one-sided divergence: every snapshot older
+   * than an hour replayed with an extra `too_old` veto that the stored decision
+   * correctly did not have. `pnpm replay` failed, and it failed on the replay
+   * being wrong rather than on the decision being wrong — which is the worse of
+   * the two, because it makes the one check that guards "every decision is
+   * re-derivable from its snapshot" cry wolf on decisions that were correct.
+   *
+   * The cohort is re-derived with `cohortOf` from the age the snapshot stores,
+   * not read from the queue: the queue is mutable state that has moved on, and
+   * the snapshot's own `token_age_ms` is the number the live assignment bucketed
+   * on at that instant. A snapshot whose age falls outside every cohort keeps
+   * the global window, which is what the live path does for an unassigned
+   * candidate.
+   */
+  const cohort = cohortOf(row.token_age_ms);
+  const cohortAgeBounds = isCohort(cohort) ? COHORT_BOUNDS[cohort] : null;
+  // The mint's own Token-2022 behaviour, as read at or before the decision.
+  const stored = loadMintFacts(db, row.mint, row.taken_utc_ms);
+  const t22 = stored === null ? null : gateFactsFrom(stored);
+  const { gates } = screenCheap(info, config, row.taken_utc_ms, freshness.jupiter_tokens, null, t22, cohortAgeBounds);
   const roundTrip = roundTripFrom(db, raw, features);
 
   // Concentration comes from the snapshot. It used to be passed as null with a

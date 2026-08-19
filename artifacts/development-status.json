@@ -1,9 +1,9 @@
 {
-  "generatedUtc": "2026-08-17T01:16:39.673Z",
+  "generatedUtc": "2026-08-19T03:57:14.133Z",
   "source": {
-    "commit": "8f73cef2a1a87fb0019cab8c4bd5725e2a60114f+dirty",
+    "commit": "8e7d184a12a886d4748bd2c507d65af908f8fb48+dirty",
     "dirty": true,
-    "branch": "master"
+    "branch": "directive/d70b4a9a-measurement-power"
   },
   "ci": {
     "note": "read from GitHub Actions; see artifacts/release-manifest.json for the run URL"
@@ -27,9 +27,9 @@
     "accountSnapshotRegime": "none — no snapshot capture pipeline yet"
   },
   "observations": {
-    "total": 43096,
-    "policyValid": 4716,
-    "simulated": 175,
+    "total": 43922,
+    "policyValid": 5542,
+    "simulated": 1001,
     "withRawPayload": 4945,
     "byPurpose": [
       {
@@ -57,6 +57,14 @@
         "n": 417
       },
       {
+        "purpose": "DIRECT_VENUE_EXIT",
+        "n": 413
+      },
+      {
+        "purpose": "DIRECT_VENUE_ENTRY",
+        "n": 413
+      },
+      {
         "purpose": "shadow_entry_roundtrip",
         "n": 124
       },
@@ -73,6 +81,10 @@
       {
         "family": "BUILD_CUSTOM",
         "n": 43096
+      },
+      {
+        "family": "DIRECT_VENUE",
+        "n": 826
       }
     ]
   },

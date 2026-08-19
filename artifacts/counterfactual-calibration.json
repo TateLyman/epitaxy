@@ -1,38 +1,15 @@
 {
-  "boundedRows": 2253,
-  "replayRows": 22,
-  "pairedRows": 2,
+  "status": "NOT_RUN",
+  "reason": "no trajectory carries both a bounded counterfactual and a reserve-delta replay for the same horizon",
+  "boundedRows": 2309,
+  "replayRows": 24,
+  "pairedRows": 0,
   "toleranceBps": 200,
-  "results": [
-    {
-      "trajectoryId": "5fcadad5-08b4-4273-99d5-2ab84ca47fad",
-      "offsetMs": 900000,
-      "boundedExitLamports": "19654607",
-      "replayExitLamports": "19753087",
-      "errorLamports": "-98480",
-      "errorBps": -49,
-      "conservative": true,
-      "withinTolerance": true
-    },
-    {
-      "trajectoryId": "d36a83ec-5cdb-4f27-bfe3-08ff537e9f80",
-      "offsetMs": 900000,
-      "boundedExitLamports": "18921599",
-      "replayExitLamports": "19016432",
-      "errorLamports": "-94833",
-      "errorBps": -49,
-      "conservative": true,
-      "withinTolerance": true
-    }
-  ],
-  "nonConservative": 0,
-  "outsideTolerance": 0,
-  "verdict": "BOUND_IS_CONSERVATIVE",
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "treeDirty": true,
-    "dirtyFiles": 11,
-    "writtenUtc": "2026-08-18T19:12:58.036Z"
+    "dirtyFiles": 64,
+    "writtenUtc": "2026-08-19T04:28:48.210Z"
   }
 }

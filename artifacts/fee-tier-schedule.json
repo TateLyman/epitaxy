@@ -1,7 +1,7 @@
 {
   "provenance": {
-    "generatedUtcMs": 1787105224655,
-    "sourceCommit": "22d74ea332e894879ddef86fc8436b595abeb050",
+    "generatedUtcMs": 1787111603517,
+    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
     "dirty": true,
     "strategyVersion": "delayed-momentum-v0.6.0",
     "schemaVersion": "phase-b-fee-tiers-v1",
@@ -707,11 +707,11 @@
         "storedAccounts": 25,
         "rebuiltAccounts": 25,
         "storedFingerprint": "7ae37cba97080ea61b65ab7ff5c0b2fdbb024e2d081136331ba092534616ff6c",
-        "rebuiltFingerprint": "ef74fbe0f088e64851ef01fb8188d25d1975b77233dc2c15662c82c27e7a287a",
+        "rebuiltFingerprint": "fa5f38f1338eb6e1cb60e4e8662bb1484232b1822328f1c67168a4b295eb0e42",
         "fingerprintsMatch": false,
         "shapeMatches": true,
         "trailingAccountStored": "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
-        "trailingAccountRebuilt": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+        "trailingAccountRebuilt": "CASRL2zkwDnppxEFQ4LgdwgR9pdz5Q8R8nEMKVZ9QoLp",
         "refusal": null
       },
       {
@@ -733,11 +733,11 @@
         "storedAccounts": 26,
         "rebuiltAccounts": 26,
         "storedFingerprint": "dfdc43a0b13579c0e29770aa79038ad36313d6f1c0940fbdfdcb94614ed8f05a",
-        "rebuiltFingerprint": "5930ffd4290b47ad2e1336a9b067351c9366bb1235bbf078a9d016deb99acd1e",
+        "rebuiltFingerprint": "7719bedd95e1e46a4c360dacba3e602b4ee918ac5ece23336f2add6d8d41f8a2",
         "fingerprintsMatch": false,
         "shapeMatches": true,
         "trailingAccountStored": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
-        "trailingAccountRebuilt": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+        "trailingAccountRebuilt": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
         "refusal": null
       },
       {
@@ -746,11 +746,11 @@
         "storedAccounts": 24,
         "rebuiltAccounts": 24,
         "storedFingerprint": "a5840a3a3eb51073a9ed975b36036aab7745c292402e34c666baf7a8d551bc27",
-        "rebuiltFingerprint": "74790fe524bf71b13a3555f92a649b89099746360d9b8340fb634668524fd392",
+        "rebuiltFingerprint": "a3d8ff06c22de9e7e98dde5d591908628f3714ddde9576cf5b9d91c3e1a5efba",
         "fingerprintsMatch": false,
         "shapeMatches": true,
         "trailingAccountStored": "CASRL2zkwDnppxEFQ4LgdwgR9pdz5Q8R8nEMKVZ9QoLp",
-        "trailingAccountRebuilt": "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
+        "trailingAccountRebuilt": "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck",
         "refusal": null
       },
       {
@@ -759,11 +759,11 @@
         "storedAccounts": 27,
         "rebuiltAccounts": 27,
         "storedFingerprint": "bbbcdf5e4486fd2ff50b61819275e5cf4e354ef40e5d86881129f15be1618520",
-        "rebuiltFingerprint": "bbbcdf5e4486fd2ff50b61819275e5cf4e354ef40e5d86881129f15be1618520",
-        "fingerprintsMatch": true,
+        "rebuiltFingerprint": "cb4bd1406cf5f5393eb36fec2344a0851c8b0707dbf8c77b7a30d205a08a1fe9",
+        "fingerprintsMatch": false,
         "shapeMatches": true,
         "trailingAccountStored": "AktftA98kSWAxn6kVSoqBXBELUArjKu2H9WmKB48ULFY",
-        "trailingAccountRebuilt": "AktftA98kSWAxn6kVSoqBXBELUArjKu2H9WmKB48ULFY",
+        "trailingAccountRebuilt": "GYH1Gae1wJytMSvMvw8JVcv7nuAbxi8i9erNVbERnzXd",
         "refusal": null
       },
       {
@@ -772,11 +772,11 @@
         "storedAccounts": 26,
         "rebuiltAccounts": 26,
         "storedFingerprint": "1ed5463995606007ac73116f085eb2f6939cdc8fa052c46be4a531d7e236a415",
-        "rebuiltFingerprint": "5fdd02a63f8f3f42dd1d0e7959fc2f84abe17d2d699872aa163909f8d4ec2128",
+        "rebuiltFingerprint": "c5ccc751e56c8da7962c1058fc1a6db76438cd3891d3818693518bbb7f18b996",
         "fingerprintsMatch": false,
         "shapeMatches": true,
         "trailingAccountStored": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
-        "trailingAccountRebuilt": "HjQjngTDqoHE6aaGhUqfz9aQ7WZcBRjy5xB8PScLSr8i",
+        "trailingAccountRebuilt": "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
         "refusal": null
       }
     ],

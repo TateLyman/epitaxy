@@ -113,10 +113,13 @@ Verdict `CURRENT_INSTRUCTION_SHAPE`, on two independent grounds:
   version boundary. **All six** were rebuilt through the pinned SDK against their
   own stored snapshots, and every one reproduced its stored account count.
 
-Fingerprints differ between stored and rebuilt legs on five of the six, and that
-is expected rather than a failure: the SDK selects a fee recipient from a list, so
-two builds of one leg differ in one account by design. The *shape* is what the
-upgrade changed and the shape is what was compared. Nothing is marked
+Fingerprints differ between stored and rebuilt legs — on five of the six in the
+first run and on **six of six** when the whole pipeline was re-run at a later
+commit. That is expected rather than a failure, and the instability is the point:
+the SDK picks a fee recipient out of a list at build time, so `fingerprintsMatch`
+is a coin flip per leg and must never be a verdict input. The *shape* — the account
+count and the position of every derived account — matched **6 of 6 in both runs**,
+and the shape is what the upgrade changed. Nothing is marked
 `STALE_INSTRUCTION_SHAPE`.
 
 ---
