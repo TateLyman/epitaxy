@@ -3775,6 +3775,55 @@ CREATE INDEX IF NOT EXISTS idx_ms_strata
   ON mechanics_strata(fee_tier_stratum, cashback_stratum, mayhem_stratum);
 `,
   },
+  {
+    id: 55,
+    name: 'observation_watch',
+    sql: `
+-- ===========================================================================
+-- PHASE G §3 -- DEATH AS AN OBSERVED STATE, NOT AN ABSENCE.
+--
+-- Phase F could not decide the pre-migration branch because 97.5% of censored
+-- mints had no post-entry price at all: of 1,069 censored T1 mints, 27 had any
+-- price observed after entry. The mechanism was maturingByCohort, which
+-- selects mints whose AGE falls inside a cohort band -- so once a mint is older
+-- than the widest band it can never be selected again, and observation stops at
+-- an age that has nothing to do with the mint and everything to do with the
+-- queue.
+--
+-- A mint with no later snapshot then looks identical to a mint whose price did
+-- not move, and no re-analysis of that corpus can separate them.
+--
+-- One row per mint under observation. It is closed only when a terminal state is
+-- OBSERVED, and a watch that stops being observed without one is a COLLECTION
+-- FAILURE that this table can count. terminal_state is NULL while open, and
+-- the constraint enumerates the taxonomy so a fourth reason cannot be inserted
+-- without a migration that says what it means.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS observation_watch (
+  mint                    TEXT PRIMARY KEY,
+  first_observed_utc_ms   INTEGER NOT NULL,
+  last_observed_utc_ms    INTEGER NOT NULL,
+  observations            INTEGER NOT NULL DEFAULT 1,
+  -- The last time a trade was OBSERVED for this mint. Advanced only when an
+  -- observation actually shows trading, so a quiet stretch is measured rather than
+  -- assumed, and NO_TRADE_INTERVAL fires on a fact instead of on a gap.
+  last_trade_seen_utc_ms  INTEGER,
+  terminal_state          TEXT,
+  terminal_utc_ms         INTEGER,
+  -- What was read when the terminal state fired, so the decision is auditable. A
+  -- POOL_DRAINED closed on a reserve nobody can see is not a measurement.
+  terminal_source         TEXT,
+  terminal_quote_reserve  TEXT,
+  terminal_liquidity_usd  REAL,
+  terminal_last_trade_ms  INTEGER,
+  CHECK (terminal_state IS NULL OR terminal_state IN ('POOL_DRAINED','NO_TRADE_INTERVAL','HORIZON_REACHED')),
+  CHECK (terminal_state IS NULL OR terminal_utc_ms IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_observation_watch_open
+  ON observation_watch(last_observed_utc_ms) WHERE terminal_state IS NULL;
+`,
+  },
 ];
 
 export interface OpenOptions {

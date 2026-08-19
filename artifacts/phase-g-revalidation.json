@@ -1,0 +1,6435 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1787168840056,
+    "sourceCommit": "2eaed91902f62508c0758a784a0e5d5d6a4e6f2a",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "phase-g-revalidation-v1",
+    "contextHash": null,
+    "sampleInclusionQuery": "every consecutive pair of coherent_snapshots for one pool, rolled forward through the dex_solana.trades legs between their slots under three fee rules"
+  },
+  "label": "DEVELOPMENT_RECONSTRUCTED",
+  "isEvidence": false,
+  "directive": "Phase G §2.2",
+  "pairs": 271,
+  "legs": 117324,
+  "tierCount": 25,
+  "validationPasses": false,
+  "diagnosisFalsified": true,
+  "legSides": {
+    "buy": 34270,
+    "sell": 83054
+  },
+  "summary": {
+    "RAW": {
+      "base": {
+        "p10": 1,
+        "p50": 1.0000105984212342,
+        "p90": 1.5306102834714446,
+        "within": 0.5571955719557196,
+        "n": 271
+      },
+      "quote": {
+        "p10": -0.5705802396427638,
+        "p50": 1,
+        "p90": 1.000202631487339,
+        "within": 0.5276752767527675,
+        "n": 271
+      }
+    },
+    "DIRECTIVE": {
+      "base": {
+        "p10": 1,
+        "p50": 1.0000105984212342,
+        "p90": 1.5306102834714446,
+        "within": 0.5571955719557196,
+        "n": 271
+      },
+      "quote": {
+        "p10": -0.5402496783714001,
+        "p50": 1,
+        "p90": 1.0004917836724154,
+        "within": 0.5202952029520295,
+        "n": 271
+      }
+    },
+    "MEASURED": {
+      "base": {
+        "p10": 1,
+        "p50": 1.0000105984212342,
+        "p90": 1.5306102834714446,
+        "within": 0.5571955719557196,
+        "n": 271
+      },
+      "quote": {
+        "p10": -0.6218939930363052,
+        "p50": 0.9997769202054245,
+        "p90": 1,
+        "within": 0.5313653136531366,
+        "n": 271
+      }
+    }
+  },
+  "stratified": [
+    {
+      "bucket": "1",
+      "pairs": 26,
+      "raw": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1,
+        "within": 1,
+        "n": 26
+      },
+      "directive": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1,
+        "within": 1,
+        "n": 26
+      },
+      "measured": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1,
+        "within": 1,
+        "n": 26
+      }
+    },
+    {
+      "bucket": "2-5",
+      "pairs": 30,
+      "raw": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1.0728576530960445,
+        "within": 0.8,
+        "n": 30
+      },
+      "directive": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1.0728576530960445,
+        "within": 0.8,
+        "n": 30
+      },
+      "measured": {
+        "p10": 1,
+        "p50": 1,
+        "p90": 1.0728576530960445,
+        "within": 0.8,
+        "n": 30
+      }
+    },
+    {
+      "bucket": "6-20",
+      "pairs": 38,
+      "raw": {
+        "p10": 1,
+        "p50": 1.0273641970699083,
+        "p90": 1.2015135532396695,
+        "within": 0.34210526315789475,
+        "n": 38
+      },
+      "directive": {
+        "p10": 1,
+        "p50": 1.0273641970699083,
+        "p90": 1.2015135532396695,
+        "within": 0.34210526315789475,
+        "n": 38
+      },
+      "measured": {
+        "p10": 1,
+        "p50": 1.0273641970699083,
+        "p90": 1.2015135532396695,
+        "within": 0.34210526315789475,
+        "n": 38
+      }
+    },
+    {
+      "bucket": "21-100",
+      "pairs": 48,
+      "raw": {
+        "p10": 1.0535189661341526,
+        "p50": 1.1824728921629521,
+        "p90": 1.3580193977900399,
+        "within": 0,
+        "n": 48
+      },
+      "directive": {
+        "p10": 1.0535189661341526,
+        "p50": 1.1824728921629521,
+        "p90": 1.3580193977900399,
+        "within": 0,
+        "n": 48
+      },
+      "measured": {
+        "p10": 1.0535189661341526,
+        "p50": 1.1824728921629521,
+        "p90": 1.3580193977900399,
+        "within": 0,
+        "n": 48
+      }
+    },
+    {
+      "bucket": "101+",
+      "pairs": 42,
+      "raw": {
+        "p10": 1.173921157973942,
+        "p50": 1.925259174909298,
+        "p90": 6.0848173707112885,
+        "within": 0.023809523809523808,
+        "n": 42
+      },
+      "directive": {
+        "p10": 1.173921157973942,
+        "p50": 1.925259174909298,
+        "p90": 6.0848173707112885,
+        "within": 0.023809523809523808,
+        "n": 42
+      },
+      "measured": {
+        "p10": 1.173921157973942,
+        "p50": 1.925259174909298,
+        "p90": 6.0848173707112885,
+        "within": 0.023809523809523808,
+        "n": 42
+      }
+    }
+  ],
+  "results": [
+    {
+      "pool": "8BdNJjdbB6ANriRuNPbyvZtUc5UjzR8HVqqH4cLdJFsk",
+      "slotFrom": 439852648,
+      "slotTo": 439853328,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "557709081925979",
+      "quoteStored": "14013651771",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "8BdNJjdbB6ANriRuNPbyvZtUc5UjzR8HVqqH4cLdJFsk",
+      "slotFrom": 439853328,
+      "slotTo": 439970504,
+      "nTrades": 27,
+      "tierChanges": 0,
+      "baseStored": "624628361379563",
+      "quoteStored": "10630626934",
+      "ratios": {
+        "RAW": {
+          "base": 1.0977029886472358,
+          "quote": 0.7269003293009361
+        },
+        "DIRECTIVE": {
+          "base": 1.0977029886472358,
+          "quote": 0.7341737323165854
+        },
+        "MEASURED": {
+          "base": 1.0977029886472358,
+          "quote": 0.7166517919685281
+        }
+      }
+    },
+    {
+      "pool": "8BdNJjdbB6ANriRuNPbyvZtUc5UjzR8HVqqH4cLdJFsk",
+      "slotFrom": 439970504,
+      "slotTo": 440004427,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "626168307152743",
+      "quoteStored": "10561250884",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.00006110327338
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0001411494733317
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999787258154864
+        }
+      }
+    },
+    {
+      "pool": "7mwLcKT4qJZAT7L5kMa9ciW19VuRQDxfenGHJKfB6B1o",
+      "slotFrom": 439853482,
+      "slotTo": 440004512,
+      "nTrades": 877,
+      "tierChanges": 0,
+      "baseStored": "236793840533877",
+      "quoteStored": "59983250865",
+      "ratios": {
+        "RAW": {
+          "base": 4.500047100706485,
+          "quote": -3.195413081251311
+        },
+        "DIRECTIVE": {
+          "base": 4.500047100706485,
+          "quote": -3.1460880883852376
+        },
+        "MEASURED": {
+          "base": 4.500047100706485,
+          "quote": -3.303627847696847
+        }
+      }
+    },
+    {
+      "pool": "Ag446B89ZvH6tKAiTcTmxMyJWZVJazMMfYFbou9tjyCD",
+      "slotFrom": 439853500,
+      "slotTo": 440005222,
+      "nTrades": 18,
+      "tierChanges": 0,
+      "baseStored": "531878647683476",
+      "quoteStored": "15711248981",
+      "ratios": {
+        "RAW": {
+          "base": 1.0273641970699083,
+          "quote": 0.9401662066372417
+        },
+        "DIRECTIVE": {
+          "base": 1.0273641970699083,
+          "quote": 0.942245125763245
+        },
+        "MEASURED": {
+          "base": 1.0273641970699083,
+          "quote": 0.9373716358775843
+        }
+      }
+    },
+    {
+      "pool": "ATBgdqWFwjULB7Pn7aSEU7u2G2yRoFgsxbGJ9E2tPwfo",
+      "slotFrom": 439853517,
+      "slotTo": 440005375,
+      "nTrades": 9,
+      "tierChanges": 0,
+      "baseStored": "688836893876017",
+      "quoteStored": "8420783330",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0035890924651067
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0071333210517364
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999416421274908
+        }
+      }
+    },
+    {
+      "pool": "HzNPHWE8tVxj3581w3oLPM24qEF1gBrt427C2o9mqGVP",
+      "slotFrom": 439854277,
+      "slotTo": 440005455,
+      "nTrades": 854,
+      "tierChanges": 0,
+      "baseStored": "290737030479077",
+      "quoteStored": "45604386220",
+      "ratios": {
+        "RAW": {
+          "base": 6.03596932992422,
+          "quote": -5.117032004120238
+        },
+        "DIRECTIVE": {
+          "base": 6.03596932992422,
+          "quote": -5.0442404706702355
+        },
+        "MEASURED": {
+          "base": 6.03596932992422,
+          "quote": -5.249429020382505
+        }
+      }
+    },
+    {
+      "pool": "4fZ5KAkn7ax9FKHvS5BxEk5zH8NQtEXhjMiZhMKrT7ig",
+      "slotFrom": 439854295,
+      "slotTo": 440005529,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "761884128476791",
+      "quoteStored": "5794465002",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "Hn4br43F44ZByR8hBCoSU94BLcvHgbX2ktrp5fLY4JKn",
+      "slotFrom": 439854311,
+      "slotTo": 440006296,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "749866501924939",
+      "quoteStored": "5912499280",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "AQQ3t4LkpJX8DirrHk7MXnyKEBQ1wTAaFXm23nhGtimF",
+      "slotFrom": 439912393,
+      "slotTo": 439964943,
+      "nTrades": 28,
+      "tierChanges": 0,
+      "baseStored": "729299496487300",
+      "quoteStored": "6623731948",
+      "ratios": {
+        "RAW": {
+          "base": 1.2208151522049946,
+          "quote": 0.03765198078030678
+        },
+        "DIRECTIVE": {
+          "base": 1.2208151522049946,
+          "quote": 0.049458442849414655
+        },
+        "MEASURED": {
+          "base": 1.2208151522049946,
+          "quote": 0.02015484730482031
+        }
+      }
+    },
+    {
+      "pool": "AQQ3t4LkpJX8DirrHk7MXnyKEBQ1wTAaFXm23nhGtimF",
+      "slotFrom": 439964943,
+      "slotTo": 439999643,
+      "nTrades": 7,
+      "tierChanges": 0,
+      "baseStored": "813854452856943",
+      "quoteStored": "4109123276",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0076028509980386
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0150364133295475
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9998018499457645
+        }
+      }
+    },
+    {
+      "pool": "Higwn8dZT4zwgXZcnFyCGsKTRx7pkixTZXgqVXrmdYLg",
+      "slotFrom": 439915521,
+      "slotTo": 439959556,
+      "nTrades": 540,
+      "tierChanges": 0,
+      "baseStored": "643249551114992",
+      "quoteStored": "11253201459",
+      "ratios": {
+        "RAW": {
+          "base": 2.227993628335586,
+          "quote": -7.472860321961468
+        },
+        "DIRECTIVE": {
+          "base": 2.227993628335586,
+          "quote": -7.332763244010453
+        },
+        "MEASURED": {
+          "base": 2.227993628335586,
+          "quote": -7.701478025321114
+        }
+      }
+    },
+    {
+      "pool": "Higwn8dZT4zwgXZcnFyCGsKTRx7pkixTZXgqVXrmdYLg",
+      "slotFrom": 439959556,
+      "slotTo": 439990794,
+      "nTrades": 14,
+      "tierChanges": 0,
+      "baseStored": "712404917600967",
+      "quoteStored": "8454384063",
+      "ratios": {
+        "RAW": {
+          "base": 1.0010748277132442,
+          "quote": 1.0005826375952753
+        },
+        "DIRECTIVE": {
+          "base": 1.0010748277132442,
+          "quote": 1.0046473777045395
+        },
+        "MEASURED": {
+          "base": 1.0010748277132442,
+          "quote": 0.9963995170111543
+        }
+      }
+    },
+    {
+      "pool": "4HZgeNCK3DqE5qwcAbqLFgFwZpZepfnE42QcNJd3jzPx",
+      "slotFrom": 439915569,
+      "slotTo": 439960939,
+      "nTrades": 13,
+      "tierChanges": 0,
+      "baseStored": "777315998479170",
+      "quoteStored": "6222084714",
+      "ratios": {
+        "RAW": {
+          "base": 1.0083815658912552,
+          "quote": 0.9700586471314315
+        },
+        "DIRECTIVE": {
+          "base": 1.0083815658912552,
+          "quote": 0.9707364654501873
+        },
+        "MEASURED": {
+          "base": 1.0083815658912552,
+          "quote": 0.9661685088397528
+        }
+      }
+    },
+    {
+      "pool": "4HZgeNCK3DqE5qwcAbqLFgFwZpZepfnE42QcNJd3jzPx",
+      "slotFrom": 439960939,
+      "slotTo": 439994016,
+      "nTrades": 6,
+      "tierChanges": 0,
+      "baseStored": "810402999114872",
+      "quoteStored": "5250349709",
+      "ratios": {
+        "RAW": {
+          "base": 1.004575035302988,
+          "quote": 0.9810645809307557
+        },
+        "DIRECTIVE": {
+          "base": 1.004575035302988,
+          "quote": 0.9835739716818928
+        },
+        "MEASURED": {
+          "base": 1.004575035302988,
+          "quote": 0.9784821074287035
+        }
+      }
+    },
+    {
+      "pool": "4atsgSEhhVB2kfGFR4Q3GnzW7HHi4ujzPDt88Jw6MdFk",
+      "slotFrom": 439915615,
+      "slotTo": 439961659,
+      "nTrades": 8,
+      "tierChanges": 0,
+      "baseStored": "857029073571399",
+      "quoteStored": "3309747841",
+      "ratios": {
+        "RAW": {
+          "base": 1.1748347940650825,
+          "quote": -0.3246324966784683
+        },
+        "DIRECTIVE": {
+          "base": 1.1748347940650825,
+          "quote": -0.30824939603004636
+        },
+        "MEASURED": {
+          "base": 1.1748347940650825,
+          "quote": -0.34149273941621705
+        }
+      }
+    },
+    {
+      "pool": "4atsgSEhhVB2kfGFR4Q3GnzW7HHi4ujzPDt88Jw6MdFk",
+      "slotFrom": 439961659,
+      "slotTo": 439994102,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "857029073571399",
+      "quoteStored": "3309747841",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "31Yd4P4qEyDhVLMM4oXso2Eq2QgtKk842Rt1HCxzsqkK",
+      "slotFrom": 439915661,
+      "slotTo": 439961818,
+      "nTrades": 29,
+      "tierChanges": 0,
+      "baseStored": "717665210192607",
+      "quoteStored": "7126858236",
+      "ratios": {
+        "RAW": {
+          "base": 1.203871325521343,
+          "quote": 0.11690406942451212
+        },
+        "DIRECTIVE": {
+          "base": 1.203871325521343,
+          "quote": 0.13218454188429854
+        },
+        "MEASURED": {
+          "base": 1.203871325521343,
+          "quote": 0.0960974608054488
+        }
+      }
+    },
+    {
+      "pool": "31Yd4P4qEyDhVLMM4oXso2Eq2QgtKk842Rt1HCxzsqkK",
+      "slotFrom": 439961818,
+      "slotTo": 439994279,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "725401516973539",
+      "quoteStored": "6863377479",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0005169017747975
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0009827333584138
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999468213716765
+        }
+      }
+    },
+    {
+      "pool": "BFrWSh8tSGwkDMTKi6kZqD2SgoynTQKWWqQkZqXdwnKn",
+      "slotFrom": 439915706,
+      "slotTo": 439969678,
+      "nTrades": 59,
+      "tierChanges": 0,
+      "baseStored": "602424474889752",
+      "quoteStored": "12815724237",
+      "ratios": {
+        "RAW": {
+          "base": 1.1309756713266785,
+          "quote": 0.6461322444105895
+        },
+        "DIRECTIVE": {
+          "base": 1.1309756713266785,
+          "quote": 0.6537465973098403
+        },
+        "MEASURED": {
+          "base": 1.1309756713266785,
+          "quote": 0.6332750790289964
+        }
+      }
+    },
+    {
+      "pool": "BFrWSh8tSGwkDMTKi6kZqD2SgoynTQKWWqQkZqXdwnKn",
+      "slotFrom": 439969678,
+      "slotTo": 440004351,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "635968884089952",
+      "quoteStored": "11212572760",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.001758981852083
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0034959763329108
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999713993383263
+        }
+      }
+    },
+    {
+      "pool": "EbADciao44xKv3RReRP9C81tWJPckfsqrZiYRaLs7jY4",
+      "slotFrom": 439915756,
+      "slotTo": 439971636,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "863103443709551",
+      "quoteStored": "3047250493",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000017809497488
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000035392561342
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999999717778371
+        }
+      }
+    },
+    {
+      "pool": "EbADciao44xKv3RReRP9C81tWJPckfsqrZiYRaLs7jY4",
+      "slotFrom": 439971636,
+      "slotTo": 440008349,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "863103443709551",
+      "quoteStored": "3047250493",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "53EheZX6SU2uvFmcetBrmveswc1xJttetRTzSLL8ujrw",
+      "slotFrom": 439918102,
+      "slotTo": 439960763,
+      "nTrades": 39,
+      "tierChanges": 0,
+      "baseStored": "825942879384678",
+      "quoteStored": "3749302369",
+      "ratios": {
+        "RAW": {
+          "base": 1.5083343526063053,
+          "quote": -2.5869566624435674
+        },
+        "DIRECTIVE": {
+          "base": 1.5083343526063053,
+          "quote": -2.540834097768656
+        },
+        "MEASURED": {
+          "base": 1.5083343526063053,
+          "quote": -2.6471671386288236
+        }
+      }
+    },
+    {
+      "pool": "53EheZX6SU2uvFmcetBrmveswc1xJttetRTzSLL8ujrw",
+      "slotFrom": 439960763,
+      "slotTo": 439993125,
+      "nTrades": 13,
+      "tierChanges": 0,
+      "baseStored": "820744902083363",
+      "quoteStored": "3886828982",
+      "ratios": {
+        "RAW": {
+          "base": 1.2303605544512763,
+          "quote": -0.5705802396427638
+        },
+        "DIRECTIVE": {
+          "base": 1.2303605544512763,
+          "quote": -0.551697309537042
+        },
+        "MEASURED": {
+          "base": 1.2303605544512763,
+          "quote": -0.5948111009531419
+        }
+      }
+    },
+    {
+      "pool": "6gL5ZxFJyCgebpPp8C7hgwzHTDz7rEiwJHNTVNZnueVQ",
+      "slotFrom": 439920378,
+      "slotTo": 439960849,
+      "nTrades": 38,
+      "tierChanges": 0,
+      "baseStored": "443586085629329",
+      "quoteStored": "24059080733",
+      "ratios": {
+        "RAW": {
+          "base": 1.274990607100014,
+          "quote": 0.48237711215131984
+        },
+        "DIRECTIVE": {
+          "base": 1.274990607100014,
+          "quote": 0.4884370413987421
+        },
+        "MEASURED": {
+          "base": 1.274990607100014,
+          "quote": 0.47459261992244134
+        }
+      }
+    },
+    {
+      "pool": "6gL5ZxFJyCgebpPp8C7hgwzHTDz7rEiwJHNTVNZnueVQ",
+      "slotFrom": 439960849,
+      "slotTo": 439993215,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "444604150617240",
+      "quoteStored": "23963743348",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000489441896856
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000972765384
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999992042562081
+        }
+      }
+    },
+    {
+      "pool": "E8ee4T4EoVnsbMbAgv5KtwrAdaX7UmvHKnCz7cdg4VT7",
+      "slotFrom": 439920928,
+      "slotTo": 439969476,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "768645172977460",
+      "quoteStored": "5421547914",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000208818591656
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.00004150253831
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999996607979807
+        }
+      }
+    },
+    {
+      "pool": "E8ee4T4EoVnsbMbAgv5KtwrAdaX7UmvHKnCz7cdg4VT7",
+      "slotFrom": 439969476,
+      "slotTo": 440004199,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "768720724352101",
+      "quoteStored": "5419287288",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000005132224686
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000102000497597
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999999169632506
+        }
+      }
+    },
+    {
+      "pool": "HtWD9SeR63EoDgcU9fTjULRAmM7DnL19FKpNaCLqvrTV",
+      "slotFrom": 439921559,
+      "slotTo": 439963894,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "677205264951271",
+      "quoteStored": "9294355215",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0007361549931897
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0014631078418494
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999880303692481
+        }
+      }
+    },
+    {
+      "pool": "HtWD9SeR63EoDgcU9fTjULRAmM7DnL19FKpNaCLqvrTV",
+      "slotFrom": 439963894,
+      "slotTo": 439998361,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "677205264951271",
+      "quoteStored": "9294355215",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9vYQ9oWYKurQC5yLxDPawJExeEV5NQrfNJ6dBYzFawqH",
+      "slotFrom": 439921628,
+      "slotTo": 439963985,
+      "nTrades": 137,
+      "tierChanges": 0,
+      "baseStored": "331971805142548",
+      "quoteStored": "47989201172",
+      "ratios": {
+        "RAW": {
+          "base": 1.4537866367599641,
+          "quote": 0.3131525583461529
+        },
+        "DIRECTIVE": {
+          "base": 1.4537866367599641,
+          "quote": 0.3208553062138477
+        },
+        "MEASURED": {
+          "base": 1.4537866367599641,
+          "quote": 0.30033135745150263
+        }
+      }
+    },
+    {
+      "pool": "9vYQ9oWYKurQC5yLxDPawJExeEV5NQrfNJ6dBYzFawqH",
+      "slotFrom": 439963985,
+      "slotTo": 439998448,
+      "nTrades": 111,
+      "tierChanges": 0,
+      "baseStored": "321121758791267",
+      "quoteStored": "50222368558",
+      "ratios": {
+        "RAW": {
+          "base": 1.5306102834714446,
+          "quote": 0.21359007332781957
+        },
+        "DIRECTIVE": {
+          "base": 1.5306102834714446,
+          "quote": 0.22271598903350154
+        },
+        "MEASURED": {
+          "base": 1.5306102834714446,
+          "quote": 0.2005102989591262
+        }
+      }
+    },
+    {
+      "pool": "Er4eDHZdTHzYCKzW97hDDhgxH8qJ7a1D9xSGDfTmrK9a",
+      "slotFrom": 439921705,
+      "slotTo": 439964067,
+      "nTrades": 310,
+      "tierChanges": 0,
+      "baseStored": "207873715687811",
+      "quoteStored": "69317298566",
+      "ratios": {
+        "RAW": {
+          "base": 2.929472251276102,
+          "quote": -1.00567889317881
+        },
+        "DIRECTIVE": {
+          "base": 2.929472251276102,
+          "quote": -0.9821019641176765
+        },
+        "MEASURED": {
+          "base": 2.929472251276102,
+          "quote": -1.0517306003866522
+        }
+      }
+    },
+    {
+      "pool": "Er4eDHZdTHzYCKzW97hDDhgxH8qJ7a1D9xSGDfTmrK9a",
+      "slotFrom": 439964067,
+      "slotTo": 439998536,
+      "nTrades": 126,
+      "tierChanges": 0,
+      "baseStored": "263960353419327",
+      "quoteStored": "50915045748",
+      "ratios": {
+        "RAW": {
+          "base": 1.370920624864496,
+          "quote": 0.2976005720979874
+        },
+        "DIRECTIVE": {
+          "base": 1.370920624864496,
+          "quote": 0.31068568136603064
+        },
+        "MEASURED": {
+          "base": 1.370920624864496,
+          "quote": 0.2781770028667087
+        }
+      }
+    },
+    {
+      "pool": "EHv5mRiwxvr51SfEfjFNzQE2nZ9EEtxAeWawmnWATJ4k",
+      "slotFrom": 439921797,
+      "slotTo": 439971469,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "830930807049829",
+      "quoteStored": "3610622225",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "EHv5mRiwxvr51SfEfjFNzQE2nZ9EEtxAeWawmnWATJ4k",
+      "slotFrom": 439971469,
+      "slotTo": 440007372,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "830930807049829",
+      "quoteStored": "3610622225",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6tm1AL5qqJTHCmoDF8uNZZ99pZPPzHN4Q6wxteiqNJTF",
+      "slotFrom": 439922411,
+      "slotTo": 439962937,
+      "nTrades": 562,
+      "tierChanges": 0,
+      "baseStored": "352814834243092",
+      "quoteStored": "37485447256",
+      "ratios": {
+        "RAW": {
+          "base": 2.9365635168389486,
+          "quote": -3.3198773416817304
+        },
+        "DIRECTIVE": {
+          "base": 2.9365635168389486,
+          "quote": -3.2630885528095566
+        },
+        "MEASURED": {
+          "base": 2.9365635168389486,
+          "quote": -3.4193495260879914
+        }
+      }
+    },
+    {
+      "pool": "6tm1AL5qqJTHCmoDF8uNZZ99pZPPzHN4Q6wxteiqNJTF",
+      "slotFrom": 439962937,
+      "slotTo": 439997320,
+      "nTrades": 112,
+      "tierChanges": 0,
+      "baseStored": "458623343589372",
+      "quoteStored": "24790999929",
+      "ratios": {
+        "RAW": {
+          "base": 1.2027053411276303,
+          "quote": 0.4616284616504224
+        },
+        "DIRECTIVE": {
+          "base": 1.2027053411276303,
+          "quote": 0.4745487546163108
+        },
+        "MEASURED": {
+          "base": 1.2027053411276303,
+          "quote": 0.43538277225251815
+        }
+      }
+    },
+    {
+      "pool": "GMcbMKpSr1bosXDGw6TL2S3sYkeUkXBdqV2f2RHmiqcy",
+      "slotFrom": 439922490,
+      "slotTo": 439963010,
+      "nTrades": 5063,
+      "tierChanges": 0,
+      "baseStored": "254411051522744",
+      "quoteStored": "57194072257",
+      "ratios": {
+        "RAW": {
+          "base": 14.703984486486812,
+          "quote": -37.26919404793939
+        },
+        "DIRECTIVE": {
+          "base": 14.703984486486812,
+          "quote": -36.80285463318063
+        },
+        "MEASURED": {
+          "base": 14.703984486486812,
+          "quote": -38.10579983206668
+        }
+      }
+    },
+    {
+      "pool": "GMcbMKpSr1bosXDGw6TL2S3sYkeUkXBdqV2f2RHmiqcy",
+      "slotFrom": 439963010,
+      "slotTo": 439997415,
+      "nTrades": 249,
+      "tierChanges": 0,
+      "baseStored": "272302204888421",
+      "quoteStored": "52314535783",
+      "ratios": {
+        "RAW": {
+          "base": 1.925259174909298,
+          "quote": -0.033372136479271335
+        },
+        "DIRECTIVE": {
+          "base": 1.925259174909298,
+          "quote": -0.019514399673441138
+        },
+        "MEASURED": {
+          "base": 1.925259174909298,
+          "quote": -0.05735611208414954
+        }
+      }
+    },
+    {
+      "pool": "8r29BGgVTaFabvSVKsio7TNLN7B4AJrHwM1eeoUW8BX3",
+      "slotFrom": 439922625,
+      "slotTo": 439963817,
+      "nTrades": 26,
+      "tierChanges": 0,
+      "baseStored": "718803829101119",
+      "quoteStored": "7388196244",
+      "ratios": {
+        "RAW": {
+          "base": 1.174845793558431,
+          "quote": 0.20055698996941804
+        },
+        "DIRECTIVE": {
+          "base": 1.174845793558431,
+          "quote": 0.21396584224245466
+        },
+        "MEASURED": {
+          "base": 1.174845793558431,
+          "quote": 0.18156059959687232
+        }
+      }
+    },
+    {
+      "pool": "8r29BGgVTaFabvSVKsio7TNLN7B4AJrHwM1eeoUW8BX3",
+      "slotFrom": 439963817,
+      "slotTo": 439997654,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "726561872847060",
+      "quoteStored": "7121597376",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0004605463952587
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0009153357955853
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999925123540149
+        }
+      }
+    },
+    {
+      "pool": "CKjyj7bD34DWF8KrxFsPcknvuik4JvF1scnPX92WseQF",
+      "slotFrom": 439923371,
+      "slotTo": 439963738,
+      "nTrades": 272,
+      "tierChanges": 0,
+      "baseStored": "402210405343762",
+      "quoteStored": "29477912637",
+      "ratios": {
+        "RAW": {
+          "base": 1.961716839836464,
+          "quote": -1.8060928357991863
+        },
+        "DIRECTIVE": {
+          "base": 1.961716839836464,
+          "quote": -1.7701821998245308
+        },
+        "MEASURED": {
+          "base": 1.961716839836464,
+          "quote": -1.8783628729023565
+        }
+      }
+    },
+    {
+      "pool": "CKjyj7bD34DWF8KrxFsPcknvuik4JvF1scnPX92WseQF",
+      "slotFrom": 439963738,
+      "slotTo": 439997499,
+      "nTrades": 29,
+      "tierChanges": 0,
+      "baseStored": "353770580733081",
+      "quoteStored": "35927006878",
+      "ratios": {
+        "RAW": {
+          "base": 1.2600804406585617,
+          "quote": 0.6420132405219732
+        },
+        "DIRECTIVE": {
+          "base": 1.2600804406585617,
+          "quote": 0.644208560584895
+        },
+        "MEASURED": {
+          "base": 1.2600804406585617,
+          "quote": 0.6377335806404217
+        }
+      }
+    },
+    {
+      "pool": "6g7eFe426ptUW4XKF4Xn2X4VxJ1ERQno9mkEibH4E6Rf",
+      "slotFrom": 439923444,
+      "slotTo": 439965047,
+      "nTrades": 22,
+      "tierChanges": 0,
+      "baseStored": "804499229968562",
+      "quoteStored": "4437836261",
+      "ratios": {
+        "RAW": {
+          "base": 1.201797726977085,
+          "quote": -0.3146917271989004
+        },
+        "DIRECTIVE": {
+          "base": 1.201797726977085,
+          "quote": -0.2968105012290808
+        },
+        "MEASURED": {
+          "base": 1.201797726977085,
+          "quote": -0.3391342797448921
+        }
+      }
+    },
+    {
+      "pool": "6g7eFe426ptUW4XKF4Xn2X4VxJ1ERQno9mkEibH4E6Rf",
+      "slotFrom": 439965047,
+      "slotTo": 439999730,
+      "nTrades": 10,
+      "tierChanges": 0,
+      "baseStored": "822567757386648",
+      "quoteStored": "3954418777",
+      "ratios": {
+        "RAW": {
+          "base": 1.0256296879590983,
+          "quote": 0.8534621385144207
+        },
+        "DIRECTIVE": {
+          "base": 1.0256296879590983,
+          "quote": 0.8567681990854557
+        },
+        "MEASURED": {
+          "base": 1.0256296879590983,
+          "quote": 0.8500597945142723
+        }
+      }
+    },
+    {
+      "pool": "Eu43LJWxkbH89nLEaMkkbzFoZoNmcWNbLnz9eUXDdNiD",
+      "slotFrom": 439923523,
+      "slotTo": 439965132,
+      "nTrades": 56,
+      "tierChanges": 0,
+      "baseStored": "699517044529519",
+      "quoteStored": "7718994091",
+      "ratios": {
+        "RAW": {
+          "base": 1.334847093773751,
+          "quote": -0.42751154646531003
+        },
+        "DIRECTIVE": {
+          "base": 1.334847093773751,
+          "quote": -0.3957602183634059
+        },
+        "MEASURED": {
+          "base": 1.334847093773751,
+          "quote": -0.4730876112805668
+        }
+      }
+    },
+    {
+      "pool": "Eu43LJWxkbH89nLEaMkkbzFoZoNmcWNbLnz9eUXDdNiD",
+      "slotFrom": 439965132,
+      "slotTo": 440002278,
+      "nTrades": 8,
+      "tierChanges": 0,
+      "baseStored": "724836451166593",
+      "quoteStored": "6835452565",
+      "ratios": {
+        "RAW": {
+          "base": 1.0166284305206552,
+          "quote": 0.9406333976951532
+        },
+        "DIRECTIVE": {
+          "base": 1.0166284305206552,
+          "quote": 0.9429534892837048
+        },
+        "MEASURED": {
+          "base": 1.0166284305206552,
+          "quote": 0.938245736623
+        }
+      }
+    },
+    {
+      "pool": "8Rn3jPkirgKrKHdFVjbLsLyWnvqb88FUQJhbqHs11oWJ",
+      "slotFrom": 439923611,
+      "slotTo": 439971550,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868880200161815",
+      "quoteStored": "3372721277",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "8Rn3jPkirgKrKHdFVjbLsLyWnvqb88FUQJhbqHs11oWJ",
+      "slotFrom": 439971550,
+      "slotTo": 440007535,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868880200161815",
+      "quoteStored": "3372721277",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3SAXqsy2NB8Huoka17bu23q63f6FZ1zVFst97x4rWGJ7",
+      "slotFrom": 439924591,
+      "slotTo": 439959931,
+      "nTrades": 113,
+      "tierChanges": 0,
+      "baseStored": "262808861110697",
+      "quoteStored": "52015327526",
+      "ratios": {
+        "RAW": {
+          "base": 1.5852162624537127,
+          "quote": 0.2868381776610405
+        },
+        "DIRECTIVE": {
+          "base": 1.5852162624537127,
+          "quote": 0.29780213601956357
+        },
+        "MEASURED": {
+          "base": 1.5852162624537127,
+          "quote": 0.26867490485404427
+        }
+      }
+    },
+    {
+      "pool": "3SAXqsy2NB8Huoka17bu23q63f6FZ1zVFst97x4rWGJ7",
+      "slotFrom": 439959931,
+      "slotTo": 439992128,
+      "nTrades": 335,
+      "tierChanges": 0,
+      "baseStored": "196060115067366",
+      "quoteStored": "76551582881",
+      "ratios": {
+        "RAW": {
+          "base": 3.2222414968861792,
+          "quote": -1.8361804757258315
+        },
+        "DIRECTIVE": {
+          "base": 3.2222414968861792,
+          "quote": -1.8052378413235857
+        },
+        "MEASURED": {
+          "base": 3.2222414968861792,
+          "quote": -1.8880942011961164
+        }
+      }
+    },
+    {
+      "pool": "26WifweTveK3TFXLeQUQdAfHQK62m8pLDd8GSnqSm8gb",
+      "slotFrom": 439924654,
+      "slotTo": 439961895,
+      "nTrades": 65,
+      "tierChanges": 0,
+      "baseStored": "500360019612397",
+      "quoteStored": "18938417773",
+      "ratios": {
+        "RAW": {
+          "base": 1.3447729175470275,
+          "quote": 0.09058107295772559
+        },
+        "DIRECTIVE": {
+          "base": 1.3447729175470275,
+          "quote": 0.10354637797650404
+        },
+        "MEASURED": {
+          "base": 1.3447729175470275,
+          "quote": 0.07114243571714031
+        }
+      }
+    },
+    {
+      "pool": "26WifweTveK3TFXLeQUQdAfHQK62m8pLDd8GSnqSm8gb",
+      "slotFrom": 439961895,
+      "slotTo": 439995324,
+      "nTrades": 15,
+      "tierChanges": 0,
+      "baseStored": "514310816119622",
+      "quoteStored": "17949207613",
+      "ratios": {
+        "RAW": {
+          "base": 1.0639544438865303,
+          "quote": 0.8598777057891731
+        },
+        "DIRECTIVE": {
+          "base": 1.0639544438865303,
+          "quote": 0.8622790832721982
+        },
+        "MEASURED": {
+          "base": 1.0639544438865303,
+          "quote": 0.8561733982546252
+        }
+      }
+    },
+    {
+      "pool": "GXoRH7k4wovzYDtZNHVyaBKgTYj5Ks2pyVV6UTBTmkgm",
+      "slotFrom": 439924731,
+      "slotTo": 439961975,
+      "nTrades": 242,
+      "tierChanges": 0,
+      "baseStored": "402054852255674",
+      "quoteStored": "29904979745",
+      "ratios": {
+        "RAW": {
+          "base": 1.7078043941448735,
+          "quote": -1.0598470717339052
+        },
+        "DIRECTIVE": {
+          "base": 1.7078043941448735,
+          "quote": -1.0251728495862253
+        },
+        "MEASURED": {
+          "base": 1.7078043941448735,
+          "quote": -1.1148662268388372
+        }
+      }
+    },
+    {
+      "pool": "GXoRH7k4wovzYDtZNHVyaBKgTYj5Ks2pyVV6UTBTmkgm",
+      "slotFrom": 439961975,
+      "slotTo": 439995419,
+      "nTrades": 84,
+      "tierChanges": 0,
+      "baseStored": "373140347479643",
+      "quoteStored": "33591800499",
+      "ratios": {
+        "RAW": {
+          "base": 1.2094072277105141,
+          "quote": 0.6911972345064147
+        },
+        "DIRECTIVE": {
+          "base": 1.2094072277105141,
+          "quote": 0.6936455395623597
+        },
+        "MEASURED": {
+          "base": 1.2094072277105141,
+          "quote": 0.6823658972874159
+        }
+      }
+    },
+    {
+      "pool": "36t85JcMrtWBEqmmnLzDqxgMKy4rNLTdBNfTDiGxys2E",
+      "slotFrom": 439924802,
+      "slotTo": 439962697,
+      "nTrades": 734,
+      "tierChanges": 0,
+      "baseStored": "249035123985360",
+      "quoteStored": "56087135355",
+      "ratios": {
+        "RAW": {
+          "base": 3.9911416404960463,
+          "quote": -3.392170401069327
+        },
+        "DIRECTIVE": {
+          "base": 3.9911416404960463,
+          "quote": -3.3423144743171203
+        },
+        "MEASURED": {
+          "base": 3.9911416404960463,
+          "quote": -3.4911039239507975
+        }
+      }
+    },
+    {
+      "pool": "36t85JcMrtWBEqmmnLzDqxgMKy4rNLTdBNfTDiGxys2E",
+      "slotFrom": 439962697,
+      "slotTo": 439996298,
+      "nTrades": 221,
+      "tierChanges": 0,
+      "baseStored": "387625450533198",
+      "quoteStored": "29783503233",
+      "ratios": {
+        "RAW": {
+          "base": 1.4211289440735377,
+          "quote": -0.5873276950046019
+        },
+        "DIRECTIVE": {
+          "base": 1.4211289440735377,
+          "quote": -0.5569406805919647
+        },
+        "MEASURED": {
+          "base": 1.4211289440735377,
+          "quote": -0.639240839905799
+        }
+      }
+    },
+    {
+      "pool": "HkHd19MCd8F6Vw79kiUgWBYzozvnTJu6aynLKUXBcJ57",
+      "slotFrom": 439924882,
+      "slotTo": 439969322,
+      "nTrades": 266,
+      "tierChanges": 0,
+      "baseStored": "704596648128638",
+      "quoteStored": "8032288044",
+      "ratios": {
+        "RAW": {
+          "base": 1.5171709639082618,
+          "quote": -3.6755664185939394
+        },
+        "DIRECTIVE": {
+          "base": 1.5171709639082618,
+          "quote": -3.522947348375745
+        },
+        "MEASURED": {
+          "base": 1.5171709639082618,
+          "quote": -3.875731769138233
+        }
+      }
+    },
+    {
+      "pool": "HkHd19MCd8F6Vw79kiUgWBYzozvnTJu6aynLKUXBcJ57",
+      "slotFrom": 439969322,
+      "slotTo": 440003410,
+      "nTrades": 20,
+      "tierChanges": 0,
+      "baseStored": "799734630875702",
+      "quoteStored": "4985598397",
+      "ratios": {
+        "RAW": {
+          "base": 1.0135157198106919,
+          "quote": 0.9286610256826909
+        },
+        "DIRECTIVE": {
+          "base": 1.0135157198106919,
+          "quote": 0.9370550032291339
+        },
+        "MEASURED": {
+          "base": 1.0135157198106919,
+          "quote": 0.9197689021160042
+        }
+      }
+    },
+    {
+      "pool": "BvDtXUuA3p2pwNKnEXnpRWgVyu5zsisjWGvUgJjJpsoL",
+      "slotFrom": 439926012,
+      "slotTo": 439958593,
+      "nTrades": 10,
+      "tierChanges": 0,
+      "baseStored": "794989222002254",
+      "quoteStored": "5412161452",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0015815867793147
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0031434021602799
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.999974286428586
+        }
+      }
+    },
+    {
+      "pool": "BvDtXUuA3p2pwNKnEXnpRWgVyu5zsisjWGvUgJjJpsoL",
+      "slotFrom": 439958593,
+      "slotTo": 439989698,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "795100649165672",
+      "quoteStored": "5408939294",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000073289785383
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.000014566072148
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999998811227183
+        }
+      }
+    },
+    {
+      "pool": "4d92VFFaUudWfBUpfhJhMLV9AmNUFfVgr2DiL7rr3mV8",
+      "slotFrom": 439926142,
+      "slotTo": 439968347,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "986330324050855",
+      "quoteStored": "623602202",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000217879281958
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 0.9998465143328663
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9998021286653507
+        }
+      }
+    },
+    {
+      "pool": "4d92VFFaUudWfBUpfhJhMLV9AmNUFfVgr2DiL7rr3mV8",
+      "slotFrom": 439968347,
+      "slotTo": 440003340,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "986330324050855",
+      "quoteStored": "623602202",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "BU8896a7YW33DdSQYrTFm1roe7wwhwqusQrzPjQY7y6L",
+      "slotFrom": 439926782,
+      "slotTo": 439958879,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "713051358861024",
+      "quoteStored": "7100800620",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "BU8896a7YW33DdSQYrTFm1roe7wwhwqusQrzPjQY7y6L",
+      "slotFrom": 439958879,
+      "slotTo": 439990719,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "713514144310364",
+      "quoteStored": "7084792928",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000277968604026
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000552462159413
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999995481872184
+        }
+      }
+    },
+    {
+      "pool": "DrK2XXFDT8bbuD4SypXvLzroh5eZq3qUScRANQagDsCJ",
+      "slotFrom": 439926861,
+      "slotTo": 439959638,
+      "nTrades": 2265,
+      "tierChanges": 0,
+      "baseStored": "252039814136408",
+      "quoteStored": "55411499210",
+      "ratios": {
+        "RAW": {
+          "base": 10.67647901863144,
+          "quote": -15.963914055737385
+        },
+        "DIRECTIVE": {
+          "base": 10.67647901863144,
+          "quote": -15.758220570729799
+        },
+        "MEASURED": {
+          "base": 10.67647901863144,
+          "quote": -16.303267534908482
+        }
+      }
+    },
+    {
+      "pool": "DrK2XXFDT8bbuD4SypXvLzroh5eZq3qUScRANQagDsCJ",
+      "slotFrom": 439959638,
+      "slotTo": 439990949,
+      "nTrades": 274,
+      "tierChanges": 0,
+      "baseStored": "397326681923076",
+      "quoteStored": "28748222753",
+      "ratios": {
+        "RAW": {
+          "base": 1.712821769344947,
+          "quote": -0.9672038348213504
+        },
+        "DIRECTIVE": {
+          "base": 1.712821769344947,
+          "quote": -0.9315992753049473
+        },
+        "MEASURED": {
+          "base": 1.712821769344947,
+          "quote": -1.0238872305220446
+        }
+      }
+    },
+    {
+      "pool": "9FG8xAmMBLAL1yMPs4Y7cYeQbFdtUpRU3jggD6wCp2qK",
+      "slotFrom": 439927420,
+      "slotTo": 439957928,
+      "nTrades": 98,
+      "tierChanges": 0,
+      "baseStored": "689055958376405",
+      "quoteStored": "8423061645",
+      "ratios": {
+        "RAW": {
+          "base": 1.4513056434547051,
+          "quote": -0.5950532519223893
+        },
+        "DIRECTIVE": {
+          "base": 1.4513056434547051,
+          "quote": -0.5751351521777922
+        },
+        "MEASURED": {
+          "base": 1.4513056434547051,
+          "quote": -0.6218939930363052
+        }
+      }
+    },
+    {
+      "pool": "9FG8xAmMBLAL1yMPs4Y7cYeQbFdtUpRU3jggD6wCp2qK",
+      "slotFrom": 439957928,
+      "slotTo": 439988917,
+      "nTrades": 4,
+      "tierChanges": 0,
+      "baseStored": "691265937701589",
+      "quoteStored": "8339932244",
+      "ratios": {
+        "RAW": {
+          "base": 1.0000239085774643,
+          "quote": 1.0000490206620436
+        },
+        "DIRECTIVE": {
+          "base": 1.0000239085774643,
+          "quote": 1.0001710198546307
+        },
+        "MEASURED": {
+          "base": 1.0000239085774643,
+          "quote": 0.9999234688027041
+        }
+      }
+    },
+    {
+      "pool": "FkQZ7SLpop7xPmRryFkJ74s4Ln6k7LLFXHbsfftMeT4t",
+      "slotFrom": 439929281,
+      "slotTo": 439938796,
+      "nTrades": 19,
+      "tierChanges": 0,
+      "baseStored": "729908081079451",
+      "quoteStored": "6948856900",
+      "ratios": {
+        "RAW": {
+          "base": 1.2015135532396695,
+          "quote": 0.15797776523502735
+        },
+        "DIRECTIVE": {
+          "base": 1.2015135532396695,
+          "quote": 0.16753312778681628
+        },
+        "MEASURED": {
+          "base": 1.2015135532396695,
+          "quote": 0.144141376979572
+        }
+      }
+    },
+    {
+      "pool": "FkQZ7SLpop7xPmRryFkJ74s4Ln6k7LLFXHbsfftMeT4t",
+      "slotFrom": 439938796,
+      "slotTo": 439990872,
+      "nTrades": 24,
+      "tierChanges": 0,
+      "baseStored": "850765766461409",
+      "quoteStored": "3465128412",
+      "ratios": {
+        "RAW": {
+          "base": 1.0820328859170671,
+          "quote": 0.4268301067510337
+        },
+        "DIRECTIVE": {
+          "base": 1.0820328859170671,
+          "quote": 0.44624612284065623
+        },
+        "MEASURED": {
+          "base": 1.0820328859170671,
+          "quote": 0.40684862013131073
+        }
+      }
+    },
+    {
+      "pool": "FqVadA1ScCnkCp5EqgX8YPaLhZZEd9KZUWnvGcnPR3Ni",
+      "slotFrom": 439929347,
+      "slotTo": 439938861,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "296864014828544",
+      "quoteStored": "41694655077",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0003571313390769
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0007097985328177
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999941930206749
+        }
+      }
+    },
+    {
+      "pool": "FqVadA1ScCnkCp5EqgX8YPaLhZZEd9KZUWnvGcnPR3Ni",
+      "slotFrom": 439938861,
+      "slotTo": 439993032,
+      "nTrades": 76,
+      "tierChanges": 0,
+      "baseStored": "287458681575113",
+      "quoteStored": "43641273161",
+      "ratios": {
+        "RAW": {
+          "base": 1.1527735108647004,
+          "quote": 0.7923030732728444
+        },
+        "DIRECTIVE": {
+          "base": 1.1527735108647004,
+          "quote": 0.7943091044368993
+        },
+        "MEASURED": {
+          "base": 1.1527735108647004,
+          "quote": 0.7849205257057418
+        }
+      }
+    },
+    {
+      "pool": "AyTTBjZrjf2z6fcJdyDyBrQX8ao84c6jC8bkJCrRunRw",
+      "slotFrom": 439929440,
+      "slotTo": 439939065,
+      "nTrades": 20,
+      "tierChanges": 0,
+      "baseStored": "557464403843753",
+      "quoteStored": "15225969762",
+      "ratios": {
+        "RAW": {
+          "base": 1.074688601236878,
+          "quote": 0.8023822153181024
+        },
+        "DIRECTIVE": {
+          "base": 1.074688601236878,
+          "quote": 0.8106211030185809
+        },
+        "MEASURED": {
+          "base": 1.074688601236878,
+          "quote": 0.7935641379083411
+        }
+      }
+    },
+    {
+      "pool": "AyTTBjZrjf2z6fcJdyDyBrQX8ao84c6jC8bkJCrRunRw",
+      "slotFrom": 439939065,
+      "slotTo": 439995094,
+      "nTrades": 69,
+      "tierChanges": 0,
+      "baseStored": "584757799561838",
+      "quoteStored": "13704104378",
+      "ratios": {
+        "RAW": {
+          "base": 1.5743466789434684,
+          "quote": -0.701201594569466
+        },
+        "DIRECTIVE": {
+          "base": 1.5743466789434684,
+          "quote": -0.6789108766521101
+        },
+        "MEASURED": {
+          "base": 1.5743466789434684,
+          "quote": -0.7295475502251754
+        }
+      }
+    },
+    {
+      "pool": "ADWBeURc1Pj21AZ7XJvkPuppotpY6eyGQKUbpb4Q4Ceq",
+      "slotFrom": 439929525,
+      "slotTo": 439939350,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "964911348785038",
+      "quoteStored": "939862042",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "ADWBeURc1Pj21AZ7XJvkPuppotpY6eyGQKUbpb4Q4Ceq",
+      "slotFrom": 439939350,
+      "slotTo": 440007454,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "964911348785038",
+      "quoteStored": "939862042",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "CUZaEYmQPofv5svzqUsoaSgK2LJ7fcPaSqR7upPdxQys",
+      "slotFrom": 439930125,
+      "slotTo": 439939003,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "757404056423645",
+      "quoteStored": "5651819056",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000000771433049
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000001530480702
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "CUZaEYmQPofv5svzqUsoaSgK2LJ7fcPaSqR7upPdxQys",
+      "slotFrom": 439939003,
+      "slotTo": 439988796,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "757407740050428",
+      "quoteStored": "5651706072",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000002464742472
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000004895866779
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.999999996815121
+        }
+      }
+    },
+    {
+      "pool": "5z9z3JKQ3kYHGUENZheUjkUxwC4qFVhzso8CLJ9CGEhd",
+      "slotFrom": 439930677,
+      "slotTo": 439940610,
+      "nTrades": 8,
+      "tierChanges": 0,
+      "baseStored": "597815808044799",
+      "quoteStored": "11903916580",
+      "ratios": {
+        "RAW": {
+          "base": 1.0141201812792369,
+          "quote": 0.9649284661737776
+        },
+        "DIRECTIVE": {
+          "base": 1.0141201812792369,
+          "quote": 0.9653759676296387
+        },
+        "MEASURED": {
+          "base": 1.0141201812792369,
+          "quote": 0.9644679322845188
+        }
+      }
+    },
+    {
+      "pool": "5z9z3JKQ3kYHGUENZheUjkUxwC4qFVhzso8CLJ9CGEhd",
+      "slotFrom": 439940610,
+      "slotTo": 439953174,
+      "nTrades": 6,
+      "tierChanges": 0,
+      "baseStored": "614011455906702",
+      "quoteStored": "11126261030",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000859865050281
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0017089814762328
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999860192925925
+        }
+      }
+    },
+    {
+      "pool": "9V7LvVKSmp1pudWe8AMsxfVMvFb1rXqUrwuxWQhMHiKX",
+      "slotFrom": 439931178,
+      "slotTo": 439971369,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "680282395374320",
+      "quoteStored": "8409912770",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9V7LvVKSmp1pudWe8AMsxfVMvFb1rXqUrwuxWQhMHiKX",
+      "slotFrom": 439971369,
+      "slotTo": 440007217,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "680282395374320",
+      "quoteStored": "8409912770",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "G6fPJ4EVFi4UH4TeWoqUEemoVt9uqT4msLAA9zLnt7gP",
+      "slotFrom": 439932960,
+      "slotTo": 439970721,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "658258131168775",
+      "quoteStored": "9167309437",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "G6fPJ4EVFi4UH4TeWoqUEemoVt9uqT4msLAA9zLnt7gP",
+      "slotFrom": 439970721,
+      "slotTo": 440006520,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "658258131168775",
+      "quoteStored": "9167309437",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9BtnDW7NE6MZDFRw2HB5A4mbRRDDcwqEnHzgYpUfYwby",
+      "slotFrom": 439933488,
+      "slotTo": 439966232,
+      "nTrades": 22,
+      "tierChanges": 0,
+      "baseStored": "496666032732222",
+      "quoteStored": "18101315721",
+      "ratios": {
+        "RAW": {
+          "base": 1.1823728032021377,
+          "quote": 0.5999677621445317
+        },
+        "DIRECTIVE": {
+          "base": 1.1823728032021377,
+          "quote": 0.6074207263422384
+        },
+        "MEASURED": {
+          "base": 1.1823728032021377,
+          "quote": 0.5893895491598337
+        }
+      }
+    },
+    {
+      "pool": "9BtnDW7NE6MZDFRw2HB5A4mbRRDDcwqEnHzgYpUfYwby",
+      "slotFrom": 439966232,
+      "slotTo": 440003278,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "509231090433166",
+      "quoteStored": "17220958152",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0006289179675372
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0012499742354637
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999897742042896
+        }
+      }
+    },
+    {
+      "pool": "8L61r4RsUkpL9CLdstHFavmwL1iEzDsm84f4Fj2L3C8k",
+      "slotFrom": 439934656,
+      "slotTo": 439966143,
+      "nTrades": 4,
+      "tierChanges": 0,
+      "baseStored": "815405223600121",
+      "quoteStored": "4024090368",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0034861794137522
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0069287810288061
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999433153882891
+        }
+      }
+    },
+    {
+      "pool": "8L61r4RsUkpL9CLdstHFavmwL1iEzDsm84f4Fj2L3C8k",
+      "slotFrom": 439966143,
+      "slotTo": 440003209,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "822760310407631",
+      "quoteStored": "3830970204",
+      "ratios": {
+        "RAW": {
+          "base": 1.0013716050154107,
+          "quote": 0.9930559621757894
+        },
+        "DIRECTIVE": {
+          "base": 1.0013716050154107,
+          "quote": 0.9937614200248684
+        },
+        "MEASURED": {
+          "base": 1.0013716050154107,
+          "quote": 0.992329958617449
+        }
+      }
+    },
+    {
+      "pool": "G7NAewUdrcocAk8x26EiJb7N6bLTPhRzfGEdctppasio",
+      "slotFrom": 439935717,
+      "slotTo": 439966053,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "909194362041350",
+      "quoteStored": "1798651012",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "G7NAewUdrcocAk8x26EiJb7N6bLTPhRzfGEdctppasio",
+      "slotFrom": 439966053,
+      "slotTo": 440002503,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "909194362041350",
+      "quoteStored": "1798651012",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3xbU3HkeRdjeh5kv7oeAqfpkvzdXoKPdfKSkFyUBH8y9",
+      "slotFrom": 439936441,
+      "slotTo": 439958818,
+      "nTrades": 646,
+      "tierChanges": 1,
+      "baseStored": "449900965176220",
+      "quoteStored": "23667277336",
+      "ratios": {
+        "RAW": {
+          "base": 2.289154160699178,
+          "quote": -6.053236885304228
+        },
+        "DIRECTIVE": {
+          "base": 2.289154160699178,
+          "quote": -5.9333008339916296
+        },
+        "MEASURED": {
+          "base": 2.289154160699178,
+          "quote": -6.278269585998483
+        }
+      }
+    },
+    {
+      "pool": "3xbU3HkeRdjeh5kv7oeAqfpkvzdXoKPdfKSkFyUBH8y9",
+      "slotFrom": 439958818,
+      "slotTo": 439990656,
+      "nTrades": 373,
+      "tierChanges": 0,
+      "baseStored": "455070653634293",
+      "quoteStored": "23231940829",
+      "ratios": {
+        "RAW": {
+          "base": 2.008268193249958,
+          "quote": -2.0096023042862408
+        },
+        "DIRECTIVE": {
+          "base": 2.008268193249958,
+          "quote": -1.9723537071341772
+        },
+        "MEASURED": {
+          "base": 2.008268193249958,
+          "quote": -2.090376976743117
+        }
+      }
+    },
+    {
+      "pool": "68Fqmxv8XuYVgXgjM6fMGokmJf2mJRnt3iCBasnCCKF3",
+      "slotFrom": 439936523,
+      "slotTo": 439961732,
+      "nTrades": 304,
+      "tierChanges": 0,
+      "baseStored": "286459475350664",
+      "quoteStored": "46979278235",
+      "ratios": {
+        "RAW": {
+          "base": 1.6956074587201018,
+          "quote": -0.25713132369923053
+        },
+        "DIRECTIVE": {
+          "base": 1.6956074587201018,
+          "quote": -0.23522578111400394
+        },
+        "MEASURED": {
+          "base": 1.6956074587201018,
+          "quote": -0.29286881382416796
+        }
+      }
+    },
+    {
+      "pool": "68Fqmxv8XuYVgXgjM6fMGokmJf2mJRnt3iCBasnCCKF3",
+      "slotFrom": 439961732,
+      "slotTo": 439994191,
+      "nTrades": 220,
+      "tierChanges": 0,
+      "baseStored": "306035423859411",
+      "quoteStored": "42871536167",
+      "ratios": {
+        "RAW": {
+          "base": 1.4563971627942633,
+          "quote": 0.1707339558929596
+        },
+        "DIRECTIVE": {
+          "base": 1.4563971627942633,
+          "quote": 0.18211245528005388
+        },
+        "MEASURED": {
+          "base": 1.4563971627942633,
+          "quote": 0.14432082188280873
+        }
+      }
+    },
+    {
+      "pool": "C4cwq6nYUrqbvNxBDk1rrpyMrG61KyURKpDNZNxKewwn",
+      "slotFrom": 439936589,
+      "slotTo": 439962767,
+      "nTrades": 26,
+      "tierChanges": 0,
+      "baseStored": "390521263158011",
+      "quoteStored": "29326844615",
+      "ratios": {
+        "RAW": {
+          "base": 1.1369432105909543,
+          "quote": 0.7859390928886674
+        },
+        "DIRECTIVE": {
+          "base": 1.1369432105909543,
+          "quote": 0.7881046636083866
+        },
+        "MEASURED": {
+          "base": 1.1369432105909543,
+          "quote": 0.7825248664584299
+        }
+      }
+    },
+    {
+      "pool": "C4cwq6nYUrqbvNxBDk1rrpyMrG61KyURKpDNZNxKewwn",
+      "slotFrom": 439962767,
+      "slotTo": 439996398,
+      "nTrades": 31,
+      "tierChanges": 0,
+      "baseStored": "456059608846329",
+      "quoteStored": "22588219563",
+      "ratios": {
+        "RAW": {
+          "base": 1.0691586200412493,
+          "quote": 0.8452134691603981
+        },
+        "DIRECTIVE": {
+          "base": 1.0691586200412493,
+          "quote": 0.8507867384766841
+        },
+        "MEASURED": {
+          "base": 1.0691586200412493,
+          "quote": 0.8386810466474834
+        }
+      }
+    },
+    {
+      "pool": "9sbo7CwJUVYqbZd3Z4AWXy44Q7b2cHn6YxJHkFr83gpe",
+      "slotFrom": 439937158,
+      "slotTo": 439968282,
+      "nTrades": 28,
+      "tierChanges": 0,
+      "baseStored": "539422060055890",
+      "quoteStored": "15366057266",
+      "ratios": {
+        "RAW": {
+          "base": 1.1266289293645382,
+          "quote": 0.7624744137147094
+        },
+        "DIRECTIVE": {
+          "base": 1.1266289293645382,
+          "quote": 0.7647298548080265
+        },
+        "MEASURED": {
+          "base": 1.1266289293645382,
+          "quote": 0.7599499136215181
+        }
+      }
+    },
+    {
+      "pool": "9sbo7CwJUVYqbZd3Z4AWXy44Q7b2cHn6YxJHkFr83gpe",
+      "slotFrom": 439968282,
+      "slotTo": 440002425,
+      "nTrades": 145,
+      "tierChanges": 0,
+      "baseStored": "268414485461671",
+      "quoteStored": "48662758629",
+      "ratios": {
+        "RAW": {
+          "base": 2.3295601448904915,
+          "quote": -0.014642004256934621
+        },
+        "DIRECTIVE": {
+          "base": 2.3295601448904915,
+          "quote": -0.010577982270270197
+        },
+        "MEASURED": {
+          "base": 2.3295601448904915,
+          "quote": -0.028610589991712735
+        }
+      }
+    },
+    {
+      "pool": "Dky1qXA6fXR7fkq4GKt5i7Nh5SmeCyvxoaiVsuNBYruB",
+      "slotFrom": 439937738,
+      "slotTo": 439958747,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "904645598033001",
+      "quoteStored": "2192591027",
+      "ratios": {
+        "RAW": {
+          "base": 1.0003716895339656,
+          "quote": 0.9967107550331136
+        },
+        "DIRECTIVE": {
+          "base": 1.0003716895339656,
+          "quote": 0.9967727766314534
+        },
+        "MEASURED": {
+          "base": 1.0003716895339656,
+          "quote": 0.9966469282645659
+        }
+      }
+    },
+    {
+      "pool": "Dky1qXA6fXR7fkq4GKt5i7Nh5SmeCyvxoaiVsuNBYruB",
+      "slotFrom": 439958747,
+      "slotTo": 439989939,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "904636010319500",
+      "quoteStored": "2192800676",
+      "ratios": {
+        "RAW": {
+          "base": 1.0000105984212342,
+          "quote": 0.999904392130897
+        },
+        "DIRECTIVE": {
+          "base": 1.0000105984212342,
+          "quote": 0.999904392130897
+        },
+        "MEASURED": {
+          "base": 1.0000105984212342,
+          "quote": 0.999904392130897
+        }
+      }
+    },
+    {
+      "pool": "DBBP1vK6yzfEnY4rUfRngfcS5j8Y8gyukgoZ63nJnQHL",
+      "slotFrom": 439937792,
+      "slotTo": 439970581,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "983234045464001",
+      "quoteStored": "550137062",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "DBBP1vK6yzfEnY4rUfRngfcS5j8Y8gyukgoZ63nJnQHL",
+      "slotFrom": 439970581,
+      "slotTo": 440006210,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "983234045464001",
+      "quoteStored": "550137062",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "AmxhqJr9mZuNBjSZtpvvzuYkA945sVBenU6n4jyMeFEJ",
+      "slotFrom": 439940531,
+      "slotTo": 439950510,
+      "nTrades": 10,
+      "tierChanges": 0,
+      "baseStored": "236792188812111",
+      "quoteStored": "58799874721",
+      "ratios": {
+        "RAW": {
+          "base": 1.0650412993525962,
+          "quote": 0.9196343973278515
+        },
+        "DIRECTIVE": {
+          "base": 1.0650412993525962,
+          "quote": 0.9212347111796494
+        },
+        "MEASURED": {
+          "base": 1.0650412993525962,
+          "quote": 0.9179874757747105
+        }
+      }
+    },
+    {
+      "pool": "AmxhqJr9mZuNBjSZtpvvzuYkA945sVBenU6n4jyMeFEJ",
+      "slotFrom": 439950510,
+      "slotTo": 440005306,
+      "nTrades": 49,
+      "tierChanges": 0,
+      "baseStored": "227904279018573",
+      "quoteStored": "61783191231",
+      "ratios": {
+        "RAW": {
+          "base": 1.13307298811234,
+          "quote": 0.8446484281118826
+        },
+        "DIRECTIVE": {
+          "base": 1.13307298811234,
+          "quote": 0.8459653242510897
+        },
+        "MEASURED": {
+          "base": 1.13307298811234,
+          "quote": 0.8423072590476433
+        }
+      }
+    },
+    {
+      "pool": "7rpCRivrqGFEXd81HSrnkWYBjxRwETJ82FE8n3EjvekM",
+      "slotFrom": 439941156,
+      "slotTo": 439950873,
+      "nTrades": 26,
+      "tierChanges": 0,
+      "baseStored": "826443890153833",
+      "quoteStored": "3766235071",
+      "ratios": {
+        "RAW": {
+          "base": 1.1518710231302627,
+          "quote": 0.032167481242171246
+        },
+        "DIRECTIVE": {
+          "base": 1.1518710231302627,
+          "quote": 0.04431817739822645
+        },
+        "MEASURED": {
+          "base": 1.1518710231302627,
+          "quote": 0.01729279552980935
+        }
+      }
+    },
+    {
+      "pool": "7rpCRivrqGFEXd81HSrnkWYBjxRwETJ82FE8n3EjvekM",
+      "slotFrom": 439950873,
+      "slotTo": 439988641,
+      "nTrades": 22,
+      "tierChanges": 0,
+      "baseStored": "845697165298064",
+      "quoteStored": "3282816399",
+      "ratios": {
+        "RAW": {
+          "base": 1.2407316035754532,
+          "quote": -0.8969617258817647
+        },
+        "DIRECTIVE": {
+          "base": 1.2407316035754532,
+          "quote": -0.8718178299194003
+        },
+        "MEASURED": {
+          "base": 1.2407316035754532,
+          "quote": -0.9303440125163088
+        }
+      }
+    },
+    {
+      "pool": "5PSkbjJvNvEpjwXJSoqHLLvXQ23gR9oWcwUhHFe5zVQ2",
+      "slotFrom": 439941239,
+      "slotTo": 439950938,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "809194008586952",
+      "quoteStored": "4189553817",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5PSkbjJvNvEpjwXJSoqHLLvXQ23gR9oWcwUhHFe5zVQ2",
+      "slotFrom": 439950938,
+      "slotTo": 439989856,
+      "nTrades": 4,
+      "tierChanges": 0,
+      "baseStored": "843067772560640",
+      "quoteStored": "3314877103",
+      "ratios": {
+        "RAW": {
+          "base": 1.0014346653385378,
+          "quote": 0.9935329783476441
+        },
+        "DIRECTIVE": {
+          "base": 1.0014346653385378,
+          "quote": 0.9968580503359916
+        },
+        "MEASURED": {
+          "base": 1.0014346653385378,
+          "quote": 0.9901110677767411
+        }
+      }
+    },
+    {
+      "pool": "789AbWMos1B3HNWHPdtnSsr9oUnzGAu7J1r52GTR3Nez",
+      "slotFrom": 439942976,
+      "slotTo": 440150784,
+      "nTrades": 1277,
+      "tierChanges": 16,
+      "baseStored": "17978144210677",
+      "quoteStored": "1062186458920",
+      "ratios": {
+        "RAW": {
+          "base": 6.0848173707112885,
+          "quote": -3.663936609489497
+        },
+        "DIRECTIVE": {
+          "base": 6.0848173707112885,
+          "quote": -3.6129281994264573
+        },
+        "MEASURED": {
+          "base": 6.0848173707112885,
+          "quote": -3.727726281955189
+        }
+      }
+    },
+    {
+      "pool": "789AbWMos1B3HNWHPdtnSsr9oUnzGAu7J1r52GTR3Nez",
+      "slotFrom": 440150784,
+      "slotTo": 440155283,
+      "nTrades": 23,
+      "tierChanges": 4,
+      "baseStored": "17492548123702",
+      "quoteStored": "1092790498344",
+      "ratios": {
+        "RAW": {
+          "base": 1.1192125268994073,
+          "quote": 0.8844401695728805
+        },
+        "DIRECTIVE": {
+          "base": 1.1192125268994073,
+          "quote": 0.8847277459806882
+        },
+        "MEASURED": {
+          "base": 1.1192125268994073,
+          "quote": 0.8835427371597271
+        }
+      }
+    },
+    {
+      "pool": "6Lg9EKEwXee5hf78YEumYRwkfYCknrjg65vwkjHR6EWD",
+      "slotFrom": 439944551,
+      "slotTo": 439964786,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "771256220296600",
+      "quoteStored": "5261095260",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0002266165011429
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0004504003221566
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999963154060054
+        }
+      }
+    },
+    {
+      "pool": "6Lg9EKEwXee5hf78YEumYRwkfYCknrjg65vwkjHR6EWD",
+      "slotFrom": 439964786,
+      "slotTo": 439999143,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "778987625771289",
+      "quoteStored": "5034399391",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0005539723377899
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0011010199170747
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999909925700211
+        }
+      }
+    },
+    {
+      "pool": "ArNVHcmpp4fPThDKA8Hhc2kSsjC2otzC9KLNvGk4h8B",
+      "slotFrom": 439946462,
+      "slotTo": 439959719,
+      "nTrades": 65,
+      "tierChanges": 0,
+      "baseStored": "423973112244346",
+      "quoteStored": "24976272928",
+      "ratios": {
+        "RAW": {
+          "base": 1.2678545779064094,
+          "quote": 0.5373039109031953
+        },
+        "DIRECTIVE": {
+          "base": 1.2678545779064094,
+          "quote": 0.5424055695200481
+        },
+        "MEASURED": {
+          "base": 1.2678545779064094,
+          "quote": 0.5290177137353229
+        }
+      }
+    },
+    {
+      "pool": "ArNVHcmpp4fPThDKA8Hhc2kSsjC2otzC9KLNvGk4h8B",
+      "slotFrom": 439959719,
+      "slotTo": 439991890,
+      "nTrades": 113,
+      "tierChanges": 0,
+      "baseStored": "520643764621625",
+      "quoteStored": "17081293977",
+      "ratios": {
+        "RAW": {
+          "base": 1.2221909004461304,
+          "quote": 0.17369742438687846
+        },
+        "DIRECTIVE": {
+          "base": 1.2221909004461304,
+          "quote": 0.1895460108209342
+        },
+        "MEASURED": {
+          "base": 1.2221909004461304,
+          "quote": 0.14813031023334633
+        }
+      }
+    },
+    {
+      "pool": "5FQCGLua6ntDwabHiGv43s2nxbVrotQd2yeHZjwdhhxD",
+      "slotFrom": 439946530,
+      "slotTo": 439964865,
+      "nTrades": 27,
+      "tierChanges": 0,
+      "baseStored": "554331596127081",
+      "quoteStored": "14582140091",
+      "ratios": {
+        "RAW": {
+          "base": 1.1830613204078653,
+          "quote": 0.5083457470399089
+        },
+        "DIRECTIVE": {
+          "base": 1.1830613204078653,
+          "quote": 0.5166535435117566
+        },
+        "MEASURED": {
+          "base": 1.1830613204078653,
+          "quote": 0.4983748003138012
+        }
+      }
+    },
+    {
+      "pool": "5FQCGLua6ntDwabHiGv43s2nxbVrotQd2yeHZjwdhhxD",
+      "slotFrom": 439964865,
+      "slotTo": 439999217,
+      "nTrades": 36,
+      "tierChanges": 0,
+      "baseStored": "637302656592674",
+      "quoteStored": "10398223032",
+      "ratios": {
+        "RAW": {
+          "base": 1.2139259765614292,
+          "quote": 0.34112566022905827
+        },
+        "DIRECTIVE": {
+          "base": 1.2139259765614292,
+          "quote": 0.3541789480439373
+        },
+        "MEASURED": {
+          "base": 1.2139259765614292,
+          "quote": 0.3241554162309297
+        }
+      }
+    },
+    {
+      "pool": "ByEXugt45hgr3CmFKXoqbVg8Y9QPbuyViWxssD3TY2bG",
+      "slotFrom": 439946606,
+      "slotTo": 439965921,
+      "nTrades": 82,
+      "tierChanges": 0,
+      "baseStored": "207564655583608",
+      "quoteStored": "70094121865",
+      "ratios": {
+        "RAW": {
+          "base": 1.3262895684847826,
+          "quote": 0.6093623969105987
+        },
+        "DIRECTIVE": {
+          "base": 1.3262895684847826,
+          "quote": 0.6132339556202242
+        },
+        "MEASURED": {
+          "base": 1.3262895684847826,
+          "quote": 0.5966652477157758
+        }
+      }
+    },
+    {
+      "pool": "ByEXugt45hgr3CmFKXoqbVg8Y9QPbuyViWxssD3TY2bG",
+      "slotFrom": 439965921,
+      "slotTo": 440002357,
+      "nTrades": 217,
+      "tierChanges": 0,
+      "baseStored": "154392974356823",
+      "quoteStored": "100812685278",
+      "ratios": {
+        "RAW": {
+          "base": 2.3483868685281597,
+          "quote": -0.1703546801738432
+        },
+        "DIRECTIVE": {
+          "base": 2.3483868685281597,
+          "quote": -0.1597072416789751
+        },
+        "MEASURED": {
+          "base": 2.3483868685281597,
+          "quote": -0.1877503682875364
+        }
+      }
+    },
+    {
+      "pool": "4qy7rMee3L6Q7H4LRNgQ3stvutcBJkzbfnkCsmHCrtPu",
+      "slotFrom": 439947197,
+      "slotTo": 439958671,
+      "nTrades": 49,
+      "tierChanges": 0,
+      "baseStored": "300648048955521",
+      "quoteStored": "41782725165",
+      "ratios": {
+        "RAW": {
+          "base": 1.0309548640755917,
+          "quote": 0.9484206923916663
+        },
+        "DIRECTIVE": {
+          "base": 1.0309548640755917,
+          "quote": 0.9534922983762733
+        },
+        "MEASURED": {
+          "base": 1.0309548640755917,
+          "quote": 0.9429455880250505
+        }
+      }
+    },
+    {
+      "pool": "4qy7rMee3L6Q7H4LRNgQ3stvutcBJkzbfnkCsmHCrtPu",
+      "slotFrom": 439958671,
+      "slotTo": 439989773,
+      "nTrades": 217,
+      "tierChanges": 0,
+      "baseStored": "196429328592851",
+      "quoteStored": "73633142645",
+      "ratios": {
+        "RAW": {
+          "base": 2.0481298929414917,
+          "quote": -0.3225267806848474
+        },
+        "DIRECTIVE": {
+          "base": 2.0481298929414917,
+          "quote": -0.31158013270750845
+        },
+        "MEASURED": {
+          "base": 2.0481298929414917,
+          "quote": -0.34567987652946386
+        }
+      }
+    },
+    {
+      "pool": "8jh1xMA4QW2NHmsKU1Zd3dPjNyjPQe8PmBn3GriLdraR",
+      "slotFrom": 439947882,
+      "slotTo": 439960651,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "660467863386847",
+      "quoteStored": "9259692653",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "8jh1xMA4QW2NHmsKU1Zd3dPjNyjPQe8PmBn3GriLdraR",
+      "slotFrom": 439960651,
+      "slotTo": 439991962,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "660490536912304",
+      "quoteStored": "9258771322",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.00000122435252
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.000002433260226
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999999803429641
+        }
+      }
+    },
+    {
+      "pool": "G14MhvdY5BYAKf4DVSFLqWny8ocN35h51FctoM5BeNvZ",
+      "slotFrom": 439947968,
+      "slotTo": 439969584,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "932087890305580",
+      "quoteStored": "1394979142",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000000186382716
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000000365596864
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1.0000000007168566
+        }
+      }
+    },
+    {
+      "pool": "G14MhvdY5BYAKf4DVSFLqWny8ocN35h51FctoM5BeNvZ",
+      "slotFrom": 439969584,
+      "slotTo": 440004278,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "932087890305580",
+      "quoteStored": "1394979142",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3WygCySbHyCE7EwBN9ksKi2npbEqXCDBgaGNYGCV2gNH",
+      "slotFrom": 439948554,
+      "slotTo": 439959840,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "762703011892306",
+      "quoteStored": "5861307386",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000176607355975
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000351005307266
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999997132039169
+        }
+      }
+    },
+    {
+      "pool": "3WygCySbHyCE7EwBN9ksKi2npbEqXCDBgaGNYGCV2gNH",
+      "slotFrom": 439959840,
+      "slotTo": 439992049,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "766481728244049",
+      "quoteStored": "5745743827",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0002474384592852
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0004917836724154
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999959770221757
+        }
+      }
+    },
+    {
+      "pool": "CDQS3Zc4j3e9K2mxQFDeZBjcT6TWt71vGF4qHPBgDCdu",
+      "slotFrom": 439948626,
+      "slotTo": 439962844,
+      "nTrades": 77,
+      "tierChanges": 0,
+      "baseStored": "412583584850598",
+      "quoteStored": "25871994720",
+      "ratios": {
+        "RAW": {
+          "base": 1.527606424060047,
+          "quote": -0.1711568303072072
+        },
+        "DIRECTIVE": {
+          "base": 1.527606424060047,
+          "quote": -0.1544686864793856
+        },
+        "MEASURED": {
+          "base": 1.527606424060047,
+          "quote": -0.19661366725108856
+        }
+      }
+    },
+    {
+      "pool": "CDQS3Zc4j3e9K2mxQFDeZBjcT6TWt71vGF4qHPBgDCdu",
+      "slotFrom": 439962844,
+      "slotTo": 439996471,
+      "nTrades": 22,
+      "tierChanges": 0,
+      "baseStored": "456472700428768",
+      "quoteStored": "21695751009",
+      "ratios": {
+        "RAW": {
+          "base": 1.0538928552716393,
+          "quote": 0.8853480935982289
+        },
+        "DIRECTIVE": {
+          "base": 1.0538928552716393,
+          "quote": 0.8891259556305687
+        },
+        "MEASURED": {
+          "base": 1.0538928552716393,
+          "quote": 0.8805405317416823
+        }
+      }
+    },
+    {
+      "pool": "F3PQ47ERfdX8ArzB567JxpV1KTeQeoWizfTzcAWcQkeR",
+      "slotFrom": 439949217,
+      "slotTo": 439969402,
+      "nTrades": 7,
+      "tierChanges": 0,
+      "baseStored": "805033337119213",
+      "quoteStored": "4373350152",
+      "ratios": {
+        "RAW": {
+          "base": 1.090240954459486,
+          "quote": 0.54771130843584
+        },
+        "DIRECTIVE": {
+          "base": 1.090240954459486,
+          "quote": 0.5516585151309421
+        },
+        "MEASURED": {
+          "base": 1.090240954459486,
+          "quote": 0.5415803657790446
+        }
+      }
+    },
+    {
+      "pool": "F3PQ47ERfdX8ArzB567JxpV1KTeQeoWizfTzcAWcQkeR",
+      "slotFrom": 439969402,
+      "slotTo": 440003494,
+      "nTrades": 4,
+      "tierChanges": 0,
+      "baseStored": "847218518263105",
+      "quoteStored": "3280227333",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0040997478634204
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0081482480592452
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999333396811251
+        }
+      }
+    },
+    {
+      "pool": "AhEGmkcKUeADNcXhK4tCBEUAhAWYqvXDAxV7gHTVwp3G",
+      "slotFrom": 439949300,
+      "slotTo": 439970656,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "938086332917270",
+      "quoteStored": "1561105492",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "AhEGmkcKUeADNcXhK4tCBEUAhAWYqvXDAxV7gHTVwp3G",
+      "slotFrom": 439970656,
+      "slotTo": 440006464,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "938086332917270",
+      "quoteStored": "1561105492",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "HJ6wPYDTBSJjL9X5UvzFQGWn2kUDW89K1eyiRAN6cUPi",
+      "slotFrom": 439950388,
+      "slotTo": 439957855,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "789123937918889",
+      "quoteStored": "4820686588",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "HJ6wPYDTBSJjL9X5UvzFQGWn2kUDW89K1eyiRAN6cUPi",
+      "slotFrom": 439957855,
+      "slotTo": 439989611,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "789123937918889",
+      "quoteStored": "4820686588",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GJo3Ucw9K2or9ybAKCW49HRgSFP8JB4mAWk8ssKMJK4y",
+      "slotFrom": 439956250,
+      "slotTo": 439957769,
+      "nTrades": 11,
+      "tierChanges": 0,
+      "baseStored": "811956175125099",
+      "quoteStored": "5017441585",
+      "ratios": {
+        "RAW": {
+          "base": 1.0137837553293634,
+          "quote": 0.936296373244174
+        },
+        "DIRECTIVE": {
+          "base": 1.0137837553293634,
+          "quote": 0.9386600292627024
+        },
+        "MEASURED": {
+          "base": 1.0137837553293634,
+          "quote": 0.9335149714553179
+        }
+      }
+    },
+    {
+      "pool": "GJo3Ucw9K2or9ybAKCW49HRgSFP8JB4mAWk8ssKMJK4y",
+      "slotFrom": 439957769,
+      "slotTo": 439988574,
+      "nTrades": 35,
+      "tierChanges": 0,
+      "baseStored": "800008995572247",
+      "quoteStored": "5358863455",
+      "ratios": {
+        "RAW": {
+          "base": 1.3385290104614733,
+          "quote": -0.5586372663044462
+        },
+        "DIRECTIVE": {
+          "base": 1.3385290104614733,
+          "quote": -0.5402496783714001
+        },
+        "MEASURED": {
+          "base": 1.3385290104614733,
+          "quote": -0.5867165712286282
+        }
+      }
+    },
+    {
+      "pool": "F2ziGapDg9RPVsE7y3LhMEDjQ1Xj735EE4sCFWC2AB89",
+      "slotFrom": 439957618,
+      "slotTo": 439967703,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "784877382625234",
+      "quoteStored": "4856578516",
+      "ratios": {
+        "RAW": {
+          "base": 1.0121086585114505,
+          "quote": 0.9441235744246742
+        },
+        "DIRECTIVE": {
+          "base": 1.0121086585114505,
+          "quote": 0.9449058506686356
+        },
+        "MEASURED": {
+          "base": 1.0121086585114505,
+          "quote": 0.9433185154748149
+        }
+      }
+    },
+    {
+      "pool": "F2ziGapDg9RPVsE7y3LhMEDjQ1Xj735EE4sCFWC2AB89",
+      "slotFrom": 439967703,
+      "slotTo": 439988718,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "740497501077957",
+      "quoteStored": "6202040897",
+      "ratios": {
+        "RAW": {
+          "base": 1.0873275686843704,
+          "quote": 0.6870748880519676
+        },
+        "DIRECTIVE": {
+          "base": 1.0873275686843704,
+          "quote": 0.688255521672675
+        },
+        "MEASURED": {
+          "base": 1.0873275686843704,
+          "quote": 0.6858598697821519
+        }
+      }
+    },
+    {
+      "pool": "5fDooa1ToK1YoDTkYMJMCXcEHUf5bJV1Hrq6HM3EW4U5",
+      "slotFrom": 439957702,
+      "slotTo": 439967810,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "773125449740151",
+      "quoteStored": "5334596028",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0021427123890927
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0042586407444458
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.999965159311216
+        }
+      }
+    },
+    {
+      "pool": "5fDooa1ToK1YoDTkYMJMCXcEHUf5bJV1Hrq6HM3EW4U5",
+      "slotFrom": 439967810,
+      "slotTo": 439995196,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "785012006292304",
+      "quoteStored": "4987627140",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0008558324189405
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.001700966764729
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999860845652548
+        }
+      }
+    },
+    {
+      "pool": "BZLBQWHyDC4XJTwJ5to2YhwvrkbSaBsuVLpqfmWYZMtm",
+      "slotFrom": 439960596,
+      "slotTo": 439970375,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "829000842889281",
+      "quoteStored": "3709128050",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "BZLBQWHyDC4XJTwJ5to2YhwvrkbSaBsuVLpqfmWYZMtm",
+      "slotFrom": 439970375,
+      "slotTo": 439991808,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "826786990641193",
+      "quoteStored": "3766172986",
+      "ratios": {
+        "RAW": {
+          "base": 1.004609656458638,
+          "quote": 0.9740362889958873
+        },
+        "DIRECTIVE": {
+          "base": 1.004609656458638,
+          "quote": 0.9741693391775605
+        },
+        "MEASURED": {
+          "base": 1.004609656458638,
+          "quote": 0.9738993645896221
+        }
+      }
+    },
+    {
+      "pool": "5tdXvNS3fe8xFt7BAkAAW7uQMV9JNKUkMjxLfNqZZXD2",
+      "slotFrom": 439965810,
+      "slotTo": 439974957,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "893666485041838",
+      "quoteStored": "2149391953",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5tdXvNS3fe8xFt7BAkAAW7uQMV9JNKUkMjxLfNqZZXD2",
+      "slotFrom": 439974957,
+      "slotTo": 440007305,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "893666485041838",
+      "quoteStored": "2149391953",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "2YEHtJ6wYzD3qUyFEUJaWbhrCnefd1VZmP8w7QGyYxKw",
+      "slotFrom": 439973148,
+      "slotTo": 439976904,
+      "nTrades": 11,
+      "tierChanges": 0,
+      "baseStored": "509167801273382",
+      "quoteStored": "17165195360",
+      "ratios": {
+        "RAW": {
+          "base": 1.0273899977336962,
+          "quote": 0.9405439866779355
+        },
+        "DIRECTIVE": {
+          "base": 1.0273899977336962,
+          "quote": 0.9434867914605546
+        },
+        "MEASURED": {
+          "base": 1.0273899977336962,
+          "quote": 0.9375154757341486
+        }
+      }
+    },
+    {
+      "pool": "2YEHtJ6wYzD3qUyFEUJaWbhrCnefd1VZmP8w7QGyYxKw",
+      "slotFrom": 439976904,
+      "slotTo": 439995007,
+      "nTrades": 33,
+      "tierChanges": 0,
+      "baseStored": "457077520635277",
+      "quoteStored": "21127731377",
+      "ratios": {
+        "RAW": {
+          "base": 1.1824934798455677,
+          "quote": 0.7016173364991377
+        },
+        "DIRECTIVE": {
+          "base": 1.1824934798455677,
+          "quote": 0.7029805608551306
+        },
+        "MEASURED": {
+          "base": 1.1824934798455677,
+          "quote": 0.6987872116772607
+        }
+      }
+    },
+    {
+      "pool": "CL7Bt7XapSCD1GGrFwSrtNciZr6vz1qSwTmj2dick3d",
+      "slotFrom": 439973212,
+      "slotTo": 439976983,
+      "nTrades": 8,
+      "tierChanges": 0,
+      "baseStored": "443842147025889",
+      "quoteStored": "22827887689",
+      "ratios": {
+        "RAW": {
+          "base": 1.0002532555571237,
+          "quote": 1.0022933400458784
+        },
+        "DIRECTIVE": {
+          "base": 1.0002532555571237,
+          "quote": 1.0038993112815642
+        },
+        "MEASURED": {
+          "base": 1.0002532555571237,
+          "quote": 0.9984009032943687
+        }
+      }
+    },
+    {
+      "pool": "CL7Bt7XapSCD1GGrFwSrtNciZr6vz1qSwTmj2dick3d",
+      "slotFrom": 439976983,
+      "slotTo": 439996202,
+      "nTrades": 22,
+      "tierChanges": 0,
+      "baseStored": "490594174306957",
+      "quoteStored": "18979081247",
+      "ratios": {
+        "RAW": {
+          "base": 1.0459172455102155,
+          "quote": 0.8919759256352795
+        },
+        "DIRECTIVE": {
+          "base": 1.0459172455102155,
+          "quote": 0.8957989640139928
+        },
+        "MEASURED": {
+          "base": 1.0459172455102155,
+          "quote": 0.884742757906378
+        }
+      }
+    },
+    {
+      "pool": "63PVRojvs6cJikF6bQF3VJ4SsmNk2X8Ht1UNsc5En5A",
+      "slotFrom": 439974842,
+      "slotTo": 439977044,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "737959271873794",
+      "quoteStored": "6726251444",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "63PVRojvs6cJikF6bQF3VJ4SsmNk2X8Ht1UNsc5En5A",
+      "slotFrom": 439977044,
+      "slotTo": 440006374,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "737959271873794",
+      "quoteStored": "6726251444",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GgMh1fcgibKxQ87sCgXVc4hXNnvZGMgn8i8ezpLGXrRM",
+      "slotFrom": 439992805,
+      "slotTo": 440001268,
+      "nTrades": 6562,
+      "tierChanges": 15,
+      "baseStored": "998086103444680",
+      "quoteStored": "210874474",
+      "ratios": {
+        "RAW": {
+          "base": 1.0012319612482212,
+          "quote": -17.3016724916644
+        },
+        "DIRECTIVE": {
+          "base": 1.0012319612482212,
+          "quote": 21.19684198003026
+        },
+        "MEASURED": {
+          "base": 1.0012319612482212,
+          "quote": -81.45224509249991
+        }
+      }
+    },
+    {
+      "pool": "GgMh1fcgibKxQ87sCgXVc4hXNnvZGMgn8i8ezpLGXrRM",
+      "slotFrom": 440001268,
+      "slotTo": 440010717,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "984295128860887",
+      "quoteStored": "460259197",
+      "ratios": {
+        "RAW": {
+          "base": 1.0144999636543026,
+          "quote": 0.43922685373302817
+        },
+        "DIRECTIVE": {
+          "base": 1.0144999636543026,
+          "quote": 0.4394597920440903
+        },
+        "MEASURED": {
+          "base": 1.0144999636543026,
+          "quote": 0.43898713663292643
+        }
+      }
+    },
+    {
+      "pool": "8GYYjFmrMLVkm7dfeCPgLRqPrx3uo62y99HcQ3sD5V87",
+      "slotFrom": 439992901,
+      "slotTo": 440002199,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "890638065618520",
+      "quoteStored": "2312132238",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "8GYYjFmrMLVkm7dfeCPgLRqPrx3uo62y99HcQ3sD5V87",
+      "slotFrom": 440002199,
+      "slotTo": 440011777,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "890638065618520",
+      "quoteStored": "2312132238",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6ZKkMbPRydkf7GtXNLkzA1NbAYNASvMqq6xufKLdSDj1",
+      "slotFrom": 439993887,
+      "slotTo": 440001416,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "723637557010538",
+      "quoteStored": "7420217495",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6ZKkMbPRydkf7GtXNLkzA1NbAYNASvMqq6xufKLdSDj1",
+      "slotFrom": 440001416,
+      "slotTo": 440010892,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "723637557010538",
+      "quoteStored": "7420217495",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "Drd9LGwm7gbnBXV2BHL9FDH8m1PQFGNQ9NFEnytkC1u8",
+      "slotFrom": 439996089,
+      "slotTo": 440001345,
+      "nTrades": 9,
+      "tierChanges": 0,
+      "baseStored": "608860011629893",
+      "quoteStored": "12696324407",
+      "ratios": {
+        "RAW": {
+          "base": 1.0091540989976298,
+          "quote": 0.9811871241358396
+        },
+        "DIRECTIVE": {
+          "base": 1.0091540989976298,
+          "quote": 0.9814635510675637
+        },
+        "MEASURED": {
+          "base": 1.0091540989976298,
+          "quote": 0.9783456851615716
+        }
+      }
+    },
+    {
+      "pool": "Drd9LGwm7gbnBXV2BHL9FDH8m1PQFGNQ9NFEnytkC1u8",
+      "slotFrom": 440001345,
+      "slotTo": 440010813,
+      "nTrades": 6,
+      "tierChanges": 0,
+      "baseStored": "601503118987209",
+      "quoteStored": "13066943213",
+      "ratios": {
+        "RAW": {
+          "base": 1.0276502479042884,
+          "quote": 0.937172866858161
+        },
+        "DIRECTIVE": {
+          "base": 1.0276502479042884,
+          "quote": 0.9375967748762574
+        },
+        "MEASURED": {
+          "base": 1.0276502479042884,
+          "quote": 0.9367366132595131
+        }
+      }
+    },
+    {
+      "pool": "8YkUUYzUSFLjqnKZ4RHsciBAdCQWFUftArwAoh4XVW6A",
+      "slotFrom": 439997182,
+      "slotTo": 440001500,
+      "nTrades": 19,
+      "tierChanges": 0,
+      "baseStored": "263508174220421",
+      "quoteStored": "51118650644",
+      "ratios": {
+        "RAW": {
+          "base": 1.0361489327537559,
+          "quote": 0.9515607387361538
+        },
+        "DIRECTIVE": {
+          "base": 1.0361489327537559,
+          "quote": 0.952641873611659
+        },
+        "MEASURED": {
+          "base": 1.0361489327537559,
+          "quote": 0.9493486091009739
+        }
+      }
+    },
+    {
+      "pool": "8YkUUYzUSFLjqnKZ4RHsciBAdCQWFUftArwAoh4XVW6A",
+      "slotFrom": 440001500,
+      "slotTo": 440010976,
+      "nTrades": 55,
+      "tierChanges": 0,
+      "baseStored": "235961168985060",
+      "quoteStored": "59146828752",
+      "ratios": {
+        "RAW": {
+          "base": 1.1824728921629521,
+          "quote": 0.7881477841941561
+        },
+        "DIRECTIVE": {
+          "base": 1.1824728921629521,
+          "quote": 0.789084050181166
+        },
+        "MEASURED": {
+          "base": 1.1824728921629521,
+          "quote": 0.7833018565755885
+        }
+      }
+    },
+    {
+      "pool": "6sBN1tVnGErmrfVPbNNHEq8snGk71jEe7mPcyyB3aMC2",
+      "slotFrom": 440001194,
+      "slotTo": 440010600,
+      "nTrades": 184,
+      "tierChanges": 3,
+      "baseStored": "157686009146495",
+      "quoteStored": "101696939301",
+      "ratios": {
+        "RAW": {
+          "base": 1.173921157973942,
+          "quote": 0.7849699113237228
+        },
+        "DIRECTIVE": {
+          "base": 1.173921157973942,
+          "quote": 0.787013493062057
+        },
+        "MEASURED": {
+          "base": 1.173921157973942,
+          "quote": 0.772268477938625
+        }
+      }
+    },
+    {
+      "pool": "6sBN1tVnGErmrfVPbNNHEq8snGk71jEe7mPcyyB3aMC2",
+      "slotFrom": 440010600,
+      "slotTo": 440020211,
+      "nTrades": 107,
+      "tierChanges": 0,
+      "baseStored": "164655669708708",
+      "quoteStored": "96776282386",
+      "ratios": {
+        "RAW": {
+          "base": 1.0314728461820464,
+          "quote": 0.9633466243118144
+        },
+        "DIRECTIVE": {
+          "base": 1.0314728461820464,
+          "quote": 0.9642216150834402
+        },
+        "MEASURED": {
+          "base": 1.0314728461820464,
+          "quote": 0.9556728942336332
+        }
+      }
+    },
+    {
+      "pool": "FB8cXFqE9H5nhNri7NFkXxcgqXC67PkRYjsq43fkno3g",
+      "slotFrom": 440008234,
+      "slotTo": 440017141,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "977083307390256",
+      "quoteStored": "1585348817",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FB8cXFqE9H5nhNri7NFkXxcgqXC67PkRYjsq43fkno3g",
+      "slotFrom": 440017141,
+      "slotTo": 440026680,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "977083307390256",
+      "quoteStored": "1585348817",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "DKRxK4rU3G8fBAWM7iktMmuK75H3aVzRLfLsqT8BTtAM",
+      "slotFrom": 440011648,
+      "slotTo": 440020966,
+      "nTrades": 18,
+      "tierChanges": 0,
+      "baseStored": "649550151914391",
+      "quoteStored": "9594785387",
+      "ratios": {
+        "RAW": {
+          "base": 1.1881146574692085,
+          "quote": 0.36957647815703043
+        },
+        "DIRECTIVE": {
+          "base": 1.1881146574692085,
+          "quote": 0.3774800835990809
+        },
+        "MEASURED": {
+          "base": 1.1881146574692085,
+          "quote": 0.35774797450401796
+        }
+      }
+    },
+    {
+      "pool": "DKRxK4rU3G8fBAWM7iktMmuK75H3aVzRLfLsqT8BTtAM",
+      "slotFrom": 440020966,
+      "slotTo": 440030609,
+      "nTrades": 9,
+      "tierChanges": 0,
+      "baseStored": "700433505921805",
+      "quoteStored": "7621150402",
+      "ratios": {
+        "RAW": {
+          "base": 1.0392031754883204,
+          "quote": 0.8487478124434474
+        },
+        "DIRECTIVE": {
+          "base": 1.0392031754883204,
+          "quote": 0.853793522864004
+        },
+        "MEASURED": {
+          "base": 1.0392031754883204,
+          "quote": 0.843555150848734
+        }
+      }
+    },
+    {
+      "pool": "CPDym5cTnWjkEKkEnw77Go31XZ6t9VX2PsMHLXQVtQ3Q",
+      "slotFrom": 440013291,
+      "slotTo": 440022865,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "940085742861292",
+      "quoteStored": "1207873532",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "CPDym5cTnWjkEKkEnw77Go31XZ6t9VX2PsMHLXQVtQ3Q",
+      "slotFrom": 440022865,
+      "slotTo": 440032570,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "940085742861292",
+      "quoteStored": "1207873532",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "BLq971NsSeE2tsQiYoxVhbNFJFnPzvMkAtYnZ4gFM1xw",
+      "slotFrom": 440021810,
+      "slotTo": 440031497,
+      "nTrades": 171,
+      "tierChanges": 0,
+      "baseStored": "547194762817024",
+      "quoteStored": "14707746303",
+      "ratios": {
+        "RAW": {
+          "base": 1.756475879019701,
+          "quote": -1.2809104620030922
+        },
+        "DIRECTIVE": {
+          "base": 1.756475879019701,
+          "quote": -1.2431393800470016
+        },
+        "MEASURED": {
+          "base": 1.756475879019701,
+          "quote": -1.3379399063326365
+        }
+      }
+    },
+    {
+      "pool": "BLq971NsSeE2tsQiYoxVhbNFJFnPzvMkAtYnZ4gFM1xw",
+      "slotFrom": 440031497,
+      "slotTo": 440040786,
+      "nTrades": 148,
+      "tierChanges": 0,
+      "baseStored": "384553805095450",
+      "quoteStored": "28382004168",
+      "ratios": {
+        "RAW": {
+          "base": 2.004852158155031,
+          "quote": -0.350487897476092
+        },
+        "DIRECTIVE": {
+          "base": 2.004852158155031,
+          "quote": -0.3398029522479492
+        },
+        "MEASURED": {
+          "base": 2.004852158155031,
+          "quote": -0.3683640873672921
+        }
+      }
+    },
+    {
+      "pool": "GkWrAdYdSGDNx6aDSUf3o1jC6Lwbx7pA1QBijixVopDC",
+      "slotFrom": 440021883,
+      "slotTo": 440031570,
+      "nTrades": 129,
+      "tierChanges": 0,
+      "baseStored": "475056299657887",
+      "quoteStored": "20066863802",
+      "ratios": {
+        "RAW": {
+          "base": 1.4152018917054863,
+          "quote": 0.2338234769168241
+        },
+        "DIRECTIVE": {
+          "base": 1.4152018917054863,
+          "quote": 0.23864477644596913
+        },
+        "MEASURED": {
+          "base": 1.4152018917054863,
+          "quote": 0.20493887528105525
+        }
+      }
+    },
+    {
+      "pool": "GkWrAdYdSGDNx6aDSUf3o1jC6Lwbx7pA1QBijixVopDC",
+      "slotFrom": 440031570,
+      "slotTo": 440040848,
+      "nTrades": 55,
+      "tierChanges": 0,
+      "baseStored": "448232020143273",
+      "quoteStored": "22327019013",
+      "ratios": {
+        "RAW": {
+          "base": 1.3097626257785808,
+          "quote": 0.3828893625710821
+        },
+        "DIRECTIVE": {
+          "base": 1.3097626257785808,
+          "quote": 0.3892346996676963
+        },
+        "MEASURED": {
+          "base": 1.3097626257785808,
+          "quote": 0.3696949599583341
+        }
+      }
+    },
+    {
+      "pool": "F5G4jcAiriD4axW8zDqSCNo57chi1u2mTyWTm4W17ZCq",
+      "slotFrom": 440022754,
+      "slotTo": 440032515,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "700852626011485",
+      "quoteStored": "7542669260",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "F5G4jcAiriD4axW8zDqSCNo57chi1u2mTyWTm4W17ZCq",
+      "slotFrom": 440032515,
+      "slotTo": 440041834,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "700852626011485",
+      "quoteStored": "7542669260",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "HLhWPPJKmp4z4fjv86NqMbuHLQn3gvDSsQbGX6c7r4QA",
+      "slotFrom": 440028157,
+      "slotTo": 440037231,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "609117601988684",
+      "quoteStored": "11321281761",
+      "ratios": {
+        "RAW": {
+          "base": 1.0352959551773064,
+          "quote": 0.9139453089705679
+        },
+        "DIRECTIVE": {
+          "base": 1.0352959551773064,
+          "quote": 0.9138162603318323
+        },
+        "MEASURED": {
+          "base": 1.0352959551773064,
+          "quote": 0.9131554749050645
+        }
+      }
+    },
+    {
+      "pool": "HLhWPPJKmp4z4fjv86NqMbuHLQn3gvDSsQbGX6c7r4QA",
+      "slotFrom": 440037231,
+      "slotTo": 440046785,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "609117601988684",
+      "quoteStored": "11321281761",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3DuXZLqj158SnB2uYNbfj7txvJTdDWoaX7okGUR7KPFo",
+      "slotFrom": 440028235,
+      "slotTo": 440037331,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868705407569638",
+      "quoteStored": "2760204383",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3DuXZLqj158SnB2uYNbfj7txvJTdDWoaX7okGUR7KPFo",
+      "slotFrom": 440037331,
+      "slotTo": 440046844,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868705407569638",
+      "quoteStored": "2760204383",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6RspiKPQrWnFoJo9YVe8x85fswS7SoChDHbM2Qbi7QxC",
+      "slotFrom": 440030488,
+      "slotTo": 440039861,
+      "nTrades": 142,
+      "tierChanges": 0,
+      "baseStored": "900841903382290",
+      "quoteStored": "2258168628",
+      "ratios": {
+        "RAW": {
+          "base": 1.0991343369963331,
+          "quote": -4.1053077901496735
+        },
+        "DIRECTIVE": {
+          "base": 1.0991343369963331,
+          "quote": -3.8456414513610895
+        },
+        "MEASURED": {
+          "base": 1.0991343369963331,
+          "quote": -4.411710191821866
+        }
+      }
+    },
+    {
+      "pool": "6RspiKPQrWnFoJo9YVe8x85fswS7SoChDHbM2Qbi7QxC",
+      "slotFrom": 440039861,
+      "slotTo": 440050581,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "900841903382290",
+      "quoteStored": "2258168628",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "EMCP3eHMujsWNLG13gC7KsC2ibaWd7A2UkR4oYHUeFdW",
+      "slotFrom": 440031425,
+      "slotTo": 440040670,
+      "nTrades": 7,
+      "tierChanges": 0,
+      "baseStored": "811948103581111",
+      "quoteStored": "4625902715",
+      "ratios": {
+        "RAW": {
+          "base": 1.0016846144077118,
+          "quote": 0.9929476491379261
+        },
+        "DIRECTIVE": {
+          "base": 1.0016846144077118,
+          "quote": 0.9941754914316221
+        },
+        "MEASURED": {
+          "base": 1.0016846144077118,
+          "quote": 0.9916840488505604
+        }
+      }
+    },
+    {
+      "pool": "EMCP3eHMujsWNLG13gC7KsC2ibaWd7A2UkR4oYHUeFdW",
+      "slotFrom": 440040670,
+      "slotTo": 440050656,
+      "nTrades": 18,
+      "tierChanges": 0,
+      "baseStored": "780529079008177",
+      "quoteStored": "5522404210",
+      "ratios": {
+        "RAW": {
+          "base": 1.2205242819110713,
+          "quote": -0.05939664420181948
+        },
+        "DIRECTIVE": {
+          "base": 1.2205242819110713,
+          "quote": -0.04836283380277953
+        },
+        "MEASURED": {
+          "base": 1.2205242819110713,
+          "quote": -0.07655774802475025
+        }
+      }
+    },
+    {
+      "pool": "C3RNatGx8scQccHi9LimuGbNBnfyGqrMsYja78iWc2qi",
+      "slotFrom": 440032403,
+      "slotTo": 440041719,
+      "nTrades": 30,
+      "tierChanges": 0,
+      "baseStored": "288472811348222",
+      "quoteStored": "46399728432",
+      "ratios": {
+        "RAW": {
+          "base": 1.0630267594730711,
+          "quote": 0.912699976575587
+        },
+        "DIRECTIVE": {
+          "base": 1.0630267594730711,
+          "quote": 0.914168381441358
+        },
+        "MEASURED": {
+          "base": 1.0630267594730711,
+          "quote": 0.9104562946507548
+        }
+      }
+    },
+    {
+      "pool": "C3RNatGx8scQccHi9LimuGbNBnfyGqrMsYja78iWc2qi",
+      "slotFrom": 440041719,
+      "slotTo": 440051464,
+      "nTrades": 37,
+      "tierChanges": 0,
+      "baseStored": "326495239579608",
+      "quoteStored": "38952637188",
+      "ratios": {
+        "RAW": {
+          "base": 1.0689574741776946,
+          "quote": 0.8789225852093802
+        },
+        "DIRECTIVE": {
+          "base": 1.0689574741776946,
+          "quote": 0.8827633913986487
+        },
+        "MEASURED": {
+          "base": 1.0689574741776946,
+          "quote": 0.8730553120926217
+        }
+      }
+    },
+    {
+      "pool": "A8FTnmVUR2CcjUJrbvdnKPanswscyfg16WfCoRpMuBWx",
+      "slotFrom": 440037159,
+      "slotTo": 440046701,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "958381573529849",
+      "quoteStored": "1019542397",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "A8FTnmVUR2CcjUJrbvdnKPanswscyfg16WfCoRpMuBWx",
+      "slotFrom": 440046701,
+      "slotTo": 440056476,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "958381573529849",
+      "quoteStored": "1019542397",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "EW55VRxJ61P5dKYiawPiSuZJVhi4Lyvh2usW28KmHRwm",
+      "slotFrom": 440039681,
+      "slotTo": 440049286,
+      "nTrades": 19806,
+      "tierChanges": 19,
+      "baseStored": "192553120075943",
+      "quoteStored": "77752507161",
+      "ratios": {
+        "RAW": {
+          "base": 1.2524221060399972,
+          "quote": 0.5230694196366662
+        },
+        "DIRECTIVE": {
+          "base": 1.2524221060399972,
+          "quote": 0.5329777786996704
+        },
+        "MEASURED": {
+          "base": 1.2524221060399972,
+          "quote": 0.21171773713886094
+        }
+      }
+    },
+    {
+      "pool": "EW55VRxJ61P5dKYiawPiSuZJVhi4Lyvh2usW28KmHRwm",
+      "slotFrom": 440049286,
+      "slotTo": 440059104,
+      "nTrades": 1445,
+      "tierChanges": 4,
+      "baseStored": "969873613337781",
+      "quoteStored": "1382989478",
+      "ratios": {
+        "RAW": {
+          "base": 1.031150715703422,
+          "quote": 0.6623642172062859
+        },
+        "DIRECTIVE": {
+          "base": 1.031150715703422,
+          "quote": 1.3445445931295799
+        },
+        "MEASURED": {
+          "base": 1.031150715703422,
+          "quote": -0.7294831306012294
+        }
+      }
+    },
+    {
+      "pool": "GfTiFQjxh7QDMf8WhWLTs6MYG6hBfkRT7w5YTLddyyGN",
+      "slotFrom": 440039773,
+      "slotTo": 440049422,
+      "nTrades": 47,
+      "tierChanges": 0,
+      "baseStored": "200998133095159",
+      "quoteStored": "83734016850",
+      "ratios": {
+        "RAW": {
+          "base": 1.0688137795865187,
+          "quote": 0.9224453050349513
+        },
+        "DIRECTIVE": {
+          "base": 1.0688137795865187,
+          "quote": 0.9226229475338971
+        },
+        "MEASURED": {
+          "base": 1.0688137795865187,
+          "quote": 0.921469411842745
+        }
+      }
+    },
+    {
+      "pool": "GfTiFQjxh7QDMf8WhWLTs6MYG6hBfkRT7w5YTLddyyGN",
+      "slotFrom": 440049422,
+      "slotTo": 440059204,
+      "nTrades": 46,
+      "tierChanges": 0,
+      "baseStored": "193970851318265",
+      "quoteStored": "87504370302",
+      "ratios": {
+        "RAW": {
+          "base": 1.236574157594492,
+          "quote": 0.7209617746778766
+        },
+        "DIRECTIVE": {
+          "base": 1.236574157594492,
+          "quote": 0.7238639674612032
+        },
+        "MEASURED": {
+          "base": 1.236574157594492,
+          "quote": 0.7173805176513023
+        }
+      }
+    },
+    {
+      "pool": "6hWcgD3e4wondrSFpHnBmSnDsTxr126H8tDsqeziAwEH",
+      "slotFrom": 440041641,
+      "slotTo": 440051324,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "947789321026527",
+      "quoteStored": "1214337337",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000006126798355
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000012163012328
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999999917650559
+        }
+      }
+    },
+    {
+      "pool": "6hWcgD3e4wondrSFpHnBmSnDsTxr126H8tDsqeziAwEH",
+      "slotFrom": 440051324,
+      "slotTo": 440062750,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "947789321026527",
+      "quoteStored": "1214337337",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6cQ1Z6PkbczwtykY54WKtwJBnaGNsBTecJnFHQ2Y76xL",
+      "slotFrom": 440042605,
+      "slotTo": 440052357,
+      "nTrades": 12,
+      "tierChanges": 0,
+      "baseStored": "271656277232944",
+      "quoteStored": "54966004632",
+      "ratios": {
+        "RAW": {
+          "base": 1.0153224083685455,
+          "quote": 0.9812334911932189
+        },
+        "DIRECTIVE": {
+          "base": 1.0153224083685455,
+          "quote": 0.9817715529315243
+        },
+        "MEASURED": {
+          "base": 1.0153224083685455,
+          "quote": 0.9801213843844876
+        }
+      }
+    },
+    {
+      "pool": "6cQ1Z6PkbczwtykY54WKtwJBnaGNsBTecJnFHQ2Y76xL",
+      "slotFrom": 440052357,
+      "slotTo": 440063632,
+      "nTrades": 17,
+      "tierChanges": 0,
+      "baseStored": "286938417981952",
+      "quoteStored": "51103614916",
+      "ratios": {
+        "RAW": {
+          "base": 1.0303721327794495,
+          "quote": 0.9598564502653666
+        },
+        "DIRECTIVE": {
+          "base": 1.0303721327794495,
+          "quote": 0.9612798449336217
+        },
+        "MEASURED": {
+          "base": 1.0303721327794495,
+          "quote": 0.9583916006823567
+        }
+      }
+    },
+    {
+      "pool": "BLLHRL9Wdv5TLWGnf8DHdm33b1kRBUCUofQi6Eibkgm2",
+      "slotFrom": 440045761,
+      "slotTo": 440054799,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "665410218257891",
+      "quoteStored": "9593371350",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0010598167869318
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.00210638546792
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999827681016434
+        }
+      }
+    },
+    {
+      "pool": "BLLHRL9Wdv5TLWGnf8DHdm33b1kRBUCUofQi6Eibkgm2",
+      "slotFrom": 440054799,
+      "slotTo": 440062681,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "665410218257891",
+      "quoteStored": "9593371350",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5gZFkj23ueN7BTLp4TSbTX8QoozgsVmTdUNkwjCQdfPX",
+      "slotFrom": 440045839,
+      "slotTo": 440054907,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "914007134599982",
+      "quoteStored": "2817751590",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5gZFkj23ueN7BTLp4TSbTX8QoozgsVmTdUNkwjCQdfPX",
+      "slotFrom": 440054907,
+      "slotTo": 440062842,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "930255420043238",
+      "quoteStored": "2461467296",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0017807163260397
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.003539173571047
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999710461316648
+        }
+      }
+    },
+    {
+      "pool": "9EWWnG1B8LMzToP5vjSiAomdQXWaGWoNpCbcUSziSJBq",
+      "slotFrom": 440047631,
+      "slotTo": 440057283,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "741980182000360",
+      "quoteStored": "6154194880",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9EWWnG1B8LMzToP5vjSiAomdQXWaGWoNpCbcUSziSJBq",
+      "slotFrom": 440057283,
+      "slotTo": 440063714,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "741980182000360",
+      "quoteStored": "6154194880",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6VZYoRYbZzeLtUf6BEJJgreKK2EEhq2bx2UNU3EvibLc",
+      "slotFrom": 440049212,
+      "slotTo": 440058194,
+      "nTrades": 31919,
+      "tierChanges": 2,
+      "baseStored": "37628489080880",
+      "quoteStored": "632643885234",
+      "ratios": {
+        "RAW": {
+          "base": 80.75420957024386,
+          "quote": -30.404604508649165
+        },
+        "DIRECTIVE": {
+          "base": 80.75420957024386,
+          "quote": -30.027835318118164
+        },
+        "MEASURED": {
+          "base": 80.75420957024386,
+          "quote": -31.099884979151625
+        }
+      }
+    },
+    {
+      "pool": "6VZYoRYbZzeLtUf6BEJJgreKK2EEhq2bx2UNU3EvibLc",
+      "slotFrom": 440058194,
+      "slotTo": 440062596,
+      "nTrades": 36468,
+      "tierChanges": 13,
+      "baseStored": "36542148741856",
+      "quoteStored": "795810504531",
+      "ratios": {
+        "RAW": {
+          "base": 28.502167975443143,
+          "quote": -39.88033814432354
+        },
+        "DIRECTIVE": {
+          "base": 28.502167975443143,
+          "quote": -39.383239365000264
+        },
+        "MEASURED": {
+          "base": 28.502167975443143,
+          "quote": -40.80927642691969
+        }
+      }
+    },
+    {
+      "pool": "39HQMdiyfqfRSNJL2vU2jex8utJm3oZ28azyH42SQgJp",
+      "slotFrom": 440050297,
+      "slotTo": 440060552,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "975344457913865",
+      "quoteStored": "1129736947",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "39HQMdiyfqfRSNJL2vU2jex8utJm3oZ28azyH42SQgJp",
+      "slotFrom": 440060552,
+      "slotTo": 440070315,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "975344457913865",
+      "quoteStored": "1129736947",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5fbDztEUeHCFJY6quEeqc75cz5V1xddRLCzPVWnTegFX",
+      "slotFrom": 440050382,
+      "slotTo": 440060634,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "605144305981274",
+      "quoteStored": "12854114854",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000644690832012
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.00012813219881
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999989520865378
+        }
+      }
+    },
+    {
+      "pool": "5fbDztEUeHCFJY6quEeqc75cz5V1xddRLCzPVWnTegFX",
+      "slotFrom": 440060634,
+      "slotTo": 440070412,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "606710421464613",
+      "quoteStored": "12775655908",
+      "ratios": {
+        "RAW": {
+          "base": 1.0079650453816655,
+          "quote": 0.9811735520483619
+        },
+        "DIRECTIVE": {
+          "base": 1.0079650453816655,
+          "quote": 0.9814806553413946
+        },
+        "MEASURED": {
+          "base": 1.0079650453816655,
+          "quote": 0.9808575048701131
+        }
+      }
+    },
+    {
+      "pool": "8ZE51K3cjaCUvf2S4djCdE7X52BUBCiSryUVVPRjhW5s",
+      "slotFrom": 440050459,
+      "slotTo": 440060766,
+      "nTrades": 114,
+      "tierChanges": 0,
+      "baseStored": "448935963412238",
+      "quoteStored": "22195892304",
+      "ratios": {
+        "RAW": {
+          "base": 1.3504804109594504,
+          "quote": 0.19852173621359268
+        },
+        "DIRECTIVE": {
+          "base": 1.3504804109594504,
+          "quote": 0.21230439585214525
+        },
+        "MEASURED": {
+          "base": 1.3504804109594504,
+          "quote": 0.17590760756648516
+        }
+      }
+    },
+    {
+      "pool": "8ZE51K3cjaCUvf2S4djCdE7X52BUBCiSryUVVPRjhW5s",
+      "slotFrom": 440060766,
+      "slotTo": 440070503,
+      "nTrades": 20,
+      "tierChanges": 0,
+      "baseStored": "441533656901600",
+      "quoteStored": "22864118900",
+      "ratios": {
+        "RAW": {
+          "base": 1.0666264261068845,
+          "quote": 0.8760102744654639
+        },
+        "DIRECTIVE": {
+          "base": 1.0666264261068845,
+          "quote": 0.8771758686926703
+        },
+        "MEASURED": {
+          "base": 1.0666264261068845,
+          "quote": 0.8738842532436271
+        }
+      }
+    },
+    {
+      "pool": "GkbxSuiALhYhzxzsorTX4on1ckwU6NLcTbfZ8vuUYxSF",
+      "slotFrom": 440052242,
+      "slotTo": 440061669,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "875259807085000",
+      "quoteStored": "2572809411",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GkbxSuiALhYhzxzsorTX4on1ckwU6NLcTbfZ8vuUYxSF",
+      "slotFrom": 440061669,
+      "slotTo": 440071402,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "875259807085000",
+      "quoteStored": "2572809411",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "B2XB5ZKk8PBDtWk9drTubVUB2SMyxLMDQqVQ2idFHS82",
+      "slotFrom": 440053871,
+      "slotTo": 440060813,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "966723591781747",
+      "quoteStored": "775733180",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "B2XB5ZKk8PBDtWk9drTubVUB2SMyxLMDQqVQ2idFHS82",
+      "slotFrom": 440060813,
+      "slotTo": 440071281,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "966723591781747",
+      "quoteStored": "775733180",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6rzynvqKdh3ktpV8AP9WMNa5af4NR5egBTCkinfEy2Dx",
+      "slotFrom": 440053942,
+      "slotTo": 440061594,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868321085846277",
+      "quoteStored": "2789976017",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6rzynvqKdh3ktpV8AP9WMNa5af4NR5egBTCkinfEy2Dx",
+      "slotFrom": 440061594,
+      "slotTo": 440072414,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "868321085846277",
+      "quoteStored": "2789976017",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FRweHRpBtGHFqdyFPjBB4qnHrWhrUC2bRkbrx7ZKhBjP",
+      "slotFrom": 440058102,
+      "slotTo": 440061740,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "949490556131824",
+      "quoteStored": "955971007",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FRweHRpBtGHFqdyFPjBB4qnHrWhrUC2bRkbrx7ZKhBjP",
+      "slotFrom": 440061740,
+      "slotTo": 440071461,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "949490556131824",
+      "quoteStored": "955971007",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FYgBkU8qPsi1CZL1jva5djkKzcFvRKhMiS4jNA1aBCVr",
+      "slotFrom": 440058992,
+      "slotTo": 440061796,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "945272553276363",
+      "quoteStored": "1137752393",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FYgBkU8qPsi1CZL1jva5djkKzcFvRKhMiS4jNA1aBCVr",
+      "slotFrom": 440061796,
+      "slotTo": 440071527,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "945272553276363",
+      "quoteStored": "1137752393",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "HrSRKC8Nmuy6TokEYQx65m2SHJBd51brL85xLHyunSCP",
+      "slotFrom": 440060482,
+      "slotTo": 440070237,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "659350671332374",
+      "quoteStored": "9679983433",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000003394840521
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000067472222915
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999999449379223
+        }
+      }
+    },
+    {
+      "pool": "HrSRKC8Nmuy6TokEYQx65m2SHJBd51brL85xLHyunSCP",
+      "slotFrom": 440070237,
+      "slotTo": 440079714,
+      "nTrades": 12,
+      "tierChanges": 0,
+      "baseStored": "679269129741130",
+      "quoteStored": "8883080966",
+      "ratios": {
+        "RAW": {
+          "base": 1.1791938496807,
+          "quote": 0.3818659970547881
+        },
+        "DIRECTIVE": {
+          "base": 1.1791938496807,
+          "quote": 0.39057248034544145
+        },
+        "MEASURED": {
+          "base": 1.1791938496807,
+          "quote": 0.3699462385379771
+        }
+      }
+    },
+    {
+      "pool": "87U1LrqkJETLA5NAgv1jH8vSR47uUw5VNcLq4GKrePHr",
+      "slotFrom": 440061476,
+      "slotTo": 440071185,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "521488176245305",
+      "quoteStored": "16376624473",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "87U1LrqkJETLA5NAgv1jH8vSR47uUw5VNcLq4GKrePHr",
+      "slotFrom": 440071185,
+      "slotTo": 440080646,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "432569137129001",
+      "quoteStored": "23359223827",
+      "ratios": {
+        "RAW": {
+          "base": 1.2019990279427493,
+          "quote": 0.7075775976723766
+        },
+        "DIRECTIVE": {
+          "base": 1.2019990279427493,
+          "quote": 0.7074976455295386
+        },
+        "MEASURED": {
+          "base": 1.2019990279427493,
+          "quote": 0.7074447620087013
+        }
+      }
+    },
+    {
+      "pool": "7WykekgsxYLVanHnYmCx3mXnf8KQTPUm6NPkXKwLLXrT",
+      "slotFrom": 440062467,
+      "slotTo": 440072280,
+      "nTrades": 3,
+      "tierChanges": 0,
+      "baseStored": "914643853724338",
+      "quoteStored": "2505654988",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0137195249005286
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0272675553207486
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9997769202054245
+        }
+      }
+    },
+    {
+      "pool": "7WykekgsxYLVanHnYmCx3mXnf8KQTPUm6NPkXKwLLXrT",
+      "slotFrom": 440072280,
+      "slotTo": 440081539,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "915643853724338",
+      "quoteStored": "2483718357",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0001086580526488
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0002159576581975
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.999998234099294
+        }
+      }
+    },
+    {
+      "pool": "9pTPN4mstCb3yuicZv4YomCZ1ateL7kH23gvPcEBS2r5",
+      "slotFrom": 440063512,
+      "slotTo": 440073209,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "826997581745356",
+      "quoteStored": "3721396250",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000103420859845
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000205546506906
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999998325897168
+        }
+      }
+    },
+    {
+      "pool": "9pTPN4mstCb3yuicZv4YomCZ1ateL7kH23gvPcEBS2r5",
+      "slotFrom": 440073209,
+      "slotTo": 440083168,
+      "nTrades": 15,
+      "tierChanges": 0,
+      "baseStored": "796606834246844",
+      "quoteStored": "4536795901",
+      "ratios": {
+        "RAW": {
+          "base": 1.2434331690328142,
+          "quote": -0.34539991487265276
+        },
+        "DIRECTIVE": {
+          "base": 1.2434331690328142,
+          "quote": -0.3310621777516899
+        },
+        "MEASURED": {
+          "base": 1.2434331690328142,
+          "quote": -0.36686396618219835
+        }
+      }
+    },
+    {
+      "pool": "8ywQpS4n6dxsxLih4bfKaRP7nKuXTcBNMZ8NTiy8hdLy",
+      "slotFrom": 440066057,
+      "slotTo": 440075578,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "548525925922125",
+      "quoteStored": "14655458501",
+      "ratios": {
+        "RAW": {
+          "base": 1.000915276085031,
+          "quote": 0.9994635129976
+        },
+        "DIRECTIVE": {
+          "base": 1.000915276085031,
+          "quote": 1.000920621964784
+        },
+        "MEASURED": {
+          "base": 1.000915276085031,
+          "quote": 0.9979639672141295
+        }
+      }
+    },
+    {
+      "pool": "8ywQpS4n6dxsxLih4bfKaRP7nKuXTcBNMZ8NTiy8hdLy",
+      "slotFrom": 440075578,
+      "slotTo": 440084780,
+      "nTrades": 29,
+      "tierChanges": 0,
+      "baseStored": "560377346865182",
+      "quoteStored": "13975706907",
+      "ratios": {
+        "RAW": {
+          "base": 1.1148528250980108,
+          "quote": 0.7319232592718825
+        },
+        "DIRECTIVE": {
+          "base": 1.1148528250980108,
+          "quote": 0.7358188517712309
+        },
+        "MEASURED": {
+          "base": 1.1148528250980108,
+          "quote": 0.7257571847703603
+        }
+      }
+    },
+    {
+      "pool": "4eNAGHbGPUe2EfFegZxsQrBhr7dXFR18NPTiHSr5BEEh",
+      "slotFrom": 440068435,
+      "slotTo": 440077872,
+      "nTrades": 53,
+      "tierChanges": 0,
+      "baseStored": "639585817651488",
+      "quoteStored": "10429470791",
+      "ratios": {
+        "RAW": {
+          "base": 1.107404867480773,
+          "quote": 0.5781440993346755
+        },
+        "DIRECTIVE": {
+          "base": 1.107404867480773,
+          "quote": 0.5902616256725466
+        },
+        "MEASURED": {
+          "base": 1.107404867480773,
+          "quote": 0.5637246475701837
+        }
+      }
+    },
+    {
+      "pool": "4eNAGHbGPUe2EfFegZxsQrBhr7dXFR18NPTiHSr5BEEh",
+      "slotFrom": 440077872,
+      "slotTo": 440087088,
+      "nTrades": 6,
+      "tierChanges": 0,
+      "baseStored": "716494414636746",
+      "quoteStored": "7423126609",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0053491346829324
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0102648039045456
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9995450605684261
+        }
+      }
+    },
+    {
+      "pool": "9P6tWvtCFWP6fFeYoTWy2xbGbcdDHVpAkrovwx3Rbbho",
+      "slotFrom": 440070121,
+      "slotTo": 440079606,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "759161659381179",
+      "quoteStored": "7057934278",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000011359556046
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000225771442073
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999998155267605
+        }
+      }
+    },
+    {
+      "pool": "9P6tWvtCFWP6fFeYoTWy2xbGbcdDHVpAkrovwx3Rbbho",
+      "slotFrom": 440079606,
+      "slotTo": 440088877,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "759828130299376",
+      "quoteStored": "7036323885",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000377842186268
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0000750960314841
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999993859009234
+        }
+      }
+    },
+    {
+      "pool": "GUBnTQcWzGuJFcqouayfCzgcS8P3cjVJSx4mXPazP2G8",
+      "slotFrom": 440072205,
+      "slotTo": 440081438,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "686014849283569",
+      "quoteStored": "8443796868",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000078548076223
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0001561141297697
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999987230862882
+        }
+      }
+    },
+    {
+      "pool": "GUBnTQcWzGuJFcqouayfCzgcS8P3cjVJSx4mXPazP2G8",
+      "slotFrom": 440081438,
+      "slotTo": 440090490,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "686014849283569",
+      "quoteStored": "8443796868",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GU2HJVQ6ntWeLiAXE3CpaXYFc4ZGavx4fLBd161QQNif",
+      "slotFrom": 440079533,
+      "slotTo": 440088765,
+      "nTrades": 352,
+      "tierChanges": 0,
+      "baseStored": "771559099465561",
+      "quoteStored": "5796733843",
+      "ratios": {
+        "RAW": {
+          "base": 2.134358813992789,
+          "quote": -11.673432290963992
+        },
+        "DIRECTIVE": {
+          "base": 2.134358813992789,
+          "quote": -11.48531501138304
+        },
+        "MEASURED": {
+          "base": 2.134358813992789,
+          "quote": -11.970252949562584
+        }
+      }
+    },
+    {
+      "pool": "GU2HJVQ6ntWeLiAXE3CpaXYFc4ZGavx4fLBd161QQNif",
+      "slotFrom": 440088765,
+      "slotTo": 440099298,
+      "nTrades": 13,
+      "tierChanges": 0,
+      "baseStored": "813820724919078",
+      "quoteStored": "4582821072",
+      "ratios": {
+        "RAW": {
+          "base": 1.0035554916768417,
+          "quote": 0.9862274649155232
+        },
+        "DIRECTIVE": {
+          "base": 1.0035554916768417,
+          "quote": 0.989654933226684
+        },
+        "MEASURED": {
+          "base": 1.0035554916768417,
+          "quote": 0.9826817078927842
+        }
+      }
+    },
+    {
+      "pool": "31bDjH1j7tdgXycevFZVB1VkeieyDeK1LUceNSKfw7vi",
+      "slotFrom": 440080536,
+      "slotTo": 440089559,
+      "nTrades": 44,
+      "tierChanges": 0,
+      "baseStored": "652549266739084",
+      "quoteStored": "9487759477",
+      "ratios": {
+        "RAW": {
+          "base": 1.3580193977900399,
+          "quote": -0.043159265682552676
+        },
+        "DIRECTIVE": {
+          "base": 1.3580193977900399,
+          "quote": -0.02870980157753002
+        },
+        "MEASURED": {
+          "base": 1.3580193977900399,
+          "quote": -0.06042896475083145
+        }
+      }
+    },
+    {
+      "pool": "31bDjH1j7tdgXycevFZVB1VkeieyDeK1LUceNSKfw7vi",
+      "slotFrom": 440089559,
+      "slotTo": 440099215,
+      "nTrades": 5,
+      "tierChanges": 0,
+      "baseStored": "653771826419660",
+      "quoteStored": "9437929839",
+      "ratios": {
+        "RAW": {
+          "base": 1.0728576530960445,
+          "quote": 0.7943375615085455
+        },
+        "DIRECTIVE": {
+          "base": 1.0728576530960445,
+          "quote": 0.7969321504086252
+        },
+        "MEASURED": {
+          "base": 1.0728576530960445,
+          "quote": 0.7916674078382074
+        }
+      }
+    },
+    {
+      "pool": "6s1CuRKhyL86QnXJoLBGdbuYJ7J4RRknxAHK7HzmgkwL",
+      "slotFrom": 440083060,
+      "slotTo": 440092116,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "698390288469048",
+      "quoteStored": "8524639605",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6s1CuRKhyL86QnXJoLBGdbuYJ7J4RRknxAHK7HzmgkwL",
+      "slotFrom": 440092116,
+      "slotTo": 440099446,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "698390288469048",
+      "quoteStored": "8524639605",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9vsGVeqeyThFjfh4SkLib5SDPLBD5By4CacjRyLPCyje",
+      "slotFrom": 440084664,
+      "slotTo": 440094643,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "845284738263017",
+      "quoteStored": "3378556010",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "9vsGVeqeyThFjfh4SkLib5SDPLBD5By4CacjRyLPCyje",
+      "slotFrom": 440094643,
+      "slotTo": 440100160,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "845284738263017",
+      "quoteStored": "3378556010",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "FcCX5snz9aqZZ2rFjjxWmDX2RcqNsxBHaffxsCF8a7jG",
+      "slotFrom": 440086274,
+      "slotTo": 440096092,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "728207860857852",
+      "quoteStored": "6599301606",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0020141396459157
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0040031023852556
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999672501708661
+        }
+      }
+    },
+    {
+      "pool": "FcCX5snz9aqZZ2rFjjxWmDX2RcqNsxBHaffxsCF8a7jG",
+      "slotFrom": 440096092,
+      "slotTo": 440099374,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "731442757820488",
+      "quoteStored": "6492367091",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000202631487339
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.000402730154249
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999967053618964
+        }
+      }
+    },
+    {
+      "pool": "GsbfQ6V4tbWJyU6bKHUq7ttvbrWFwjCqZLBKaMQyq3qR",
+      "slotFrom": 440088593,
+      "slotTo": 440098234,
+      "nTrades": 21,
+      "tierChanges": 0,
+      "baseStored": "759517094981800",
+      "quoteStored": "5615084337",
+      "ratios": {
+        "RAW": {
+          "base": 1.0535189661341526,
+          "quote": 0.7586480575064602
+        },
+        "DIRECTIVE": {
+          "base": 1.0535189661341526,
+          "quote": 0.7635337892877672
+        },
+        "MEASURED": {
+          "base": 1.0535189661341526,
+          "quote": 0.7536200359656325
+        }
+      }
+    },
+    {
+      "pool": "GsbfQ6V4tbWJyU6bKHUq7ttvbrWFwjCqZLBKaMQyq3qR",
+      "slotFrom": 440098234,
+      "slotTo": 440107791,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "761634846244447",
+      "quoteStored": "5550590001",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0001429469659724
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0002841070948703
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999976759227401
+        }
+      }
+    },
+    {
+      "pool": "AS1N2M6QFzn4vkyFLrmVEdLaWcXXJfZjVq8x8P2VvjyD",
+      "slotFrom": 440088647,
+      "slotTo": 440098478,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "957474090673900",
+      "quoteStored": "1119174827",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "AS1N2M6QFzn4vkyFLrmVEdLaWcXXJfZjVq8x8P2VvjyD",
+      "slotFrom": 440098478,
+      "slotTo": 440108806,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "957474090673900",
+      "quoteStored": "1119174827",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "2xMwpeNoj2tJyWsLezYCJLkRNyMNtPq9c3TeamL63D8V",
+      "slotFrom": 440088699,
+      "slotTo": 440099134,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "952784263066419",
+      "quoteStored": "1027420173",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "2xMwpeNoj2tJyWsLezYCJLkRNyMNtPq9c3TeamL63D8V",
+      "slotFrom": 440099134,
+      "slotTo": 440108856,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "952784263066419",
+      "quoteStored": "1027420173",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "3VSowrDQQmGSvphA2h47JaZRe2Ppc5bUokZmqNcACAxR",
+      "slotFrom": 440090383,
+      "slotTo": 440098411,
+      "nTrades": 32,
+      "tierChanges": 0,
+      "baseStored": "283560207464649",
+      "quoteStored": "44788754264",
+      "ratios": {
+        "RAW": {
+          "base": 1.0297158815821699,
+          "quote": 0.9610145959472806
+        },
+        "DIRECTIVE": {
+          "base": 1.0297158815821699,
+          "quote": 0.9629196273195995
+        },
+        "MEASURED": {
+          "base": 1.0297158815821699,
+          "quote": 0.957767806024461
+        }
+      }
+    },
+    {
+      "pool": "3VSowrDQQmGSvphA2h47JaZRe2Ppc5bUokZmqNcACAxR",
+      "slotFrom": 440098411,
+      "slotTo": 440107941,
+      "nTrades": 40,
+      "tierChanges": 0,
+      "baseStored": "274036345050322",
+      "quoteStored": "54923701196",
+      "ratios": {
+        "RAW": {
+          "base": 1.0533798899268556,
+          "quote": 0.7974717574967415
+        },
+        "DIRECTIVE": {
+          "base": 1.0533798899268556,
+          "quote": 0.7976931636244277
+        },
+        "MEASURED": {
+          "base": 1.0533798899268556,
+          "quote": 0.7953413659817479
+        }
+      }
+    },
+    {
+      "pool": "5WULiN5KR1aSM5vtY99CMNcKvKLipKmi2tQK48ZWG8uT",
+      "slotFrom": 440092001,
+      "slotTo": 440098305,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "938289658938437",
+      "quoteStored": "2628493603",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "5WULiN5KR1aSM5vtY99CMNcKvKLipKmi2tQK48ZWG8uT",
+      "slotFrom": 440098305,
+      "slotTo": 440107868,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "938289658938437",
+      "quoteStored": "2628493603",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "7isNzrKSRvjj4tXv9BkMyogUYjGB8Bdz1H1Za3HKBAU",
+      "slotFrom": 440098170,
+      "slotTo": 440107676,
+      "nTrades": 52,
+      "tierChanges": 0,
+      "baseStored": "395794084717081",
+      "quoteStored": "27747453921",
+      "ratios": {
+        "RAW": {
+          "base": 1.3577798744366498,
+          "quote": 0.4542341370449518
+        },
+        "DIRECTIVE": {
+          "base": 1.3577798744366498,
+          "quote": 0.4591709765254321
+        },
+        "MEASURED": {
+          "base": 1.3577798744366498,
+          "quote": 0.445852567274185
+        }
+      }
+    },
+    {
+      "pool": "7isNzrKSRvjj4tXv9BkMyogUYjGB8Bdz1H1Za3HKBAU",
+      "slotFrom": 440107676,
+      "slotTo": 440117801,
+      "nTrades": 36,
+      "tierChanges": 0,
+      "baseStored": "401087712716419",
+      "quoteStored": "27151901969",
+      "ratios": {
+        "RAW": {
+          "base": 1.1146409413946097,
+          "quote": 0.8063009893743477
+        },
+        "DIRECTIVE": {
+          "base": 1.1146409413946097,
+          "quote": 0.808953276719898
+        },
+        "MEASURED": {
+          "base": 1.1146409413946097,
+          "quote": 0.8023230931620192
+        }
+      }
+    },
+    {
+      "pool": "6sZF7i8pNm8ahoxZPU3vV7BsrkTdhdou1BfPmhoBKpNc",
+      "slotFrom": 440104497,
+      "slotTo": 440114012,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "967535437150297",
+      "quoteStored": "651150379",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "6sZF7i8pNm8ahoxZPU3vV7BsrkTdhdou1BfPmhoBKpNc",
+      "slotFrom": 440114012,
+      "slotTo": 440157212,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "967535437150297",
+      "quoteStored": "651150379",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GquBssLnQPj7wXeNfxKAgS1CwAWMzVgajL7EawZp3V2i",
+      "slotFrom": 440106083,
+      "slotTo": 440115453,
+      "nTrades": 6,
+      "tierChanges": 0,
+      "baseStored": "461804904803212",
+      "quoteStored": "20665315385",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0002208052437134
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0004388503069537
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999964101201159
+        }
+      }
+    },
+    {
+      "pool": "GquBssLnQPj7wXeNfxKAgS1CwAWMzVgajL7EawZp3V2i",
+      "slotFrom": 440115453,
+      "slotTo": 440155258,
+      "nTrades": 17,
+      "tierChanges": 0,
+      "baseStored": "461828386436797",
+      "quoteStored": "20664960977",
+      "ratios": {
+        "RAW": {
+          "base": 1.0843406313043635,
+          "quote": 0.8324422174397605
+        },
+        "DIRECTIVE": {
+          "base": 1.0843406313043635,
+          "quote": 0.8345033893455487
+        },
+        "MEASURED": {
+          "base": 1.0843406313043635,
+          "quote": 0.8294846582133955
+        }
+      }
+    },
+    {
+      "pool": "XSCM46HqeDf3kA9ti3aJFL4RWyyrGnNXePap9GXip3d",
+      "slotFrom": 440108721,
+      "slotTo": 440117699,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "722879484125598",
+      "quoteStored": "6774263496",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.000396747336679
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.000788535167425
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999935491142283
+        }
+      }
+    },
+    {
+      "pool": "XSCM46HqeDf3kA9ti3aJFL4RWyyrGnNXePap9GXip3d",
+      "slotFrom": 440117699,
+      "slotTo": 440155118,
+      "nTrades": 2,
+      "tierChanges": 0,
+      "baseStored": "724059113870812",
+      "quoteStored": "6734586376",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0000724807690848
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.000144055469161
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.999998821902407
+        }
+      }
+    },
+    {
+      "pool": "u6bjrC97d7oM6ozDaG2WgfAWE4TRnV2gpFfDdTRYPhC",
+      "slotFrom": 440118551,
+      "slotTo": 440153407,
+      "nTrades": 1,
+      "tierChanges": 0,
+      "baseStored": "869605717937068",
+      "quoteStored": "2762331382",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1.0006281784333724
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1.0012485044417454
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 0.9999897865259093
+        }
+      }
+    },
+    {
+      "pool": "u6bjrC97d7oM6ozDaG2WgfAWE4TRnV2gpFfDdTRYPhC",
+      "slotFrom": 440153407,
+      "slotTo": 440157146,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "869605717937068",
+      "quoteStored": "2762331382",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "7Y8g2Xi4v8BAXBd8jeq2K7ifAMqyxg1jrJgmJeuZxPy8",
+      "slotFrom": 440150647,
+      "slotTo": 440152417,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "902021705414544",
+      "quoteStored": "2044126162",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "7Y8g2Xi4v8BAXBd8jeq2K7ifAMqyxg1jrJgmJeuZxPy8",
+      "slotFrom": 440152417,
+      "slotTo": 440154336,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "902021705414544",
+      "quoteStored": "2044126162",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GTwwbeZyJfLLrHMLWTvBn7VC2gi2nMCyrtk1um67NCAE",
+      "slotFrom": 440150760,
+      "slotTo": 440152643,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "797007262100546",
+      "quoteStored": "4568443723",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    },
+    {
+      "pool": "GTwwbeZyJfLLrHMLWTvBn7VC2gi2nMCyrtk1um67NCAE",
+      "slotFrom": 440152643,
+      "slotTo": 440155308,
+      "nTrades": 0,
+      "tierChanges": 0,
+      "baseStored": "797007262100546",
+      "quoteStored": "4568443723",
+      "ratios": {
+        "RAW": {
+          "base": 1,
+          "quote": 1
+        },
+        "DIRECTIVE": {
+          "base": 1,
+          "quote": 1
+        },
+        "MEASURED": {
+          "base": 1,
+          "quote": 1
+        }
+      }
+    }
+  ]
+}

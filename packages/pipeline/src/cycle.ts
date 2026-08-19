@@ -36,6 +36,14 @@ import {
   recordSourceHealth,
   rejectsNeedingFollowUp,
 } from '../../storage/src/repo.js';
+import {
+  recordObservation,
+  noteTradeSeen,
+  closeWatch,
+  openWatches,
+  watchOf,
+} from '../../storage/src/observation-watch-repo.js';
+import { dueForObservation, terminalStateOf } from './observation-watch.js';
 import { JupiterClient, measureRoundTrip } from '../../adapters/src/jupiter/client.js';
 import type { MintInformation } from '../../adapters/src/jupiter/schemas.js';
 import { fetchConcentration } from '../../solana/src/rpc.js';
@@ -67,6 +75,10 @@ export interface CycleStats {
   explorationDebt?: number;
   /** P16 — how many candidates each age cohort actually matured this cycle. */
   maturingByCohort?: Readonly<Record<string, number>>;
+  /** Open watches due this cycle, and how many of them the cohort queue would have missed. */
+  observationWatchDue?: number;
+  observationWatchOnly?: number;
+  observationWatchClosed?: Readonly<Record<string, number>>;
   newCandidates: number;
   screened: number;
   cheapPassed: number;
@@ -221,7 +233,28 @@ export async function runCycle(deps: CycleDeps): Promise<CycleStats> {
    * empty ones has one arm.
    */
   const cohortRows = maturingByCohort(db, nowUtcMs, COHORT_BOUNDS, 25).filter((r) => !deps.skip?.has(r.mint));
-  const mature = cohortRows.map((r) => r.mint);
+  /**
+   * PHASE G §3 — mints still UNDER OBSERVATION, whatever the cohort queue thinks.
+   *
+   * `maturingByCohort` selects on AGE, so once a mint is older than the widest cohort
+   * band it can never be selected again and observation stops silently. Phase F could
+   * not decide the pre-migration branch because of exactly that: 97.5% of censored
+   * mints had no post-entry price AT ALL, which makes a mint that died and a mint
+   * whose price did not move indistinguishable in the corpus.
+   *
+   * The watch asks the second question — not "is this interesting" but "is this still
+   * being observed" — and keeps a mint in the screening set until a terminal state is
+   * OBSERVED. Most-overdue-first and capped, so it cannot starve the cohort arms it
+   * sits beside.
+   */
+  const dueWatch = dueForObservation(openWatches(db, 500), nowUtcMs)
+    .filter((w) => !deps.skip?.has(w.mint))
+    .slice(0, 25);
+  const cohortMints = new Set(cohortRows.map((r) => r.mint));
+  const watchOnly = dueWatch.map((w) => w.mint).filter((m) => !cohortMints.has(m));
+  stats.observationWatchDue = dueWatch.length;
+  stats.observationWatchOnly = watchOnly.length;
+  const mature = [...cohortRows.map((r) => r.mint), ...watchOnly];
   const cohortOf = new Map(cohortRows.map((r) => [r.mint, r.cohort] as const));
   stats.maturing = mature.length;
   stats.maturingByCohort = Object.fromEntries(
@@ -786,6 +819,51 @@ async function persist(
   const result = finalizeScreen(info, deps.config, nowUtcMs, gates, roundTrip, null, concentration, sourceAgeMs);
   insertSnapshot(deps.db, result.snapshot);
   insertScreening(deps.db, result.outcome);
+  /**
+   * PHASE G §3 — the observation is RECORDED, and a terminal state CLOSES the watch.
+   *
+   * Every snapshot advances the watch, so the corpus knows how well each mint was
+   * followed rather than inferring it from row counts. A terminal state closes it and
+   * records which observable fired; anything else that stops observation is left open
+   * and shows up as a COLLECTION_FAILURE in the audit, which is the whole point —
+   * Phase F could not tell a dead mint from an unobserved one.
+   *
+   * The trade signal is what the provider reports over the trailing five minutes. It
+   * advances `last_trade_seen` only when trading was actually seen, so a quiet stretch
+   * is measured rather than assumed, and it is deliberately NOT inferred from the
+   * absence of a snapshot.
+   */
+  try {
+    recordObservation(deps.db, info.id, nowUtcMs);
+    const f = result.snapshot.features;
+    const buys = f['numBuys5m'];
+    const sells = f['numSells5m'];
+    const traded = buys === null || sells === null ? null : (buys ?? 0) + (sells ?? 0) > 0;
+    if (traded === true) noteTradeSeen(deps.db, info.id, nowUtcMs);
+    const watch = watchOf(deps.db, info.id);
+    if (watch !== null) {
+      const verdict = terminalStateOf({
+        quoteReserveLamports: null,
+        liquidityUsd: f['liquidityUsd'] ?? null,
+        lastTradeUtcMs: watch.lastTradeSeenUtcMs,
+        firstObservedUtcMs: watch.firstObservedUtcMs,
+        nowUtcMs,
+      });
+      if (verdict !== null) {
+        closeWatch(deps.db, info.id, verdict.state, verdict.source, nowUtcMs, {
+          quoteReserveLamports: null,
+          liquidityUsd: f['liquidityUsd'] ?? null,
+          lastTradeUtcMs: watch.lastTradeSeenUtcMs,
+        });
+        stats.observationWatchClosed = {
+          ...(stats.observationWatchClosed ?? {}),
+          [verdict.state]: ((stats.observationWatchClosed ?? {})[verdict.state] ?? 0) + 1,
+        };
+      }
+    }
+  } catch {
+    // A missing table is a migration problem, not a reason to lose the snapshot.
+  }
   if (selection !== undefined) {
     try {
       deps.db

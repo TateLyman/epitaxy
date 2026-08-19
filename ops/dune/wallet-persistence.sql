@@ -2095,3 +2095,348 @@ GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3;
 
 --#END
+
+-- ############################################################################
+-- QUERY 11 — PHASE G §1.1, COVERAGE ONLY. NO RETURNS.
+--
+-- Phase C's 46% gap is a property of demanding a price at t+3600s. Coverage is a
+-- function of the horizon and it is measurable WITHOUT READING A SINGLE RETURN,
+-- which is what makes horizon selection outcome-independent and therefore not a
+-- forking path.
+--
+-- THIS QUERY DELIBERATELY CANNOT ANSWER "WHICH HORIZON PAYS BEST". It returns counts
+-- and nothing else: no sum of returns, no mean, no price, no ratio. H* is selected
+-- from its output and written to the ledger, and only then does a separate query
+-- compute returns. The separation is the design, not a formality — a single query
+-- returning both would put the answer in front of the person choosing the question.
+--
+-- H = 3600s is included solely as the anchor to Phase C and is NOT a candidate.
+-- ############################################################################
+
+--#Q11 needs=BASE,RANK
+,
+g_pos AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)      AS utc_day,
+    pp.trader_id,
+    pp.mint,
+    pp.first_buy                    AS t_buy,
+    f.top_mean_001,
+    f.top_median_001,
+    f.top_mean_01,
+    f.top_median_01
+  FROM position_pnl pp
+  JOIN flagged f ON f.trader_id = pp.trader_id
+  WHERE pp.window_tag = 'HOLD'
+    AND pp.entry_project = 'pumpswap'
+    AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
+    AND (f.top_mean_01 OR f.top_median_01)
+),
+
+/* One scan. Every entry window and every horizon window lies inside
+   [t_buy + 2s, t_buy + 3720s), so the tape is joined once and the windows are
+   conditional aggregates over it.
+
+   A window is "priced" when it contains at least one trade with a positive token
+   amount — the same test the earlier phases used, expressed as a count so that no
+   price ever appears in this output. */
+g_windows AS (
+  SELECT
+    p.utc_day, p.trader_id, p.mint, p.t_buy,
+    p.top_mean_001, p.top_median_001, p.top_mean_01, p.top_median_01,
+    -- ENTRY at each lag
+    COUNT_IF(w.block_time >= date_add('second', 2, p.t_buy)
+         AND w.block_time <  date_add('second', 62, p.t_buy) AND w.token_amount > 0)   AS n_entry_l2,
+    COUNT_IF(w.block_time >= date_add('second', 15, p.t_buy)
+         AND w.block_time <  date_add('second', 75, p.t_buy) AND w.token_amount > 0)   AS n_entry_l15,
+    -- EXIT at lag 2 and each horizon
+    COUNT_IF(w.block_time >= date_add('second', 122, p.t_buy)
+         AND w.block_time <  date_add('second', 182, p.t_buy) AND w.token_amount > 0)  AS n_exit_l2_h120,
+    COUNT_IF(w.block_time >= date_add('second', 302, p.t_buy)
+         AND w.block_time <  date_add('second', 362, p.t_buy) AND w.token_amount > 0)  AS n_exit_l2_h300,
+    COUNT_IF(w.block_time >= date_add('second', 602, p.t_buy)
+         AND w.block_time <  date_add('second', 662, p.t_buy) AND w.token_amount > 0)  AS n_exit_l2_h600,
+    COUNT_IF(w.block_time >= date_add('second', 1202, p.t_buy)
+         AND w.block_time <  date_add('second', 1262, p.t_buy) AND w.token_amount > 0) AS n_exit_l2_h1200,
+    COUNT_IF(w.block_time >= date_add('second', 3602, p.t_buy)
+         AND w.block_time <  date_add('second', 3662, p.t_buy) AND w.token_amount > 0) AS n_exit_l2_h3600,
+    -- EXIT at lag 15 and each horizon
+    COUNT_IF(w.block_time >= date_add('second', 135, p.t_buy)
+         AND w.block_time <  date_add('second', 195, p.t_buy) AND w.token_amount > 0)  AS n_exit_l15_h120,
+    COUNT_IF(w.block_time >= date_add('second', 315, p.t_buy)
+         AND w.block_time <  date_add('second', 375, p.t_buy) AND w.token_amount > 0)  AS n_exit_l15_h300,
+    COUNT_IF(w.block_time >= date_add('second', 615, p.t_buy)
+         AND w.block_time <  date_add('second', 675, p.t_buy) AND w.token_amount > 0)  AS n_exit_l15_h600,
+    COUNT_IF(w.block_time >= date_add('second', 1215, p.t_buy)
+         AND w.block_time <  date_add('second', 1275, p.t_buy) AND w.token_amount > 0) AS n_exit_l15_h1200,
+    COUNT_IF(w.block_time >= date_add('second', 3615, p.t_buy)
+         AND w.block_time <  date_add('second', 3675, p.t_buy) AND w.token_amount > 0) AS n_exit_l15_h3600,
+    -- Truncation: a horizon that runs past the window edge is a measurement limit,
+    -- not a dead token, and is excluded from both numerator and denominator.
+    date_add('second', 3675, p.t_buy) > (SELECT hold_end FROM params)                  AS truncated_h3600,
+    date_add('second', 1275, p.t_buy) > (SELECT hold_end FROM params)                  AS truncated_h1200
+  FROM g_pos p
+  JOIN windowed w
+    ON w.mint = p.mint
+   AND w.block_time >= date_add('second', 2, p.t_buy)
+   AND w.block_time <  date_add('second', 3675, p.t_buy)
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+),
+
+arms AS (
+  SELECT * FROM (VALUES
+    ('MEAN',   0.001),
+    ('MEDIAN', 0.001),
+    ('MEAN',   0.01),
+    ('MEDIAN', 0.01)
+  ) AS t(rank_stat, top_fraction)
+),
+
+horizons AS (
+  SELECT * FROM (VALUES (120), (300), (600), (1200), (3600)) AS t(horizon_s)
+),
+
+lags AS (
+  SELECT * FROM (VALUES (2), (15)) AS t(lag_s)
+)
+
+SELECT
+  g.utc_day,
+  a.rank_stat,
+  a.top_fraction,
+  l.lag_s,
+  h.horizon_s,
+  COUNT(*)                                                                  AS n_followable,
+  COUNT_IF(CASE WHEN l.lag_s = 2 THEN g.n_entry_l2 > 0 ELSE g.n_entry_l15 > 0 END) AS n_entry_priced,
+  COUNT_IF(
+    CASE
+      WHEN l.lag_s = 2 AND h.horizon_s =  120 THEN g.n_exit_l2_h120  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s =  300 THEN g.n_exit_l2_h300  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s =  600 THEN g.n_exit_l2_h600  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s = 1200 THEN g.n_exit_l2_h1200 > 0
+      WHEN l.lag_s = 2 AND h.horizon_s = 3600 THEN g.n_exit_l2_h3600 > 0
+      WHEN h.horizon_s =  120 THEN g.n_exit_l15_h120  > 0
+      WHEN h.horizon_s =  300 THEN g.n_exit_l15_h300  > 0
+      WHEN h.horizon_s =  600 THEN g.n_exit_l15_h600  > 0
+      WHEN h.horizon_s = 1200 THEN g.n_exit_l15_h1200 > 0
+      ELSE g.n_exit_l15_h3600 > 0
+    END)                                                                    AS n_exit_priced,
+  COUNT_IF(
+    (CASE WHEN l.lag_s = 2 THEN g.n_entry_l2 > 0 ELSE g.n_entry_l15 > 0 END)
+    AND
+    CASE
+      WHEN l.lag_s = 2 AND h.horizon_s =  120 THEN g.n_exit_l2_h120  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s =  300 THEN g.n_exit_l2_h300  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s =  600 THEN g.n_exit_l2_h600  > 0
+      WHEN l.lag_s = 2 AND h.horizon_s = 1200 THEN g.n_exit_l2_h1200 > 0
+      WHEN l.lag_s = 2 AND h.horizon_s = 3600 THEN g.n_exit_l2_h3600 > 0
+      WHEN h.horizon_s =  120 THEN g.n_exit_l15_h120  > 0
+      WHEN h.horizon_s =  300 THEN g.n_exit_l15_h300  > 0
+      WHEN h.horizon_s =  600 THEN g.n_exit_l15_h600  > 0
+      WHEN h.horizon_s = 1200 THEN g.n_exit_l15_h1200 > 0
+      ELSE g.n_exit_l15_h3600 > 0
+    END)                                                                    AS n_both_priced,
+  COUNT_IF(CASE WHEN h.horizon_s = 3600 THEN g.truncated_h3600
+                WHEN h.horizon_s = 1200 THEN g.truncated_h1200
+                ELSE FALSE END)                                             AS n_truncated,
+  COUNT(DISTINCT g.trader_id)                                               AS wallets
+FROM g_windows g
+CROSS JOIN arms a
+CROSS JOIN horizons h
+CROSS JOIN lags l
+WHERE (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.001 AND g.top_mean_001)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.001 AND g.top_median_001)
+   OR (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.01  AND g.top_mean_01)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.01  AND g.top_median_01)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 2, 3, 4, 5, 1;
+
+--#END
+
+-- ############################################################################
+-- QUERY 12 — PHASE G §1.3, RETURNS AT EVERY HORIZON.
+--
+-- Written and executed AFTER H* was committed to the ledger as MT092 and after that
+-- commit was in the git history. The coverage query returned counts only and this
+-- one returns prices; the separation is the design.
+--
+-- H* = 120s. Every other horizon in this output is SENSITIVITY, never a candidate. A
+-- cell that fails at H* and passes at another H is a failure, and the report says so.
+--
+-- Both censoring treatments come from the same rows: `n` and `sum_ret` are the
+-- as-priced set, and `n_censored` is the enterable-but-unexitable count that the
+-- offline analysis enters at -100% over the shared denominator n + n_censored.
+-- ############################################################################
+
+--#Q12 needs=BASE,RANK
+,
+h_pos AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)      AS utc_day,
+    pp.trader_id,
+    pp.mint,
+    pp.first_buy                    AS t_buy,
+    pp.sol_in,
+    f.top_mean_001,
+    f.top_median_001,
+    f.top_mean_01,
+    f.top_median_01
+  FROM position_pnl pp
+  JOIN flagged f ON f.trader_id = pp.trader_id
+  WHERE pp.window_tag = 'HOLD'
+    AND pp.entry_project = 'pumpswap'
+    AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
+    AND (f.top_mean_01 OR f.top_median_01)
+),
+
+h_px AS (
+  SELECT
+    p.utc_day, p.trader_id, p.mint, p.t_buy, p.sol_in,
+    p.top_mean_001, p.top_median_001, p.top_mean_01, p.top_median_01,
+    SUM(CASE WHEN w.block_time >= date_add('second', 2, p.t_buy)
+              AND w.block_time <  date_add('second', 62, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, p.t_buy)
+                         AND w.block_time <  date_add('second', 62, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS entry_l2,
+    SUM(CASE WHEN w.block_time >= date_add('second', 15, p.t_buy)
+              AND w.block_time <  date_add('second', 75, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, p.t_buy)
+                         AND w.block_time <  date_add('second', 75, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS entry_l15,
+    SUM(CASE WHEN w.block_time >= date_add('second', 122, p.t_buy)
+              AND w.block_time <  date_add('second', 182, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 122, p.t_buy)
+                         AND w.block_time <  date_add('second', 182, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l2_h120,
+    SUM(CASE WHEN w.block_time >= date_add('second', 302, p.t_buy)
+              AND w.block_time <  date_add('second', 362, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 302, p.t_buy)
+                         AND w.block_time <  date_add('second', 362, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l2_h300,
+    SUM(CASE WHEN w.block_time >= date_add('second', 602, p.t_buy)
+              AND w.block_time <  date_add('second', 662, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 602, p.t_buy)
+                         AND w.block_time <  date_add('second', 662, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l2_h600,
+    SUM(CASE WHEN w.block_time >= date_add('second', 1202, p.t_buy)
+              AND w.block_time <  date_add('second', 1262, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 1202, p.t_buy)
+                         AND w.block_time <  date_add('second', 1262, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l2_h1200,
+    SUM(CASE WHEN w.block_time >= date_add('second', 3602, p.t_buy)
+              AND w.block_time <  date_add('second', 3662, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 3602, p.t_buy)
+                         AND w.block_time <  date_add('second', 3662, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l2_h3600,
+    SUM(CASE WHEN w.block_time >= date_add('second', 135, p.t_buy)
+              AND w.block_time <  date_add('second', 195, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 135, p.t_buy)
+                         AND w.block_time <  date_add('second', 195, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l15_h120,
+    SUM(CASE WHEN w.block_time >= date_add('second', 315, p.t_buy)
+              AND w.block_time <  date_add('second', 375, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 315, p.t_buy)
+                         AND w.block_time <  date_add('second', 375, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l15_h300,
+    SUM(CASE WHEN w.block_time >= date_add('second', 615, p.t_buy)
+              AND w.block_time <  date_add('second', 675, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 615, p.t_buy)
+                         AND w.block_time <  date_add('second', 675, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l15_h600,
+    SUM(CASE WHEN w.block_time >= date_add('second', 1215, p.t_buy)
+              AND w.block_time <  date_add('second', 1275, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 1215, p.t_buy)
+                         AND w.block_time <  date_add('second', 1275, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l15_h1200,
+    SUM(CASE WHEN w.block_time >= date_add('second', 3615, p.t_buy)
+              AND w.block_time <  date_add('second', 3675, p.t_buy)
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 3615, p.t_buy)
+                         AND w.block_time <  date_add('second', 3675, p.t_buy)
+                        THEN w.token_amount ELSE 0 END), 0)   AS exit_l15_h3600,
+    date_add('second', 3675, p.t_buy) > (SELECT hold_end FROM params)  AS truncated_h3600,
+    date_add('second', 1275, p.t_buy) > (SELECT hold_end FROM params)  AS truncated_h1200
+  FROM h_pos p
+  JOIN windowed w
+    ON w.mint = p.mint
+   AND w.block_time >= date_add('second', 2, p.t_buy)
+   AND w.block_time <  date_add('second', 3675, p.t_buy)
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9
+),
+
+arms AS (
+  SELECT * FROM (VALUES ('MEAN', 0.001), ('MEDIAN', 0.001), ('MEAN', 0.01), ('MEDIAN', 0.01))
+  AS t(rank_stat, top_fraction)
+),
+grid AS (
+  SELECT * FROM (VALUES
+    (2, 120), (2, 300), (2, 600), (2, 1200), (2, 3600),
+    (15, 120), (15, 300), (15, 600), (15, 1200), (15, 3600)
+  ) AS t(lag_s, horizon_s)
+),
+
+long AS (
+  SELECT
+    h.utc_day, h.trader_id, h.sol_in,
+    h.top_mean_001, h.top_median_001, h.top_mean_01, h.top_median_01,
+    g.lag_s, g.horizon_s,
+    CASE WHEN g.lag_s = 2 THEN h.entry_l2 ELSE h.entry_l15 END AS entry_px,
+    CASE
+      WHEN g.lag_s = 2 AND g.horizon_s =  120 THEN h.exit_l2_h120
+      WHEN g.lag_s = 2 AND g.horizon_s =  300 THEN h.exit_l2_h300
+      WHEN g.lag_s = 2 AND g.horizon_s =  600 THEN h.exit_l2_h600
+      WHEN g.lag_s = 2 AND g.horizon_s = 1200 THEN h.exit_l2_h1200
+      WHEN g.lag_s = 2 AND g.horizon_s = 3600 THEN h.exit_l2_h3600
+      WHEN g.horizon_s =  120 THEN h.exit_l15_h120
+      WHEN g.horizon_s =  300 THEN h.exit_l15_h300
+      WHEN g.horizon_s =  600 THEN h.exit_l15_h600
+      WHEN g.horizon_s = 1200 THEN h.exit_l15_h1200
+      ELSE h.exit_l15_h3600
+    END AS exit_px,
+    CASE WHEN g.horizon_s = 3600 THEN h.truncated_h3600
+         WHEN g.horizon_s = 1200 THEN h.truncated_h1200
+         ELSE FALSE END AS truncated
+  FROM h_px h
+  CROSS JOIN grid g
+)
+
+SELECT
+  c.utc_day,
+  a.rank_stat,
+  a.top_fraction,
+  c.lag_s,
+  c.horizon_s,
+  COUNT(*)                                                              AS n_followable,
+  COUNT_IF(c.truncated)                                                 AS n_truncated,
+  COUNT_IF(NOT c.truncated AND c.entry_px > 0)                          AS n_entry_priced,
+  COUNT_IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > 0)        AS n,
+  COUNT_IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px IS NULL)    AS n_censored,
+  SUM(IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > 0, c.exit_px / c.entry_px - 1e0, 0e0))            AS sum_ret,
+  SUM(IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > 0, POWER(c.exit_px / c.entry_px - 1e0, 2), 0e0))  AS sum_ret_sq,
+  COUNT_IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > c.entry_px)                                    AS n_positive,
+  APPROX_PERCENTILE(IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > 0, c.exit_px / c.entry_px - 1e0, NULL), 0.5) AS median_ret,
+  SUM(IF(NOT c.truncated AND c.entry_px > 0 AND c.exit_px > 0, c.sol_in, 0e0))                               AS sum_sol_in,
+  COUNT(DISTINCT c.trader_id)                                           AS wallets
+FROM long c
+CROSS JOIN arms a
+WHERE (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.001 AND c.top_mean_001)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.001 AND c.top_median_001)
+   OR (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.01  AND c.top_mean_01)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.01  AND c.top_median_01)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 2, 3, 4, 5, 1;
+
+--#END
