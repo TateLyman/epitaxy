@@ -36,6 +36,7 @@
     "tier:assign": "tsx scripts/phase-b-tier-assignment.ts",
     "cost:by-tier": "tsx scripts/phase-b-cost-by-tier.ts",
     "trigger:cells": "tsx scripts/phase-b-triggers.ts",
+    "dune:assemble": "tsx scripts/dune-assemble.ts",
     "counterfactual:calibrate": "tsx scripts/counterfactual-calibrate.ts",
     "counterfactual:replay": "tsx scripts/counterfactual-replay.ts",
     "db:migrate": "tsx scripts/migrate-and-backup.ts",

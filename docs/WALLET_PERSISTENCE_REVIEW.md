@@ -2,9 +2,34 @@
 
 **Delivered:** `7d17f4c7-epitaxy_wallet_persistence_dune.sql` (Dune / Trino, 4 queries)
 **Corrected version:** `ops/dune/wallet-persistence.sql` (v2)
-**Status of v2: UNRUN.** There is no Dune access from here and no local substitute
-(see §4), so v2 is reviewed SQL and not executed SQL. Every claim below about what
-the queries *would* return is a claim about their logic, never about a result.
+**Status of v2: UNRUN, and now blocked on credits rather than on access.** The
+operator supplied a Dune API key on 2026-08-19. It authenticates, and the Query
+CRUD API is available on the plan, so all four queries are composed and saved:
+
+```text
+Q1 reconstruction sanity          query 8379625
+Q2 fit ranking and disappearance  query 8379626
+Q3 holdout panel export           query 8379627
+Q4 token forward return           query 8379628
+```
+
+Creating them cost nothing — verified against `POST /api/v1/usage` before and
+after, unchanged at 2,499.348 credits used. **Execution is refused pre-flight:**
+
+```text
+"This api request would exceed your configured datapoint limit per billing cycle."
+
+billing period 2026-08-10 -> 2026-08-24   credits_used 2499.348 of 2500
+billing period 2026-08-24 -> 2099-01-01   credits_used     0.000 of 0
+```
+
+0.652 credits remain against ~10 per medium execution, so nothing has run and
+nothing can until the allowance changes. Note the second period shows an
+allowance of **0**, so this is not necessarily a wait-for-the-reset situation —
+the plan may need a datapoint-limit raise or an upgrade before any of it executes.
+
+Every claim below about what the queries *would* return is therefore a claim about
+their logic, never about a result. Not one row of Dune data has been read.
 
 The question the file asks is the right one, and it is the cheapest remaining
 question in the project: **do wallets that traded well in a fit window trade well
@@ -146,7 +171,7 @@ additionally carries `amm_at_entry`.
 | L6 | `mint_first_seen` computes `t0` over the sample span, so a mint that traded before `fit_start` looks new in the holdout. | a `lookback_start` parameter, used **only** for first-seen, 30 days before `fit_start`. |
 | L7 | Query 4's `top_wallet_present` conflates "a ranked wallet bought and was not top decile" with "no ranked wallet bought at all", making the control group a mixture of two populations. | three-way cohort: `TOP_PRESENT` / `RANKED_NOT_TOP` / `NO_RANKED_WALLET`. |
 | L8 | No visibility into whether `NTILE(10)` had ten wallets to work with. | `wallets_qualifying` carried through `ranked`. |
-| L9 | "Prepend the SHARED BASE block" is a manual assembly step performed four times, and v1's query 2 comment and query 4 comment ask for different subsets of it. | the base is written out in full per query, with `>>> markers <<<` and a note that all copies must be edited together. Duplication is the lesser evil when the alternative is four hand-assembled variants nobody can diff. |
+| L9 | "Prepend the SHARED BASE block" is a manual assembly step performed four times, and v1's query 2 comment and query 4 comment ask for different subsets of it. | **superseded by code.** The file now carries one base in `--#BASE`/`--#RANK`/`--#Q1..Q4` sections and `pnpm dune:assemble` composes four self-contained statements into `ops/dune/generated/`, refusing any that composes to more than one statement. A query assembled by hand is a query where the thing that ran and the thing in version control are different artifacts. `--push` also creates or updates them in Dune, reading the key from `DUNE_API_KEY` and writing it nowhere. |
 | L10 | Mints whose `t0` falls in the final 72 minutes of the holdout have no exit mark inside the window and are counted as censored for a reason about the boundary rather than the token. | documented in the decision-rule block; ~0.17% of a 30-day span, unevenly spread because launch rates are not uniform across the day. |
 
 ### Not defects
@@ -261,9 +286,15 @@ Whichever way it comes out, the result is `DEVELOPMENT_RECONSTRUCTED` and is an
 
 ## 6 — WHAT TO RUN, IN ORDER
 
-1. **Query 1**, and stop if `closed_share`, `external_inflow_share` or `median`
-   look wrong (thresholds in the query's own footer). A wrong schema assumption
-   here invalidates everything after it, and Dune's Solana DEX columns do change.
+0. **Verify the schema first**, for about one credit:
+   `SELECT column_name, data_type FROM information_schema.columns WHERE
+   table_schema = 'dex_solana' AND table_name = 'trades'`. This was attempted on
+   2026-08-19 and refused for want of credits, so the column names in the base
+   block are still **assumed**. The file's own header names this as the top risk
+   and it is the cheapest thing on the list to settle.
+1. **Query 1** (8379625), and stop if `closed_share`, `external_inflow_share` or
+   `median` look wrong (thresholds in the query's own footer). A wrong schema
+   assumption here invalidates everything after it.
 2. **Query 2**, and read `vanish_rate` and `top_on_mean_only` *before*
    `avg_holdout_return`. If the top decile's vanish rate is high or the two
    rankings disagree, the decile is a variance artifact and the holdout column is
