@@ -23,6 +23,13 @@ and §7 is the part of this document that matters most.
 | Q3 holdout day panel | 8381178 | `01M0DAPQVCY7APVASATB64NT3V` | H1's per-(day, cohort, project) sufficient statistics |
 | Q4 token forward return | 8381179 | `01M0DAX9Z32GTK0GVPYG3PSB2E` | H2's per-(day, cohort, venue) statistics |
 
+The Q2 median-cut variant is one changed line — `NTILE(10) OVER (ORDER BY
+median_ret_fit DESC)` in place of `mean_ret_fit` — and it is committed as
+`ops/dune/generated/q2-median-cut.sql`, pulled back from the Dune API as the exact
+text that executed rather than regenerated from a source file that has since
+changed. It is deliberately absent from `ops/dune/query-ids.json`, because a later
+`--push` would overwrite it with the mean-cut text.
+
 589.26 of 2,500 monthly credits. Results committed under `ops/dune/results/`;
 the SQL is one sectioned source, `ops/dune/wallet-persistence.sql`, composed by
 `pnpm dune:assemble` so that what ran and what is in version control are the same
