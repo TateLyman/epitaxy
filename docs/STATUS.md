@@ -1,6 +1,81 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase H, locate the 82%. State: `VENUE_LOCATED`.**
+> **2026-08-19 (LATEST) — Research brief 7a8d7564, where money is actually made.
+> State: `FEE_ON_FLOW_SURVEYED: ONE_ACCESSIBLE_MECHANISM, AND IT IS NOT A MEASUREMENT BUSINESS`.**
+>
+> Full account: `docs/FEE_ON_FLOW_RESEARCH_REPORT.md`. Directive transcribed from PDF and
+> committed before execution, with its three PDF losses marked rather than reconstructed:
+> `docs/directives/DIRECTIVE_7A8D7564_RESEARCH_BRIEF_FEE_ON_FLOW.md`. The state string is
+> this report's own — the brief defines none, unlike Phases A through H.
+>
+> ```
+> 0 Dune credits of ~500. No query created, run or paid for.
+> Every figure is a public primary, arithmetic on one, or a read of the local corpus.
+> ```
+>
+> **THIS IS NOT A PHASE AND IT MEASURED ALMOST NOTHING.** The brief is a literature and
+> primary-source review of the mechanisms that extract durable revenue from the Solana
+> launchpad ecosystem, and which of them a solo US operator with no deployed capital and no
+> latency infrastructure can reach. It preregisters no decision rule. One corpus measurement
+> was run because H1 turned out to be answerable for free; it is MT099 and it is recorded as
+> **post-hoc and exploratory**, which inverts this programme's own order and is stated as a
+> deviation rather than smoothed over.
+>
+> **H1 IS FALSIFIED, AND ITS ARITHMETIC WAS WRONG BY 10x BEFORE ANY DATA WAS TOUCHED.** The
+> brief assumes PumpSwap pays LPs 0.20% of a 0.25% fee. The on-chain `FeeConfig`, decoded by
+> this repository's own pinned SDK, splits the bottom tier as **LP 2 / protocol 93 / creator
+> 30 bps** — and **392 of 405 decoded trajectories sit in that tier**. The LP receives **1.6%
+> of the fee**; the taker pays 62x what the LP earns. This was already in the repo:
+> `docs/MECHANICS_FLOOR_MEASURED.md` line 94 and `docs/PHASE_G_REPORT.md` section 4.1 record
+> the identical split, and the programme's 250 bps round-trip floor **is** this tier doubled.
+>
+> **AND MEASURED, LP LOSES TO HOLDING.** PumpSwap fees accrue into the reserves, so the stored
+> reserve path in `trajectory_marks` **is** an LP's profit and loss with nothing modelled. Over
+> **377 pools** opened 2026-08-17 and 2026-08-18, LP minus hold-the-basket is **-0.278%** in
+> under an hour, **-0.389%** on the 224 pools observed the full 59 minutes, **-0.546%** on the
+> 192 that moved at all, and **-1.674%** on the 61 that moved more than 10%. **The LP beat
+> holding in 8.0% of pools.** The worst cases are symmetric in direction and quadratic in size
+> — **-21.30%** at a -87.9% move, **-14.18%** at a **+135.0%** move. That is
+> loss-versus-rebalancing, which runs at **sigma-squared over eight** and contains **no drift
+> term at all**, so the brief's premise that zero measured drift implies profitable market
+> making was never sound. **The interval is not an interval**: 377 trajectories on **two** days
+> is two clusters, and only the point estimate stands.
+>
+> **THE MARKET-CONTEXT FIGURE IS REAL AND MISDATED BY ABOUT A YEAR.** No week in DefiLlama's
+> Solana DEX series reaches $118.2B in 2026; the 2026 peak week is **$40.68B** and the largest
+> three-week fall is -49.0%. The claimed collapse matches **January to February 2025**:
+> $107.85B to $47.82B, **-55.7% in three weeks**. Verified separately: pump.fun's Q1 2026
+> revenue computes to **$122.16M** against the brief's $124.7M, and the pump family currently
+> takes **38.9%** of all Solana app revenue.
+>
+> **THE ECOSYSTEM IS NOT DYING THE WAY THE BRIEF ASSUMES.** Weekly DEX volume kept falling to
+> **$10.69B** while the fee layer on top of it rose: pump family **$66.33M to $86.66M** June to
+> July 2026, GMGN **$5.3M to $22.7M**, fomo Wallet **$2.3M to $7.4M**. The toll captures more
+> per unit of volume, and the interface layer still admits entrants. The one line that did not
+> recover is **Jito MEV tips, down ~65% within 2026**.
+>
+> **THE RANKED ANSWER IS SHORT AND ITS TOP THREE ENTRIES ARE THE SAME ENTRY.** Every durable
+> revenue line here is a toll on flow, and a toll requires owning either the flow or the
+> infrastructure it crosses. (1) **Referral share on an existing terminal** — Axiom alone has
+> paid out **$280.5M**, 37.8% of gross fees, computed from DefiLlama's own accounting; zero
+> capital, zero latency, legal. (2) **Be the interface**, monetised by fee plus PFOF rebate.
+> (3) **Creator economics, audience branch only** — where **83.4% of creators earn under
+> $1,000**. All three are mechanically available today and all three bottleneck on
+> **distribution**, which fifteen months of measurement infrastructure does not produce.
+> Blocked outright: **cross-venue arbitrage** by the 250 bps tier-0 round trip before latency
+> is reached, and **MEV** by a tip auction taking 50-60% of profit, with its best-measured
+> component — sandwiching, **$7.7M of victim loss over four months** in ACM IMC 2025 — both
+> small and ethically excluded.
+>
+> **WHAT THIS DOES NOT SAY.** It does not say no accessible mechanism exists; exactly one does.
+> It says the accessible ones are unbuilt rather than blocked, and that none of them is a use
+> for the apparatus. Eight stated unknowns are listed rather than estimated, the first being
+> that **no memecoin LP data beyond one hour was found anywhere, public or local**, so the
+> total-loss tail the brief correctly names as the real risk is unobserved.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase H, locate the 82%. State: `VENUE_LOCATED`.**
 >
 > Full account: `docs/PHASE_H_REPORT.md`. Directive committed verbatim before execution:
 > `docs/directives/DIRECTIVE_9010E265_PHASE_H_LOCATE_THE_82.md`. Rules preregistered as
@@ -624,7 +699,7 @@
 > No edge. No arm selected. `DEVELOPMENT_EDGE_CANDIDATE` needs 100 mints; there
 > are 10, over 1 UTC day. Nothing signed, funded or submitted.
 
-> **2026-08-18 (LATEST) — the `5d24e39` ledger-first repair, final.
+> **2026-08-18 — the `5d24e39` ledger-first repair, final.
 > State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
 > Full account: `docs/5D24E39_FINAL_REPORT.md` (27 sections + appendices A-D).
