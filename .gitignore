@@ -41,3 +41,10 @@ scratchC/
 # the evidence is artifacts/replay-calibrate.json, which records what the replay
 # concluded and refuses to be produced without provenance.
 artifacts/replay-armed/
+
+# Phase H Dune results. 86 MB, 36 MB and 22 MB of raw rows, which is not a thing to put
+# in a repository. They regenerate from the committed SQL in ops/dune/generated at the
+# credit cost recorded in docs/PHASE_H_REPORT.md, and what a reader needs from them is
+# committed as artifacts/phase-h-mint-venues.csv and artifacts/phase-h-venue.json.
+/ops/dune/results/q16-venue-*.json
+/ops/dune/results/q17-program-*.json

@@ -1098,6 +1098,8 @@ const firedTargets: {
   censored: boolean;
   carryForwardMarked: boolean;
   grossReturnSol: number | null;
+  carryForwardReturnSol: number | null;
+  entryPriced: boolean;
 }[] = [];
 for (const trigger of TRIGGERS) {
   const { fired } = observe(trigger);
@@ -1116,6 +1118,8 @@ for (const trigger of TRIGGERS) {
       censored: o.censored,
       carryForwardMarked: o.carryForwardMarked,
       grossReturnSol: o.grossReturnSol,
+      carryForwardReturnSol: o.carryForwardReturnSol,
+      entryPriced: o.entryPriced,
     });
   }
 }
@@ -1128,14 +1132,16 @@ for (const trigger of TRIGGERS) {
    target.
 */
 const targetCsv: string[] = [
-  'trigger,mint,day,entry_utc_ms,exit_target_utc_ms,censored,carry_forward_marked,tier_index,migrated_at_entry,gross_return_sol',
+  'trigger,mint,day,entry_utc_ms,exit_target_utc_ms,censored,carry_forward_marked,tier_index,migrated_at_entry,' +
+    'gross_return_sol,carry_forward_return_sol,entry_priced',
 ];
 for (const t of firedTargets) {
   if (t.half !== 'holdout') continue;
   targetCsv.push(
     `${t.trigger},${t.mint},${t.day},${t.entryUtcMs},${t.exitTargetUtcMs},${t.censored},` +
       `${t.carryForwardMarked},${t.tierIndex},${t.migratedAtEntry},` +
-      `${t.grossReturnSol === null ? '' : t.grossReturnSol}`,
+      `${t.grossReturnSol === null ? '' : t.grossReturnSol},` +
+      `${t.carryForwardReturnSol === null ? '' : t.carryForwardReturnSol},${t.entryPriced}`,
   );
 }
 writeFileSync('artifacts/phase-b-fired-targets.csv', targetCsv.join(NEWLINE) + NEWLINE);

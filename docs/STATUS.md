@@ -1,6 +1,58 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase G addendum, price the curve not the tape.
+> **2026-08-19 (LATEST) — Phase H, locate the 82%. State: `VENUE_LOCATED`.**
+>
+> Full account: `docs/PHASE_H_REPORT.md`. Directive committed verbatim before execution:
+> `docs/directives/DIRECTIVE_9010E265_PHASE_H_LOCATE_THE_82.md`. Rules preregistered as
+> MT097 and MT098 before the first query object was touched.
+>
+> ```
+> pnpm check green: 144 files, 2,203 tests
+> 137.48 credits of a 150 target. Per-query in the report.
+> ```
+>
+> **THE +234.2% TO +394.2% IS A TOKEN-2022 POPULATION, NOT A BONDING-CURVE ONE.** Grouped
+> by the program that MINTED the token, **98.44% of the summed return** comes from tokens
+> minted directly by Token-2022 (`TokenzQd…`) — 3,124 positions, 868 mints, mean
+> **+527.03%**. The pump.fun bonding curve contributes **0.64%**, Meteora's Dynamic Bonding
+> Curve **−0.88%**. All 3,124 Token-2022 positions carry Phase B's `migrated_at_entry =
+> false`, and correctly by its own definition: there was no migration to see because there
+> was never a curve. **The branch this programme called the pre-migration bonding-curve
+> branch is, in its return-bearing majority, direct Token-2022 mints on PumpSwap pools.**
+>
+> **BY VENUE, RESOLVED BY PROGRAM ID.** PumpSwap (`pAMMBay6…`) takes 46.98% of positions and
+> **58.72%** of the summed return at +337.94%. One program **no source names** —
+> `FLUXubRmkEi2q6K3Y9kBPg9248ggaZVsoSFhtJHSrm1X` — takes 14.88% of positions and **43.96%**
+> at +554.58%, and is reported by ID with its floor `UNKNOWN`. The pump.fun curve
+> contributes **−2.80%** at −48.67%. Thirty programs in all, nineteen unrecognised, every
+> one reported by ID.
+>
+> **THE TRIGGER ADDS NOTHING INSIDE A VENUE.** T0 restricted to a trigger's own mints
+> reproduces the trigger's mean to the digit — Phase B's triggers select WHICH mint, not
+> when, so the two are the same position. Against the reweighted population baseline of
+> −0.33%, T1's +234.50% decomposes into **+193.10% venue mix** and **−4.29% within venue**,
+> mix being 97.8% of the explained difference. A mix effect is a relabelling of the same
+> tokens.
+>
+> **THE FIRST ANSWER THIS PHASE FOUND WAS WRONG AND IS RECORDED AS WRONG.**
+> `dex_solana.trades` had no row for 933 of 2,056 mints, and on that split 97.2% of the
+> summed return sat with the 933. Jupiter's own stored fields report a completed trade for
+> **98.5%** of those same mints, median 106 traders in five minutes. An absence from a
+> curated table is a fact about the curation. The classification was redone from
+> `tokens_solana.transfers`, which curates nothing.
+>
+> **WHAT `VENUE_LOCATED` DOES NOT MEAN.** It is the directive's own state and is claimed as
+> the directive defines it: permission to decode **one** fee schedule and compute **one**
+> cost floor. Not permission to trade, not permission to build, not an edge. It carries two
+> qualifications everywhere: PumpSwap's 58.72% is **57 priced mints** with 54.69% of its
+> absolute return in three of them, and it exists only under as-reported pricing at
+> **90–97% censoring**. At residual-at-zero every venue cell is between −57% and −82%.
+> Cost floors stay venue-specific: 2.50% flat for the curve, 2.4052–2.6693% for PumpSwap by
+> tier, **`UNKNOWN` for every other venue including the one carrying 43.96%**.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase G addendum, price the curve not the tape.
 > State: `PRE_MIGRATION_CURVE_PRICED: RECONSTRUCTION_FAILED_VALIDATION`.**
 >
 > Full account: `docs/PHASE_G_ADDENDUM_REPORT.md`. Directive transcribed from PDF and
