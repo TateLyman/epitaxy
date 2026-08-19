@@ -1,0 +1,234 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1787167907203,
+    "sourceCommit": "34784ca5a53cb1294bb46cdfd986a1bff58e9e4c",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "phase-g-fee-direction-v1",
+    "contextHash": null,
+    "sampleInclusionQuery": "the six most recent coherent_snapshots, quoted through the pinned SDK buyQuoteInput and sellBaseInput against their own stored global config, fee config, pool and base mint"
+  },
+  "label": "DEVELOPMENT_RECONSTRUCTED",
+  "isEvidence": false,
+  "directive": "Phase G §2.1",
+  "quoteInLamports": "1000000000",
+  "slippagePct": 1,
+  "flatFee": {
+    "lpFeeBps": 25,
+    "protocolFeeBps": 5,
+    "creatorFeeBps": 0,
+    "totalBps": 30
+  },
+  "invariantRead": [
+    {
+      "pool": "u6bjrC97d7oM6ozDaG2WgfAWE4TRnV2gpFfDdTRYPhC",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "leavingBps": 123,
+      "totalBps": 125,
+      "keptMeasured": 0.987654318,
+      "keptPredicted": 0.9877,
+      "keptPredictedGrossedUp": 0.9876543209876544,
+      "agrees": true,
+      "agreesGrossedUp": true,
+      "sellReachedTrader": 0.9874999963621451,
+      "sellPredictedGrossedUp": 0.9876543209876544,
+      "sellPredictedNetted": 0.9875
+    },
+    {
+      "pool": "GTwwbeZyJfLLrHMLWTvBn7VC2gi2nMCyrtk1um67NCAE",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "leavingBps": 123,
+      "totalBps": 125,
+      "keptMeasured": 0.987654318,
+      "keptPredicted": 0.9877,
+      "keptPredictedGrossedUp": 0.9876543209876544,
+      "agrees": true,
+      "agreesGrossedUp": true,
+      "sellReachedTrader": 0.9874999977944371,
+      "sellPredictedGrossedUp": 0.9876543209876544,
+      "sellPredictedNetted": 0.9875
+    },
+    {
+      "pool": "789AbWMos1B3HNWHPdtnSsr9oUnzGAu7J1r52GTR3Nez",
+      "tierIndex": 16,
+      "lpFeeBps": 20,
+      "leavingBps": 30,
+      "totalBps": 50,
+      "keptMeasured": 0.995024872,
+      "keptPredicted": 0.997,
+      "keptPredictedGrossedUp": 0.9950248756218907,
+      "agrees": false,
+      "agreesGrossedUp": true,
+      "sellReachedTrader": 0.9949999977246293,
+      "sellPredictedGrossedUp": 0.9950248756218907,
+      "sellPredictedNetted": 0.995
+    },
+    {
+      "pool": "GquBssLnQPj7wXeNfxKAgS1CwAWMzVgajL7EawZp3V2i",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "leavingBps": 123,
+      "totalBps": 125,
+      "keptMeasured": 0.987654318,
+      "keptPredicted": 0.9877,
+      "keptPredictedGrossedUp": 0.9876543209876544,
+      "agrees": true,
+      "agreesGrossedUp": true,
+      "sellReachedTrader": 0.9874999974578179,
+      "sellPredictedGrossedUp": 0.9876543209876544,
+      "sellPredictedNetted": 0.9875
+    },
+    {
+      "pool": "XSCM46HqeDf3kA9ti3aJFL4RWyyrGnNXePap9GXip3d",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "leavingBps": 123,
+      "totalBps": 125,
+      "keptMeasured": 0.987654318,
+      "keptPredicted": 0.9877,
+      "keptPredictedGrossedUp": 0.9876543209876544,
+      "agrees": true,
+      "agreesGrossedUp": true,
+      "sellReachedTrader": 0.9874999980157839,
+      "sellPredictedGrossedUp": 0.9876543209876544,
+      "sellPredictedNetted": 0.9875
+    }
+  ],
+  "probes": [
+    {
+      "pool": "6sZF7i8pNm8ahoxZPU3vV7BsrkTdhdou1BfPmhoBKpNc",
+      "mint": "8pVL4ZHyykuRXEb1WtCppgFFfdZaBEGkVMjxbvtPpump",
+      "baseReserve": "0",
+      "quoteReserve": "0",
+      "tierIndex": null,
+      "lpFeeBps": null,
+      "protocolFeeBps": null,
+      "creatorFeeBps": null,
+      "buy": null,
+      "sell": null,
+      "failure": "Insufficient real quote reserves to cover the sell output."
+    },
+    {
+      "pool": "u6bjrC97d7oM6ozDaG2WgfAWE4TRnV2gpFfDdTRYPhC",
+      "mint": "FFA4Sfz27jUU5LdJDhmoLHy91959QLW4P3w81tAupump",
+      "baseReserve": "869605717937068",
+      "quoteReserve": "2762331382",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "buy": {
+        "baseOutAtoms": "40257337988882",
+        "maxQuoteInLamports": "1010000000"
+      },
+      "sell": {
+        "baseAtomsIn": "40257337988882",
+        "quoteOutLamports": "889002617",
+        "minQuoteLamports": "880112590",
+        "poolBaseReserve": "869605717937068",
+        "poolQuoteReserveRaw": "2762331382",
+        "virtualQuoteReserves": "17584505998",
+        "feeConfigPresent": "true"
+      },
+      "failure": null
+    },
+    {
+      "pool": "GTwwbeZyJfLLrHMLWTvBn7VC2gi2nMCyrtk1um67NCAE",
+      "mint": "C1guN9CLS2uYw3LpZxTWzCkLjhsbSAXYEL66nws9pump",
+      "baseReserve": "797007262100546",
+      "quoteReserve": "4568443723",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "buy": {
+        "baseOutAtoms": "34016730342067",
+        "maxQuoteInLamports": "1010000000"
+      },
+      "sell": {
+        "baseAtomsIn": "34016730342067",
+        "quoteOutLamports": "895463023",
+        "minQuoteLamports": "886508392",
+        "poolBaseReserve": "797007262100546",
+        "poolQuoteReserveRaw": "4568443723",
+        "virtualQuoteReserves": "17584505325",
+        "feeConfigPresent": "true"
+      },
+      "failure": null
+    },
+    {
+      "pool": "789AbWMos1B3HNWHPdtnSsr9oUnzGAu7J1r52GTR3Nez",
+      "mint": "7gvLoDEMBmRTrNneHK8FQrYzTsq4Zfg35G5434w1pump",
+      "baseReserve": "17492548123702",
+      "quoteReserve": "1092790498344",
+      "tierIndex": 16,
+      "lpFeeBps": 20,
+      "protocolFeeBps": 5,
+      "creatorFeeBps": 25,
+      "buy": {
+        "baseOutAtoms": "15661318938",
+        "maxQuoteInLamports": "1010000000"
+      },
+      "sell": {
+        "baseAtomsIn": "15661318938",
+        "quoteOutLamports": "988278522",
+        "minQuoteLamports": "978395736",
+        "poolBaseReserve": "17492548123702",
+        "poolQuoteReserveRaw": "1092790498344",
+        "virtualQuoteReserves": "17584505290",
+        "feeConfigPresent": "true"
+      },
+      "failure": null
+    },
+    {
+      "pool": "GquBssLnQPj7wXeNfxKAgS1CwAWMzVgajL7EawZp3V2i",
+      "mint": "CzTrgCFaw2ZkzUkLirWz8NoLDQULkHWbVDmSbveYngKv",
+      "baseReserve": "461828386436797",
+      "quoteReserve": "20664960977",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "buy": {
+        "baseOutAtoms": "11624879542237",
+        "maxQuoteInLamports": "1010000000"
+      },
+      "sell": {
+        "baseAtomsIn": "11624879542237",
+        "quoteOutLamports": "927414384",
+        "minQuoteLamports": "918140240",
+        "poolBaseReserve": "461828386436797",
+        "poolQuoteReserveRaw": "20664960977",
+        "virtualQuoteReserves": "17584505299",
+        "feeConfigPresent": "true"
+      },
+      "failure": null
+    },
+    {
+      "pool": "XSCM46HqeDf3kA9ti3aJFL4RWyyrGnNXePap9GXip3d",
+      "mint": "4uC16DfJePiYY28BRYLeU5Mn5GX43YUJXgyNdv6eT3No",
+      "baseReserve": "724059113870812",
+      "quoteReserve": "6734586376",
+      "tierIndex": 0,
+      "lpFeeBps": 2,
+      "protocolFeeBps": 93,
+      "creatorFeeBps": 30,
+      "buy": {
+        "baseOutAtoms": "28258081929693",
+        "maxQuoteInLamports": "1010000000"
+      },
+      "sell": {
+        "baseAtomsIn": "28258081929693",
+        "quoteOutLamports": "902040736",
+        "minQuoteLamports": "893020328",
+        "poolBaseReserve": "724059113870812",
+        "poolQuoteReserveRaw": "6734586376",
+        "virtualQuoteReserves": "17584505630",
+        "feeConfigPresent": "true"
+      },
+      "failure": null
+    }
+  ]
+}

@@ -1,0 +1,1296 @@
+{
+  "generatedFrom": {
+    "path": "ops/dune/results/q12-returns-by-horizon.json",
+    "queryId": 8383229,
+    "executionId": "01M0DRFDDPXGHG9XG9K3DNFHYX"
+  },
+  "rule": "MT092",
+  "hStarSeconds": 120,
+  "coverageBar": 0.9,
+  "floor": 0.02669,
+  "resamples": 10000,
+  "utcDays": 30,
+  "state": "NO_COPYABLE_HORIZON",
+  "cells": [
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1462,
+      "n": 1265,
+      "censoredCount": 197,
+      "coverage": 0.6530717604543108,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.02764761071203042,
+        "lower": -0.04517130335864523,
+        "upper": -0.011993372050352712
+      },
+      "censoredAtMinus100": {
+        "point": -0.15866910229187314,
+        "lower": -0.18568778071130954,
+        "upper": -0.13206212925074312
+      },
+      "requiredN": 1365,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1462,
+      "n": 1190,
+      "censoredCount": 272,
+      "coverage": 0.614352090862158,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.003064385287197112,
+        "lower": -0.04185962496301095,
+        "upper": 0.040501034147615786
+      },
+      "censoredAtMinus100": {
+        "point": -0.18854077872213718,
+        "lower": -0.2307118204650875,
+        "upper": -0.14490662672619528
+      },
+      "requiredN": 461067,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1462,
+      "n": 1145,
+      "censoredCount": 317,
+      "coverage": 0.5911202891068663,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.08213249746321444,
+        "lower": -0.014838828589930401,
+        "upper": 0.19478399045771197
+      },
+      "censoredAtMinus100": {
+        "point": -0.15250225061875478,
+        "lower": -0.23677545041348455,
+        "upper": -0.06126286320522614
+      },
+      "requiredN": 3784,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1462,
+      "n": 1057,
+      "censoredCount": 405,
+      "coverage": 0.5456892101187403,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.10964400523686652,
+        "lower": -0.06463374832410045,
+        "upper": 0.38740445014660785
+      },
+      "censoredAtMinus100": {
+        "point": -0.19774711796486455,
+        "lower": -0.34232019651977247,
+        "upper": 0.03326566482627859
+      },
+      "requiredN": 13362,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 1,
+      "entryPriced": 1461,
+      "n": 937,
+      "censoredCount": 524,
+      "coverage": 0.4839876033057851,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.0511320590488659,
+        "lower": -0.13036105709014856,
+        "upper": 0.03992134243580947
+      },
+      "censoredAtMinus100": {
+        "point": -0.39145156696015554,
+        "lower": -0.45950685976253103,
+        "upper": -0.3143602456428571
+      },
+      "requiredN": 5515,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1435,
+      "n": 1253,
+      "censoredCount": 182,
+      "coverage": 0.6468766133195664,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.010544201260825942,
+        "lower": -0.04156170594855814,
+        "upper": 0.029910137581855428
+      },
+      "censoredAtMinus100": {
+        "point": -0.13603615622286752,
+        "lower": -0.17088195428355046,
+        "upper": -0.08888441212429264
+      },
+      "requiredN": 38104,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1435,
+      "n": 1189,
+      "censoredCount": 246,
+      "coverage": 0.6138358286009292,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.029917364971928134,
+        "lower": -0.039003912264212875,
+        "upper": 0.11765020821831663
+      },
+      "censoredAtMinus100": {
+        "point": -0.1466398975946881,
+        "lower": -0.20831125965180008,
+        "upper": -0.06195563352012839
+      },
+      "requiredN": 22187,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1435,
+      "n": 1153,
+      "censoredCount": 282,
+      "coverage": 0.5952503871966959,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.11694006231338498,
+        "lower": -0.030027323272613867,
+        "upper": 0.3060591568103942
+      },
+      "censoredAtMinus100": {
+        "point": -0.10255617292868785,
+        "lower": -0.22249296302677968,
+        "upper": 0.05207625595704947
+      },
+      "requiredN": 6001,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 0,
+      "entryPriced": 1435,
+      "n": 1066,
+      "censoredCount": 369,
+      "coverage": 0.5503355704697986,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.5494710288081951,
+        "lower": -0.062279409680933054,
+        "upper": 1.62676406218576
+      },
+      "censoredAtMinus100": {
+        "point": 0.15103562140037338,
+        "lower": -0.3065653158681527,
+        "upper": 0.9672969952608889
+      },
+      "requiredN": 7850,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 1937,
+      "truncated": 1,
+      "entryPriced": 1434,
+      "n": 940,
+      "censoredCount": 494,
+      "coverage": 0.4855371900826446,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.10476064961837955,
+        "lower": -0.15485310413768003,
+        "upper": -0.05330825263592133
+      },
+      "censoredAtMinus100": {
+        "point": -0.41316248998694344,
+        "lower": -0.46481097686656686,
+        "upper": -0.35750467570378536
+      },
+      "requiredN": 422,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11512,
+      "n": 10975,
+      "censoredCount": 537,
+      "coverage": 0.8718620908802034,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.04282541487980743,
+        "lower": -0.05607183613561866,
+        "upper": -0.02913215652865965
+      },
+      "censoredAtMinus100": {
+        "point": -0.08747471580141472,
+        "lower": -0.10294907455094043,
+        "upper": -0.07235266870600815
+      },
+      "requiredN": 1064,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11512,
+      "n": 10548,
+      "censoredCount": 964,
+      "coverage": 0.8379408960915157,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.054386235439583264,
+        "lower": -0.07607925693104903,
+        "upper": -0.033601604563630504
+      },
+      "censoredAtMinus100": {
+        "point": -0.1335707098172971,
+        "lower": -0.15834146955151568,
+        "upper": -0.11002536431012735
+      },
+      "requiredN": 1167,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11512,
+      "n": 9685,
+      "censoredCount": 1827,
+      "coverage": 0.7693835398792501,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.03447616269425616,
+        "lower": -0.06735932487440441,
+        "upper": -0.004941839151469159
+      },
+      "censoredAtMinus100": {
+        "point": -0.1877086201957845,
+        "lower": -0.2330239650307131,
+        "upper": -0.14470241262312317
+      },
+      "requiredN": 6335,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 4,
+      "entryPriced": 11508,
+      "n": 8358,
+      "censoredCount": 3150,
+      "coverage": 0.6641767323585506,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.052428580657739844,
+        "lower": -0.010107107339799786,
+        "upper": 0.1157091543667108
+      },
+      "censoredAtMinus100": {
+        "point": -0.23564493594565605,
+        "lower": -0.287661184242328,
+        "upper": -0.17493534154459178
+      },
+      "requiredN": 10087,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 19,
+      "entryPriced": 11494,
+      "n": 6169,
+      "censoredCount": 5325,
+      "coverage": 0.4908107247991089,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.2466113814469367,
+        "lower": 0.10503190209445236,
+        "upper": 0.39488902290585104
+      },
+      "censoredAtMinus100": {
+        "point": -0.3309252120979509,
+        "lower": -0.456274794130991,
+        "upper": -0.18674525084540428
+      },
+      "requiredN": 437,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11454,
+      "n": 10932,
+      "censoredCount": 522,
+      "coverage": 0.8684461391801716,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.04318635077371903,
+        "lower": -0.056144988638834686,
+        "upper": -0.030093772786413734
+      },
+      "censoredAtMinus100": {
+        "point": -0.08679179209518914,
+        "lower": -0.10218055061673398,
+        "upper": -0.07162141572526066
+      },
+      "requiredN": 778,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11454,
+      "n": 10539,
+      "censoredCount": 915,
+      "coverage": 0.8372259294566253,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.05497513116259291,
+        "lower": -0.07875219750391936,
+        "upper": -0.031648653618832
+      },
+      "censoredAtMinus100": {
+        "point": -0.13046821261765035,
+        "lower": -0.15734502140074277,
+        "upper": -0.10494752123327032
+      },
+      "requiredN": 1716,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 0,
+      "entryPriced": 11454,
+      "n": 9625,
+      "censoredCount": 1829,
+      "coverage": 0.7646170956466476,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.034217745264797636,
+        "lower": -0.06845880351156865,
+        "upper": 0.0014483787189634497
+      },
+      "censoredAtMinus100": {
+        "point": -0.1884359872685243,
+        "lower": -0.23528613749917612,
+        "upper": -0.1420040567526271
+      },
+      "requiredN": 11473,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 4,
+      "entryPriced": 11450,
+      "n": 8315,
+      "censoredCount": 3135,
+      "coverage": 0.6607596948506039,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.10640139182910521,
+        "lower": -0.005325839204627423,
+        "upper": 0.26250260755674315
+      },
+      "censoredAtMinus100": {
+        "point": -0.19653034296427865,
+        "lower": -0.28752450670258556,
+        "upper": -0.06398595740767438
+      },
+      "requiredN": 27407,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 12588,
+      "truncated": 19,
+      "entryPriced": 11436,
+      "n": 6162,
+      "censoredCount": 5274,
+      "coverage": 0.49025379902935795,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.23684498340686452,
+        "lower": 0.09612974709730555,
+        "upper": 0.3767363059114516
+      },
+      "censoredAtMinus100": {
+        "point": -0.3335572938306139,
+        "lower": -0.45907422199931147,
+        "upper": -0.19787246987273058
+      },
+      "requiredN": 466,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 131,
+      "censoredCount": 3,
+      "coverage": 0.9562043795620438,
+      "coverageQualifies": true,
+      "asPriced": {
+        "point": -0.005625061335536791,
+        "lower": -0.057404235817556874,
+        "upper": 0.03708701009892279
+      },
+      "censoredAtMinus100": {
+        "point": -0.02788718682802477,
+        "lower": -0.08434852528683205,
+        "upper": 0.01927654322536067
+      },
+      "requiredN": 20301,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 129,
+      "censoredCount": 5,
+      "coverage": 0.9416058394160584,
+      "coverageQualifies": true,
+      "asPriced": {
+        "point": 0.002406107621126907,
+        "lower": -0.10235986214959601,
+        "upper": 0.09734606610625315
+      },
+      "censoredAtMinus100": {
+        "point": -0.03499710534981067,
+        "lower": -0.1305888226952198,
+        "upper": 0.04614574086915745
+      },
+      "requiredN": 266497,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 121,
+      "censoredCount": 13,
+      "coverage": 0.8832116788321168,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.06941904680857003,
+        "lower": -0.05934888828570131,
+        "upper": 0.2332298455215021
+      },
+      "censoredAtMinus100": {
+        "point": -0.03433056221017184,
+        "lower": -0.1557559299786083,
+        "upper": 0.10031078023936442
+      },
+      "requiredN": 606,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 106,
+      "censoredCount": 28,
+      "coverage": 0.7737226277372263,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.002786972628655304,
+        "lower": -0.12579697137443138,
+        "upper": 0.14456846037901808
+      },
+      "censoredAtMinus100": {
+        "point": -0.2067506037415115,
+        "lower": -0.33437043045394993,
+        "upper": -0.09283391510688084
+      },
+      "requiredN": 532795,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 77,
+      "censoredCount": 57,
+      "coverage": 0.5620437956204379,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.0260806052016802,
+        "lower": -0.203392343730861,
+        "upper": 0.3447845916501214
+      },
+      "censoredAtMinus100": {
+        "point": -0.41038651790649716,
+        "lower": -0.6033319719737299,
+        "upper": -0.20376395566207783
+      },
+      "requiredN": 18061,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 131,
+      "censoredCount": 3,
+      "coverage": 0.9562043795620438,
+      "coverageQualifies": true,
+      "asPriced": {
+        "point": 0.006810722840840489,
+        "lower": -0.04136516817476016,
+        "upper": 0.05153260440079464
+      },
+      "censoredAtMinus100": {
+        "point": -0.0157298157302231,
+        "lower": -0.07024530154168475,
+        "upper": 0.03630659805359976
+      },
+      "requiredN": 12003,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 128,
+      "censoredCount": 6,
+      "coverage": 0.9343065693430657,
+      "coverageQualifies": true,
+      "asPriced": {
+        "point": 0.00812782917545959,
+        "lower": -0.08677269372445695,
+        "upper": 0.0988036507128508
+      },
+      "censoredAtMinus100": {
+        "point": -0.03701222287717293,
+        "lower": -0.12863120413448054,
+        "upper": 0.045766269714152166
+      },
+      "requiredN": 22214,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 123,
+      "censoredCount": 11,
+      "coverage": 0.8978102189781022,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.0471160480324989,
+        "lower": -0.08746377698239516,
+        "upper": 0.21445956980821212
+      },
+      "censoredAtMinus100": {
+        "point": -0.03884123949255698,
+        "lower": -0.16124925085552003,
+        "upper": 0.10432473130644306
+      },
+      "requiredN": 1367,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 106,
+      "censoredCount": 28,
+      "coverage": 0.7737226277372263,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.004738979835928299,
+        "lower": -0.13146356814441756,
+        "upper": 0.1268536784807716
+      },
+      "censoredAtMinus100": {
+        "point": -0.2127039691239433,
+        "lower": -0.3391639899116614,
+        "upper": -0.09665294606395806
+      },
+      "requiredN": 176486,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 137,
+      "truncated": 0,
+      "entryPriced": 134,
+      "n": 74,
+      "censoredCount": 60,
+      "coverage": 0.5401459854014599,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.05682961484968083,
+        "lower": -0.16937260392833212,
+        "upper": 0.34157220271542094
+      },
+      "censoredAtMinus100": {
+        "point": -0.41637767538151954,
+        "lower": -0.6048295549212096,
+        "upper": -0.21091988827982844
+      },
+      "requiredN": 3709,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3845,
+      "n": 3677,
+      "censoredCount": 168,
+      "coverage": 0.8786140979689366,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.04586117701093552,
+        "lower": -0.06822743780622194,
+        "upper": -0.023635945140494413
+      },
+      "censoredAtMinus100": {
+        "point": -0.08755046758627046,
+        "lower": -0.1051371988961907,
+        "upper": -0.06940979066841979
+      },
+      "requiredN": 703,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3845,
+      "n": 3535,
+      "censoredCount": 310,
+      "coverage": 0.8446833930704899,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.046309402536585643,
+        "lower": -0.07651496203220147,
+        "upper": -0.01615035427344651
+      },
+      "censoredAtMinus100": {
+        "point": -0.12319993185093116,
+        "lower": -0.15227584048213005,
+        "upper": -0.09353607773687003
+      },
+      "requiredN": 839,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3845,
+      "n": 3261,
+      "censoredCount": 584,
+      "coverage": 0.7792114695340502,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.011405068848474939,
+        "lower": -0.03309434430394569,
+        "upper": 0.05563823222401235
+      },
+      "censoredAtMinus100": {
+        "point": -0.1422127621547785,
+        "lower": -0.1853116202635895,
+        "upper": -0.09842168383160148
+      },
+      "requiredN": 30124,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3845,
+      "n": 2824,
+      "censoredCount": 1021,
+      "coverage": 0.6747909199522103,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.09773276922026135,
+        "lower": 0.02540937282581655,
+        "upper": 0.16720046464769095
+      },
+      "censoredAtMinus100": {
+        "point": -0.19375881917346735,
+        "lower": -0.26097024327384905,
+        "upper": -0.12707428540763185
+      },
+      "requiredN": 721,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 5,
+      "entryPriced": 3840,
+      "n": 2037,
+      "censoredCount": 1803,
+      "coverage": 0.48732057416267943,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.304055569057931,
+        "lower": 0.1175356264701667,
+        "upper": 0.4863983918869135
+      },
+      "censoredAtMinus100": {
+        "point": -0.3082392723513007,
+        "lower": -0.44202199900702915,
+        "upper": -0.16639639892559627
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 120,
+      "isHStar": true,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3823,
+      "n": 3658,
+      "censoredCount": 165,
+      "coverage": 0.8740740740740741,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.04767860321420982,
+        "lower": -0.06807555983397444,
+        "upper": -0.029255941281296684
+      },
+      "censoredAtMinus100": {
+        "point": -0.08878062530933287,
+        "lower": -0.10699532067992085,
+        "upper": -0.07179181951734495
+      },
+      "requiredN": 359,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 300,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3823,
+      "n": 3530,
+      "censoredCount": 293,
+      "coverage": 0.8434886499402628,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": -0.050807155425286486,
+        "lower": -0.08108045356468271,
+        "upper": -0.020628470310094217
+      },
+      "censoredAtMinus100": {
+        "point": -0.12355460597731133,
+        "lower": -0.15417333265060737,
+        "upper": -0.09301716565778745
+      },
+      "requiredN": 683,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 600,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3823,
+      "n": 3255,
+      "censoredCount": 568,
+      "coverage": 0.7777777777777778,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.006752555155552677,
+        "lower": -0.036170308415885914,
+        "upper": 0.051837657199973644
+      },
+      "censoredAtMinus100": {
+        "point": -0.14282511979300969,
+        "lower": -0.18718216266856672,
+        "upper": -0.09851788221484158
+      },
+      "requiredN": 84808,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 1200,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 0,
+      "entryPriced": 3823,
+      "n": 2806,
+      "censoredCount": 1017,
+      "coverage": 0.6704898446833931,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.09545695507075473,
+        "lower": 0.0201531579706238,
+        "upper": 0.17008782667302835
+      },
+      "censoredAtMinus100": {
+        "point": -0.19595809156983052,
+        "lower": -0.2687489663826971,
+        "upper": -0.1270892070614244
+      },
+      "requiredN": 724,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "horizonSeconds": 3600,
+      "isHStar": false,
+      "followable": 4185,
+      "truncated": 5,
+      "entryPriced": 3818,
+      "n": 2022,
+      "censoredCount": 1796,
+      "coverage": 0.48373205741626796,
+      "coverageQualifies": false,
+      "asPriced": {
+        "point": 0.3163769626324178,
+        "lower": 0.13035646882859012,
+        "upper": 0.4954785617787249
+      },
+      "censoredAtMinus100": {
+        "point": -0.30285117379708,
+        "lower": -0.43387597099856867,
+        "upper": -0.15708801734878966
+      },
+      "requiredN": 300,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true
+      },
+      "copyable": false
+    }
+  ]
+}

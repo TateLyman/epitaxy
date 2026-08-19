@@ -151,7 +151,10 @@
     "rt:copy": "tsx scripts/phase-d-round-trip.ts",
     "prop:exit": "tsx scripts/phase-e-proportional.ts",
     "anchors": "tsx scripts/phase-f-reserve-anchors.ts",
-    "anchors:sql": "tsx scripts/phase-f-validation-sql.ts"
+    "anchors:sql": "tsx scripts/phase-f-validation-sql.ts",
+    "fee:direction": "tsx scripts/phase-g-fee-direction.ts",
+    "horizon": "tsx scripts/phase-g-horizon.ts",
+    "revalidate": "tsx scripts/phase-g-revalidate.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

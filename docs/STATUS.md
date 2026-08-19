@@ -1,6 +1,62 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase F, the three deferred measurements. All three run.
+> **2026-08-19 (LATEST) — Phase G, a horizon where prices exist.
+> State: `NO_COPYABLE_HORIZON`. THE PHASE C CELL IS CLOSED BY MEASUREMENT, AND NEGATIVE.**
+>
+> Full account: `docs/PHASE_G_REPORT.md`. Directive committed verbatim before execution:
+> `docs/directives/DIRECTIVE_1AD70664_PHASE_G_COVERAGE_SELECTED_HORIZON.md`.
+>
+> ```
+> pnpm check green: 143 files, 2,175 tests (from 142 / 2,156)
+> 204 credits of a 300 target.
+>
+> MEAN f=0.01, as-priced net of the tier-0 floor, against coverage:
+>   H=3600s  49.1%  +24.66%   <- Phase C's cell, reproduced
+>   H=1200s  66.4%   +5.24%
+>   H= 600s  76.9%   -3.45%
+>   H= 300s  83.8%   -5.44%
+>   H= 120s  87.2%   -4.28%  [-5.61%, -2.91%]
+> ```
+>
+> **THE RETURN WAS IN THE HORIZON, AND THE HORIZON WAS WHAT DESTROYED COVERAGE.** Phase
+> C reported +24.66% at t+3600s where half the positions had no price. Measured at the
+> highest honest coverage the same estimand is **−4.28% [−5.61%, −2.91%]** on the largest
+> arm and **−4.59% [−6.82%, −2.36%]** on the second — both intervals exclude zero. The
+> external interpolation guessed between −18.1% and −2.5%: the multiplicative reading
+> overshot fourfold, the additive one was ~1.8 points optimistic, and both understated
+> how decisive it is. **Closed by measurement, not by inference.**
+>
+> `H* = 120s` was selected from a **counts-only** query — no price, no sum, no ratio,
+> asserted by test — written to the ledger as MT092 and **committed to git as `2eaed91`
+> before the returns query existed**. At `H*` no cell satisfies the four conditions: in
+> the one arm reaching 90% coverage (95.6%, n=131) condition 1 fails and condition 4
+> fails by two orders of magnitude, as MT092 predicted from coverage alone. **Condition 2
+> holds at lag 2s — a first.** Phases C, D and E all died on it; at 95.6% coverage the two
+> treatments converge, which is what the horizon was selected for.
+>
+> **PHASE F's FEE DIAGNOSIS IS FALSIFIED.** Correcting the roll-forward for the fee split
+> leaves the stratified drift **bit-identical** — base p50 1.00000 at one trade, 1.92526
+> at 101+, under every rule — because the PumpSwap fee is quote-denominated and the base
+> side carries no fee at all. No fee model can repair a base-flow discrepancy. The
+> directive's own proposed formula is falsified too: measured against the program, the
+> pool keeps `quote_gross/(1+f_total)` on a buy and releases `quote_net/(1−f_total)` on a
+> sell — the two sides differ, and the proposal agrees at tier 0 only by coincidence.
+> Residual located: drifted pairs are 71.8% sells against 53.9%; double counting and
+> multi-pool routing ruled out. **No third estimator was tried.**
+>
+> **THE COLLECTOR DEFECT IS FIXED.** `maturingByCohort` selects on age, so a mint older
+> than the widest cohort band could never be selected again — observation stopped for a
+> queue reason and 97.5% of censored mints had no post-entry price. Now a mint stays on
+> the mark schedule, then a 30-minute cadence, until an **observed** terminal state:
+> `POOL_DRAINED` (<0.1 SOL reserve, or <50 USD provider liquidity when no reserve was
+> read), `NO_TRADE_INTERVAL` (2h since trading was *observed*), `HORIZON_REACHED` (24h) —
+> each with its source recorded. Anything else is a counted `COLLECTION_FAILURE`, never
+> called death. **Fail closed on absence, asserted by test.** Nothing about the existing
+> corpus changes; everything about the next one does.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase F, the three deferred measurements. All three run.
 > `PRE_MIGRATION: UNDECIDABLE`. `PHASE_C_CELL: RECONSTRUCTION_FAILED_VALIDATION`.
 > H1 CONFIRMED AT ENTITY LEVEL.**
 >
