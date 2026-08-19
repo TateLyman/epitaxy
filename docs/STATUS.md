@@ -1,6 +1,63 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase D, copy the exit.
+> **2026-08-19 (LATEST) — Phase E, mirror the fraction not the event.
+> State: `UNDECIDABLE_CENSORING`. The copy branch is closed on condition 5.**
+>
+> Full account: `docs/PHASE_E_REPORT.md` (9 sections, including the closing account).
+> Directive committed verbatim before execution:
+> `docs/directives/DIRECTIVE_33D303B9_PHASE_E_PROPORTIONAL_EXIT.md`.
+>
+> ```
+> pnpm check green: 141 files, 2,146 tests (from 139 / 2,122)
+>
+> proportional minus binary, identical positions, paired by day:
+>   MEDIAN f=0.01   2s   +0.60%  [-0.40%, +1.71%]
+>   MEAN   f=0.01  15s   -0.72%  [-1.32%, -0.16%]   <- significantly WORSE
+> 0 of 12 cells clear zero. 0 of 36 satisfy all five conditions.
+> ```
+>
+> **PROPORTIONAL EXIT DOES NOT BEAT BINARY**, and per the directive's own §1.2 that
+> means nothing else in the phase matters. The mechanism exists — the arm with 3.20
+> sell legs per position is consistently positive — and it is worth **under one
+> percentage point**, against weighted exit slippage of **−4.69% to −11.02%** for the
+> extra legs. Multi-leg exit costs slippage, not fees: the extra per-transaction fee
+> is under 3 bps.
+>
+> **THIS CORRECTS PHASE D.** Phase D reported the wallet's realised return at 3–6× its
+> first-sell return. On positions the wallet **fully exited**, the gap has the opposite
+> sign in every arm — first-sell +15.53% against realised +6.87% on MEAN f=0.01, +21.46%
+> against +16.14% on MEDIAN f=0.01. Phase D's ratio came from positions the wallet
+> never closed, where `ret_carryfwd` carries a **mark on the unsold residual**: the gap
+> was the mark, not money made on later sells. On closed positions the wallet's later
+> sells are at *worse* prices than its first, so **the binary first-sell exit is close
+> to the best exit available from the wallet's own signals**. Asserted by test, not left
+> as prose.
+>
+> **The size dimension is closed.** MT084 gated high-impact entries out and made it
+> worse; MT088 gated them in and the point estimate is still lower (+15.48% against
+> +24.55% ungated). Three of 36 cells clear a one-sided lower bound where 1.8 is the
+> expected count at α=0.05, and the continuous version of the same signal is flat to
+> negative — so that is noise, not a discovery. No third threshold follows.
+>
+> **The transferable part of the edge is the entry, and the entry alone does not clear
+> a lower bound net of the 2.669% floor.** H1 stands (+36.74% [+33.57%, +40.03%], PR
+> #58); Phase C found a copier sharing the wallet's exit keeps 0.725–0.779; Phase D
+> found following the wallet's own exit drops that to 0.19–0.33; Phase E finds
+> mirroring it more faithfully does not help. Every failure since Phase C has been an
+> **exit** failure.
+>
+> What would have to be measured to revive it: our own market impact (only the
+> collector's executable quotes can), an exit rule that is **not** the wallet's, the
+> 13.1–55.7% of positions the wallet never closes, and entity-level persistence. H1
+> remains an **address-level** result.
+>
+> 245 credits this phase against a 400 target; 1,431 of 2,500 cumulative. The reserve
+> mark did not run, correctly — the directive forbids it when the paired difference
+> fails.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase D, copy the exit.
 > State: `UNDECIDABLE_CENSORING`.**
 >
 > Full account: `docs/PHASE_D_REPORT.md` (10 sections). Directive committed verbatim

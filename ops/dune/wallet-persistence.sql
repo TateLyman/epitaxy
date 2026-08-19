@@ -1542,3 +1542,391 @@ GROUP BY 1, 2, 3, 4, 5
 ORDER BY 2, 3, 4, 5, 1;
 
 --#END
+
+-- ############################################################################
+-- QUERY 8 — PHASE E, MIRROR THE FRACTION, NOT THE EVENT
+--
+-- Phase D found the dominant loss is not slippage. A copier that treats the first
+-- observed sell as a full exit forfeits 3 to 6 times its own return before paying a
+-- basis point, because the wallet keeps selling after it. This mirrors the SHAPE of
+-- the exit instead:
+--
+--   fraction_k  = tokens_sold_k / tokens_held_before_k        (wallet's own legs)
+--   the copier sells fraction_k of ITS OWN remaining at T_k + L
+--
+-- NO LOOKAHEAD, AND IT IS ASSERTED ELSEWHERE. fraction_k is a function of the tape
+-- up to T_k - cumulative buys minus cumulative sells - so a live copier could
+-- compute it. The arithmetic is duplicated in
+-- packages/research/src/proportional-exit.ts precisely so the property can be tested
+-- against every prefix of a leg sequence, which a SQL window function cannot be
+-- interrogated about. The two implementations agree except for one deliberate
+-- difference: the fraction is clamped at 1 - 1e-9 here so that LN(1 - fraction) is
+-- finite, where the module clamps at 1 exactly. A full exit therefore leaves 1e-9
+-- of the position behind in this query and none in the module.
+--
+-- THE CONTROL IS PHASE D, ON THE SAME POSITIONS. `bin_*` below is the binary
+-- first-sell exit computed over the identical set at the identical lags, so the
+-- proportional-minus-binary difference in MT087 condition 5 is paired rather than
+-- two separate studies compared by eye.
+--
+-- WHAT MULTI-LEG EXIT ACTUALLY COSTS. The venue fee and the price impact are
+-- proportional to leg value, so splitting one exit into K legs does not multiply
+-- them. What it multiplies is the per-transaction base-plus-priority fee. That is
+-- charged as (priced legs - 1) x half the fixed cost, per position, and it is the
+-- only extra cost of extra legs this data supports.
+--
+-- THREE LAGS, ONE VENUE, 60-SECOND WINDOWS. Phase C established the decay knee is
+-- in minutes and Phase B established the curve is not enterable, so the grid is cut
+-- deliberately rather than for cost - though it is also much cheaper than Phase D's
+-- 360-second windows.
+-- ############################################################################
+
+--#Q8 needs=BASE,RANK
+,
+e_pos AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)                                AS utc_day,
+    pp.trader_id,
+    pp.mint,
+    pp.first_buy                                              AS t_buy,
+    pp.sol_in,
+    pp.is_closed,
+    pp.ret_carryfwd - pp.fixed_cost_fraction                  AS wallet_ret_realised,
+    -- The extra fixed cost of one additional sell leg, as a fraction of the entry
+    -- notional: half a round trip's base-plus-priority fee over what was deployed.
+    (SELECT fixed_cost_sol FROM params) / 2e0 / NULLIF(pp.sol_in, 0) AS extra_leg_cost,
+    f.top_mean_001,
+    f.top_median_001,
+    f.top_mean_01,
+    f.top_median_01
+  FROM position_pnl pp
+  JOIN flagged f ON f.trader_id = pp.trader_id
+  WHERE pp.window_tag = 'HOLD'
+    AND pp.entry_project = 'pumpswap'
+    AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
+    AND (f.top_mean_01 OR f.top_median_01)
+),
+
+-- One row per (position, instant, side): legs in the same instant across several
+-- transactions are one decision at one volume-weighted price.
+e_legs AS (
+  SELECT
+    w.trader_id,
+    w.mint,
+    w.block_time,
+    w.side,
+    SUM(w.token_amount) AS tok,
+    SUM(w.sol_amount)   AS sol
+  FROM windowed w
+  JOIN e_pos p ON p.trader_id = w.trader_id AND p.mint = w.mint
+  WHERE w.window_tag = 'HOLD'
+  GROUP BY 1, 2, 3, 4
+),
+
+/* The wallet's holding BEFORE each leg.
+
+   A buy and a sell in the same instant are ordered buy-first, so tokens bought in
+   that instant are available to the sell that follows it. Without that tiebreak a
+   same-instant pair would produce a fraction above 1 and be clamped, silently
+   turning a partial exit into a full one. */
+e_seq AS (
+  SELECT
+    l.*,
+    SUM(CASE WHEN l.side = 'BUY' THEN l.tok ELSE -l.tok END) OVER (
+      PARTITION BY l.trader_id, l.mint
+      ORDER BY l.block_time, CASE WHEN l.side = 'BUY' THEN 0 ELSE 1 END
+      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ) AS held_before
+  FROM e_legs l
+),
+
+e_sells AS (
+  SELECT
+    s.trader_id,
+    s.mint,
+    s.block_time                                       AS t_sell,
+    s.tok                                              AS tok_sold,
+    s.sol / NULLIF(s.tok, 0)                           AS wallet_sell_px,
+    s.held_before,
+    LEAST(GREATEST(s.tok / NULLIF(s.held_before, 0), 0e0), 1e0 - 1e-9) AS fraction
+  FROM e_seq s
+  WHERE s.side = 'SELL'
+    AND s.held_before > 0
+),
+
+/* The copier's remaining before each leg: the running product of (1 - fraction).
+
+   Trino has no PRODUCT window, so it is EXP of the running SUM of LN. The clamp
+   above keeps the logarithm finite; without it a full exit would be LN(0). */
+e_mirror AS (
+  SELECT
+    s.*,
+    EXP(COALESCE(SUM(LN(1e0 - s.fraction)) OVER (
+      PARTITION BY s.trader_id, s.mint
+      ORDER BY s.t_sell
+      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ), 0e0))                                           AS remaining_before,
+    ROW_NUMBER() OVER (PARTITION BY s.trader_id, s.mint ORDER BY s.t_sell) AS leg_index
+  FROM e_sells s
+),
+
+-- The wallet's own fill price at the position's first buy, for the entry slippage
+-- and for MT088's conviction measure.
+e_buy_px AS (
+  SELECT
+    l.trader_id,
+    l.mint,
+    l.block_time                     AS t_buy,
+    l.sol / NULLIF(l.tok, 0)         AS wallet_buy_px
+  FROM e_legs l
+  WHERE l.side = 'BUY'
+),
+
+-- SCAN 1: the entry side. Three lag windows all inside [t_buy - 60s, t_buy + 120s),
+-- plus the pre-trade minute the conviction measure needs.
+e_entry AS (
+  SELECT
+    p.trader_id,
+    p.mint,
+    p.t_buy,
+    ARRAY[
+      SUM(CASE WHEN w.block_time >= date_add('second', 2, p.t_buy)
+                AND w.block_time <  date_add('second', 62, p.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, p.t_buy)
+                           AND w.block_time <  date_add('second', 62, p.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 15, p.t_buy)
+                AND w.block_time <  date_add('second', 75, p.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, p.t_buy)
+                           AND w.block_time <  date_add('second', 75, p.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 60, p.t_buy)
+                AND w.block_time <  date_add('second', 120, p.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 60, p.t_buy)
+                           AND w.block_time <  date_add('second', 120, p.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0)
+    ]                                                  AS entry_px_by_lag,
+    SUM(CASE WHEN w.block_time >= date_add('second', -60, p.t_buy)
+              AND w.block_time <  p.t_buy
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', -60, p.t_buy)
+                         AND w.block_time <  p.t_buy
+                        THEN w.token_amount ELSE 0 END), 0) AS pre_px
+  FROM e_pos p
+  JOIN windowed w
+    ON w.mint = p.mint
+   AND w.block_time >= date_add('second', -60, p.t_buy)
+   AND w.block_time <  date_add('second', 120, p.t_buy)
+  GROUP BY 1, 2, 3
+),
+
+-- SCAN 2: the exit side, one 60-second window per lag per SELL LEG.
+e_exit AS (
+  SELECT
+    m.trader_id,
+    m.mint,
+    m.t_sell,
+    m.leg_index,
+    m.fraction,
+    m.remaining_before,
+    m.wallet_sell_px,
+    ARRAY[
+      SUM(CASE WHEN w.block_time >= date_add('second', 2, m.t_sell)
+                AND w.block_time <  date_add('second', 62, m.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, m.t_sell)
+                           AND w.block_time <  date_add('second', 62, m.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 15, m.t_sell)
+                AND w.block_time <  date_add('second', 75, m.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, m.t_sell)
+                           AND w.block_time <  date_add('second', 75, m.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 60, m.t_sell)
+                AND w.block_time <  date_add('second', 120, m.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 60, m.t_sell)
+                           AND w.block_time <  date_add('second', 120, m.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0)
+    ]                                                  AS exit_px_by_lag
+  FROM e_mirror m
+  JOIN windowed w
+    ON w.mint = m.mint
+   AND w.block_time >= date_add('second', 2, m.t_sell)
+   AND w.block_time <  date_add('second', 120, m.t_sell)
+  GROUP BY 1, 2, 3, 4, 5, 6, 7
+),
+
+leg_long AS (
+  SELECT
+    e.trader_id, e.mint, e.leg_index, e.fraction, e.remaining_before, e.wallet_sell_px,
+    u.lag_s,
+    u.exit_px,
+    e.remaining_before * e.fraction                    AS weight
+  FROM e_exit e
+  CROSS JOIN UNNEST(ARRAY[2, 15, 60], e.exit_px_by_lag) AS u(lag_s, exit_px)
+),
+
+pos_wide AS (
+  SELECT
+    p.*,
+    en.entry_px_by_lag,
+    en.pre_px,
+    bp.wallet_buy_px
+  FROM e_pos p
+  LEFT JOIN e_entry en ON en.trader_id = p.trader_id AND en.mint = p.mint AND en.t_buy = p.t_buy
+  LEFT JOIN e_buy_px bp ON bp.trader_id = p.trader_id AND bp.mint = p.mint AND bp.t_buy = p.t_buy
+),
+
+pos_long AS (
+  SELECT
+    pw.utc_day, pw.trader_id, pw.mint, pw.sol_in, pw.is_closed, pw.wallet_ret_realised,
+    pw.extra_leg_cost, pw.pre_px, pw.wallet_buy_px,
+    pw.top_mean_001, pw.top_median_001, pw.top_mean_01, pw.top_median_01,
+    u.lag_s,
+    u.entry_px,
+    pw.wallet_buy_px / NULLIF(pw.pre_px, 0) - 1e0       AS own_impact
+  FROM pos_wide pw
+  CROSS JOIN UNNEST(ARRAY[2, 15, 60],
+    COALESCE(pw.entry_px_by_lag, ARRAY[CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE)])
+  ) AS u(lag_s, entry_px)
+),
+
+/* One row per (position, lag): the proportional round trip, the binary control on
+   the same position, and the counts that say how much of each was mirrorable. */
+pos_metrics AS (
+  SELECT
+    pl.utc_day, pl.trader_id, pl.mint, pl.lag_s, pl.sol_in, pl.is_closed,
+    pl.wallet_ret_realised, pl.extra_leg_cost, pl.own_impact, pl.entry_px, pl.wallet_buy_px,
+    pl.pre_px,
+    pl.top_mean_001, pl.top_median_001, pl.top_mean_01, pl.top_median_01,
+    COUNT(ll.leg_index)                                                    AS legs_total,
+    COUNT(ll.leg_index) FILTER (WHERE ll.exit_px > 0)                      AS legs_priced,
+    COALESCE(SUM(ll.weight) FILTER (WHERE ll.exit_px > 0), 0e0)            AS w_sold,
+    COALESCE(SUM(ll.weight * ll.exit_px) FILTER (WHERE ll.exit_px > 0), 0e0) AS proceeds_tok,
+    -- The binary control: the FIRST leg the copier could actually price.
+    MIN_BY(ll.exit_px, ll.leg_index) FILTER (WHERE ll.exit_px > 0)         AS first_priced_px,
+    -- The wallet's own first sell, for the recovered-fraction question.
+    MIN_BY(ll.wallet_sell_px, ll.leg_index)                               AS wallet_first_sell_px,
+    -- Weighted exit slippage: our VWAP against the wallet's fill on the same leg.
+    COALESCE(SUM(ll.weight * (ll.exit_px / NULLIF(ll.wallet_sell_px, 0) - 1e0))
+             FILTER (WHERE ll.exit_px > 0 AND ll.wallet_sell_px > 0), 0e0) AS exit_slip_weighted,
+    COALESCE(SUM(ll.weight) FILTER (WHERE ll.exit_px > 0 AND ll.wallet_sell_px > 0), 0e0)
+                                                                           AS exit_slip_weight_base
+  FROM pos_long pl
+  LEFT JOIN leg_long ll
+    ON ll.trader_id = pl.trader_id AND ll.mint = pl.mint AND ll.lag_s = pl.lag_s
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+),
+
+scored AS (
+  SELECT
+    m.*,
+    (SELECT round_trip_floor FROM params)
+      + GREATEST(m.legs_priced - 1, 0) * m.extra_leg_cost                  AS cost_charged,
+    -- PROPORTIONAL, residual worthless: everything not liquidated is a total loss.
+    m.proceeds_tok / NULLIF(m.entry_px, 0) - 1e0
+      - (SELECT round_trip_floor FROM params)
+      - GREATEST(m.legs_priced - 1, 0) * m.extra_leg_cost                  AS prop_dead,
+    -- PROPORTIONAL, renormalised over the share that could be mirrored.
+    CASE WHEN m.w_sold > 0 THEN
+      m.proceeds_tok / NULLIF(m.entry_px * m.w_sold, 0) - 1e0
+        - (SELECT round_trip_floor FROM params)
+        - GREATEST(m.legs_priced - 1, 0) * m.extra_leg_cost
+    END                                                                    AS prop_mirrored,
+    -- BINARY control, same position, same lag. One leg, so no extra-leg cost.
+    CASE WHEN m.first_priced_px > 0 THEN
+      m.first_priced_px / NULLIF(m.entry_px, 0) - 1e0 - (SELECT round_trip_floor FROM params)
+    END                                                                    AS bin_return,
+    -- The wallet's own first-sell return, for the recovered-fraction question.
+    m.wallet_first_sell_px / NULLIF(m.wallet_buy_px, 0) - 1e0              AS wallet_first_sell_ret,
+    GREATEST(m.own_impact, 0e0)                                            AS conviction_weight
+  FROM pos_metrics m
+),
+
+arms AS (
+  SELECT * FROM (VALUES
+    ('MEAN',   0.001),
+    ('MEDIAN', 0.001),
+    ('MEAN',   0.01),
+    ('MEDIAN', 0.01)
+  ) AS t(rank_stat, top_fraction)
+)
+
+SELECT
+  s.utc_day,
+  a.rank_stat,
+  a.top_fraction,
+  s.lag_s,
+  -- ===== COVERAGE, before any return =====
+  COUNT(*)                                                              AS n_followable,
+  COUNT_IF(s.entry_px > 0)                                              AS n_entry_priced,
+  COUNT_IF(s.is_closed)                                                 AS n_wallet_closed,
+  COUNT_IF(s.entry_px > 0 AND s.legs_priced > 0)                        AS n_any_priced_leg,
+  COUNT_IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0)             AS n_paired,
+  SUM(s.legs_total)                                                     AS legs_total,
+  SUM(s.legs_priced)                                                    AS legs_priced,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, s.w_sold, 0e0)) AS sum_w_sold_paired,
+  COUNT_IF(s.pre_px IS NULL OR s.pre_px <= 0)                           AS n_conviction_not_evaluable,
+  -- ===== PROPORTIONAL, closed-only (the paired set) =====
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, s.prop_mirrored, 0e0))                 AS sum_prop_closed,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, POWER(s.prop_mirrored, 2), 0e0))       AS sum_prop_closed_sq,
+  COUNT_IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.prop_mirrored > 0)              AS n_prop_closed_positive,
+  APPROX_PERCENTILE(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, s.prop_mirrored, NULL), 0.5)
+                                                                                                 AS median_prop_closed,
+  -- ===== BINARY control, IDENTICAL positions =====
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, COALESCE(s.bin_return, -1e0 - (SELECT round_trip_floor FROM params)), 0e0))
+                                                                                                 AS sum_bin_closed,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, POWER(COALESCE(s.bin_return, -1e0 - (SELECT round_trip_floor FROM params)), 2), 0e0))
+                                                                                                 AS sum_bin_closed_sq,
+  -- ===== BOTH, residual worthless, over every entry-priced position =====
+  COUNT_IF(s.entry_px > 0)                                                                       AS n_dead,
+  SUM(IF(s.entry_px > 0, s.prop_dead, 0e0))                                                      AS sum_prop_dead,
+  SUM(IF(s.entry_px > 0, POWER(s.prop_dead, 2), 0e0))                                            AS sum_prop_dead_sq,
+  SUM(IF(s.entry_px > 0, COALESCE(s.bin_return, -1e0 - (SELECT round_trip_floor FROM params)), 0e0))
+                                                                                                 AS sum_bin_dead,
+  -- ===== THE WALLET, same positions =====
+  COUNT_IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.wallet_ret_realised IS NOT NULL) AS n_wallet_realised,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.wallet_ret_realised IS NOT NULL, s.wallet_ret_realised, 0e0))
+                                                                                                 AS sum_wallet_realised,
+  COUNT_IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.wallet_first_sell_ret IS NOT NULL) AS n_wallet_first,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.wallet_first_sell_ret IS NOT NULL, s.wallet_first_sell_ret, 0e0))
+                                                                                                 AS sum_wallet_first_sell,
+  -- ===== SLIPPAGE PER LEG =====
+  SUM(IF(s.entry_px > 0 AND s.wallet_buy_px > 0, s.entry_px / s.wallet_buy_px - 1e0, 0e0))        AS sum_entry_slip,
+  COUNT_IF(s.entry_px > 0 AND s.wallet_buy_px > 0)                                               AS n_entry_slip,
+  SUM(s.exit_slip_weighted)                                                                      AS sum_exit_slip_weighted,
+  SUM(s.exit_slip_weight_base)                                                                   AS sum_exit_slip_base,
+  APPROX_PERCENTILE(IF(s.entry_px > 0 AND s.wallet_buy_px > 0, s.entry_px / s.wallet_buy_px - 1e0, NULL), 0.5)
+                                                                                                 AS median_entry_slip,
+  -- ===== MT088, THE INVERTED SIZE ARM =====
+  COUNT_IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.own_impact >= 0.06)              AS n_conv_gated,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.own_impact >= 0.06, s.prop_mirrored, 0e0))
+                                                                                                 AS sum_conv_gated,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.own_impact >= 0.06, POWER(s.prop_mirrored, 2), 0e0))
+                                                                                                 AS sum_conv_gated_sq,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.own_impact >= 0.06, COALESCE(s.bin_return, -1e0 - (SELECT round_trip_floor FROM params)), 0e0))
+                                                                                                 AS sum_conv_gated_bin,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.conviction_weight > 0, s.conviction_weight, 0e0))
+                                                                                                 AS sum_conviction_weight,
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0 AND s.conviction_weight > 0, s.conviction_weight * s.prop_mirrored, 0e0))
+                                                                                                 AS sum_conviction_weighted_ret,
+  APPROX_PERCENTILE(s.own_impact, 0.5)                                                           AS median_own_impact,
+  -- ===== SIZE AND POPULATION =====
+  SUM(IF(s.entry_px > 0 AND s.is_closed AND s.w_sold > 0, s.sol_in, 0e0))                        AS sum_sol_in,
+  COUNT(DISTINCT s.trader_id)                                                                    AS wallets_in_cell
+FROM scored s
+CROSS JOIN arms a
+WHERE (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.001 AND s.top_mean_001)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.001 AND s.top_median_001)
+   OR (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.01  AND s.top_mean_01)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.01  AND s.top_median_01)
+GROUP BY 1, 2, 3, 4
+ORDER BY 2, 3, 4, 1;
+
+--#END
