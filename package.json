@@ -29,6 +29,7 @@
     "contract:freeze": "tsx scripts/contract-freeze.ts",
     "cost:surface": "tsx scripts/cost-surface.ts",
     "cost:floor": "tsx scripts/phase-a-cost-surface.ts",
+    "edge:distribution": "tsx scripts/phase-a-gross-edge.ts",
     "counterfactual:calibrate": "tsx scripts/counterfactual-calibrate.ts",
     "counterfactual:replay": "tsx scripts/counterfactual-replay.ts",
     "db:migrate": "tsx scripts/migrate-and-backup.ts",

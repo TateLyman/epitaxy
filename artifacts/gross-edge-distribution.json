@@ -1,0 +1,862 @@
+{
+  "provenance": {
+    "generatedUtcMs": 1787102032553,
+    "sourceCommit": "a162b1064196e86cb4ee7d860b08ddfa3555b323",
+    "dirty": true,
+    "strategyVersion": "delayed-momentum-v0.6.0",
+    "schemaVersion": "phase-a-gross-edge-v1",
+    "contextHash": null,
+    "sampleInclusionQuery": "SELECT s.mint, d.token_age_ms, d.taken_utc_ms, json_extract(d.features_json,'$.usdPrice'), s.eligible FROM screenings s JOIN decision_snapshots d ON d.snapshot_id = s.snapshot_id WHERE d.token_age_ms IS NOT NULL AND ((d.token_age_ms >= 120000 AND d.token_age_ms <= 990000) OR (d.token_age_ms >= 2700000 AND d.token_age_ms <= 4500000) OR (d.token_age_ms >= 3600000 AND d.token_age_ms <= 7200000) OR (d.token_age_ms >= 13500000 AND d.token_age_ms <= 22500000) OR (d.token_age_ms >= 18000000 AND d.token_age_ms <= 35100000) OR (d.token_age_ms >= 64800000 AND d.token_age_ms <= 108000000) OR (d.token_age_ms >= 86400000 AND d.token_age_ms <= 216000000) OR (d.token_age_ms >= 453600000 AND d.token_age_ms <= 756000000))"
+  },
+  "label": "DEVELOPMENT_RECONSTRUCTED",
+  "isEvidence": false,
+  "notEvidenceBecause": "reconstructed from provider MID prices the system never traded at; no fill, no route, no depth and no cost. Its only sanctioned use is estimating distribution shape to size a later window.",
+  "directive": "d70b4a9a §1.2",
+  "powerConstant": 7.84,
+  "entryToleranceOfBand": 0.25,
+  "exitToleranceOfBound": 0.25,
+  "snapshotsRead": 489628,
+  "snapshotsWithoutPrice": 121007,
+  "mintsInBand": 112584,
+  "solUsd": {
+    "quotesConsidered": 3736,
+    "pairsTotal": 3736,
+    "buckets": 115,
+    "medianSolUsd": 75.36138893986319,
+    "bucketMs": 3600000,
+    "pairMaxGapMs": 300000,
+    "derivation": "stored buy quotes (SOL in, atoms out) against the same mint stored USD price within 5 minutes; hourly median. Carries the buy leg fee, which cancels in a ratio of two."
+  },
+  "costFloorPct": 2.6858,
+  "costFloorSource": "artifacts/cost-surface.json",
+  "cohorts": [
+    {
+      "cohort": "2m-60m",
+      "entryWindowMs": [
+        120000,
+        990000
+      ],
+      "exitWindowMs": [
+        2700000,
+        4500000
+      ],
+      "mintsWithEntry": 90321,
+      "censoredNoExit": 31124,
+      "censoredFraction": 0.3445931732376745,
+      "carriedForwardUsed": 14985,
+      "populations": {
+        "ALL_SCREENED_USD_OBSERVED_EXIT": {
+          "n": 59197,
+          "mean": 0.030608147145407723,
+          "sd": 2.423841733740151,
+          "cv": 79.18943025938148,
+          "skew": 71.90441573853015,
+          "excessKurtosis": 6725.889852109875,
+          "requiredNAt80Power": 49165,
+          "requiredNForCostFloorEdge": 63853,
+          "netMeanAfterCostFloor": 0.003750147145407723,
+          "topShare": {
+            "top1": 0.15946570554905107,
+            "top3": 0.40404154427630545,
+            "top5": 0.5785495340310014,
+            "top10": 0.8304074516332072
+          },
+          "topShareOfPositive": {
+            "top1": 0.04424837265341797,
+            "top3": 0.11211301362286435,
+            "top5": 0.1605353031369534,
+            "top10": 0.2304205675291038
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.10490396472794229,
+          "medianReturn": 0,
+          "medianOfMeans": -0.010672132312480305,
+          "totalReturn": 1811.910486566701,
+          "sumOfPositiveReturns": 6529.903063220662,
+          "maxReturn": 288.9375841320834,
+          "minReturn": -0.9999947655930819,
+          "bootstrapMeanLower": 0.017214599285181677,
+          "bootstrapMeanUpper": 0.04772759648796806,
+          "utcDaysRepresented": 6
+        },
+        "ELIGIBLE_USD_OBSERVED_EXIT": {
+          "n": 45,
+          "mean": 1.170636613769698,
+          "sd": 1.693950986621146,
+          "cv": 1.4470340041443475,
+          "skew": 1.955023974360297,
+          "excessKurtosis": 3.19133124101948,
+          "requiredNAt80Power": 17,
+          "requiredNForCostFloorEdge": 31187,
+          "netMeanAfterCostFloor": 1.143778613769698,
+          "topShare": {
+            "top1": 0.13891314200077823,
+            "top3": 0.32831730485021726,
+            "top5": 0.4885974612613043,
+            "top10": 0.7334342286359009
+          },
+          "topShareOfPositive": {
+            "top1": 0.13522792319285806,
+            "top3": 0.31960739382687503,
+            "top5": 0.47563548712546544,
+            "top10": 0.7139769938861009
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.9555555555555556,
+          "medianReturn": 0.5009014502032763,
+          "medianOfMeans": 1.193460722823025,
+          "totalReturn": 52.67864761963641,
+          "sumOfPositiveReturns": 54.114241233736486,
+          "maxReturn": 7.317756457195511,
+          "minReturn": -0.9196354495483292,
+          "bootstrapMeanLower": 0.4868811378011806,
+          "bootstrapMeanUpper": 1.2819184593713067,
+          "utcDaysRepresented": 5
+        },
+        "ALL_SCREENED_SOL_OBSERVED_EXIT": {
+          "n": 59197,
+          "mean": 0.030436847838562275,
+          "sd": 2.427103184023488,
+          "cv": 79.7422649315362,
+          "skew": 71.91266353072278,
+          "excessKurtosis": 6723.5118812274595,
+          "requiredNAt80Power": 49854,
+          "requiredNForCostFloorEdge": 64025,
+          "netMeanAfterCostFloor": 0.0035788478385622748,
+          "topShare": {
+            "top1": 0.1603631823499031,
+            "top3": 0.40702408880420027,
+            "top5": 0.5826976796652169,
+            "top10": 0.8363371765461047
+          },
+          "topShareOfPositive": {
+            "top1": 0.04353669054173229,
+            "top3": 0.11050218346648905,
+            "top5": 0.15819546723397468,
+            "top10": 0.22705556419045392
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.3258104295825802,
+          "medianReturn": -0.0022141985733885594,
+          "medianOfMeans": -0.013548149058982545,
+          "totalReturn": 1801.770081499371,
+          "sumOfPositiveReturns": 6636.645563472974,
+          "maxReturn": 288.9375841320834,
+          "minReturn": -0.9999948143908766,
+          "bootstrapMeanLower": 0.017239092659616727,
+          "bootstrapMeanUpper": 0.04780309701409216,
+          "utcDaysRepresented": 6
+        },
+        "ELIGIBLE_SOL_OBSERVED_EXIT": {
+          "n": 45,
+          "mean": 1.1709024673985826,
+          "sd": 1.6933817584971598,
+          "cv": 1.446219310015957,
+          "skew": 1.9494235234489836,
+          "excessKurtosis": 3.152118265073115,
+          "requiredNAt80Power": 17,
+          "requiredNForCostFloorEdge": 31166,
+          "netMeanAfterCostFloor": 1.1440444673985826,
+          "topShare": {
+            "top1": 0.1384661524794593,
+            "top3": 0.32831751707430046,
+            "top5": 0.4884452970428638,
+            "top10": 0.733495494298179
+          },
+          "topShareOfPositive": {
+            "top1": 0.13480262783211597,
+            "top3": 0.3196309225931352,
+            "top5": 0.47552205657901897,
+            "top10": 0.7140887383945997
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.9555555555555556,
+          "medianReturn": 0.4937317075088079,
+          "medianOfMeans": 1.191646074581903,
+          "totalReturn": 52.69061103293622,
+          "sumOfPositiveReturns": 54.122581279414995,
+          "maxReturn": 7.295866181522426,
+          "minReturn": -0.9193617576932822,
+          "bootstrapMeanLower": 0.48705515935151156,
+          "bootstrapMeanUpper": 1.281104045361113,
+          "utcDaysRepresented": 5
+        },
+        "ALL_SCREENED_USD_CARRY_FORWARD": {
+          "n": 74182,
+          "mean": 0.02845749397875743,
+          "sd": 2.2391785752212687,
+          "cv": 78.68502324529142,
+          "skew": 74.42661060203967,
+          "excessKurtosis": 7426.992975463543,
+          "requiredNAt80Power": 48541,
+          "requiredNForCostFloorEdge": 54494,
+          "netMeanAfterCostFloor": 0.0015994939787574297,
+          "topShare": {
+            "top1": 0.1368701825726116,
+            "top3": 0.3467908020825669,
+            "top5": 0.496571849586588,
+            "top10": 0.7168779254586936
+          },
+          "topShareOfPositive": {
+            "top1": 0.03632143754762614,
+            "top3": 0.09202837479412876,
+            "top5": 0.13177598717017852,
+            "top10": 0.19023892793454977
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.11064678763042247,
+          "medianReturn": 0,
+          "medianOfMeans": -0.005554809780871733,
+          "totalReturn": 2111.0338183321837,
+          "sumOfPositiveReturns": 7955.015099642373,
+          "maxReturn": 288.9375841320834,
+          "minReturn": -0.9999963412757786,
+          "bootstrapMeanLower": -0.005501438378164187,
+          "bootstrapMeanUpper": 0.041160802336517484,
+          "utcDaysRepresented": 6
+        }
+      }
+    },
+    {
+      "cohort": "1h-5h",
+      "entryWindowMs": [
+        3600000,
+        7200000
+      ],
+      "exitWindowMs": [
+        13500000,
+        22500000
+      ],
+      "mintsWithEntry": 3538,
+      "censoredNoExit": 2204,
+      "censoredFraction": 0.6229508196721312,
+      "carriedForwardUsed": 755,
+      "populations": {
+        "ALL_SCREENED_USD_OBSERVED_EXIT": {
+          "n": 1334,
+          "mean": -0.0031529909281348906,
+          "sd": 0.36654445988849105,
+          "cv": 116.25293831889186,
+          "skew": 21.08209304153623,
+          "excessKurtosis": 558.1037598634181,
+          "requiredNAt80Power": 105956,
+          "requiredNForCostFloorEdge": 1461,
+          "netMeanAfterCostFloor": -0.03001099092813489,
+          "topShare": {
+            "top1": -2.5008506774320347,
+            "top3": -4.584397514243532,
+            "top5": -5.406341223184397,
+            "top10": -5.973889144327223
+          },
+          "topShareOfPositive": {
+            "top1": 0.3981224524324619,
+            "top3": 0.7298122985775584,
+            "top5": 0.8606614724678551,
+            "top10": 0.9510121568479177
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.03223388305847077,
+          "medianReturn": 0,
+          "medianOfMeans": -0.00900889529952421,
+          "totalReturn": -4.206089898131944,
+          "sumOfPositiveReturns": 26.421023749891965,
+          "maxReturn": 10.51880277108331,
+          "minReturn": -0.9922730770646762,
+          "bootstrapMeanLower": -0.05260707942097785,
+          "bootstrapMeanUpper": 0.008919982396035312,
+          "utcDaysRepresented": 4
+        },
+        "ELIGIBLE_USD_OBSERVED_EXIT": {
+          "n": 1,
+          "mean": 0.20774055953153114,
+          "sd": null,
+          "cv": null,
+          "skew": null,
+          "excessKurtosis": null,
+          "requiredNAt80Power": null,
+          "requiredNForCostFloorEdge": null,
+          "netMeanAfterCostFloor": 0.18088255953153115,
+          "topShare": {
+            "top1": 1,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 1,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 1,
+          "medianReturn": 0.20774055953153114,
+          "medianOfMeans": 0.20774055953153114,
+          "totalReturn": 0.20774055953153114,
+          "sumOfPositiveReturns": 0.20774055953153114,
+          "maxReturn": 0.20774055953153114,
+          "minReturn": 0.20774055953153114,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 1
+        },
+        "ALL_SCREENED_SOL_OBSERVED_EXIT": {
+          "n": 1334,
+          "mean": 0.0030584924841421165,
+          "sd": 0.3895006508348858,
+          "cv": 127.35053391642965,
+          "skew": 22.26344918614865,
+          "excessKurtosis": 619.3384444494249,
+          "requiredNAt80Power": 127151,
+          "requiredNForCostFloorEdge": 1649,
+          "netMeanAfterCostFloor": -0.02379950751585788,
+          "topShare": {
+            "top1": 2.8385583184328267,
+            "top3": 4.950960570102929,
+            "top5": 5.7691080507224655,
+            "top10": 6.383854563565897
+          },
+          "topShareOfPositive": {
+            "top1": 0.27205844442730276,
+            "top3": 0.4745192735257132,
+            "top5": 0.5529337029366111,
+            "top10": 0.6118533942867013
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.699400299850075,
+          "medianReturn": 0.000587113995137889,
+          "medianOfMeans": -0.004772123627392089,
+          "totalReturn": 4.080028973845583,
+          "sumOfPositiveReturns": 42.56953026227795,
+          "maxReturn": 11.58140018315633,
+          "minReturn": -0.9924581588211108,
+          "bootstrapMeanLower": -0.0737369748718249,
+          "bootstrapMeanUpper": 0.0050917641579089476,
+          "utcDaysRepresented": 4
+        },
+        "ELIGIBLE_SOL_OBSERVED_EXIT": {
+          "n": 1,
+          "mean": 0.16414533358502714,
+          "sd": null,
+          "cv": null,
+          "skew": null,
+          "excessKurtosis": null,
+          "requiredNAt80Power": null,
+          "requiredNForCostFloorEdge": null,
+          "netMeanAfterCostFloor": 0.13728733358502715,
+          "topShare": {
+            "top1": 1,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 1,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 1,
+          "medianReturn": 0.16414533358502714,
+          "medianOfMeans": 0.16414533358502714,
+          "totalReturn": 0.16414533358502714,
+          "sumOfPositiveReturns": 0.16414533358502714,
+          "maxReturn": 0.16414533358502714,
+          "minReturn": 0.16414533358502714,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 1
+        },
+        "ALL_SCREENED_USD_CARRY_FORWARD": {
+          "n": 2089,
+          "mean": 1.055029831126023,
+          "sd": 48.82082621572437,
+          "cv": 46.274356208125766,
+          "skew": 45.66996341177862,
+          "excessKurtosis": 2083.8302647101764,
+          "requiredNAt80Power": 16788,
+          "requiredNForCostFloorEdge": 25904725,
+          "netMeanAfterCostFloor": 1.028171831126023,
+          "topShare": {
+            "top1": 1.0124177683919928,
+            "top3": 1.0198175047518814,
+            "top5": 1.0219983969441242,
+            "top10": 1.0245057967450222
+          },
+          "topShareOfPositive": {
+            "top1": 0.9859830830838926,
+            "top3": 0.9931896089844789,
+            "top5": 0.9953135570963306,
+            "top10": 0.9977554875556705
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.04978458592628052,
+          "medianReturn": 0,
+          "medianOfMeans": -0.014005263694784411,
+          "totalReturn": 2203.957317222262,
+          "sumOfPositiveReturns": 2263.0464832666034,
+          "maxReturn": 2231.3255487333663,
+          "minReturn": -0.9922730770646762,
+          "bootstrapMeanLower": -0.11585145399961148,
+          "bootstrapMeanUpper": 1.854671123374535,
+          "utcDaysRepresented": 5
+        }
+      }
+    },
+    {
+      "cohort": "5h-24h",
+      "entryWindowMs": [
+        18000000,
+        35100000
+      ],
+      "exitWindowMs": [
+        64800000,
+        108000000
+      ],
+      "mintsWithEntry": 8351,
+      "censoredNoExit": 3491,
+      "censoredFraction": 0.41803376841096873,
+      "carriedForwardUsed": 10,
+      "populations": {
+        "ALL_SCREENED_USD_OBSERVED_EXIT": {
+          "n": 4860,
+          "mean": 0.0003804269383452158,
+          "sd": 0.6185946920125104,
+          "cv": 1626.0538612309595,
+          "skew": 64.91546068599487,
+          "excessKurtosis": 4406.208290857499,
+          "requiredNAt80Power": 20729362,
+          "requiredNForCostFloorEdge": 4159,
+          "netMeanAfterCostFloor": -0.026477573061654783,
+          "topShare": {
+            "top1": null,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 0.5516946734692515,
+            "top3": 0.6503513638791998,
+            "top5": 0.7100113933860681,
+            "top10": 0.790605464264499
+          },
+          "topShareInterpretable": false,
+          "positiveFraction": 0.040123456790123455,
+          "medianReturn": 0,
+          "medianOfMeans": -0.005674403597807683,
+          "totalReturn": 1.8488749203577488,
+          "sumOfPositiveReturns": 76.27735668719305,
+          "maxReturn": 42.08181139063859,
+          "minReturn": -0.9999159970329486,
+          "bootstrapMeanLower": -0.006572583228296957,
+          "bootstrapMeanUpper": 0.06114611298388927,
+          "utcDaysRepresented": 2
+        },
+        "ELIGIBLE_USD_OBSERVED_EXIT": {
+          "n": 3,
+          "mean": -0.21121999277821757,
+          "sd": 0.539572858287354,
+          "cv": 2.554553909363633,
+          "skew": -0.7062626612583989,
+          "excessKurtosis": -1.4999999999999996,
+          "requiredNAt80Power": 52,
+          "requiredNForCostFloorEdge": 3165,
+          "netMeanAfterCostFloor": -0.23807799277821756,
+          "topShare": {
+            "top1": -0.17209540504376591,
+            "top3": 1,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 0.5438292930597207,
+            "top3": -3.1600453999420752,
+            "top5": null,
+            "top10": null
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.6666666666666666,
+          "medianReturn": 0.09147245804822268,
+          "medianOfMeans": 0.09147245804822268,
+          "totalReturn": -0.6336599783346527,
+          "sumOfPositiveReturns": 0.20052242867974868,
+          "maxReturn": 0.109049970631526,
+          "minReturn": -0.8341824070144014,
+          "bootstrapMeanLower": -0.3625662181914377,
+          "bootstrapMeanUpper": 0.09147245804822268,
+          "utcDaysRepresented": 2
+        },
+        "ALL_SCREENED_SOL_OBSERVED_EXIT": {
+          "n": 4860,
+          "mean": -0.012187981812672452,
+          "sd": 0.6121768256705851,
+          "cv": 50.2279077110268,
+          "skew": 64.54376668714521,
+          "excessKurtosis": 4369.207330554767,
+          "requiredNAt80Power": 19780,
+          "requiredNForCostFloorEdge": 4074,
+          "netMeanAfterCostFloor": -0.03904598181267245,
+          "topShare": {
+            "top1": -0.7013581875297396,
+            "top3": -0.8386200473222981,
+            "top5": -0.9134478726204316,
+            "top10": -1.01594791585638
+          },
+          "topShareOfPositive": {
+            "top1": 0.4891482890428684,
+            "top3": 0.5848788373734602,
+            "top5": 0.6370660127257529,
+            "top10": 0.7085526249406539
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.25267489711934155,
+          "medianReturn": -0.017598935462716292,
+          "medianOfMeans": -0.022121079555506018,
+          "totalReturn": -59.23359160958812,
+          "sumOfPositiveReturns": 84.93122716112914,
+          "maxReturn": 41.54396445217751,
+          "minReturn": -0.999917866245168,
+          "bootstrapMeanLower": -0.02156391212094715,
+          "bootstrapMeanUpper": 0.06975276382738559,
+          "utcDaysRepresented": 2
+        },
+        "ELIGIBLE_SOL_OBSERVED_EXIT": {
+          "n": 3,
+          "mean": -0.20333429593016075,
+          "sd": 0.5491679796635041,
+          "cv": 2.7008133436187607,
+          "skew": -0.7030357983078892,
+          "excessKurtosis": -1.4999999999999998,
+          "requiredNAt80Power": 58,
+          "requiredNForCostFloorEdge": 3278,
+          "netMeanAfterCostFloor": -0.23019229593016075,
+          "topShare": {
+            "top1": -0.2183156106250725,
+            "top3": 1,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 0.5865367351124167,
+            "top3": -2.6866458767335435,
+            "top5": null,
+            "top10": null
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.6666666666666666,
+          "medianReturn": 0.09387682528646146,
+          "medianOfMeans": 0.09387682528646146,
+          "totalReturn": -0.6100028877904823,
+          "sumOfPositiveReturns": 0.22704997821749817,
+          "maxReturn": 0.1331731529310367,
+          "minReturn": -0.8370528660079805,
+          "bootstrapMeanLower": -0.3519398565384719,
+          "bootstrapMeanUpper": 0.09387682528646146,
+          "utcDaysRepresented": 2
+        },
+        "ALL_SCREENED_USD_CARRY_FORWARD": {
+          "n": 4870,
+          "mean": -0.0004072651230139117,
+          "sd": 0.6183154875445176,
+          "cv": 1518.2136957094572,
+          "skew": 64.87273300595307,
+          "excessKurtosis": 4405.4353770403695,
+          "requiredNAt80Power": 18070987,
+          "requiredNForCostFloorEdge": 4156,
+          "netMeanAfterCostFloor": -0.027265265123013912,
+          "topShare": {
+            "top1": null,
+            "top3": null,
+            "top5": null,
+            "top10": null
+          },
+          "topShareOfPositive": {
+            "top1": 0.5501616784144897,
+            "top3": 0.6485442312882416,
+            "top5": 0.7080384833558864,
+            "top10": 0.7884086073339006
+          },
+          "topShareInterpretable": false,
+          "positiveFraction": 0.040246406570841886,
+          "medianReturn": 0,
+          "medianOfMeans": -0.005529779572528987,
+          "totalReturn": -1.98338114907775,
+          "sumOfPositiveReturns": 76.48989931816791,
+          "maxReturn": 42.08181139063859,
+          "minReturn": -0.9999159970329486,
+          "bootstrapMeanLower": -0.006572583228296957,
+          "bootstrapMeanUpper": 0.05241582379081583,
+          "utcDaysRepresented": 2
+        }
+      }
+    },
+    {
+      "cohort": "24h-7d",
+      "entryWindowMs": [
+        86400000,
+        216000000
+      ],
+      "exitWindowMs": [
+        453600000,
+        756000000
+      ],
+      "mintsWithEntry": 27211,
+      "censoredNoExit": 10421,
+      "censoredFraction": 0.3829701223769799,
+      "carriedForwardUsed": 0,
+      "populations": {
+        "ALL_SCREENED_USD_OBSERVED_EXIT": {
+          "n": 16790,
+          "mean": -0.003212886439893269,
+          "sd": 0.08689384182171289,
+          "cv": 27.045413352548955,
+          "skew": 44.09047740128376,
+          "excessKurtosis": 3548.1310203330327,
+          "requiredNAt80Power": 5735,
+          "requiredNForCostFloorEdge": 83,
+          "netMeanAfterCostFloor": -0.03007088643989327,
+          "topShare": {
+            "top1": -0.13925388400591343,
+            "top3": -0.2467887127143148,
+            "top5": -0.3258954004631436,
+            "top10": -0.43089115027726704
+          },
+          "topShareOfPositive": {
+            "top1": 0.2185619342914615,
+            "top3": 0.3873401363070773,
+            "top5": 0.5114997661314092,
+            "top10": 0.6762928297904645
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.007742703990470518,
+          "medianReturn": 0,
+          "medianOfMeans": -0.0025610937820695996,
+          "totalReturn": -53.944363325807984,
+          "sumOfPositiveReturns": 34.36994707105492,
+          "maxReturn": 7.511962113344916,
+          "minReturn": -0.9961652327746846,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 1
+        },
+        "ELIGIBLE_USD_OBSERVED_EXIT": {
+          "n": 0,
+          "mean": null,
+          "sd": null,
+          "cv": null,
+          "skew": null,
+          "excessKurtosis": null,
+          "requiredNAt80Power": null,
+          "requiredNForCostFloorEdge": null,
+          "netMeanAfterCostFloor": null,
+          "topShare": {},
+          "topShareOfPositive": {},
+          "topShareInterpretable": false,
+          "positiveFraction": null,
+          "medianReturn": null,
+          "medianOfMeans": null,
+          "totalReturn": null,
+          "sumOfPositiveReturns": null,
+          "maxReturn": null,
+          "minReturn": null,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 0
+        },
+        "ALL_SCREENED_SOL_OBSERVED_EXIT": {
+          "n": 16790,
+          "mean": -0.004302996003261532,
+          "sd": 0.09013565119061283,
+          "cv": 20.947184501750158,
+          "skew": 41.12263085349895,
+          "excessKurtosis": 3227.3326310000502,
+          "requiredNAt80Power": 3441,
+          "requiredNForCostFloorEdge": 89,
+          "netMeanAfterCostFloor": -0.031160996003261533,
+          "topShare": {
+            "top1": -0.10529842372115124,
+            "top3": -0.18764012399073066,
+            "top5": -0.24665732826049663,
+            "top10": -0.3239730556381124
+          },
+          "topShareOfPositive": {
+            "top1": 0.05293726048730704,
+            "top3": 0.09433336008782657,
+            "top5": 0.12400340646890695,
+            "top10": 0.16287277084603322
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.4081596188207266,
+          "medianReturn": -0.0015412874515379205,
+          "medianOfMeans": -0.003475167490766581,
+          "totalReturn": -72.24730289476112,
+          "sumOfPositiveReturns": 143.70836425785572,
+          "maxReturn": 7.607527112922913,
+          "minReturn": -0.9961412864982272,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 1
+        },
+        "ELIGIBLE_SOL_OBSERVED_EXIT": {
+          "n": 0,
+          "mean": null,
+          "sd": null,
+          "cv": null,
+          "skew": null,
+          "excessKurtosis": null,
+          "requiredNAt80Power": null,
+          "requiredNForCostFloorEdge": null,
+          "netMeanAfterCostFloor": null,
+          "topShare": {},
+          "topShareOfPositive": {},
+          "topShareInterpretable": false,
+          "positiveFraction": null,
+          "medianReturn": null,
+          "medianOfMeans": null,
+          "totalReturn": null,
+          "sumOfPositiveReturns": null,
+          "maxReturn": null,
+          "minReturn": null,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 0
+        },
+        "ALL_SCREENED_USD_CARRY_FORWARD": {
+          "n": 16790,
+          "mean": -0.003212886439893269,
+          "sd": 0.08689384182171289,
+          "cv": 27.045413352548955,
+          "skew": 44.09047740128376,
+          "excessKurtosis": 3548.1310203330327,
+          "requiredNAt80Power": 5735,
+          "requiredNForCostFloorEdge": 83,
+          "netMeanAfterCostFloor": -0.03007088643989327,
+          "topShare": {
+            "top1": -0.13925388400591343,
+            "top3": -0.2467887127143148,
+            "top5": -0.3258954004631436,
+            "top10": -0.43089115027726704
+          },
+          "topShareOfPositive": {
+            "top1": 0.2185619342914615,
+            "top3": 0.3873401363070773,
+            "top5": 0.5114997661314092,
+            "top10": 0.6762928297904645
+          },
+          "topShareInterpretable": true,
+          "positiveFraction": 0.007742703990470518,
+          "medianReturn": 0,
+          "medianOfMeans": -0.0025610937820695996,
+          "totalReturn": -53.944363325807984,
+          "sumOfPositiveReturns": 34.36994707105492,
+          "maxReturn": 7.511962113344916,
+          "minReturn": -0.9961652327746846,
+          "bootstrapMeanLower": null,
+          "bootstrapMeanUpper": null,
+          "utcDaysRepresented": 1
+        }
+      }
+    }
+  ],
+  "rankingPopulation": "ALL_SCREENED_SOL_OBSERVED_EXIT",
+  "minNForRanking": 1000,
+  "minUtcDaysForRanking": 2,
+  "rankedByRequiredN": [
+    {
+      "cohort": "2m-60m",
+      "populationUsed": "ALL_SCREENED_SOL_OBSERVED_EXIT",
+      "n": 59197,
+      "utcDays": 6,
+      "cv": 79.7422649315362,
+      "requiredN": 49854,
+      "requiredNForCostFloorEdge": 64025,
+      "sd": 2.427103184023488,
+      "mean": 0.030436847838562275,
+      "netMeanAfterCostFloor": 0.0035788478385622748,
+      "meanCi": [
+        0.017239092659616727,
+        0.04780309701409216
+      ],
+      "censoredFraction": 0.3445931732376745,
+      "meanDistinguishableFromZero": true,
+      "rankable": true,
+      "notRankableBecause": [],
+      "diagnosticEligibleN": 45,
+      "diagnosticEligibleRequiredN": 17
+    },
+    {
+      "cohort": "24h-7d",
+      "populationUsed": "ALL_SCREENED_SOL_OBSERVED_EXIT",
+      "n": 16790,
+      "utcDays": 1,
+      "cv": 20.947184501750158,
+      "requiredN": 3441,
+      "requiredNForCostFloorEdge": 89,
+      "sd": 0.09013565119061283,
+      "mean": -0.004302996003261532,
+      "netMeanAfterCostFloor": -0.031160996003261533,
+      "meanCi": null,
+      "censoredFraction": 0.3829701223769799,
+      "meanDistinguishableFromZero": false,
+      "rankable": false,
+      "notRankableBecause": [
+        "only 1 distinct UTC entry day(s)",
+        "the mean has no estimable interval"
+      ],
+      "diagnosticEligibleN": 0,
+      "diagnosticEligibleRequiredN": null
+    },
+    {
+      "cohort": "5h-24h",
+      "populationUsed": "ALL_SCREENED_SOL_OBSERVED_EXIT",
+      "n": 4860,
+      "utcDays": 2,
+      "cv": 50.2279077110268,
+      "requiredN": 19780,
+      "requiredNForCostFloorEdge": 4074,
+      "sd": 0.6121768256705851,
+      "mean": -0.012187981812672452,
+      "netMeanAfterCostFloor": -0.03904598181267245,
+      "meanCi": [
+        -0.02156391212094715,
+        0.06975276382738559
+      ],
+      "censoredFraction": 0.41803376841096873,
+      "meanDistinguishableFromZero": false,
+      "rankable": false,
+      "notRankableBecause": [
+        "the mean 95% interval [-0.0216, 0.0698] contains zero, so CV is unbounded"
+      ],
+      "diagnosticEligibleN": 3,
+      "diagnosticEligibleRequiredN": 58
+    },
+    {
+      "cohort": "1h-5h",
+      "populationUsed": "ALL_SCREENED_SOL_OBSERVED_EXIT",
+      "n": 1334,
+      "utcDays": 4,
+      "cv": 127.35053391642965,
+      "requiredN": 127151,
+      "requiredNForCostFloorEdge": 1649,
+      "sd": 0.3895006508348858,
+      "mean": 0.0030584924841421165,
+      "netMeanAfterCostFloor": -0.02379950751585788,
+      "meanCi": [
+        -0.0737369748718249,
+        0.0050917641579089476
+      ],
+      "censoredFraction": 0.6229508196721312,
+      "meanDistinguishableFromZero": false,
+      "rankable": false,
+      "notRankableBecause": [
+        "the mean 95% interval [-0.0737, 0.0051] contains zero, so CV is unbounded"
+      ],
+      "diagnosticEligibleN": 1,
+      "diagnosticEligibleRequiredN": null
+    }
+  ],
+  "lowestRequiredNCohort": "2m-60m",
+  "lowestRequiredNCohortUnrestricted": "5h-24h",
+  "lowestRequiredNCohortAtCostFloorTarget": "24h-7d"
+}
