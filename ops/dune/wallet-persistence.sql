@@ -1197,3 +1197,348 @@ GROUP BY 1, 2
 ORDER BY 1, 2;
 
 --#END
+
+-- ############################################################################
+-- QUERY 7 — PHASE D, THE PAIRED ROUND-TRIP COPY
+--
+-- Phase C asked what a copier earns if it buys L seconds behind the wallet and
+-- sells at a fixed t+3600s. 46% of followable positions had no price in that exit
+-- window, because it demanded a trade at an arbitrary wall-clock instant on mints
+-- nobody was trading, and the two defensible treatments of that gap disagreed in
+-- sign.
+--
+-- This anchors BOTH legs on trades the wallet itself executed:
+--
+--   copier_entry_px(L) = VWAP on M in [T_buy  + L, T_buy  + L + 60s)
+--   copier_exit_px(L)  = VWAP on M in [T_sell + L, T_sell + L + 60s)
+--
+-- Coverage becomes a property of the construction rather than of someone else's
+-- activity, and the ratio becomes two round trips over the same legs differing
+-- only in price. Phase C's -7.5 divided a 60-minute return by a whole-position
+-- one; this one is interpretable.
+--
+-- T_SELL IS THE WALLET'S FIRST SELL, NOT ITS LAST. A copier reacts to the first
+-- sell it can observe; using the last would credit it with scaling out on
+-- information it does not have at the decision point. The wallet's own realised
+-- return - which DOES include every later sell and the residual mark - is
+-- reported beside its first-sell-only return, so the value of the scaling-out the
+-- copier forgoes is visible rather than assumed away.
+--
+-- THREE COUNTED CATEGORIES, NEVER A WHERE CLAUSE (directive 1.3): positions the
+-- wallet never closed have no T_sell, and a copier following it would also still
+-- be holding, so they are genuinely OPEN rather than missing. They are counted,
+-- and the estimate is reported both excluding them and entering them at -100%.
+--
+-- THE SIZING ARM (MT084). Reserves are not in dex_solana.trades, so the depth gate
+-- is applied to the wallet's OWN MEASURED IMPACT: its fill price against the VWAP
+-- of the 60 seconds before its buy. For a constant-product pool a trade of size x
+-- against reserve X moves the price by about 2x/X, so X in {1%, 3%, 10%} maps to
+-- impact thresholds of {2%, 6%, 20%}. Positions with no prior trade in that minute
+-- have no measurable impact and are counted as not-evaluable rather than silently
+-- kept or dropped. The proxy over-declines rather than under-declines, which is the
+-- safe direction for a cost claim and the unsafe one for a selection claim, so the
+-- decline rate is reported at every threshold.
+--
+-- TWO SCANS, NOT SEVEN. The six entry windows all lie inside [T_buy - 60s, T_buy +
+-- 360s) and the six exit windows inside [T_sell, T_sell + 360s), so each side is
+-- one pass with conditional aggregates and the wide row is unnested to six long
+-- rows for free. The pre-trade window for the impact proxy rides along in the
+-- entry scan.
+-- ############################################################################
+
+--#Q7 needs=BASE,RANK
+,
+/* The wallet's OWN fill prices, per leg-timestamp.
+
+   Grouped by block_time because a wallet can have several legs in one instant
+   across transactions, and their volume-weighted average IS the price it got. */
+own_buy_px AS (
+  SELECT
+    w.trader_id,
+    w.mint,
+    w.block_time                                        AS t_buy,
+    SUM(w.sol_amount) / NULLIF(SUM(w.token_amount), 0)  AS wallet_buy_px
+  FROM windowed w
+  WHERE w.side = 'BUY' AND w.window_tag = 'HOLD'
+  GROUP BY 1, 2, 3
+),
+
+own_first_sell AS (
+  SELECT w.trader_id, w.mint, MIN(w.block_time) AS t_sell
+  FROM windowed w
+  WHERE w.side = 'SELL' AND w.window_tag = 'HOLD'
+  GROUP BY 1, 2
+),
+
+own_sell_px AS (
+  SELECT
+    w.trader_id,
+    w.mint,
+    w.block_time                                        AS t_sell,
+    SUM(w.sol_amount) / NULLIF(SUM(w.token_amount), 0)  AS wallet_sell_px
+  FROM windowed w
+  WHERE w.side = 'SELL' AND w.window_tag = 'HOLD'
+  GROUP BY 1, 2, 3
+),
+
+rt_base AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)                AS utc_day,
+    pp.trader_id,
+    pp.mint,
+    pp.entry_project,
+    pp.first_buy                              AS t_buy,
+    fs.t_sell,
+    pp.sol_in,
+    pp.is_closed,
+    bp.wallet_buy_px,
+    sp.wallet_sell_px,
+    -- The wallet's own return over the SAME TWO LEGS the copier trades, so the
+    -- ratio isolates price and nothing else.
+    sp.wallet_sell_px / NULLIF(bp.wallet_buy_px, 0) - 1e0     AS wallet_ret_legs,
+    -- Its full realised return: every sell, plus the residual at the window-edge
+    -- mark. MT075 - only OUR fixed cost is subtracted, never the full floor.
+    pp.ret_carryfwd - pp.fixed_cost_fraction                  AS wallet_ret_realised,
+    f.top_mean_001,
+    f.top_median_001,
+    f.top_mean_01,
+    f.top_median_01
+  FROM position_pnl pp
+  JOIN flagged f       ON f.trader_id = pp.trader_id
+  LEFT JOIN own_buy_px bp
+    ON bp.trader_id = pp.trader_id AND bp.mint = pp.mint AND bp.t_buy = pp.first_buy
+  LEFT JOIN own_first_sell fs
+    ON fs.trader_id = pp.trader_id AND fs.mint = pp.mint
+  LEFT JOIN own_sell_px sp
+    ON sp.trader_id = pp.trader_id AND sp.mint = pp.mint AND sp.t_sell = fs.t_sell
+  WHERE pp.window_tag = 'HOLD'
+    AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
+    -- 0.01 is the superset of 0.001, so one pass serves both arms.
+    AND (f.top_mean_01 OR f.top_median_01)
+),
+
+-- SCAN 1: the entry side, plus the pre-trade price the impact proxy needs.
+entry_side AS (
+  SELECT
+    e.trader_id,
+    e.mint,
+    e.t_buy,
+    ARRAY[
+      SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t_buy)
+                AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t_buy)
+                           AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t_buy)
+                AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t_buy)
+                           AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t_buy)
+                AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t_buy)
+                           AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t_buy)
+                AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t_buy)
+                           AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t_buy)
+                AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t_buy)
+                           AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t_buy)
+                AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_buy)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t_buy)
+                           AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_buy)
+                          THEN w.token_amount ELSE 0 END), 0)
+    ]                                                                     AS entry_px_by_lag,
+    -- The 60 seconds BEFORE the wallet's buy: the price it moved away from.
+    SUM(CASE WHEN w.block_time >= date_add('second', -(SELECT entry_window_s FROM params), e.t_buy)
+              AND w.block_time <  e.t_buy
+             THEN w.sol_amount ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', -(SELECT entry_window_s FROM params), e.t_buy)
+                         AND w.block_time <  e.t_buy
+                        THEN w.token_amount ELSE 0 END), 0)                AS pre_px
+  FROM rt_base e
+  JOIN windowed w
+    ON w.mint = e.mint
+   AND w.block_time >= date_add('second', -(SELECT entry_window_s FROM params), e.t_buy)
+   AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_buy)
+  GROUP BY 1, 2, 3
+),
+
+-- SCAN 2: the exit side, anchored on the wallet's first sell.
+exit_side AS (
+  SELECT
+    e.trader_id,
+    e.mint,
+    e.t_sell,
+    ARRAY[
+      SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t_sell)
+                AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 2, e.t_sell)
+                           AND w.block_time <  date_add('second', 2 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t_sell)
+                AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 5, e.t_sell)
+                           AND w.block_time <  date_add('second', 5 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t_sell)
+                AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 15, e.t_sell)
+                           AND w.block_time <  date_add('second', 15 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t_sell)
+                AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 30, e.t_sell)
+                           AND w.block_time <  date_add('second', 30 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t_sell)
+                AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 60, e.t_sell)
+                           AND w.block_time <  date_add('second', 60 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0),
+      SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t_sell)
+                AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_sell)
+               THEN w.sol_amount ELSE 0 END)
+        / NULLIF(SUM(CASE WHEN w.block_time >= date_add('second', 300, e.t_sell)
+                           AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_sell)
+                          THEN w.token_amount ELSE 0 END), 0)
+    ]                                                                     AS exit_px_by_lag
+  FROM rt_base e
+  JOIN windowed w
+    ON w.mint = e.mint
+   AND w.block_time >= e.t_sell
+   AND w.block_time <  date_add('second', 300 + (SELECT entry_window_s FROM params), e.t_sell)
+  WHERE e.t_sell IS NOT NULL
+  GROUP BY 1, 2, 3
+),
+
+joined AS (
+  SELECT
+    b.*,
+    en.entry_px_by_lag,
+    en.pre_px,
+    -- COALESCE, because an open position has no exit array and UNNEST of a NULL
+    -- array yields NO ROWS: without this the third counted category would silently
+    -- vanish, which is exactly the failure this phase exists to avoid.
+    COALESCE(ex.exit_px_by_lag, ARRAY[
+      CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE),
+      CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE)
+    ]) AS exit_px_by_lag
+  FROM rt_base b
+  LEFT JOIN entry_side en ON en.trader_id = b.trader_id AND en.mint = b.mint AND en.t_buy = b.t_buy
+  LEFT JOIN exit_side  ex ON ex.trader_id = b.trader_id AND ex.mint = b.mint AND ex.t_sell = b.t_sell
+),
+
+rt_long AS (
+  SELECT
+    j.utc_day, j.trader_id, j.mint, j.entry_project, j.t_sell, j.sol_in, j.is_closed,
+    j.wallet_buy_px, j.wallet_sell_px, j.wallet_ret_legs, j.wallet_ret_realised, j.pre_px,
+    j.top_mean_001, j.top_median_001, j.top_mean_01, j.top_median_01,
+    u.lag_s,
+    u.entry_px,
+    u.exit_px,
+    -- The impact proxy, MT084. NULL when there was no trade in the prior minute.
+    j.wallet_buy_px / NULLIF(j.pre_px, 0) - 1e0                          AS own_impact
+  FROM joined j
+  CROSS JOIN UNNEST(ARRAY[2, 5, 15, 30, 60, 300], j.entry_px_by_lag, j.exit_px_by_lag)
+    AS u(lag_s, entry_px, exit_px)
+),
+
+arms AS (
+  SELECT * FROM (VALUES
+    ('MEAN',   0.001),
+    ('MEDIAN', 0.001),
+    ('MEAN',   0.01),
+    ('MEDIAN', 0.01)
+  ) AS t(rank_stat, top_fraction)
+)
+
+SELECT
+  c.utc_day,
+  a.rank_stat,
+  a.top_fraction,
+  c.entry_project,
+  c.lag_s,
+  -- ===== COVERAGE, reported before any return (directive 1.2) =====
+  COUNT(*)                                                              AS n_followable,
+  COUNT_IF(c.t_sell IS NULL)                                            AS n_open,
+  COUNT_IF(c.t_sell IS NOT NULL)                                        AS n_with_sell,
+  COUNT_IF(c.entry_px > 0)                                              AS n_entry_priced,
+  COUNT_IF(c.t_sell IS NOT NULL AND c.exit_px > 0)                      AS n_exit_priced,
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0)                            AS n_both,
+  COUNT_IF(c.entry_px > 0 AND c.t_sell IS NULL)                         AS n_open_entry_priced,
+  COUNT_IF(c.pre_px IS NULL OR c.pre_px <= 0)                           AS n_gate_not_evaluable,
+  -- ===== CLOSED-ONLY: the estimation set =====
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0, c.exit_px / c.entry_px - 1e0, 0e0))            AS sum_ret,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0, POWER(c.exit_px / c.entry_px - 1e0, 2), 0e0))  AS sum_ret_sq,
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > c.entry_px)                                     AS n_positive,
+  APPROX_PERCENTILE(IF(c.entry_px > 0 AND c.exit_px > 0, c.exit_px / c.entry_px - 1e0, NULL), 0.5)
+                                                                                          AS median_ret,
+  -- ===== THE WALLET, ON EXACTLY THE SAME POSITIONS =====
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_legs IS NOT NULL)            AS n_legs_paired,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_legs IS NOT NULL, c.wallet_ret_legs, 0e0))
+                                                                                          AS sum_wallet_legs,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_legs IS NOT NULL, c.exit_px / c.entry_px - 1e0, 0e0))
+                                                                                          AS sum_ret_on_legs,
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_realised IS NOT NULL)        AS n_realised_paired,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_realised IS NOT NULL, c.wallet_ret_realised, 0e0))
+                                                                                          AS sum_wallet_realised,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_ret_realised IS NOT NULL, c.exit_px / c.entry_px - 1e0, 0e0))
+                                                                                          AS sum_ret_on_realised,
+  -- ===== SLIPPAGE ON EACH LEG SEPARATELY =====
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_buy_px > 0, c.entry_px / c.wallet_buy_px - 1e0, 0e0))
+                                                                                          AS sum_entry_slip,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.wallet_sell_px > 0, c.exit_px / c.wallet_sell_px - 1e0, 0e0))
+                                                                                          AS sum_exit_slip,
+  APPROX_PERCENTILE(IF(c.entry_px > 0 AND c.wallet_buy_px > 0, c.entry_px / c.wallet_buy_px - 1e0, NULL), 0.5)
+                                                                                          AS median_entry_slip,
+  APPROX_PERCENTILE(IF(c.exit_px > 0 AND c.wallet_sell_px > 0, c.exit_px / c.wallet_sell_px - 1e0, NULL), 0.5)
+                                                                                          AS median_exit_slip,
+  -- ===== THE SIZING ARM, MT084: kept when own impact <= 2x/X =====
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.02) AS n_g1,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.02,
+         c.exit_px / c.entry_px - 1e0, 0e0))                                              AS sum_g1,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.02,
+         POWER(c.exit_px / c.entry_px - 1e0, 2), 0e0))                                    AS sum_g1_sq,
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.06) AS n_g3,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.06,
+         c.exit_px / c.entry_px - 1e0, 0e0))                                              AS sum_g3,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.06,
+         POWER(c.exit_px / c.entry_px - 1e0, 2), 0e0))                                    AS sum_g3_sq,
+  COUNT_IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.20) AS n_g10,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.20,
+         c.exit_px / c.entry_px - 1e0, 0e0))                                              AS sum_g10,
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0 AND c.own_impact IS NOT NULL AND c.own_impact <= 0.20,
+         POWER(c.exit_px / c.entry_px - 1e0, 2), 0e0))                                    AS sum_g10_sq,
+  APPROX_PERCENTILE(c.own_impact, 0.5)                                                    AS median_own_impact,
+  -- ===== SIZE AND POPULATION =====
+  SUM(IF(c.entry_px > 0 AND c.exit_px > 0, c.sol_in, 0e0))                                AS sum_sol_in,
+  COUNT(DISTINCT c.trader_id)                                                             AS wallets_in_cell
+FROM rt_long c
+CROSS JOIN arms a
+WHERE (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.001 AND c.top_mean_001)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.001 AND c.top_median_001)
+   OR (a.rank_stat = 'MEAN'   AND a.top_fraction = 0.01  AND c.top_mean_01)
+   OR (a.rank_stat = 'MEDIAN' AND a.top_fraction = 0.01  AND c.top_median_01)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 2, 3, 4, 5, 1;
+
+--#END

@@ -158,3 +158,87 @@ export function phaseCState(primary: readonly Conditions[]): PhaseCState {
   if (primary.some((c) => !c.c2)) return 'UNDECIDABLE_CENSORING';
   return 'EDGE_IS_EXECUTION_ONLY';
 }
+
+// ---------------------------------------------------------------------------
+// Phase D — the paired round trip
+// ---------------------------------------------------------------------------
+
+/**
+ * One (day, arm, venue, lag) cell of the Phase D estimand.
+ *
+ * The difference from Phase C is where the exit comes from: both legs are anchored
+ * on trades the WALLET executed, so a position is priced or not for reasons about
+ * that wallet's own activity rather than about whether a stranger happened to trade
+ * at an arbitrary wall-clock instant.
+ */
+export interface RoundTripCellRow {
+  /** Top-cohort holdout positions in the cell, before any pricing. */
+  readonly nFollowable: number;
+  /** Both legs priced: the estimation set. */
+  readonly nBoth: number;
+  /** The wallet never sold, and the copier's entry was priced: genuinely OPEN. */
+  readonly nOpenEntryPriced: number;
+  readonly sumRet: number;
+  readonly sumRetSq: number;
+}
+
+/**
+ * CLOSED_ONLY        open positions excluded, counted beside the estimate.
+ * OPEN_AT_MINUS_100  open positions entered at -1.0.
+ *
+ * The third treatment the directive names — open priced at a reconstructed reserve
+ * mark — is deliberately absent: it exists only if the reserve reconstruction runs,
+ * and a treatment that silently falls back to one of the other two would make the
+ * sign-agreement condition compare a thing to itself.
+ */
+export type RoundTripTreatment = 'CLOSED_ONLY' | 'OPEN_AT_MINUS_100';
+
+export function roundTripAggregate(
+  r: RoundTripCellRow,
+  treatment: RoundTripTreatment,
+  floor: number,
+): Aggregate {
+  switch (treatment) {
+    case 'CLOSED_ONLY':
+      return { n: r.nBoth, sum: r.sumRet - floor * r.nBoth };
+    case 'OPEN_AT_MINUS_100':
+      // The floor is charged only to the round trips that happened. An open
+      // position entered at -1.0 has already lost everything.
+      return { n: r.nBoth + r.nOpenEntryPriced, sum: r.sumRet - floor * r.nBoth - r.nOpenEntryPriced };
+  }
+}
+
+/**
+ * Coverage thresholds, from the directive rather than from the data.
+ *
+ * Below 90%: say so before reporting a single return.
+ * Below 70%: the estimate carries the same defect under a new name, and the phase
+ * goes to reserve reconstruction instead of reporting it.
+ */
+export const COVERAGE_REPORT_THRESHOLD = 0.9;
+export const COVERAGE_STOP_THRESHOLD = 0.7;
+
+export type CoverageVerdict = 'OK' | 'BELOW_REPORT_THRESHOLD' | 'BELOW_STOP_THRESHOLD';
+
+export function coverageOf(r: RoundTripCellRow): number | null {
+  return r.nFollowable === 0 ? null : r.nBoth / r.nFollowable;
+}
+
+export function coverageVerdict(coverage: number | null): CoverageVerdict {
+  if (coverage === null || coverage < COVERAGE_STOP_THRESHOLD) return 'BELOW_STOP_THRESHOLD';
+  if (coverage < COVERAGE_REPORT_THRESHOLD) return 'BELOW_REPORT_THRESHOLD';
+  return 'OK';
+}
+
+/**
+ * Phase D's three states. Same structure as Phase C's, with the closed branch
+ * renamed: NO_COPYABLE_LAG says the conditions failed while the treatments AGREED,
+ * which is a decision; UNDECIDABLE_CENSORING says they disagreed, which is not.
+ */
+export type PhaseDState = 'COPYABLE_LAG_IDENTIFIED' | 'NO_COPYABLE_LAG' | 'UNDECIDABLE_CENSORING';
+
+export function phaseDState(primary: readonly Conditions[]): PhaseDState {
+  if (primary.some((c) => c.copyable)) return 'COPYABLE_LAG_IDENTIFIED';
+  if (primary.some((c) => !c.c2)) return 'UNDECIDABLE_CENSORING';
+  return 'NO_COPYABLE_LAG';
+}

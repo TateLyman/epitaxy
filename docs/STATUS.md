@@ -1,6 +1,61 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Phase C, the copier's price.
+> **2026-08-19 (LATEST) — Phase D, copy the exit.
+> State: `UNDECIDABLE_CENSORING`.**
+>
+> Full account: `docs/PHASE_D_REPORT.md` (10 sections). Directive committed verbatim
+> before execution: `docs/directives/DIRECTIVE_B726240C_PHASE_D_COPY_THE_EXIT.md`.
+>
+> ```
+> pnpm check green: 139 files, 2,122 tests (from 138 / 2,102)
+>
+> copier share of the wallet's return over THE SAME TWO LEGS, pumpswap:
+>   Phase C, one shared fixed exit          0.725 - 0.779
+>   Phase D, following the wallet out       0.19  - 0.33
+>
+> per-leg slippage at a 2s lag:  entry +7.32% mean / -0.00% median
+>                                EXIT  -6.24% mean / -0.75% median
+>
+> MT083: 0 of 192 cells copyable. Condition 1 now passes 0 of 12 reportable
+> primary cells; best is +6.07% [-0.66%, +14.16%].
+> ```
+>
+> **TWO OF THE DIRECTIVE'S OWN STOP CONDITIONS FIRED.** Query 7 cost 230 credits
+> against a 150-per-query threshold, and coverage came back under 70% on 12 of 24
+> primary cells. Both say stop and report, so **the reserve reconstruction (§2) and
+> the rolling re-rank (§5, MT085) did not run**, and the coverage-failed cells are
+> recorded with `reportable = False` rather than presented as estimates.
+>
+> **COPYING THE EXIT IS WHERE MOST OF THE EDGE GOES.** The copier buys higher *and
+> sells lower*, and only the second of those is new — a fixed-horizon design never
+> charged it. The wallet's advantage over its own copier is **+16.83% [+12.87%,
+> +21.86%]** per position on 30 of 30 days. Separately, the wallet's realised return
+> is **3–6× its first-sell return** (+86.23% against +21.92%), and a copier acting on
+> the first sell it can observe forgoes all of that before slippage.
+>
+> **The censoring changed character, and that is the useful part.** Phase C had a
+> *pricing* gap — 46% of positions had no price at an arbitrary t+3600s. Anchoring
+> both legs on the wallet's own trades fixed it: conditional on the wallet actually
+> selling, **85–95% of positions have both legs priced**. What remains is a
+> *holding-period* gap — 10.9–38.8% of positions are never sold — which is a fact
+> about the wallets, not the instrument, and whose remedy is §2's reserve mark.
+>
+> **The sizing hypothesis is not supported and is adverse where it matters.** MT084
+> predicted the cost tail sat in positions where the wallet moved the pool hard.
+> Gating at 1% of reserves cuts the largest arm from **+6.22% to +1.68%** while
+> declining 51.3% of positions. The median own impact is only 0.92–2.71%, so the gate
+> slices the body of the distribution rather than trimming a tail — and the wallet's
+> higher-impact entries are among its better ones.
+>
+> Condition 2 is **not evaluable** on any gated arm: query 7 returns open positions as
+> one count per cell rather than by gate, so those arms fail the condition rather than
+> passing it and the state is decided on the ungated arm.
+>
+> H1 remains an **address-level** result; the entity-level re-run stays deferred.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Phase C, the copier's price.
 > State: `UNDECIDABLE_CENSORING`.**
 >
 > Full account: `docs/PHASE_C_REPORT.md` (8 sections). Directive committed verbatim

@@ -147,7 +147,8 @@
     "wss:status": "tsx scripts/wss-status.ts",
     "wallet:interval": "tsx scripts/wallet-persistence-interval.ts",
     "token:h2": "tsx scripts/token-forward-return-test.ts",
-    "lag:sweep": "tsx scripts/phase-c-lag-sweep.ts"
+    "lag:sweep": "tsx scripts/phase-c-lag-sweep.ts",
+    "rt:copy": "tsx scripts/phase-d-round-trip.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
