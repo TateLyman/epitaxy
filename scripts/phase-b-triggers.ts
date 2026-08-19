@@ -468,6 +468,8 @@ interface Observation {
   half: 'fit' | 'holdout';
   day: string;
   entryAgeMs: number;
+  /** The wall-clock instant of the entry snapshot, for the curve re-pricing target. */
+  entryUtcMs: number;
   tierIndex: number;
   grossReturnSol: number | null;
   /** The same entry held a fixed hour instead of exiting at 60m of AGE. */
@@ -564,6 +566,7 @@ function observe(trigger: Trigger): { fired: Observation[]; firedFit: number; fi
       half,
       day: firstInWindowDay.get(mint) as string,
       entryAgeMs: entry.age,
+      entryUtcMs: entry.t,
       tierIndex: tier ?? 0,
       grossReturnSol: gross,
       fixedHoldReturnSol: fixedHold,
@@ -1066,6 +1069,80 @@ const artifact = {
 
 mkdirSync('artifacts', { recursive: true });
 writeFileSync('artifacts/trigger-cells.json', JSON.stringify(artifact, null, 2) + '\n');
+
+/*
+   PHASE G ADDENDUM §A.4 — the per-mint targets the curve re-pricing needs.
+
+   The fired sets live only inside this script, so a separate re-implementation of the
+   trigger logic would be a second definition of the population and the two would
+   drift. This emits them from the SAME observe() output the cells are built from:
+   one row per (trigger, mint) with the entry instant, the entry age, and the instant
+   at which the mint reaches the 60-minute exit target on THIS script's age basis.
+
+   `exitTargetUtcMs` is what a curve-state price has to be read at for the re-priced
+   exit to be the same estimand as the reported one. Deriving it from the mint's first
+   TRADE instead would silently change the age basis.
+*/
+const NEWLINE = String.fromCharCode(10);
+
+const firedTargets: {
+  trigger: string;
+  mint: string;
+  half: 'fit' | 'holdout';
+  day: string;
+  entryUtcMs: number;
+  entryAgeMs: number;
+  exitTargetUtcMs: number;
+  tierIndex: number;
+  migratedAtEntry: boolean;
+  censored: boolean;
+  carryForwardMarked: boolean;
+  grossReturnSol: number | null;
+}[] = [];
+for (const trigger of TRIGGERS) {
+  const { fired } = observe(trigger);
+  for (const o of fired) {
+    const entryUtcMs = o.entryUtcMs;
+    firedTargets.push({
+      trigger: trigger.key,
+      mint: o.mint,
+      half: o.half,
+      day: o.day,
+      entryUtcMs,
+      entryAgeMs: o.entryAgeMs,
+      exitTargetUtcMs: entryUtcMs + (EXIT_TARGET_MS - o.entryAgeMs),
+      tierIndex: o.tierIndex,
+      migratedAtEntry: o.migratedAtEntry,
+      censored: o.censored,
+      carryForwardMarked: o.carryForwardMarked,
+      grossReturnSol: o.grossReturnSol,
+    });
+  }
+}
+/*
+   Written as CSV and HOLDOUT ONLY.
+
+   The JSON form of all 131,898 targets was 52 MB, which is not a thing to put in a
+   repository for a file that `pnpm trigger:cells` regenerates deterministically. The
+   holdout half is what the re-pricing needs, and five columns are what identifies a
+   target.
+*/
+const targetCsv: string[] = [
+  'trigger,mint,day,entry_utc_ms,exit_target_utc_ms,censored,carry_forward_marked,tier_index,migrated_at_entry,gross_return_sol',
+];
+for (const t of firedTargets) {
+  if (t.half !== 'holdout') continue;
+  targetCsv.push(
+    `${t.trigger},${t.mint},${t.day},${t.entryUtcMs},${t.exitTargetUtcMs},${t.censored},` +
+      `${t.carryForwardMarked},${t.tierIndex},${t.migratedAtEntry},` +
+      `${t.grossReturnSol === null ? '' : t.grossReturnSol}`,
+  );
+}
+writeFileSync('artifacts/phase-b-fired-targets.csv', targetCsv.join(NEWLINE) + NEWLINE);
+console.log(
+  `${NEWLINE}wrote artifacts/phase-b-fired-targets.csv with ${targetCsv.length - 1} holdout targets ` +
+    `of ${firedTargets.length} fired`,
+);
 
 /** One row per cell examined, per §4.4. */
 const csv: string[] = [

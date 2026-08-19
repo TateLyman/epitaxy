@@ -154,7 +154,9 @@
     "anchors:sql": "tsx scripts/phase-f-validation-sql.ts",
     "fee:direction": "tsx scripts/phase-g-fee-direction.ts",
     "horizon": "tsx scripts/phase-g-horizon.ts",
-    "revalidate": "tsx scripts/phase-g-revalidate.ts"
+    "revalidate": "tsx scripts/phase-g-revalidate.ts",
+    "curve:sql": "tsx scripts/phase-g-curve-price-sql.ts",
+    "curve:reprice": "tsx scripts/phase-g-curve-reprice.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
