@@ -1,0 +1,1329 @@
+{
+  "generatedFrom": {
+    "path": "ops/dune/results/q8-proportional-exit.json",
+    "queryId": 8382621,
+    "executionId": "01M0DJ9ZC58FSFN0RG4JVRAMCR"
+  },
+  "rule": "MT087",
+  "sizeArmRule": "MT088",
+  "primaryFloor": 0.02669,
+  "resamples": 10000,
+  "utcDays": 30,
+  "lags": [
+    2,
+    15,
+    60
+  ],
+  "state": "UNDECIDABLE_CENSORING",
+  "reserveMarkRan": false,
+  "cells": [
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "UNGATED",
+      "followable": 2053,
+      "entryPriced": 1462,
+      "walletClosed": 909,
+      "paired": 366,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9635856976841886,
+      "n": 366,
+      "closedOnly": {
+        "point": 1.7089951517357425,
+        "lower": -0.023311672069268173,
+        "upper": 4.8772559951841785
+      },
+      "openAtMinus100": {
+        "point": -0.5967736268064572,
+        "lower": -0.663179606685042,
+        "upper": -0.510173871214703
+      },
+      "pairedDifference": {
+        "point": -0.003643996926615989,
+        "lower": -0.03587681181422875,
+        "upper": 0.03491783701919071
+      },
+      "requiredN": 2360,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.760414277899115,
+      "walletRealised": 0.5642242296918019
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 2053,
+      "entryPriced": 1462,
+      "walletClosed": 909,
+      "paired": 366,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9635856976841886,
+      "n": 83,
+      "closedOnly": {
+        "point": 0.5437408842169433,
+        "lower": -0.10483741548102639,
+        "upper": 1.6527842686697625
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.058474899630299726,
+        "lower": -0.1342842506997186,
+        "upper": 0.006625190593339103
+      },
+      "requiredN": 709,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.760414277899115,
+      "walletRealised": 0.5642242296918019
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 2053,
+      "entryPriced": 1462,
+      "walletClosed": 909,
+      "paired": 366,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9635856976841886,
+      "n": 92.10887640193442,
+      "closedOnly": {
+        "point": -0.13736580023169234,
+        "lower": -0.2224950231268225,
+        "upper": 0.41540724489973174
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.760414277899115,
+      "walletRealised": 0.5642242296918019
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "UNGATED",
+      "followable": 2053,
+      "entryPriced": 1435,
+      "walletClosed": 909,
+      "paired": 356,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9636493862108965,
+      "n": 356,
+      "closedOnly": {
+        "point": 0.1862355699893498,
+        "lower": -0.06705197320538833,
+        "upper": 0.49750436114310853
+      },
+      "openAtMinus100": {
+        "point": -0.5986678036917534,
+        "lower": -0.6672435977488375,
+        "upper": -0.5161046335808347
+      },
+      "pairedDifference": {
+        "point": 0.005742846941125229,
+        "lower": -0.015463609711092452,
+        "upper": 0.03653906614868829
+      },
+      "requiredN": 1990,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7057249966625718,
+      "walletRealised": 0.49539114747747864
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 2053,
+      "entryPriced": 1435,
+      "walletClosed": 909,
+      "paired": 356,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9636493862108965,
+      "n": 78,
+      "closedOnly": {
+        "point": 0.6099542084097702,
+        "lower": -0.13920225586444263,
+        "upper": 1.830265382599095
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0.008663887641595203,
+        "lower": -0.022105314548435274,
+        "upper": 0.048833046794843155
+      },
+      "requiredN": 586,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7057249966625718,
+      "walletRealised": 0.49539114747747864
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 2053,
+      "entryPriced": 1435,
+      "walletClosed": 909,
+      "paired": 356,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9636493862108965,
+      "n": 84.22060555410211,
+      "closedOnly": {
+        "point": -0.19922418538938788,
+        "lower": -0.3138779232656093,
+        "upper": 0.6025411513453279
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7057249966625718,
+      "walletRealised": 0.49539114747747864
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "UNGATED",
+      "followable": 2053,
+      "entryPriced": 1381,
+      "walletClosed": 909,
+      "paired": 326,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9588270514206257,
+      "n": 326,
+      "closedOnly": {
+        "point": 0.2515879915918386,
+        "lower": -0.04275997846877312,
+        "upper": 0.60014209885349
+      },
+      "openAtMinus100": {
+        "point": -0.6063198902111063,
+        "lower": -0.6707744643993803,
+        "upper": -0.5263040956041772
+      },
+      "pairedDifference": {
+        "point": 0.041673993017402405,
+        "lower": -0.029107086034552275,
+        "upper": 0.153110489486179
+      },
+      "requiredN": 1207,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7669619694861066,
+      "walletRealised": 0.6027456691076766
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 2053,
+      "entryPriced": 1381,
+      "walletClosed": 909,
+      "paired": 326,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9588270514206257,
+      "n": 79,
+      "closedOnly": {
+        "point": 0.7179913829657908,
+        "lower": -0.08641127051626497,
+        "upper": 2.0020832096736907
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.04303506913297939,
+        "lower": -0.12329227593682186,
+        "upper": 0.006203272147677685
+      },
+      "requiredN": 440,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7669619694861066,
+      "walletRealised": 0.6027456691076766
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 2053,
+      "entryPriced": 1381,
+      "walletClosed": 909,
+      "paired": 326,
+      "legsPerPosition": 0.8679980516317584,
+      "mirroredWeight": 0.9588270514206257,
+      "n": 85.29156253178715,
+      "closedOnly": {
+        "point": 0.04118042045651168,
+        "lower": -0.16233463403635795,
+        "upper": 1.1412444117566014
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.7669619694861066,
+      "walletRealised": 0.6027456691076766
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "UNGATED",
+      "followable": 12847,
+      "entryPriced": 11512,
+      "walletClosed": 8476,
+      "paired": 7317,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935156671151893,
+      "n": 7317,
+      "closedOnly": {
+        "point": 0.1038624929611597,
+        "lower": -0.09463407472279478,
+        "upper": 0.36023629097470017
+      },
+      "openAtMinus100": {
+        "point": -0.30295113085231856,
+        "lower": -0.389371292771685,
+        "upper": -0.2050842095816988
+      },
+      "pairedDifference": {
+        "point": 0.01301472196122612,
+        "lower": -0.012495451407470354,
+        "upper": 0.06293977887777565
+      },
+      "requiredN": 38195,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.15531619118453535,
+      "walletRealised": 0.06872218926128526
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 12847,
+      "entryPriced": 11512,
+      "walletClosed": 8476,
+      "paired": 7317,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935156671151893,
+      "n": 3269,
+      "closedOnly": {
+        "point": -0.010326945968419696,
+        "lower": -0.14116609829023366,
+        "upper": 0.1552928557238256
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.00906124130046021,
+        "lower": -0.014700306282422665,
+        "upper": -0.004093519858685168
+      },
+      "requiredN": 192996,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.15531619118453535,
+      "walletRealised": 0.06872218926128526
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 12847,
+      "entryPriced": 11512,
+      "walletClosed": 8476,
+      "paired": 7317,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935156671151893,
+      "n": 2013.378113650338,
+      "closedOnly": {
+        "point": -0.15469207531227316,
+        "lower": -0.27664636989656777,
+        "upper": -0.006816035808759766
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.15531619118453535,
+      "walletRealised": 0.06872218926128526
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "UNGATED",
+      "followable": 12847,
+      "entryPriced": 11454,
+      "walletClosed": 8476,
+      "paired": 7262,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935576318866046,
+      "n": 7262,
+      "closedOnly": {
+        "point": -0.010507710935400769,
+        "lower": -0.13011738300727818,
+        "upper": 0.12241327837456388
+      },
+      "openAtMinus100": {
+        "point": -0.3269117584178126,
+        "lower": -0.4051360081503639,
+        "upper": -0.24037725363738227
+      },
+      "pairedDifference": {
+        "point": -0.007182930178005647,
+        "lower": -0.013241260753737358,
+        "upper": -0.0015676510317188391
+      },
+      "requiredN": 141915,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.14954080060014385,
+      "walletRealised": 0.06295747464784807
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 12847,
+      "entryPriced": 11454,
+      "walletClosed": 8476,
+      "paired": 7262,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935576318866046,
+      "n": 3250,
+      "closedOnly": {
+        "point": -0.024173456502479092,
+        "lower": -0.1508678206434206,
+        "upper": 0.13016340067768342
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.006996087467047527,
+        "lower": -0.011816075041646102,
+        "upper": -0.002489061250645727
+      },
+      "requiredN": 31610,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.14954080060014385,
+      "walletRealised": 0.06295747464784807
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 12847,
+      "entryPriced": 11454,
+      "walletClosed": 8476,
+      "paired": 7262,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9935576318866046,
+      "n": 1992.907461884814,
+      "closedOnly": {
+        "point": -0.16641014684226546,
+        "lower": -0.2847616330946076,
+        "upper": -0.027921675894605605
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.14954080060014385,
+      "walletRealised": 0.06295747464784807
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "UNGATED",
+      "followable": 12847,
+      "entryPriced": 11360,
+      "walletClosed": 8476,
+      "paired": 7086,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9927497880981724,
+      "n": 7086,
+      "closedOnly": {
+        "point": -0.017972271982997917,
+        "lower": -0.12926059030015916,
+        "upper": 0.10270708725947526
+      },
+      "openAtMinus100": {
+        "point": -0.3420811410323865,
+        "lower": -0.4151522369670108,
+        "upper": -0.26415175956143705
+      },
+      "pairedDifference": {
+        "point": -0.008237375631572855,
+        "lower": -0.017298998289070996,
+        "upper": 0.00018706806903660833
+      },
+      "requiredN": 46852,
+      "conditions": {
+        "c1": false,
+        "c2": true,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.16828520560372948,
+      "walletRealised": 0.08248365017630412
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 12847,
+      "entryPriced": 11360,
+      "walletClosed": 8476,
+      "paired": 7086,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9927497880981724,
+      "n": 3176,
+      "closedOnly": {
+        "point": -0.029035955478207733,
+        "lower": -0.13523072836205932,
+        "upper": 0.10338599232126777
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.006005700286255217,
+        "lower": -0.011247489695532797,
+        "upper": -0.0006084350604972366
+      },
+      "requiredN": 21145,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.16828520560372948,
+      "walletRealised": 0.08248365017630412
+    },
+    {
+      "rankStat": "MEAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 12847,
+      "entryPriced": 11360,
+      "walletClosed": 8476,
+      "paired": 7086,
+      "legsPerPosition": 1.6347007083365765,
+      "mirroredWeight": 0.9927497880981724,
+      "n": 1890.6513309023983,
+      "closedOnly": {
+        "point": -0.15875318073509725,
+        "lower": -0.255920724577919,
+        "upper": -0.058396666866780696
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.16828520560372948,
+      "walletRealised": 0.08248365017630412
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "UNGATED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 107,
+      "closedOnly": {
+        "point": 0.0795936937391959,
+        "lower": -0.07863083178738585,
+        "upper": 0.2642821506634643
+      },
+      "openAtMinus100": {
+        "point": -0.08962909739285839,
+        "lower": -0.2685757326950519,
+        "upper": 0.09814931739959844
+      },
+      "pairedDifference": {
+        "point": -0.009560633893597625,
+        "lower": -0.0384452498557207,
+        "upper": 0.011299665591336994
+      },
+      "requiredN": 961,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 31,
+      "closedOnly": {
+        "point": 0.09650823404530282,
+        "lower": -0.2683424386803888,
+        "upper": 0.5282763453420155
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.029446608759123916,
+        "lower": -0.08475826074510476,
+        "upper": 0.003727157272411838
+      },
+      "requiredN": 1236,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 13.271353102822767,
+      "closedOnly": {
+        "point": -0.11654930030531933,
+        "lower": -0.29303117267735096,
+        "upper": 0.30038765349900837
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "UNGATED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 107,
+      "closedOnly": {
+        "point": 0.0724058738022073,
+        "lower": -0.08940702660679055,
+        "upper": 0.2719108934270692
+      },
+      "openAtMinus100": {
+        "point": -0.09593632808224761,
+        "lower": -0.2779027072530002,
+        "upper": 0.10244644337859514
+      },
+      "pairedDifference": {
+        "point": -0.00728073018793865,
+        "lower": -0.03639991069482523,
+        "upper": 0.014736428765962276
+      },
+      "requiredN": 1249,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 31,
+      "closedOnly": {
+        "point": 0.11223943355472328,
+        "lower": -0.2831600285956609,
+        "upper": 0.6013806460734343
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.029546533715255383,
+        "lower": -0.0856622433702845,
+        "upper": 0.0031114470258898907
+      },
+      "requiredN": 1105,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 140,
+      "entryPriced": 134,
+      "walletClosed": 111,
+      "paired": 107,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992490675,
+      "n": 13.271353102822767,
+      "closedOnly": {
+        "point": -0.152735527200215,
+        "lower": -0.32744108872243305,
+        "upper": 0.3578210487859395
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22148184875519977,
+      "walletRealised": 0.1860175454658478
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "UNGATED",
+      "followable": 140,
+      "entryPriced": 133,
+      "walletClosed": 111,
+      "paired": 106,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992514171,
+      "n": 106,
+      "closedOnly": {
+        "point": 0.03588679394822881,
+        "lower": -0.12405676185447878,
+        "upper": 0.24359285250036597
+      },
+      "openAtMinus100": {
+        "point": -0.13766975676634147,
+        "lower": -0.31177167798199523,
+        "upper": 0.06450314860991638
+      },
+      "pairedDifference": {
+        "point": -0.012669555138985239,
+        "lower": -0.044047391390554434,
+        "upper": 0.0075120101209397855
+      },
+      "requiredN": 4894,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22808637030746157,
+      "walletRealised": 0.18837534154525085
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 140,
+      "entryPriced": 133,
+      "walletClosed": 111,
+      "paired": 106,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992514171,
+      "n": 31,
+      "closedOnly": {
+        "point": 0.08632234729244176,
+        "lower": -0.31214723233086195,
+        "upper": 0.5850539502921139
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": -0.03172386668911696,
+        "lower": -0.09161288786523285,
+        "upper": 0.002895572077953358
+      },
+      "requiredN": 1890,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22808637030746157,
+      "walletRealised": 0.18837534154525085
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.001,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 140,
+      "entryPriced": 133,
+      "walletClosed": 111,
+      "paired": 106,
+      "legsPerPosition": 3.4571428571428573,
+      "mirroredWeight": 0.9999999992514171,
+      "n": 13.271353102822767,
+      "closedOnly": {
+        "point": -0.21564140398157688,
+        "lower": -0.45969801121342024,
+        "upper": 0.3599879766726567
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.22808637030746157,
+      "walletRealised": 0.18837534154525085
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "UNGATED",
+      "followable": 4261,
+      "entryPriced": 3869,
+      "walletClosed": 3704,
+      "paired": 3181,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9929546095338918,
+      "n": 3181,
+      "closedOnly": {
+        "point": 0.24548723969908123,
+        "lower": -0.0012674049014701305,
+        "upper": 0.6858276929128247
+      },
+      "openAtMinus100": {
+        "point": -0.11299541155335617,
+        "lower": -0.1728642882782362,
+        "upper": -0.04892379348135463
+      },
+      "pairedDifference": {
+        "point": 0.005996257916202452,
+        "lower": -0.004011343138095591,
+        "upper": 0.017119335208832454
+      },
+      "requiredN": 13263,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21457754743841537,
+      "walletRealised": 0.1613672717340957
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 4261,
+      "entryPriced": 3869,
+      "walletClosed": 3704,
+      "paired": 3181,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9929546095338918,
+      "n": 1068,
+      "closedOnly": {
+        "point": 0.15481195497512087,
+        "lower": 0.017989189765232876,
+        "upper": 0.3345908876180223
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0.008476921676859622,
+        "lower": -0.008555727176738692,
+        "upper": 0.026208173114714628
+      },
+      "requiredN": 972,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": true,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21457754743841537,
+      "walletRealised": 0.1613672717340957
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 2,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 4261,
+      "entryPriced": 3869,
+      "walletClosed": 3704,
+      "paired": 3181,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9929546095338918,
+      "n": 816.7944667413428,
+      "closedOnly": {
+        "point": 0.006215663426397545,
+        "lower": -0.19112214747145412,
+        "upper": 0.347469398748543
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21457754743841537,
+      "walletRealised": 0.1613672717340957
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "UNGATED",
+      "followable": 4261,
+      "entryPriced": 3847,
+      "walletClosed": 3704,
+      "paired": 3175,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9928074888485886,
+      "n": 3175,
+      "closedOnly": {
+        "point": 0.06352290030955957,
+        "lower": -0.011108845589359735,
+        "upper": 0.144924317634799
+      },
+      "openAtMinus100": {
+        "point": -0.11498239135808618,
+        "lower": -0.17538006100370968,
+        "upper": -0.05199423458660309
+      },
+      "pairedDifference": {
+        "point": 0.0061299779630353615,
+        "lower": -0.0035276395175738162,
+        "upper": 0.017025942184349017
+      },
+      "requiredN": 2692,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": true,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.20966357584377254,
+      "walletRealised": 0.1527234432576453
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 4261,
+      "entryPriced": 3847,
+      "walletClosed": 3704,
+      "paired": 3175,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9928074888485886,
+      "n": 1065,
+      "closedOnly": {
+        "point": 0.1438460904056122,
+        "lower": 0.009515472061165393,
+        "upper": 0.3184835587455783
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0.00914153116893296,
+        "lower": -0.006652600959713845,
+        "upper": 0.026079904896173955
+      },
+      "requiredN": 1082,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.20966357584377254,
+      "walletRealised": 0.1527234432576453
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 15,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 4261,
+      "entryPriced": 3847,
+      "walletClosed": 3704,
+      "paired": 3175,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9928074888485886,
+      "n": 813.5299648985681,
+      "closedOnly": {
+        "point": -0.02251270378102714,
+        "lower": -0.20400393925803004,
+        "upper": 0.2789134916173153
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.20966357584377254,
+      "walletRealised": 0.1527234432576453
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "UNGATED",
+      "followable": 4261,
+      "entryPriced": 3816,
+      "walletClosed": 3704,
+      "paired": 3134,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9913676454749519,
+      "n": 3134,
+      "closedOnly": {
+        "point": 0.061287462867022836,
+        "lower": -0.012039595630392872,
+        "upper": 0.14720015223893326
+      },
+      "openAtMinus100": {
+        "point": -0.12440586849061833,
+        "lower": -0.18612778976653177,
+        "upper": -0.06036404762027685
+      },
+      "pairedDifference": {
+        "point": 0.00849911430782447,
+        "lower": -0.006525306162332082,
+        "upper": 0.0261446185163036
+      },
+      "requiredN": 3238,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21426907377752605,
+      "walletRealised": 0.15950164021118626
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_GATED",
+      "followable": 4261,
+      "entryPriced": 3816,
+      "walletClosed": 3704,
+      "paired": 3134,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9913676454749519,
+      "n": 1051,
+      "closedOnly": {
+        "point": 0.12921626349326978,
+        "lower": 0.002017772979474961,
+        "upper": 0.30027317547343935
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0.006517859964506323,
+        "lower": -0.011895043817105988,
+        "upper": 0.02721280719093397
+      },
+      "requiredN": 1360,
+      "conditions": {
+        "c1": true,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21426907377752605,
+      "walletRealised": 0.15950164021118626
+    },
+    {
+      "rankStat": "MEDIAN",
+      "topFraction": 0.01,
+      "lagSeconds": 60,
+      "sizeArm": "CONVICTION_WEIGHTED",
+      "followable": 4261,
+      "entryPriced": 3816,
+      "walletClosed": 3704,
+      "paired": 3134,
+      "legsPerPosition": 3.202299929593992,
+      "mirroredWeight": 0.9913676454749519,
+      "n": 784.0173578634365,
+      "closedOnly": {
+        "point": -0.012174908429242194,
+        "lower": -0.18430625480424562,
+        "upper": 0.26887600573087206
+      },
+      "openAtMinus100": null,
+      "pairedDifference": {
+        "point": 0,
+        "lower": 0,
+        "upper": 0
+      },
+      "requiredN": null,
+      "conditions": {
+        "c1": false,
+        "c2": false,
+        "c3": true,
+        "c4": false,
+        "c5": false
+      },
+      "copyable": false,
+      "walletFirstSell": 0.21426907377752605,
+      "walletRealised": 0.15950164021118626
+    }
+  ]
+}
