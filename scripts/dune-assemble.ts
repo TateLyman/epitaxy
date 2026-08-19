@@ -65,7 +65,7 @@ function sections(sql: string): Map<string, Section> {
 
 const sql = readFileSync(SOURCE, 'utf8');
 const parsed = sections(sql);
-for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10']) {
+for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11']) {
   if (!parsed.has(required)) {
     console.error(`${SOURCE} is missing section ${required}`);
     process.exit(1);
@@ -114,7 +114,7 @@ function stripTerminator(text: string): string {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const composed = new Map<string, string>();
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11']) {
   const text = stripTerminator(compose(parsed.get(name) as Section));
   composed.set(name, text);
   const path = `${OUT_DIR}/${name.toLowerCase()}.sql`;
@@ -162,6 +162,7 @@ const NAMES: Record<string, string> = {
   Q7: 'epitaxy · phase D · Q7 paired round-trip copy',
   Q8: 'epitaxy · phase E · Q8 proportional exit mirroring',
   Q10: 'epitaxy · phase F · Q10 H1 at entity level',
+  Q11: 'epitaxy · phase G · Q11 coverage by horizon (no returns)',
 };
 
 const ids: Record<string, number> = existsSync(ID_MAP)
@@ -183,7 +184,7 @@ const call = async (path: string, method: string, body: unknown): Promise<{ stat
   return { status: res.status, json };
 };
 
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11']) {
   const text = composed.get(name) as string;
   const existing = ids[name];
   if (existing !== undefined) {
