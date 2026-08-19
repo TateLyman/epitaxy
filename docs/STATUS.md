@@ -1,6 +1,56 @@
 # STATUS
 
-> **2026-08-18 (LATEST) — d70b4a9a, measurement power and the cost floor, from
+> **2026-08-18 (LATEST) — Phase B, fee tier and conditional mean.
+> State: `NO_DECIDABLE_CELL`.**
+>
+> Full account: `docs/PHASE_B_REPORT.md` (8 sections).
+>
+> ```
+> pnpm check green: 135 files, 2,059 tests
+>
+> 720 cells examined, 549 evaluable, 360 tradable — 0 pass on a point estimate,
+> 0 on a holdout lower bound, against 13.5 expected false positives at a=0.05
+> ```
+>
+> **The conditional mean Phase B went looking for exists, and it is not ours.** A
+> market-cap crossing at 2–45 minutes of age returns **+193% to +341%** at the
+> 60-minute mark — on a population this apparatus cannot enter. A fee tier is a
+> property of a PumpSwap POOL; **276 of 158,085** snapshotted mints ever migrated;
+> and of the 4,580 mints firing the 420-SOL trigger, **26 had a pool when it
+> fired** (0.57%). Restricted to those, the same trigger returns **−73.2%**.
+>
+> The sign flips on every trigger, at every tier, under both exit rules. The
+> no-condition baseline is +3.3% over all snapshotted mints and **−65.7%** over
+> the migrated ones; tier 2 is +482.3% against **−98.7%**.
+>
+> **D70B4A9A's one surviving result is retro-qualified.** Its +3.04% cohort mean —
+> the four-of-36 cells that cleared the cost floor — is a property of
+> pre-migration bonding-curve tokens. Removing the 1.1% of mints that reach tier 1
+> or better moves that cohort's mean from +2.7% to −0.03%; 270 tier-2 mints alone
+> carried 82% of the summed return.
+>
+> **Corroborated without a mid price anywhere.** The collector's own executable
+> marks, on 455 trajectories its risk gates admitted, are **−2.7% at the median**
+> an hour in — almost exactly the measured cost floor, i.e. the mid price has not
+> moved and the fee is the whole story — with a mean of −17.4% and a p10 of
+> −69.6%.
+>
+> **The tier thesis is confirmed on the cost side and it is not enough.** One fee
+> schedule across all 413 stored snapshots (hash `5464ad69`), 25 tiers, 250 bps
+> round trip at 0–420 SOL down to 60 bps at 98,240+. The floor falls monotonically
+> — 2.669% / 2.469% / 2.350% / 1.722% / 1.025% at tiers 0 / 1 / 2 / 8 / 16 — and
+> depth rises with it, which matters more: a tier-0 pool cannot take 0.50 SOL under
+> the unchanged frozen bounds and a tier-8 pool can take 1.00. 1.69% of mints reach
+> tier 2 inside 2m–60m, ~273/day.
+>
+> **No stored build predates the 2026-04-28 shape change.** Earliest build
+> 2026-08-15, and all SIX distinct stored swap shapes rebuilt through the pinned
+> SDK reproduced their stored account counts: `CURRENT_INSTRUCTION_SHAPE`.
+>
+> Both unmodelled costs stay UNKNOWN — quote-to-land slippage and crowding — so
+> **every Phase B figure is an upper bound**, the negative ones included.
+
+> **2026-08-18 — d70b4a9a, measurement power and the cost floor, from
 > `d8ede90`. State: `MEASUREMENT_REPAIR_REQUIRED`.**
 >
 > Full account: `docs/D70B4A9A_FINAL_REPORT.md` (12 sections).
@@ -138,7 +188,7 @@
 > forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
 > window). Every one presented as a market fact.
 
-Last updated: 2026-08-18T23:05Z
+Last updated: 2026-08-19T00:20Z
 
 ## Operational right now
 
@@ -156,7 +206,12 @@ Last updated: 2026-08-18T23:05Z
 | evidence contexts | **44**, of which **43** are `INSTRUMENT_DEVELOPMENT_INVALID`; 500 trajectories preserved, none deleted |
 | trajectory collectors running | **0** — the pid in `data/trajectory-collector.pid` (31276) is dead; nothing capital-bearing has run since |
 | default `pnpm readiness` gate | the exact **trajectory** contract -> `artifacts/trajectory-readiness.json` (the position gate is `readiness:positions` -> `artifacts/position-readiness.json`) |
-| tests | **2,041** passing across **134** files, 4 skipped |
+| tests | **2,059** passing across **135** files, 4 skipped |
+| fee schedule | ONE across all 413 stored snapshots, hash `5464ad69`; 25 tiers, 250 bps round trip at 0-420 SOL down to 60 bps at 98,240+ |
+| cost floor by tier | 2.669% / 2.469% / 2.350% / 1.722% / 1.025% at tiers 0 / 1 / 2 / 8 / 16, and depth rises with the tier |
+| tier reach, 2m-60m | 3.97% of mints reach tier 1+, **1.69%** reach tier 2+ (~273/day) |
+| tradable universe | **276 of 158,085** snapshotted mints ever migrated; a fee tier belongs to a pool, so 99.4% of trigger firings are not enterable |
+| conditional mean, migrated at entry | **negative on every trigger examined** - baseline -65.7%, T1 -73.2%, T2 -28.2% - against +3.3% to +341% on the untradable population |
 | measured cost floor | **2.6858%** of notional at `notional_min_cost` **0.02 SOL**; `artifacts/cost-surface.json`, monotone increasing to 9.61% at 1.00 SOL |
 | confirmatory cohort | **2m-60m**, selected on lowest IDENTIFIED required n = **49,854** mints; owes an untouched future test |
 | confirmatory notional | **0.02 SOL**, frozen identically for the development window |

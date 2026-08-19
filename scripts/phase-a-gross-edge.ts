@@ -46,6 +46,12 @@ import { loadSecrets } from '../packages/domain/src/config.js';
 import { openDb } from '../packages/storage/src/db.js';
 import { clusterBootstrap, medianOfMeans, type MintOutcome } from '../packages/research/src/robust-stats.js';
 import { currentProvenance } from '../packages/research/src/artifact-provenance.js';
+import {
+  deriveSolUsd,
+  solUsdAt,
+  SOL_USD_BUCKET_MS,
+  SOL_USD_PAIR_MAX_GAP_MS,
+} from '../packages/research/src/sol-usd.js';
 
 interface Cohort {
   readonly key: string;
@@ -66,9 +72,6 @@ const ENTRY_TOLERANCE_OF_BAND = 0.25;
 const EXIT_TOLERANCE_OF_BOUND = 0.25;
 /** The power constant the directive supplies: 7.84 = (1.96 + 0.84)². */
 const POWER_CONSTANT = 7.84;
-/** How far a quote and a snapshot may be apart to price one against the other. */
-const SOL_USD_PAIR_MAX_GAP_MS = 300_000;
-const SOL_USD_BUCKET_MS = 3_600_000;
 
 const secrets = loadSecrets();
 const db = openDb({ path: secrets.databasePath, readonly: true });
@@ -100,6 +103,10 @@ const exitWindow = (c: Cohort): [number, number] => [
 // ---------------------------------------------------------------------------
 // 1 — SOL/USD, DERIVED FROM STORED QUOTES
 // ---------------------------------------------------------------------------
+//
+// The derivation moved to packages/research/src/sol-usd.ts when Phase B needed
+// the same series. Two copies of one derivation is two chances for the two
+// numbers to disagree, and nobody would be able to say which was the rate.
 
 const median = (xs: readonly number[]): number | null => {
   if (xs.length === 0) return null;
@@ -108,77 +115,8 @@ const median = (xs: readonly number[]): number | null => {
   return s.length % 2 === 1 ? (s[m] as number) : (((s[m - 1] as number) + (s[m] as number)) / 2);
 };
 
-interface SolUsdSeries {
-  readonly buckets: readonly { bucketUtcMs: number; solUsd: number; pairs: number }[];
-  readonly pairsTotal: number;
-  readonly quotesConsidered: number;
-  readonly medianSolUsd: number | null;
-}
-
-function deriveSolUsd(): SolUsdSeries {
-  const quotes = db
-    .prepare(
-      `SELECT mint, in_amount AS inAmount, out_amount AS outAmount, requested_utc_ms AS t
-         FROM quotes
-        WHERE side = 'buy' AND CAST(out_amount AS INTEGER) > 0 AND CAST(in_amount AS INTEGER) > 0`,
-    )
-    .all() as { mint: string; inAmount: string; outAmount: string; t: number }[];
-
-  const near = db.prepare(
-    `SELECT json_extract(features_json, '$.usdPrice') AS usd,
-            json_extract(raw_inputs_json, '$.decimals') AS decimals,
-            ABS(taken_utc_ms - ?) AS gap
-       FROM decision_snapshots
-      WHERE mint = ?
-      ORDER BY gap ASC
-      LIMIT 1`,
-  );
-
-  const byBucket = new Map<number, number[]>();
-  let pairs = 0;
-  for (const q of quotes) {
-    const row = near.get(q.t, q.mint) as { usd: number | null; decimals: number | null; gap: number } | undefined;
-    if (row === undefined || row.usd === null || row.decimals === null) continue;
-    if (row.gap > SOL_USD_PAIR_MAX_GAP_MS) continue;
-    const tokensOut = Number(BigInt(q.outAmount)) / 10 ** row.decimals;
-    if (!Number.isFinite(tokensOut) || tokensOut <= 0) continue;
-    const solIn = Number(BigInt(q.inAmount)) / 1e9;
-    const priceSol = solIn / tokensOut;
-    if (!Number.isFinite(priceSol) || priceSol <= 0) continue;
-    const solUsd = row.usd / priceSol;
-    if (!Number.isFinite(solUsd) || solUsd <= 0) continue;
-    const bucket = Math.floor(q.t / SOL_USD_BUCKET_MS) * SOL_USD_BUCKET_MS;
-    const list = byBucket.get(bucket);
-    if (list === undefined) byBucket.set(bucket, [solUsd]);
-    else list.push(solUsd);
-    pairs += 1;
-  }
-
-  const buckets = [...byBucket.entries()]
-    .map(([bucketUtcMs, vals]) => ({ bucketUtcMs, solUsd: median(vals) as number, pairs: vals.length }))
-    .sort((a, b) => a.bucketUtcMs - b.bucketUtcMs);
-  return {
-    buckets,
-    pairsTotal: pairs,
-    quotesConsidered: quotes.length,
-    medianSolUsd: median(buckets.map((b) => b.solUsd)),
-  };
-}
-
-const solUsd = deriveSolUsd();
-
-/** SOL/USD at a moment: the nearest hourly bucket, or null when none is close. */
-const MAX_BUCKET_DISTANCE_MS = 6 * 3_600_000;
-function solUsdAt(t: number): number | null {
-  if (solUsd.buckets.length === 0) return null;
-  let best: { d: number; v: number } | null = null;
-  for (const b of solUsd.buckets) {
-    const d = Math.abs(b.bucketUtcMs - t);
-    if (best === null || d < best.d) best = { d, v: b.solUsd };
-  }
-  if (best === null || best.d > MAX_BUCKET_DISTANCE_MS) return null;
-  return best.v;
-}
+const solUsd = deriveSolUsd(db);
+const solUsdAtMs = (t: number): number | null => solUsdAt(solUsd, t);
 
 // ---------------------------------------------------------------------------
 // 2 — THE SNAPSHOTS THAT CAN CARRY AN ENTRY OR AN EXIT
@@ -310,8 +248,8 @@ function observe(c: Cohort): {
     }
 
     const grossUsd = exit.usd / entry.usd - 1;
-    const solEntry = solUsdAt(entry.t);
-    const solExit = solUsdAt(exit.t);
+    const solEntry = solUsdAtMs(entry.t);
+    const solExit = solUsdAtMs(exit.t);
     const grossSol =
       solEntry === null || solExit === null ? null : (exit.usd / solExit) / (entry.usd / solEntry) - 1;
 
