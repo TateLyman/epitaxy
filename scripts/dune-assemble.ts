@@ -2,10 +2,10 @@
  * `pnpm dune:assemble` — compose the wallet-persistence queries, and optionally
  * push them to Dune.
  *
- * `ops/dune/wallet-persistence.sql` is one file with five sections marked
- * `--#BASE`, `--#RANK`, `--#Q1` .. `--#Q4`, each closed by `--#END`, and each
- * query declaring what it needs with `needs=BASE,RANK`. This composes them into
- * four self-contained statements under `ops/dune/generated/`.
+ * `ops/dune/wallet-persistence.sql` is one file with sections marked `--#BASE`,
+ * `--#RANK`, `--#Q1` .. `--#Q6`, each closed by `--#END`, and each query declaring
+ * what it needs with `needs=BASE,RANK`. This composes them into self-contained
+ * statements under `ops/dune/generated/`.
  *
  * WHY THIS EXISTS
  *
@@ -65,7 +65,7 @@ function sections(sql: string): Map<string, Section> {
 
 const sql = readFileSync(SOURCE, 'utf8');
 const parsed = sections(sql);
-for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4']) {
+for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']) {
   if (!parsed.has(required)) {
     console.error(`${SOURCE} is missing section ${required}`);
     process.exit(1);
@@ -114,7 +114,7 @@ function stripTerminator(text: string): string {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const composed = new Map<string, string>();
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']) {
   const text = stripTerminator(compose(parsed.get(name) as Section));
   composed.set(name, text);
   const path = `${OUT_DIR}/${name.toLowerCase()}.sql`;
@@ -157,6 +157,8 @@ const NAMES: Record<string, string> = {
   Q2: 'epitaxy · wallet persistence · Q2 fit ranking and disappearance',
   Q3: 'epitaxy · wallet persistence · Q3 holdout panel export',
   Q4: 'epitaxy · wallet persistence · Q4 token forward return by cohort',
+  Q5: 'epitaxy · phase C · Q5 copier return by lag',
+  Q6: 'epitaxy · phase C · Q6 rotation or death',
 };
 
 const ids: Record<string, number> = existsSync(ID_MAP)
@@ -178,7 +180,7 @@ const call = async (path: string, method: string, body: unknown): Promise<{ stat
   return { status: res.status, json };
 };
 
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']) {
   const text = composed.get(name) as string;
   const existing = ids[name];
   if (existing !== undefined) {

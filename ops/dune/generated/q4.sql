@@ -35,6 +35,31 @@ WITH params AS (
        price. 5 trades and 1 SOL are about OBSERVABILITY and reference no return. */
     5    AS mark_min_trades,
     1.0  AS mark_min_sol,
+    /* PHASE C SELECTIVITY, MT080. top_fraction = 0.10 is 21,123 wallets and a
+       decile cannot be mostly skill: published all-time base rates put roughly
+       0.4% of pump.fun wallets above $10,000 realised and about 0.002% above $1M.
+       These two cuts admit 212 and 2,113 wallets. Availability-driven, chosen from
+       external base rates before any copier return existed, and they cost
+       something real - the per-cell n falls by two orders of magnitude, which
+       makes MT079's power condition binding rather than a formality. 0.10 is not
+       re-run; it stands as reported in H1. */
+    0.001 AS frac_tight,
+    0.01  AS frac_mid,
+    /* PHASE C LAG SWEEP. The copier's entry window is [T+L, T+L+entry_window_s)
+       on the wallet's buy at T; the exit is [T+exit_at_s, T+exit_at_s+exit_window_s).
+       The 60-minute exit is the Phase B convention and is deliberately NOT a new
+       horizon: this phase introduces a new estimand and changing both at once
+       would make the two incomparable. */
+    60   AS entry_window_s,
+    3600 AS exit_at_s,
+    60   AS exit_window_s,
+    /* EXIT WINDOW SENSITIVITY. A 60-second window with no trade in it does not
+       prove a position was unexitable - it proves nothing traded in that
+       particular minute, and H2 became undecidable on exactly this ambiguity. The
+       wide window is 5 minutes from the same t+3600s horizon, so the HORIZON is
+       unchanged and only the granularity moves. It is a sensitivity and never the
+       primary: MT079 is decided on the 60-second window. */
+    300  AS exit_wide_window_s,
     -- PARTITION BOUNDS. `dex_solana.trades` is partitioned on block_date, and a
     -- predicate on block_time alone does not prune partitions — it reads them and
     -- then filters. These must agree with the timestamps above; they are declared
@@ -284,7 +309,17 @@ flagged AS (
   SELECT
     r.*,
     r.rank_by_mean   <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_mean,
-    r.rank_by_median <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_median
+    r.rank_by_median <= CEIL((SELECT top_fraction FROM params) * r.wallets_qualifying) AS top_by_median,
+    -- MT080's sharper cuts, added for Phase C. The 0.10 flags above are untouched
+    -- so that queries 1 to 4 keep returning exactly what H1 and H2 reported: a
+    -- sharper cut is a new arm, not a retrospective edit of a test that has run.
+    -- 0.001 is a strict subset of 0.01, which is a strict subset of 0.10, so a
+    -- position can appear in more than one arm. The arms are reported separately
+    -- and are never summed.
+    r.rank_by_mean   <= CEIL((SELECT frac_tight FROM params) * r.wallets_qualifying) AS top_mean_001,
+    r.rank_by_median <= CEIL((SELECT frac_tight FROM params) * r.wallets_qualifying) AS top_median_001,
+    r.rank_by_mean   <= CEIL((SELECT frac_mid FROM params) * r.wallets_qualifying)   AS top_mean_01,
+    r.rank_by_median <= CEIL((SELECT frac_mid FROM params) * r.wallets_qualifying)   AS top_median_01
   FROM ranked r
 ),
 
