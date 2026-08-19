@@ -106,7 +106,8 @@
 > What would have to be measured to revive it: our own market impact (only the
 > collector's executable quotes can), an exit rule that is **not** the wallet's, the
 > 13.1–55.7% of positions the wallet never closes, and entity-level persistence. H1
-> remains an **address-level** result.
+> remains an **address-level** result. [SUPERSEDED 2026-08-19 by Phase F §3: H1 also holds at ENTITY level,
+> +36.47% [+33.38%, +39.84%], a correction of -0.27 points.]
 >
 > 245 credits this phase against a 400 target; 1,431 of 2,500 cumulative. The reserve
 > mark did not run, correctly — the directive forbids it when the paired difference
@@ -165,7 +166,8 @@
 > one count per cell rather than by gate, so those arms fail the condition rather than
 > passing it and the state is decided on the ungated arm.
 >
-> H1 remains an **address-level** result; the entity-level re-run stays deferred.
+> H1 remains an **address-level** result; the entity-level re-run stays deferred. [SUPERSEDED 2026-08-19 by Phase F §3: H1 also holds at ENTITY level,
+> +36.47% [+33.38%, +39.84%], a correction of -0.27 points.]
 >
 > No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
 
