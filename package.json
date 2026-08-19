@@ -149,7 +149,9 @@
     "token:h2": "tsx scripts/token-forward-return-test.ts",
     "lag:sweep": "tsx scripts/phase-c-lag-sweep.ts",
     "rt:copy": "tsx scripts/phase-d-round-trip.ts",
-    "prop:exit": "tsx scripts/phase-e-proportional.ts"
+    "prop:exit": "tsx scripts/phase-e-proportional.ts",
+    "anchors": "tsx scripts/phase-f-reserve-anchors.ts",
+    "anchors:sql": "tsx scripts/phase-f-validation-sql.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

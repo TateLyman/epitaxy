@@ -473,6 +473,21 @@ interface Observation {
   /** The same entry held a fixed hour instead of exiting at 60m of AGE. */
   fixedHoldReturnSol: number | null;
   censored: boolean;
+  /** The entry had a usable price, so SOME return is computable for this mint. */
+  entryPriced: boolean;
+  /**
+   * Phase F §1 — the censored position MARKED instead of dropped.
+   *
+   * `grossReturnSol` is null when no snapshot lands in the exit window, and the
+   * cell mean is then a mean over survivors: on T1 that is roughly 68 mints of
+   * 1,140. This carries the last price observed after entry and before the exit
+   * window closes, which is the correction D70B4A9A applied at 34.5% censoring.
+   * NULL when even that does not exist, and those are counted separately rather
+   * than folded into either treatment.
+   */
+  carryForwardReturnSol: number | null;
+  /** True when this observation needed the mark, i.e. it was censored and got one. */
+  carryForwardMarked: boolean;
   migratedAtEntry: boolean;
 }
 
@@ -528,6 +543,21 @@ function observe(trigger: Trigger): { fired: Observation[]; firedFit: number; fi
         ? null
         : fixedExit.priceSol / entry.priceSol - 1;
 
+    // Phase F §1: the last price observed after entry and before the exit window
+    // closes. Used only when the exit window itself is empty.
+    let lastMark: Snap | undefined;
+    for (const sn of snaps) {
+      if (sn.age <= entry.age || sn.age > EXIT_HI_MS || sn.priceSol === null) continue;
+      if (lastMark === undefined || sn.age > lastMark.age) lastMark = sn;
+    }
+    const entryPriced = entry.priceSol !== null && entry.priceSol > 0;
+    const carryForward =
+      gross !== null
+        ? gross
+        : !entryPriced || lastMark === undefined
+          ? null
+          : (lastMark.priceSol as number) / (entry.priceSol as number) - 1;
+
     const migratedAt = migratedAtMs.get(mint);
     fired.push({
       mint,
@@ -538,6 +568,9 @@ function observe(trigger: Trigger): { fired: Observation[]; firedFit: number; fi
       grossReturnSol: gross,
       fixedHoldReturnSol: fixedHold,
       censored: exit === undefined,
+      entryPriced,
+      carryForwardReturnSol: carryForward,
+      carryForwardMarked: gross === null && carryForward !== null,
       migratedAtEntry: migratedAt !== undefined && migratedAt <= entry.t,
     });
   }
@@ -603,6 +636,28 @@ interface Cell {
   holdoutUpper: number | null;
   netLowerBound: number | null;
   decidableOnHoldoutLowerBound: boolean;
+  // ---- Phase F §1, the censoring correction. Nothing above this line moves. ----
+  /** Censored share of the cell's fired population: the size of the problem. */
+  censoredFractionHoldout: number | null;
+  /** Censored positions that got a mark, and those with no price after entry at all. */
+  carryForwardMarkedHoldout: number;
+  noMarkAtAllHoldout: number;
+  /** n and mean with censored positions MARKED rather than dropped. */
+  nCarryForward: number;
+  carryForwardMeanHoldout: number | null;
+  netCarryForwardMeanHoldout: number | null;
+  carryForwardLower: number | null;
+  carryForwardUpper: number | null;
+  netCarryForwardLowerBound: number | null;
+  /** n and mean with every censored position at -100%: the harsh bound. */
+  nResidualZero: number;
+  residualZeroMeanHoldout: number | null;
+  netResidualZeroMeanHoldout: number | null;
+  residualZeroLower: number | null;
+  residualZeroUpper: number | null;
+  netResidualZeroLowerBound: number | null;
+  /** True when the as-reported mean, the mark and the -100% bound agree in sign. */
+  correctionAgreesInSign: boolean;
 }
 
 const cells: Cell[] = [];
@@ -723,6 +778,40 @@ for (const trigger of TRIGGERS) {
       }));
     const boot = outcomes.length > 0 ? clusterBootstrap(outcomes, 'UTC_DAY', 1_000) : null;
 
+    /*
+       PHASE F §1 — the same cell under two corrections.
+
+       CARRY FORWARD marks a censored position at the last price observed before
+       the exit window closes. RESIDUAL AT ZERO gives every censored position
+       -100%. The first is what D70B4A9A used; the second is the bound. Both are
+       computed over a LARGER denominator than the as-reported mean, which is the
+       whole point: the as-reported figure is a mean over survivors.
+
+       The direction is not predicted here. Phase E is an argument for measuring
+       this and not a forecast of its result.
+    */
+    const asOutcomes = (rows: readonly { mint: string; day: string; v: number }[]): MintOutcome[] =>
+      rows.map((r) => ({
+        mint: r.mint,
+        utcDay: r.day,
+        logReturn: r.v,
+        netPnlLamports: 0n,
+        catastrophic: false,
+        blockedExit: false,
+      }));
+    const carryRows = bucketHoldout
+      .filter((o) => o.carryForwardReturnSol !== null)
+      .map((o) => ({ mint: o.mint, day: o.day, v: o.carryForwardReturnSol as number }));
+    // -100% is only meaningful where the ENTRY had a price: without one there is
+    // no position to lose, and counting it as a total loss would invent a trade.
+    const zeroRows = bucketHoldout
+      .filter((o) => o.entryPriced)
+      .map((o) => ({ mint: o.mint, day: o.day, v: o.grossReturnSol ?? -1 }));
+    const bootCarry = carryRows.length > 0 ? clusterBootstrap(asOutcomes(carryRows), 'UTC_DAY', 1_000) : null;
+    const bootZero = zeroRows.length > 0 ? clusterBootstrap(asOutcomes(zeroRows), 'UTC_DAY', 1_000) : null;
+    const carryMean = mean(carryRows.map((r) => r.v));
+    const zeroMean = mean(zeroRows.map((r) => r.v));
+
     for (const notionalSol of GRID_SOL) {
       const floor = costFloorPct(tierForFloor, notionalSol);
       const grossMean = mean(returnsHoldout);
@@ -770,6 +859,30 @@ for (const trigger of TRIGGERS) {
         netLowerBound: netLower,
         decidableOnHoldoutLowerBound:
           netLower !== null && netLower > 0 && days !== null && days <= MAX_DECIDABLE_DAYS,
+        censoredFractionHoldout:
+          bucketHoldout.length === 0 ? null : bucketHoldout.filter((o) => o.censored).length / bucketHoldout.length,
+        carryForwardMarkedHoldout: bucketHoldout.filter((o) => o.carryForwardMarked).length,
+        noMarkAtAllHoldout: bucketHoldout.filter((o) => o.censored && o.carryForwardReturnSol === null).length,
+        nCarryForward: carryRows.length,
+        carryForwardMeanHoldout: carryMean,
+        netCarryForwardMeanHoldout: carryMean === null || floor.pct === null ? null : carryMean - floor.pct / 100,
+        carryForwardLower: bootCarry === null || daysSeen < 2 ? null : bootCarry.lower,
+        carryForwardUpper: bootCarry === null || daysSeen < 2 ? null : bootCarry.upper,
+        netCarryForwardLowerBound:
+          bootCarry === null || daysSeen < 2 || floor.pct === null ? null : bootCarry.lower - floor.pct / 100,
+        nResidualZero: zeroRows.length,
+        residualZeroMeanHoldout: zeroMean,
+        netResidualZeroMeanHoldout: zeroMean === null || floor.pct === null ? null : zeroMean - floor.pct / 100,
+        residualZeroLower: bootZero === null || daysSeen < 2 ? null : bootZero.lower,
+        residualZeroUpper: bootZero === null || daysSeen < 2 ? null : bootZero.upper,
+        netResidualZeroLowerBound:
+          bootZero === null || daysSeen < 2 || floor.pct === null ? null : bootZero.lower - floor.pct / 100,
+        correctionAgreesInSign:
+          grossMean !== null &&
+          carryMean !== null &&
+          zeroMean !== null &&
+          Math.sign(grossMean) === Math.sign(carryMean) &&
+          Math.sign(grossMean) === Math.sign(zeroMean),
       });
     }
   }
@@ -956,7 +1069,8 @@ writeFileSync('artifacts/trigger-cells.json', JSON.stringify(artifact, null, 2) 
 
 /** One row per cell examined, per §4.4. */
 const csv: string[] = [
-  'trigger,population,tier_bucket,notional_sol,cost_floor_pct,cost_floor_from_tier,cost_floor_exact,fired_holdout,selectivity_holdout,arrivals_per_day,n_holdout,n_fit,censored_holdout,utc_days_holdout,gross_mean_holdout,gross_mean_fit,sd_holdout,net_mean_holdout,cv_net,required_n,days,decidable_point,holdout_lower,holdout_upper,net_lower_bound,decidable_holdout',
+  'trigger,population,tier_bucket,notional_sol,cost_floor_pct,cost_floor_from_tier,cost_floor_exact,fired_holdout,selectivity_holdout,arrivals_per_day,n_holdout,n_fit,censored_holdout,utc_days_holdout,gross_mean_holdout,gross_mean_fit,sd_holdout,net_mean_holdout,cv_net,required_n,days,decidable_point,holdout_lower,holdout_upper,net_lower_bound,decidable_holdout,' +
+    'censored_fraction,carry_forward_marked,no_mark_at_all,n_carry_forward,carry_forward_mean,net_carry_forward_mean,carry_forward_lower,carry_forward_upper,net_carry_forward_lower,n_residual_zero,residual_zero_mean,net_residual_zero_mean,residual_zero_lower,residual_zero_upper,net_residual_zero_lower,correction_agrees_in_sign',
 ];
 const f = (v: number | null): string => (v === null ? '' : String(v));
 for (const c of cells) {
@@ -988,6 +1102,22 @@ for (const c of cells) {
       f(c.holdoutUpper),
       f(c.netLowerBound),
       c.decidableOnHoldoutLowerBound,
+      f(c.censoredFractionHoldout),
+      c.carryForwardMarkedHoldout,
+      c.noMarkAtAllHoldout,
+      c.nCarryForward,
+      f(c.carryForwardMeanHoldout),
+      f(c.netCarryForwardMeanHoldout),
+      f(c.carryForwardLower),
+      f(c.carryForwardUpper),
+      f(c.netCarryForwardLowerBound),
+      c.nResidualZero,
+      f(c.residualZeroMeanHoldout),
+      f(c.netResidualZeroMeanHoldout),
+      f(c.residualZeroLower),
+      f(c.residualZeroUpper),
+      f(c.netResidualZeroLowerBound),
+      c.correctionAgreesInSign,
     ].join(','),
   );
 }

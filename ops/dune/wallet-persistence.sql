@@ -1930,3 +1930,168 @@ GROUP BY 1, 2, 3, 4
 ORDER BY 2, 3, 4, 1;
 
 --#END
+
+-- ############################################################################
+-- QUERY 10 — PHASE F §3, H1 AT ENTITY LEVEL
+--
+-- H1 has been an ADDRESS-level result since PR #58, and the entity-level re-run has
+-- been deferred three times: Phase C ran out of its credit ceiling, Phase D never
+-- reached it, Phase E was closed on condition 5 before it mattered. MT082 measured
+-- rotation at 4.5-5.3% fresh-address and 12-16% loose, flat across deciles, and said
+-- explicitly that the direction and size of any correction is UNKNOWN because a
+-- successor's activity level was never measured.
+--
+-- This measures it. A vanished flagged wallet that sent SOL to an address which then
+-- traded is stitched to that address as one entity, and the holdout positions of the
+-- successor are attributed to the PREDECESSOR's cohort. Successors have no fit
+-- history, so today their positions are in neither H1 cohort - they are invisible to
+-- the estimate rather than pulling it in either direction.
+--
+-- THIS IS A CORRECTION, NOT A SECOND TEST OF H1. It re-uses H1's own window and its
+-- own ranking, so it cannot confirm H1; it can only say how much the address-level
+-- estimate moves when the population is defined by operator instead of by address.
+-- The share of POSITIONS the successors contribute is reported beside the share of
+-- wallets, because that is the quantity MT082 flagged as missing and it is what
+-- decides whether the correction can matter at all.
+--
+-- ONE SCAN OF sol_transfers. That table is not partition-prunable by a wallet set
+-- and cost 218 credits in Phase C, so the edge list and the entity panel are built
+-- in a single query rather than two.
+--
+-- WHAT IT STILL CANNOT SEE, unchanged from MT082: a rotation funded from a third
+-- address, one through a CEX or a mixer, an operator running addresses concurrently,
+-- and a successor trading outside the two projects. Every one is a MISSED stitch, so
+-- the correction measured here is a floor on the correction available.
+-- ############################################################################
+
+--#Q10 needs=BASE,RANK
+,
+vanished AS (
+  SELECT ha.trader_id, ha.fit_decile, ha.top_by_mean, ha.top_by_median
+  FROM holdout_activity ha
+  WHERE ha.n_hold = 0
+),
+
+/* Outbound native SOL from a vanished flagged wallet. The 0.05 floor is the same
+   one MT082 froze: a wallet closing token accounts emits a tail of dust, and a
+   rotation moves a working balance. */
+outflows AS (
+  SELECT
+    t.from_owner          AS predecessor,
+    t.to_owner            AS successor,
+    SUM(t.amount_display) AS sol_moved,
+    MIN(t.block_time)     AS first_move
+  FROM tokens_solana.sol_transfers t
+  JOIN vanished v ON v.trader_id = t.from_owner
+  CROSS JOIN params p
+  WHERE t.block_date >= DATE '2026-07-08'
+    AND t.block_date <= p.hold_end_date
+    AND t.block_time <  p.hold_end
+    AND t.to_owner <> t.from_owner
+    AND t.amount_display >= 0.05
+  GROUP BY 1, 2
+),
+
+/* A successor is an address that traded AFTER receiving, and that had never traded
+   before receiving. The second clause is what makes it a fresh identity rather than
+   an existing trader who happened to be paid. */
+successor_first_trade AS (
+  SELECT w.trader_id, MIN(w.block_time) AS first_trade_ever
+  FROM windowed w
+  GROUP BY 1
+),
+
+edges AS (
+  SELECT
+    o.predecessor,
+    o.successor,
+    o.sol_moved,
+    o.first_move
+  FROM outflows o
+  JOIN successor_first_trade s ON s.trader_id = o.successor
+  WHERE s.first_trade_ever > o.first_move
+),
+
+/* One predecessor per successor. A successor funded by two vanished wallets is
+   assigned to the LARGER transfer, deterministically, rather than double counted
+   into both cohorts. */
+entity_map AS (
+  SELECT
+    e.successor,
+    e.predecessor
+  FROM (
+    SELECT
+      e.*,
+      ROW_NUMBER() OVER (PARTITION BY e.successor ORDER BY e.sol_moved DESC, e.predecessor) AS rn
+    FROM edges e
+  ) e
+  WHERE e.rn = 1
+),
+
+/* Every holdout position, attributed to an ENTITY.
+   - a flagged wallet's own position keeps its own cohort;
+   - a successor's position takes its predecessor's cohort;
+   - anything else stays out, exactly as in H1. */
+entity_positions AS (
+  SELECT
+    CAST(pp.first_buy AS DATE)                                  AS utc_day,
+    pp.entry_project,
+    pp.trader_id,
+    pp.ret_carryfwd,
+    pp.ret_zero,
+    pp.sol_in,
+    pp.is_closed,
+    pp.unmarkable,
+    pp.external_inflow,
+    pp.below_min_size,
+    NOT pp.external_inflow AND NOT pp.below_min_size AND pp.ret_carryfwd IS NOT NULL AS keep,
+    COALESCE(fown.top_by_mean, fpred.top_by_mean)               AS top_by_mean,
+    COALESCE(fown.top_by_median, fpred.top_by_median)           AS top_by_median,
+    fown.trader_id IS NOT NULL                                  AS is_own,
+    em.predecessor IS NOT NULL AND fown.trader_id IS NULL       AS is_successor
+  FROM position_pnl pp
+  LEFT JOIN flagged fown ON fown.trader_id = pp.trader_id
+  LEFT JOIN entity_map em ON em.successor = pp.trader_id
+  LEFT JOIN flagged fpred ON fpred.trader_id = em.predecessor
+  WHERE pp.window_tag = 'HOLD'
+    AND (fown.trader_id IS NOT NULL OR em.predecessor IS NOT NULL)
+)
+
+SELECT
+  ep.utc_day,
+  CASE
+    WHEN ep.top_by_median AND ep.top_by_mean THEN 'TOP_BOTH'
+    WHEN ep.top_by_median                    THEN 'TOP_MEDIAN_ONLY'
+    WHEN ep.top_by_mean                      THEN 'TOP_MEAN_ONLY'
+    ELSE 'REST_NEITHER'
+  END                                                           AS cohort,
+  ep.entry_project,
+  -- The same columns query 3 returned, so the entity-level difference is computed by
+  -- the same offline machinery and the two are comparable line for line.
+  COUNT(*)                                                      AS n_all,
+  COUNT_IF(ep.external_inflow)                                  AS n_external_inflow,
+  COUNT_IF(ep.below_min_size)                                   AS n_below_min_size,
+  COUNT_IF(ep.unmarkable)                                       AS n_unmarkable,
+  COUNT(DISTINCT ep.trader_id)                                  AS wallets,
+  COUNT_IF(ep.keep)                                             AS n,
+  SUM(IF(ep.keep, ep.ret_carryfwd, 0e0))                        AS sum_ret,
+  SUM(IF(ep.keep, ep.ret_carryfwd * ep.ret_carryfwd, 0e0))      AS sum_ret_sq,
+  SUM(IF(ep.keep, ep.ret_zero, 0e0))                            AS sum_ret_zero,
+  COUNT_IF(ep.keep AND ep.ret_carryfwd > 0)                     AS n_positive,
+  SUM(IF(ep.keep, ep.sol_in, 0e0))                              AS sum_sol_in,
+  SUM(IF(ep.keep, ep.ret_carryfwd * ep.sol_in, 0e0))            AS sum_ret_times_sol_in,
+  APPROX_PERCENTILE(IF(ep.keep, ep.ret_carryfwd, NULL), 0.5)    AS median_ret,
+  COUNT_IF(ep.keep AND ep.is_closed)                            AS n_closed,
+  SUM(IF(ep.keep AND ep.is_closed, ep.ret_carryfwd, 0e0))       AS sum_ret_closed,
+  SUM(IF(ep.keep AND ep.is_closed, ep.sol_in, 0e0))             AS sum_sol_in_closed,
+  -- THE QUANTITY MT082 SAID WAS MISSING: how much of the panel is successors.
+  COUNT_IF(ep.is_successor)                                     AS n_all_successor,
+  COUNT_IF(ep.keep AND ep.is_successor)                         AS n_successor,
+  SUM(IF(ep.keep AND ep.is_successor, ep.ret_carryfwd, 0e0))    AS sum_ret_successor,
+  SUM(IF(ep.keep AND ep.is_successor, ep.ret_carryfwd * ep.ret_carryfwd, 0e0)) AS sum_ret_sq_successor,
+  COUNT(DISTINCT IF(ep.is_successor, ep.trader_id, NULL))       AS wallets_successor
+FROM entity_positions ep
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
+
+--#END
