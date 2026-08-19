@@ -48,7 +48,9 @@ router budget 22,511.
 
 ```text
 starting  d8ede90a70afaf6efe6d5e606700eb27fb8512c0   (master, clean)
-ending    d4ecb68e03e8dcaed5303e73335483122202597b   (directive/d70b4a9a-measurement-power)
+last code d4ecb68e03e8dcaed5303e73335483122202597b   (directive/d70b4a9a-measurement-power)
+ending    the commit that lands this file, which cannot state its own hash;
+          `git log --oneline d8ede90..HEAD` prints the six below plus it
 
 34c7d5d  Land the measurement-power directive, with the two blocks its PDF lost marked as lost
 a162b10  0.02 SOL is 2 bps off the cheapest notional, not the maximum of the cost curve
