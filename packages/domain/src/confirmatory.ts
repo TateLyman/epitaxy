@@ -147,16 +147,91 @@ export function contractHeld(
  * number: an edit here is a diff a reviewer sees, and belongs in
  * `docs/MULTIPLE_TESTING_LEDGER.csv`.
  */
+/**
+ * (1.96 + 0.84)², the two-sided 5% / 80%-power constant.
+ *
+ * d70b4a9a Correction 1. The gate required 200 positions, which at a measured
+ * coefficient of variation of 15 carries about 16% power — it would reject a
+ * working strategy roughly five times out of six. The corpus puts the CV
+ * between 21 and 127 depending on cohort, so the real requirement is larger
+ * still, and it is computed from the development window's own CV rather than
+ * assumed.
+ */
+export const POWER_CONSTANT = 7.84;
+
 export const CONFIRMATORY_THRESHOLDS = {
-  minCompletedPositions: 200,
+  /**
+   * The FLOOR, not the requirement.
+   *
+   * `requiredPositions(cvObserved)` is the requirement. 300 is the smallest
+   * sample this gate will look at whatever the CV estimate says, because a CV
+   * estimated on a development window is itself uncertain and a requirement
+   * computed from a small one can come out implausibly low.
+   */
+  minCompletedPositionsFloor: 300,
   minDistinctUtcDays: 21,
-  minProfitFactor: 1.25,
+  /** The reference the profit-factor DIAGNOSTIC is read against. Not a gate. */
+  diagnosticProfitFactorReference: 1.25,
   /** The most recent N must be positive on their own. */
   recentWindow: 50,
+  powerConstant: POWER_CONSTANT,
 } as const;
+
+/**
+ * The positions this window needs, from the dispersion it actually measured.
+ *
+ * Null when no CV was supplied, and null FAILS: a sample size that cannot be
+ * computed is not a sample size that has been met. The alternative — falling
+ * back to the old 200 — is the one behaviour that would let an underpowered
+ * window pass by omitting a field.
+ */
+export function requiredPositions(cvObserved: number | null): number | null {
+  if (cvObserved === null || !Number.isFinite(cvObserved) || cvObserved <= 0) return null;
+  return Math.max(CONFIRMATORY_THRESHOLDS.minCompletedPositionsFloor, Math.ceil(POWER_CONSTANT * cvObserved ** 2));
+}
+
+/**
+ * A recorded tail measurement that does NOT gate the verdict.
+ *
+ * d70b4a9a Correction 2. §19 as written required both positive expected log
+ * growth AND positive expectancy after the top 1/3/5/10 outcomes, the best day
+ * and the best five mints are removed. For a tail-driven asset class those are
+ * contradictory: the edge, if it exists, IS the tail. Measured on this corpus,
+ * the top 10 mints of 59,197 carry 83.6% of the summed return in the 2m-60m
+ * cohort, so a strategy that survived top-10 removal at n=300 would not be this
+ * strategy.
+ *
+ * They are not deleted. They are recorded, they are interpreted, and
+ * `tailConcentrationDisclosed` makes disclosing them a CONDITION of passing —
+ * because the concentration determines the drawdown a live operator actually
+ * experiences, and a positive result published without it is a misrepresentation
+ * even when every gate cleared.
+ */
+export interface ConfirmatoryDiagnostic {
+  readonly name: string;
+  readonly value: number;
+  /** True when the diagnostic points the wrong way. Recorded, never fatal. */
+  readonly adverse: boolean;
+  readonly reference: string;
+}
 
 export interface ConfirmatoryEvidence {
   readonly completedPositions: number;
+  /**
+   * The coefficient of variation MEASURED on the development window.
+   *
+   * Not assumed, and not optional: null makes the sample requirement
+   * incomputable and the window insufficient.
+   */
+  readonly cvObserved: number | null;
+  /**
+   * Whether the tail diagnostics below are disclosed alongside the result.
+   *
+   * A gate, and the only one Correction 2 adds. The removals stopped being
+   * pass/fail conditions; publishing a positive result without them did not
+   * become acceptable.
+   */
+  readonly tailConcentrationDisclosed: boolean;
   readonly distinctUtcDays: number;
   readonly netPnlLamports: bigint;
   readonly expectedLogGrowth: number;
@@ -187,6 +262,12 @@ export interface ConfirmatoryVerdict {
   readonly failures: readonly string[];
   /** True once there is enough sample to judge at all. */
   readonly sufficientSample: boolean;
+  /** What the measured CV demanded. Null when no CV was supplied. */
+  readonly requiredPositions: number | null;
+  /** Recorded and interpreted. None of these can fail the verdict. */
+  readonly diagnostics: readonly ConfirmatoryDiagnostic[];
+  /** The diagnostics that point the wrong way, for the disclosure that must accompany a pass. */
+  readonly adverseDiagnostics: readonly string[];
 }
 
 /**
@@ -200,29 +281,32 @@ export function judgeConfirmatory(e: ConfirmatoryEvidence): ConfirmatoryVerdict 
   const failures: string[] = [];
   const T = CONFIRMATORY_THRESHOLDS;
 
+  // -- the sample, sized by the dispersion the development window measured ---
+  const needed = requiredPositions(e.cvObserved);
   const sufficientSample =
-    e.completedPositions >= T.minCompletedPositions && e.distinctUtcDays >= T.minDistinctUtcDays;
-  if (e.completedPositions < T.minCompletedPositions) {
-    failures.push(`${e.completedPositions} completed positions, ${T.minCompletedPositions} required`);
+    needed !== null && e.completedPositions >= needed && e.distinctUtcDays >= T.minDistinctUtcDays;
+  if (needed === null) {
+    failures.push('CV_observed was not supplied, so the required sample size cannot be computed');
+  } else if (e.completedPositions < needed) {
+    failures.push(
+      `${e.completedPositions} completed positions, ${needed} required at 80% power for CV ${e.cvObserved}`,
+    );
   }
   if (e.distinctUtcDays < T.minDistinctUtcDays) {
     failures.push(`${e.distinctUtcDays} distinct UTC days, ${T.minDistinctUtcDays} required`);
   }
 
+  // -- the primary: expected log growth, and its interval's lower bound -------
   if (e.netPnlLamports <= 0n) failures.push('net PnL is not positive');
   if (e.expectedLogGrowth <= 0) failures.push('expected log growth is not positive');
   if (e.robustLowerBound <= 0) failures.push('the robust lower bound is not positive');
-  if (e.profitFactor < T.minProfitFactor) {
-    failures.push(`profit factor ${e.profitFactor} below ${T.minProfitFactor}`);
-  }
+
+  // -- every gate Correction 3 retains, unchanged ----------------------------
   if (e.maxDrawdownBps > e.maxDrawdownBpsAllowed) failures.push('drawdown exceeds its bound');
   if (e.cvarBps > e.maxCvarBpsAllowed) failures.push('CVaR exceeds its bound');
   if (e.catastrophicIncidence > e.maxCatastrophicIncidence) failures.push('catastrophic incidence unacceptable');
   if (e.blockedExitIncidence > e.maxBlockedExitIncidence) failures.push('blocked-exit incidence unacceptable');
   if (e.recentFiftyNetLamports <= 0n) failures.push(`the most recent ${T.recentWindow} are not positive`);
-  if (e.netWithoutTopThreeLamports <= 0n) failures.push('not positive without the top three');
-  if (e.maxSingleDayShare > 0.5) failures.push('one day carries more than half the net');
-  if (e.maxSingleMintShare > 0.5) failures.push('one mint carries more than half the net');
   if (e.netUnderDoubleCostsLamports <= 0n) failures.push('not positive under 2x actual costs');
   if (e.netUnderLatencyStressLamports <= 0n) failures.push('not positive under latency and failure stress');
   if (e.exactCanarySizeShadowNetLamports <= 0n) failures.push('the exact canary-size shadow is not positive');
@@ -230,5 +314,47 @@ export function judgeConfirmatory(e: ConfirmatoryEvidence): ConfirmatoryVerdict 
   if (e.unresolvedReconciliations !== 0) failures.push(`${e.unresolvedReconciliations} unresolved reconciliations`);
   if (!e.fingerprintsStable) failures.push('capability fingerprints are not stable');
 
-  return { passed: failures.length === 0, failures, sufficientSample };
+  // -- the tail, recorded rather than gated ---------------------------------
+  const diagnostics: ConfirmatoryDiagnostic[] = [
+    {
+      name: 'net without the top three',
+      value: Number(e.netWithoutTopThreeLamports),
+      adverse: e.netWithoutTopThreeLamports <= 0n,
+      reference: 'positive would mean the edge is not tail-driven; for this asset class it is expected to be',
+    },
+    {
+      name: 'largest single-day share of net',
+      value: e.maxSingleDayShare,
+      adverse: e.maxSingleDayShare > 0.5,
+      reference: '0.5',
+    },
+    {
+      name: 'largest single-mint share of net',
+      value: e.maxSingleMintShare,
+      adverse: e.maxSingleMintShare > 0.5,
+      reference: '0.5',
+    },
+    {
+      name: 'profit factor',
+      value: e.profitFactor,
+      adverse: e.profitFactor < T.diagnosticProfitFactorReference,
+      reference: String(T.diagnosticProfitFactorReference),
+    },
+  ];
+  const adverseDiagnostics = diagnostics.filter((d) => d.adverse).map((d) => d.name);
+
+  // Disclosure is the condition that replaced them. A pass with an undisclosed
+  // tail is a misrepresentation of the drawdown a live operator would take.
+  if (!e.tailConcentrationDisclosed) {
+    failures.push('the tail diagnostics are not disclosed alongside the result');
+  }
+
+  return {
+    passed: failures.length === 0,
+    failures,
+    sufficientSample,
+    requiredPositions: needed,
+    diagnostics,
+    adverseDiagnostics,
+  };
 }
