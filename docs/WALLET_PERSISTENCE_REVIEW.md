@@ -286,6 +286,32 @@ Whichever way it comes out, the result is `DEVELOPMENT_RECONSTRUCTED` and is an
 
 ## 6 — WHAT TO RUN, IN ORDER
 
+> **EXECUTED 2026-08-19, in this order, for 589.26 of 2,500 monthly credits.**
+> Results and both verdicts: `docs/WALLET_PERSISTENCE_RESULTS.md`. Raw exports:
+> `ops/dune/results/`. Analyses: `pnpm wallet:interval` and `pnpm token:h2`.
+>
+> Step 0 confirmed the schema, so the base block's column names are measured
+> rather than assumed. Step 1 took four iterations and found two instrument
+> defects — dust denominators (mean +36.26, SD 22,566) and per-mint residual marks
+> wrong by 6–7 orders of magnitude — both fixed before any decile was cut, with
+> `min_sol_in`, `mark_min_trades` and `mark_min_sol` frozen in MT078.
+>
+> Step 2's decile table is **not flat**, so the stop condition below did not fire.
+> Its two warnings both landed anyway and are the reason step 3 was run on two
+> cuts: the top decile's vanish rate is the *highest* in the table (36.7–46.6%),
+> and the two rankings disagree about 10,859 of 21,123 wallets.
+>
+> Step 3 was restructured to return per-(day, cohort) **sufficient statistics**
+> rather than the raw panel — 1,680 datapoints instead of ~166M — after
+> establishing that a cluster bootstrap of a mean is a function of (n, sum) alone.
+> `clusterBootstrapAggregated` reproduces `clusterBootstrap(…, 'UTC_DAY')` exactly,
+> asserted by unit test, so the intervals are comparable across phases as intended.
+> H1 **passes on both cuts** and on every adversarial re-cut.
+>
+> Step 4's two tests were applied separately as required. H2 is **undecidable**:
+> the flag is set on 82.6% of mints and the two defensible censoring treatments
+> disagree in sign.
+
 0. **Verify the schema first**, for about one credit:
    `SELECT column_name, data_type FROM information_schema.columns WHERE
    table_schema = 'dex_solana' AND table_name = 'trades'`. This was attempted on

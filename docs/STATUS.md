@@ -1,6 +1,65 @@
 # STATUS
 
-> **2026-08-18 (LATEST) — Phase B, fee tier and conditional mean.
+> **2026-08-19 (LATEST) — wallet persistence, both preregistered hypotheses, RUN.
+> State: `H1_CONFIRMED_H2_UNDECIDABLE_NEITHER_TRADABLE`.**
+>
+> Full account: `docs/WALLET_PERSISTENCE_RESULTS.md` (9 sections).
+>
+> ```
+> pnpm check green: 137 files, 2,076 tests (from 135 / 2,059)
+>
+> H1  top decile minus the rest, holdout mean return per position, day-clustered
+>     95% CI over 30 days, 11.85M positions, 211,225 qualifying wallets:
+>       fit-MEAN cut (preregistered)   +36.74%  [+33.57%, +40.03%]   PASSES
+>       fit-MEDIAN cut (beside it)     +12.67%  [+11.38%, +14.00%]   PASSES
+>     positive on 30 of 30 days; survives closed-positions-only, unmarkable-at
+>     -100%, SOL weighting, both venues, and dropping the best day.
+>
+> H2  flag set on 82.6% of 85,615 mints; outcome censored 77-93%; as-priced
+>     passes both tests and censored-at--100% fails both. NO ANSWER.
+> ```
+>
+> **Wallet performance persists out of sample, strongly, and it is still not
+> tradable.** The return is measured at the WALLET's own fill in the pool it just
+> moved. A copier is behind it by construction, and this apparatus has never
+> measured its own quote-to-land slippage — MT072 UNKNOWN. **+36.74% is the
+> wallet's number, not ours**, and nothing in this dataset converts one into the
+> other.
+>
+> **The followable population turns over by a third to a half per month.** Deciles
+> 1–2 vanish at 36.7%/41.8% (mean cut) and 40.3%/46.6% (median cut) against
+> 8.6–13% at deciles 7–9. The wallets worth copying are the ones most likely to be
+> gone, and *stopped*, *rotated to a fresh address* and *blew up* are one column
+> this data cannot separate.
+>
+> **The two ranking statistics disagree about half the top decile** — 10,859 of
+> 21,123 — and both gradients are monotone. They select different kinds of wallet:
+> +39.09% on a 36.7% win rate against +2.43% on 53.6%. Query 1 found the mean of
+> the reconstructed return contaminated by residual marks on open pumpswap
+> positions, so the preregistered cut is reported *with* the cut a single broken
+> mark cannot move, and they agree.
+>
+> **Three artifact channels were closed and one is still open.** Closed:
+> a ranking that saw the future (the delivered SQL aggregated positions across
+> both windows), a broken mark doing the ranking (closed-only, no marks at all:
+> +17.94%/+13.83%), and differential unmarkability (6–17× worse in the top
+> cohorts; adding every one back at −100% still leaves +32.12%/+10.37%). Open:
+> **external inflow**, 11.13% of TOP_BOTH against 5.98% of the rest, where `sol_in`
+> is not the cost basis so no return exists at all — not conservatively, not
+> adversarially.
+>
+> **H2, the screening version that needs no latency race, is undecidable.** The
+> top decile is 21,123 addresses, the median flagged mint had 80 of them buy in its
+> first 10 minutes, and 77–93% of mints have no exit price because nobody was still
+> trading them. The two defensible censoring treatments disagree in sign. No
+> threshold search follows: a sharper flag is a new hypothesis with its own row.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. The next step
+> is observation, not capital: our own executable quote against a flagged token at
+> the moment the flag fires, which costs nothing but time and is the only thing
+> that closes the gap above.
+
+> **2026-08-18 — Phase B, fee tier and conditional mean.
 > State: `NO_DECIDABLE_CELL`.**
 >
 > Full account: `docs/PHASE_B_REPORT.md` (8 sections).
@@ -52,12 +111,13 @@
 > Both unmodelled costs stay UNKNOWN — quote-to-land slippage and crowding — so
 > **every Phase B figure is an upper bound**, the negative ones included.
 >
-> **Next question, preregistered and not yet run: wallet persistence.** A Dune
-> query set arrived to test whether wallets that traded well in a fit window trade
-> well in a disjoint holdout. Reviewed, corrected and preregistered as MT073-MT075;
-> the corrected SQL is `ops/dune/wallet-persistence.sql` and the review is
-> `docs/WALLET_PERSISTENCE_REVIEW.md`. **UNRUN** — there is no Dune access here and
-> no local substitute: `targeted_flow_events`, the one local table with an actor
+> **Next question, preregistered: wallet persistence.** A Dune query set arrived to
+> test whether wallets that traded well in a fit window trade well in a disjoint
+> holdout. Reviewed, corrected and preregistered as MT073-MT075; the corrected SQL
+> is `ops/dune/wallet-persistence.sql` and the review is
+> `docs/WALLET_PERSISTENCE_REVIEW.md`. **RUN on 2026-08-19** once a key with credits
+> was supplied — see the latest block and `docs/WALLET_PERSISTENCE_RESULTS.md`. It
+> has no local substitute: `targeted_flow_events`, the one local table with an actor
 > column, is empty.
 >
 > Four defects in the delivered version changed an answer. The largest: it

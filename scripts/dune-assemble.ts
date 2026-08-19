@@ -87,16 +87,45 @@ const compose = (q: Section): string => {
   ].join('\n');
 };
 
+/**
+ * Remove the trailing statement terminator.
+ *
+ * DuneSQL wraps the submitted text and rejects a trailing `;` outright:
+ *
+ *   line 220:14: mismatched input ';'. Expecting: … <EOF>
+ *
+ * The source file keeps its semicolons, because it is also read by humans and
+ * pasted into the Dune editor where the terminator is conventional. Stripping it
+ * belongs here, at the boundary where the text becomes an API payload — the same
+ * reason the statement count is asserted here rather than trusted.
+ */
+function stripTerminator(text: string): string {
+  const lines = text.split(NEWLINE);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const code = (lines[i] as string).replace(/--.*$/, '').trimEnd();
+    if (code.length === 0) continue;
+    if (!code.endsWith(';')) break;
+    const at = (lines[i] as string).lastIndexOf(';');
+    lines[i] = (lines[i] as string).slice(0, at) + (lines[i] as string).slice(at + 1);
+    break;
+  }
+  return lines.join(NEWLINE);
+}
+
 mkdirSync(OUT_DIR, { recursive: true });
 const composed = new Map<string, string>();
 for (const name of ['Q1', 'Q2', 'Q3', 'Q4']) {
-  const text = compose(parsed.get(name) as Section);
+  const text = stripTerminator(compose(parsed.get(name) as Section));
   composed.set(name, text);
   const path = `${OUT_DIR}/${name.toLowerCase()}.sql`;
   writeFileSync(path, text.endsWith('\n') ? text : `${text}\n`);
   // Count EXECUTABLE statements: strip line comments first, because the
   // generated header is a comment and a naive split counts it as a fragment.
+  // Strip BLOCK comments before line comments. A `;` inside a /* … */ block is
+  // not a statement terminator, and counting it as one refused a valid query —
+  // the per-day panel note in Q3 contains a semicolon in prose.
   const bare = text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split(NEWLINE)
     .map((l) => l.replace(/--.*$/, ''))
     .join(NEWLINE);

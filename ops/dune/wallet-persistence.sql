@@ -68,7 +68,34 @@ WITH params AS (
     -- 2 x (5,000 base + 1,047 priority) lamports, measured in D70B4A9A §1.1.
     0.000012094 AS fixed_cost_sol,
     -- The tier-0 round-trip floor, for query 4 only, where we do the trading.
-    0.0269 AS round_trip_floor
+    0.0269 AS round_trip_floor,
+    /* MINIMUM POSITION SIZE. Frozen 2026-08-19, before query 2 ran, after query 1
+       showed the mean was not estimable without it.
+       ret = (sol_out + residual - sol_in) / sol_in is a ratio with an unbounded
+       denominator: query 1 measured a median sol_in of 0.0214 SOL on holdout
+       pumpswap positions, and the dust tail below that drove mean_carryfwd to
+       +36.26 with an SD of 22,566 while the MEDIAN sat at a sane -0.2567. The
+       same denominator made `mean_net_of_our_fixed_cost` -11.16, because
+       12,094 lamports over a 1e-6 SOL position is a cost fraction of 12.
+       0.01 SOL is not fitted to anything here: it is the notional at which
+       D70B4A9A measured this system's own cost floor to be minimised, and below
+       it our fixed costs alone exceed 13 bps of notional. No return was consulted
+       to choose it. The excluded count is reported so the exclusion is visible. */
+    0.01 AS min_sol_in,
+    /* MARK LIQUIDITY. Frozen 2026-08-19 with min_sol_in, for the reason set out
+       at edge_vwap: a mark from a final hour with one dust trade in it is not a
+       price. 5 trades and 1 SOL are about OBSERVABILITY and reference no return. */
+    5    AS mark_min_trades,
+    1.0  AS mark_min_sol,
+    -- PARTITION BOUNDS. `dex_solana.trades` is partitioned on block_date, and a
+    -- predicate on block_time alone does not prune partitions — it reads them and
+    -- then filters. These must agree with the timestamps above; they are declared
+    -- here rather than inlined so that a reader can see the two side by side.
+    -- Verified against information_schema on 2026-08-19: block_date is a date and
+    -- block_month a date, both present.
+    DATE '2026-05-01' AS lookback_start_date,
+    DATE '2026-06-01' AS fit_start_date,
+    DATE '2026-08-15' AS hold_end_date
 ),
 
 legs AS (
@@ -96,9 +123,17 @@ legs AS (
   FROM dex_solana.trades t
   CROSS JOIN params p
   WHERE t.project IN ('pumpdotfun', 'pumpswap')
+    -- Partition prune first, then the exact instant.
+    AND t.block_date >= p.fit_start_date
+    AND t.block_date <= p.hold_end_date
     AND t.block_time >= p.fit_start
     AND t.block_time <  p.hold_end
     AND (t.token_bought_mint_address = p.wsol OR t.token_sold_mint_address = p.wsol)
+    -- ...but not BOTH. A WSOL/WSOL row makes `mint` resolve to WSOL, which then
+    -- carries a mark of about 1 SOL per "token" and a residual of WSOL held.
+    -- One of the twelve largest returns in the FIT pumpswap tail was exactly
+    -- this, marked at 1.0100 SOL per unit.
+    AND NOT (t.token_bought_mint_address = p.wsol AND t.token_sold_mint_address = p.wsol)
     AND t.token_bought_amount > 0
     AND t.token_sold_amount   > 0
 ),
@@ -116,17 +151,38 @@ window_edge AS (
   CROSS JOIN params p
 ),
 
+/*
+   A MARK IS A MEASUREMENT AND AN UNMEASURABLE ONE IS NOT A VALUE.
+
+   The first run of query 1 returned mean_carryfwd = +37.91 with an SD of 21,827
+   on FIT pumpswap while the median sat at -0.2334. The diagnostic (12 largest
+   returns, every component) attributed all of it to the residual MARK: positions
+   that paid 2.8e-11 SOL a token and were marked at 0.00064, or paid 1.1e-7 and
+   were marked at 3.39 — six to seven orders of magnitude apart inside one window,
+   which is not a price move. The same wrong mark recurred across five positions,
+   so it is per-mint, and it comes from a final hour with almost nothing in it.
+
+   So the mark window must be liquid to produce a mark: at least
+   `mark_min_trades` trades and `mark_min_sol` of volume. These are availability
+   thresholds, not tuning knobs — they are about whether a price was observed at
+   all, and they are deliberately NOT a bound on how far the price may have moved.
+   A cap on the move would discard exactly the genuine winners this project has
+   repeatedly found to be the whole tail.
+*/
 edge_vwap AS (
   SELECT
     w.window_tag,
     w.mint,
     SUM(w.sol_amount)   AS sol_sum,
-    SUM(w.token_amount) AS tok_sum
+    SUM(w.token_amount) AS tok_sum,
+    COUNT(*)            AS mark_trades
   FROM windowed w
   JOIN window_edge e ON e.window_tag = w.window_tag
   WHERE w.block_time >= e.edge - INTERVAL '60' MINUTE
   GROUP BY 1, 2
   HAVING SUM(w.token_amount) > 0
+     AND COUNT(*) >= (SELECT mark_min_trades FROM params)
+     AND SUM(w.sol_amount) >= (SELECT mark_min_sol FROM params)
 ),
 
 edge_last AS (
@@ -142,6 +198,7 @@ edge_last AS (
       ) AS rn
     FROM windowed w
     WHERE w.token_amount > 0
+      AND w.sol_amount >= (SELECT mark_min_sol FROM params)
   ) x
   WHERE rn = 1
 ),
@@ -150,7 +207,8 @@ mark_price AS (
   SELECT
     COALESCE(v.window_tag, l.window_tag) AS window_tag,
     COALESCE(v.mint, l.mint)             AS mint,
-    COALESCE(v.sol_sum / NULLIF(v.tok_sum, 0), l.sol_per_token) AS sol_per_token
+    COALESCE(v.sol_sum / NULLIF(v.tok_sum, 0), l.sol_per_token) AS sol_per_token,
+    COALESCE(v.mark_trades, 1)                                  AS mark_trades
   FROM edge_vwap v
   FULL OUTER JOIN edge_last l
     ON l.window_tag = v.window_tag AND l.mint = v.mint
@@ -197,6 +255,7 @@ positions AS (
      AND MIN(CASE WHEN w.side = 'BUY' THEN w.block_time END) IS NOT NULL
 ),
 
+
 position_pnl AS (
   SELECT
     pos.window_tag,
@@ -216,13 +275,21 @@ position_pnl AS (
     -- airdrop. Its sol_out is then partly proceeds from tokens never paid for,
     -- which overstates the return. Flagged and clamped, never silently summed.
     pos.tok_sold > 1.01 * pos.tok_bought                 AS external_inflow,
+    pos.sol_in < (SELECT min_sol_in FROM params)         AS below_min_size,
     GREATEST(pos.tok_bought - pos.tok_sold, 0)
       * COALESCE(mp.sol_per_token, 0)                    AS residual_value,
     pos.tok_sold >= 0.99 * pos.tok_bought                AS is_closed,
+    -- An open position whose mark is unavailable. `COALESCE(mark, 0)` used to
+    -- turn that into a -100% return silently, which is the harsh half of the
+    -- choice the delivered file's own comment warned about.
     mp.sol_per_token IS NULL AND pos.tok_sold < 0.99 * pos.tok_bought AS unmarkable,
-    -- primary: residual marked at the window-edge price
-    (pos.sol_out + GREATEST(pos.tok_bought - pos.tok_sold, 0) * COALESCE(mp.sol_per_token, 0)
-       - pos.sol_in) / NULLIF(pos.sol_in, 0)             AS ret_carryfwd,
+    -- primary: residual marked at the window-edge price, and NULL — not a
+    -- zero-marked -100% — when there is no mark to use.
+    CASE
+      WHEN mp.sol_per_token IS NULL AND pos.tok_sold < 0.99 * pos.tok_bought THEN NULL
+      ELSE (pos.sol_out + GREATEST(pos.tok_bought - pos.tok_sold, 0) * COALESCE(mp.sol_per_token, 0)
+             - pos.sol_in) / NULLIF(pos.sol_in, 0)
+    END                                                  AS ret_carryfwd,
     -- sensitivity: residual worth nothing
     (pos.sol_out - pos.sol_in) / NULLIF(pos.sol_in, 0)   AS ret_zero,
     -- D2: OUR fixed cost only. The AMM fee and the impact are already inside
@@ -241,21 +308,32 @@ position_pnl AS (
 SELECT
   window_tag,
   entry_project,
-  COUNT(*)                                                       AS positions,
-  COUNT(DISTINCT trader_id)                                      AS wallets,
-  COUNT(DISTINCT mint)                                           AS mints,
-  AVG(CASE WHEN is_closed        THEN 1.0 ELSE 0.0 END)           AS closed_share,
-  AVG(CASE WHEN external_inflow  THEN 1.0 ELSE 0.0 END)           AS external_inflow_share,
-  AVG(CASE WHEN unmarkable       THEN 1.0 ELSE 0.0 END)           AS unmarkable_share,
-  AVG(CASE WHEN projects_touched > 1 THEN 1.0 ELSE 0.0 END)       AS spans_both_venues_share,
-  APPROX_PERCENTILE(ret_carryfwd, 0.10)                          AS p10,
-  APPROX_PERCENTILE(ret_carryfwd, 0.50)                          AS median,
-  APPROX_PERCENTILE(ret_carryfwd, 0.90)                          AS p90,
-  AVG(ret_carryfwd)                                              AS mean_carryfwd,
-  AVG(ret_zero)                                                  AS mean_zero_marked,
-  AVG(ret_carryfwd - fixed_cost_fraction)                         AS mean_net_of_our_fixed_cost,
-  STDDEV(ret_carryfwd)                                           AS sd,
-  APPROX_PERCENTILE(sol_in, 0.50)                                AS median_sol_in
+  COUNT(*)                                                        AS positions_all,
+  SUM(CASE WHEN below_min_size THEN 1 ELSE 0 END)                 AS below_min_size,
+  AVG(CASE WHEN below_min_size THEN 1e0 ELSE 0e0 END)             AS below_min_size_share,
+  COUNT_IF(NOT below_min_size)                                    AS positions,
+  COUNT(DISTINCT CASE WHEN NOT below_min_size THEN trader_id END) AS wallets,
+  COUNT(DISTINCT CASE WHEN NOT below_min_size THEN mint END)      AS mints,
+  -- Every share below is a DOUBLE. As decimal literals these came back
+  -- quantised to one decimal place, because Trino's AVG over decimal(2,1)
+  -- returns decimal(38,1): closed_share read exactly '0.9' on 24,009,833 rows.
+  AVG(CASE WHEN is_closed        AND NOT below_min_size THEN 1e0 ELSE 0e0 END) AS closed_share,
+  AVG(CASE WHEN external_inflow  AND NOT below_min_size THEN 1e0 ELSE 0e0 END) AS external_inflow_share,
+  AVG(CASE WHEN unmarkable       AND NOT below_min_size THEN 1e0 ELSE 0e0 END) AS unmarkable_share,
+  AVG(CASE WHEN projects_touched > 1 AND NOT below_min_size THEN 1e0 ELSE 0e0 END) AS spans_both_venues_share,
+  -- The statistics, on positions at or above the frozen minimum.
+  APPROX_PERCENTILE(CASE WHEN NOT below_min_size THEN ret_carryfwd END, 0.10) AS p10,
+  APPROX_PERCENTILE(CASE WHEN NOT below_min_size THEN ret_carryfwd END, 0.50) AS median,
+  APPROX_PERCENTILE(CASE WHEN NOT below_min_size THEN ret_carryfwd END, 0.90) AS p90,
+  AVG(CASE WHEN NOT below_min_size THEN ret_carryfwd END)         AS mean_carryfwd,
+  AVG(CASE WHEN NOT below_min_size THEN ret_zero END)             AS mean_zero_marked,
+  AVG(CASE WHEN NOT below_min_size THEN ret_carryfwd - fixed_cost_fraction END) AS mean_net_of_our_fixed_cost,
+  STDDEV(CASE WHEN NOT below_min_size THEN ret_carryfwd END)      AS sd,
+  APPROX_PERCENTILE(CASE WHEN NOT below_min_size THEN sol_in END, 0.50) AS median_sol_in,
+  -- And the same mean over EVERYTHING, so the effect of the minimum is visible
+  -- in the same row rather than inferred between two runs.
+  AVG(ret_carryfwd)                                               AS mean_carryfwd_unfiltered,
+  STDDEV(ret_carryfwd)                                            AS sd_unfiltered
 FROM position_pnl
 WHERE NOT external_inflow
 GROUP BY 1, 2
@@ -294,10 +372,11 @@ fit_wallets AS (
     STDDEV(pp.ret_carryfwd)                   AS sd_fit,
     SUM(pp.sol_in)                            AS sol_deployed_fit,
     APPROX_PERCENTILE(pp.sol_in, 0.5)         AS median_sol_in_fit,
-    AVG(CASE WHEN pp.entry_project = 'pumpswap' THEN 1.0 ELSE 0.0 END) AS amm_entry_share
+    AVG(CASE WHEN pp.entry_project = 'pumpswap' THEN 1e0 ELSE 0e0 END) AS amm_entry_share
   FROM position_pnl pp
   WHERE pp.window_tag = 'FIT'
     AND NOT pp.external_inflow
+    AND NOT pp.below_min_size
   GROUP BY 1
   HAVING COUNT(*) >= (SELECT min_positions_fit FROM params)
 ),
@@ -342,6 +421,7 @@ holdout_activity AS (
     ON pp.trader_id = f.trader_id
    AND pp.window_tag = 'HOLD'
    AND NOT pp.external_inflow
+   AND NOT pp.below_min_size
   GROUP BY 1, 2, 3, 4, 5, 6
 )
 
@@ -353,7 +433,7 @@ SELECT
   AVG(mean_ret_fit)                                            AS avg_fit_return,
   AVG(median_ret_fit)                                          AS avg_fit_median,
   SUM(CASE WHEN n_hold = 0 THEN 1 ELSE 0 END)                  AS vanished,
-  1.0 * SUM(CASE WHEN n_hold = 0 THEN 1 ELSE 0 END) / COUNT(*) AS vanish_rate,
+  1e0 * SUM(CASE WHEN n_hold = 0 THEN 1 ELSE 0 END) / COUNT(*) AS vanish_rate,
   AVG(CASE WHEN n_hold > 0 THEN mean_ret_hold END)             AS avg_holdout_return,
   AVG(CASE WHEN n_hold > 0 THEN median_ret_hold END)           AS avg_holdout_median,
   AVG(CASE WHEN n_hold > 0 THEN sol_weighted_ret_hold END)     AS avg_holdout_sol_weighted,
@@ -397,27 +477,80 @@ ORDER BY 1;
 
 --#END
 --#Q3 needs=BASE,RANK
+/*
+   PER-DAY SUFFICIENT STATISTICS, not the raw panel.
+
+   A day-clustered bootstrap of a MEAN resamples DAYS with replacement, and the
+   mean over a resampled set of days is SUM(day sums) / SUM(day counts). So the
+   panel it needs is (day, cohort) -> n and sum, not one row per position. The raw
+   panel is ~9M holdout positions at 14 columns; Dune bills on datapoints returned
+   and that export would cost more than the entire monthly allowance while
+   supporting exactly the same interval on the mean.
+
+   What is lost by aggregating: a bootstrap of the MEDIAN, and per-position
+   diagnostics. Both need the raw rows. The medians are reported per day here so
+   their day-to-day spread is still visible, and a raw export remains available by
+   reverting this section — at a cost that must be budgeted deliberately rather
+   than discovered.
+
+   The cohort is cut on the fit MEDIAN. `top_by_mean` is also carried, so the two
+   cuts can be compared on the same panel: query 1 found the mean of ret_carryfwd
+   contaminated by residual marks on open pumpswap positions, and a median cut
+   cannot be moved by one bad mark in a 20-position wallet.
+*/
 SELECT
-  CAST(pp.first_buy AS DATE)                                    AS utc_day,
-  CASE WHEN f.top_by_mean THEN 'TOP_DECILE' ELSE 'REST' END      AS cohort,
+  CAST(pp.first_buy AS DATE)                                     AS utc_day,
+  -- FOUR-WAY, so BOTH decile definitions are recoverable from ONE export.
+  -- MT073 froze the ranking as the MEAN with the median reported beside it, and
+  -- then query 1 found the mean of ret_carryfwd contaminated by residual marks on
+  -- open pumpswap positions. Cutting on the median instead is a measurement-driven
+  -- deviation from a preregistered rule, and the honest way to handle it is to
+  -- report the preregistered cut AND the robust cut from the same panel rather
+  -- than to quietly substitute one for the other:
+  --   top by mean   = TOP_BOTH + TOP_MEAN_ONLY
+  --   top by median = TOP_BOTH + TOP_MEDIAN_ONLY
+  CASE
+    WHEN f.top_by_median AND f.top_by_mean THEN 'TOP_BOTH'
+    WHEN f.top_by_median                   THEN 'TOP_MEDIAN_ONLY'
+    WHEN f.top_by_mean                     THEN 'TOP_MEAN_ONLY'
+    ELSE 'REST_NEITHER'
+  END                                                            AS cohort,
   pp.entry_project,
-  pp.trader_id,
-  pp.mint,
-  pp.first_buy,
-  pp.sol_in,
-  pp.is_closed,
-  pp.external_inflow,
-  pp.unmarkable,
-  pp.ret_carryfwd,
-  pp.ret_zero,
-  pp.ret_carryfwd - pp.fixed_cost_fraction                       AS ret_net_of_our_fixed_cost
-FROM position_pnl pp
+  -- EVERY holdout position, then the exclusions as counts beside the estimate.
+  -- The exclusions are not incidental: if the top cohort loses a different
+  -- FRACTION of its positions to unmarkability than the rest does, the interval
+  -- below is a comparison between two differently-selected populations and the
+  -- gradient can be manufactured entirely by that selection. Filtering in the
+  -- WHERE clause would hide the rate that decides whether the result is real.
+  COUNT(*)                                                       AS n_all,
+  COUNT_IF(pp.external_inflow)                                   AS n_external_inflow,
+  COUNT_IF(pp.below_min_size)                                    AS n_below_min_size,
+  COUNT_IF(pp.unmarkable)                                        AS n_unmarkable,
+  COUNT(DISTINCT pp.trader_id)                                   AS wallets,
+  -- The estimation set: in-scope size, own funding, and a usable mark.
+  COUNT_IF(pp.keep)                                              AS n,
+  SUM(IF(pp.keep, pp.ret_carryfwd, 0e0))                         AS sum_ret,
+  SUM(IF(pp.keep, pp.ret_carryfwd * pp.ret_carryfwd, 0e0))       AS sum_ret_sq,
+  SUM(IF(pp.keep, pp.ret_zero, 0e0))                             AS sum_ret_zero,
+  COUNT_IF(pp.keep AND pp.ret_carryfwd > 0)                      AS n_positive,
+  SUM(IF(pp.keep, pp.sol_in, 0e0))                               AS sum_sol_in,
+  SUM(IF(pp.keep, pp.ret_carryfwd * pp.sol_in, 0e0))             AS sum_ret_times_sol_in,
+  APPROX_PERCENTILE(IF(pp.keep, pp.ret_carryfwd, NULL), 0.5)     AS median_ret,
+  -- CLOSED-ONLY subset, sold >= 99% of what was bought, so its return contains
+  -- no mark at all. This is the subset that answers the second way the gradient
+  -- could be an artifact: ranking wallets on a return that depends on a mark
+  -- would rank wallets by how they EXIT, and exit style persists across windows
+  -- without any skill being involved. If the difference survives here it is not
+  -- a marking artifact, and if it does not survive that is the finding.
+  COUNT_IF(pp.keep AND pp.is_closed)                             AS n_closed,
+  SUM(IF(pp.keep AND pp.is_closed, pp.ret_carryfwd, 0e0))        AS sum_ret_closed,
+  SUM(IF(pp.keep AND pp.is_closed, pp.sol_in, 0e0))              AS sum_sol_in_closed
+FROM (SELECT *, NOT external_inflow AND NOT below_min_size AND ret_carryfwd IS NOT NULL AS keep
+      FROM position_pnl) pp
 JOIN flagged f ON f.trader_id = pp.trader_id
 WHERE pp.window_tag = 'HOLD'
-ORDER BY utc_day, cohort;
-
--- Export with external_inflow and unmarkable INCLUDED as columns and filter
--- offline, so the excluded count is visible in the same file as the result.
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
 
 
 -- ############################################################################
@@ -446,6 +579,8 @@ mint_first_seen AS (
   FROM dex_solana.trades t
   CROSS JOIN params p
   WHERE t.project IN ('pumpdotfun', 'pumpswap')
+    AND t.block_date >= p.lookback_start_date
+    AND t.block_date <= p.hold_end_date
     AND t.block_time >= p.lookback_start
     AND t.block_time <  p.hold_end
     AND (t.token_bought_mint_address = p.wsol OR t.token_sold_mint_address = p.wsol)
@@ -459,7 +594,8 @@ flagged_mints AS (
   SELECT
     mfs.mint,
     mfs.t0,
-    MAX(CASE WHEN f.top_by_mean THEN 1 ELSE 0 END)         AS top_present,
+    MAX(CASE WHEN f.top_by_mean THEN 1 ELSE 0 END)         AS top_mean_present,
+    MAX(CASE WHEN f.top_by_median THEN 1 ELSE 0 END)        AS top_median_present,
     MAX(CASE WHEN f.trader_id IS NOT NULL THEN 1 ELSE 0 END) AS ranked_present,
     COUNT(DISTINCT l.trader_id)                            AS distinct_early_buyers
   FROM mint_first_seen mfs
@@ -479,9 +615,15 @@ priced AS (
   SELECT
     fm.mint,
     fm.t0,
+    -- Five-way for the same reason query 3 is four-way: the preregistered flag is
+    -- the mean-ranked decile, the robust flag is the median-ranked decile, and one
+    -- export has to answer both. TOP_PRESENT under either definition is a union of
+    -- these categories, taken offline.
     CASE
-      WHEN fm.top_present = 1    THEN 'TOP_PRESENT'
-      WHEN fm.ranked_present = 1 THEN 'RANKED_NOT_TOP'
+      WHEN fm.top_median_present = 1 AND fm.top_mean_present = 1 THEN 'TOP_BOTH'
+      WHEN fm.top_median_present = 1 THEN 'TOP_MEDIAN_ONLY'
+      WHEN fm.top_mean_present = 1   THEN 'TOP_MEAN_ONLY'
+      WHEN fm.ranked_present = 1     THEN 'RANKED_NOT_TOP'
       ELSE 'NO_RANKED_WALLET'
     END                                                       AS cohort,
     fm.distinct_early_buyers,
@@ -507,24 +649,41 @@ priced AS (
   GROUP BY 1, 2, 3, 4
 )
 
+/*
+   PER-DAY SUFFICIENT STATISTICS, for the same reason query 3 emits them: MT074's
+   decision rule is "day-clustered 95% lower bounds", and a bootstrap of a mean
+   over resampled days needs only each day's n and sum. The cluster is the day the
+   MINT first traded, which is what makes two mints born the same hour dependent
+   draws rather than independent ones.
+
+   CENSORING IS RETURNED AS A COUNT, not filtered away. A mint with no trade at
+   all in the t0+70m..t0+72m window has no exit price because nobody was still
+   trading it, which is the single most informative outcome in this dataset and the
+   one an AVG silently drops. Adding those back at -100% is a bound the analysis
+   applies offline; it cannot be applied here, because the level test and the
+   difference test need it applied differently.
+
+   The floor subtraction that was here has moved offline too. It cancels exactly in
+   a difference and it does not cancel in a level, so a single column that has
+   already subtracted it can only be right for one of the two tests.
+*/
 SELECT
+  CAST(t0 AS DATE)                                                AS utc_day,
   cohort,
   amm_at_entry,
   COUNT(*)                                                        AS mints,
-  SUM(CASE WHEN exit_px IS NULL THEN 1 ELSE 0 END)                AS censored_no_exit_price,
-  1.0 * SUM(CASE WHEN exit_px IS NULL THEN 1 ELSE 0 END) / COUNT(*) AS censored_share,
-  AVG(exit_px / NULLIF(entry_px, 0) - 1)                          AS mean_fwd_return,
-  APPROX_PERCENTILE(exit_px / NULLIF(entry_px, 0) - 1, 0.5)       AS median_fwd_return,
-  STDDEV(exit_px / NULLIF(entry_px, 0) - 1)                       AS sd_fwd_return,
-  -- D3: the LEVEL test. We would be the one trading here, so the full
-  -- round-trip floor applies to the level even though it cancels in the
-  -- difference between cohorts.
-  AVG(exit_px / NULLIF(entry_px, 0) - 1) - (SELECT round_trip_floor FROM params) AS mean_net_of_floor,
+  COUNT_IF(exit_px IS NULL)                                       AS n_censored,
+  COUNT_IF(exit_px IS NOT NULL)                                   AS n,
+  SUM(IF(exit_px IS NOT NULL, exit_px / entry_px - 1e0, 0e0))     AS sum_ret,
+  SUM(IF(exit_px IS NOT NULL, POWER(exit_px / entry_px - 1e0, 2), 0e0)) AS sum_ret_sq,
+  COUNT_IF(exit_px IS NOT NULL AND exit_px > entry_px)            AS n_positive,
+  APPROX_PERCENTILE(IF(exit_px IS NOT NULL, exit_px / entry_px - 1e0, NULL), 0.5) AS median_ret,
   APPROX_PERCENTILE(distinct_early_buyers, 0.5)                   AS median_early_buyers
 FROM priced
 WHERE entry_px IS NOT NULL
-GROUP BY 1, 2
-ORDER BY 1, 2;
+  AND entry_px > 0
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
 
 --#END
 -- ============================================================================

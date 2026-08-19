@@ -144,7 +144,9 @@
     "window:status": "tsx scripts/valid-window-status.ts",
     "worker:exactness-proof": "tsx scripts/worker-exactness-proof.ts",
     "worker:sequential-proof": "tsx scripts/one-pass-sequential-proof.ts",
-    "wss:status": "tsx scripts/wss-status.ts"
+    "wss:status": "tsx scripts/wss-status.ts",
+    "wallet:interval": "tsx scripts/wallet-persistence-interval.ts",
+    "token:h2": "tsx scripts/token-forward-return-test.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
