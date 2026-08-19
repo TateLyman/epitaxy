@@ -1,0 +1,25 @@
+{
+  "status": "APPLIED",
+  "contextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
+  "validity": "DEVELOPMENT_EVIDENCE",
+  "validityChanged": false,
+  "closedUtcMs": 1787097303489,
+  "trajectoriesByState": [
+    {
+      "state": "AWAITING_FILL_OBSERVATION",
+      "n": 5
+    }
+  ],
+  "unfinishableTrajectories": 5,
+  "reasons": [
+    "entity concentration was unmeasurable because getTokenAccountOwners batched twenty holders against an endpoint that refuses more than five accounts per request",
+    "superseded by the window at the commit that chunks the batch"
+  ],
+  "provenance": {
+    "writer": "window-close.ts",
+    "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
+    "treeDirty": false,
+    "dirtyFiles": 0,
+    "writtenUtc": "2026-08-18T23:55:03.533Z"
+  }
+}

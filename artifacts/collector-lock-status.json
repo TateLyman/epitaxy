@@ -1,16 +1,69 @@
 {
-  "trajectoryProcesses": [],
+  "trajectoryProcesses": [
+    {
+      "pid": 32752,
+      "parentPid": 24732,
+      "createdUtc": "2026-08-18T23:38:20.223Z",
+      "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    },
+    {
+      "pid": 37228,
+      "parentPid": 32752,
+      "createdUtc": "2026-08-18T23:38:20.490Z",
+      "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    },
+    {
+      "pid": 8416,
+      "parentPid": 37228,
+      "createdUtc": "2026-08-18T23:38:20.502Z",
+      "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\lyman\\AppData\\Roaming\\npm/node_modules/npm/bin/npx-cli.js tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    },
+    {
+      "pid": 34024,
+      "parentPid": 8416,
+      "createdUtc": "2026-08-18T23:38:21.183Z",
+      "commandLine": "C:\\WINDOWS\\system32\\cmd.exe /d /s /c tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    },
+    {
+      "pid": 27948,
+      "parentPid": 34024,
+      "createdUtc": "2026-08-18T23:38:21.207Z",
+      "commandLine": "node   \"C:\\Users\\lyman\\tradseee\\node_modules\\.bin\\\\..\\tsx\\dist\\cli.mjs\" apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    },
+    {
+      "pid": 33760,
+      "parentPid": 27948,
+      "createdUtc": "2026-08-18T23:38:21.274Z",
+      "commandLine": "\"C:\\Program Files\\nodejs\\node.exe\" --require C:\\Users\\lyman\\tradseee\\node_modules\\.pnpm\\tsx@4.23.12\\node_modules\\tsx\\dist\\preflight.cjs --import file:///C:/Users/lyman/tradseee/node_modules/.pnpm/tsx@4.23.12/node_modules/tsx/dist/loader.mjs apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300"
+    }
+  ],
+  "trajectoryProcessTrees": [
+    {
+      "rootPid": 32752,
+      "pids": [
+        8416,
+        27948,
+        32752,
+        33760,
+        34024,
+        37228
+      ],
+      "commandLine": "\"C:\\Program Files\\Git\\usr\\bin\\bash.exe\" \"/c/Program Files/nodejs/npx\" tsx apps/collector/src/trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300",
+      "createdUtc": "2026-08-18T23:38:20.223Z"
+    }
+  ],
+  "trajectoryTreeCount": 1,
   "locks": [
     {
       "lock_name": "collector",
       "pid": 1916,
       "hostname": "TATE",
       "acquired_utc_ms": 1787012700211,
-      "heartbeat_utc_ms": 1787080347964,
+      "heartbeat_utc_ms": 1787096621107,
       "mode": "observe",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 18298,
+      "ageMs": 5677,
       "pidAlive": true,
       "program": "apps/collector/src/main.ts"
     },
@@ -23,34 +76,33 @@
       "mode": "paper",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 307719538,
+      "ageMs": 323980060,
       "pidAlive": false,
       "program": "unknown"
     },
     {
       "lock_name": "trajectory_collector",
-      "pid": 31640,
+      "pid": 33760,
       "hostname": "TATE",
-      "acquired_utc_ms": 1787072873090,
-      "heartbeat_utc_ms": 1787080256040,
+      "acquired_utc_ms": 1787096303002,
+      "heartbeat_utc_ms": 1787096618429,
       "mode": "observe",
-      "source_commit": "c3add8bff8044721c316c0559e6103842c25b396",
-      "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe --contract=contract-2572f62959ca05ab --backfill-scan=60 --interval=180",
-      "ageMs": 110222,
-      "pidAlive": false,
+      "source_commit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
+      "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe --contract=contract-623ce9c59e896474 --max-candidates=25 --max-open=5 --interval=300",
+      "ageMs": 8355,
+      "pidAlive": true,
       "program": "apps/collector/src/trajectory-collect.ts"
     }
   ],
   "recentSessions": [],
-  "singleOwner": false,
-  "problems": [
-    "the trajectory_collector lock names a dead pid"
-  ],
+  "lockIsAuthoritative": true,
+  "singleOwner": true,
+  "problems": [],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "2b36eb0c818d85d27f2e635b02773875ec40b23f",
     "treeDirty": true,
-    "dirtyFiles": 7,
-    "writtenUtc": "2026-08-18T19:12:46.858Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-18T23:43:47.157Z"
   }
 }

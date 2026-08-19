@@ -1,4 +1,9 @@
 import { RateLimiter } from '../../adapters/src/ratelimit.js';
+import {
+  SharedEndpointBudget,
+  endpointIdentity,
+  type BudgetDb,
+} from '../../adapters/src/endpoint-budget.js';
 import { SolanaRpc } from './rpc.js';
 
 /**
@@ -19,9 +24,22 @@ export interface ResearchRpc {
   /** Host only. The configured endpoints carry API keys in their query strings. */
   readonly host: string;
   readonly overridden: boolean;
+  /** S079 — false means this process is spending the endpoint quota unobserved. */
+  readonly participatingInSharedBudget: boolean;
 }
 
-export function researchRpc(configured: { rpcHttp: string | null; rpcHttpFallback?: string | null }): ResearchRpc {
+export function researchRpc(
+  configured: { rpcHttp: string | null; rpcHttpFallback?: string | null },
+  /**
+   * S079 — the database that owns the shared endpoint budget.
+   *
+   * Optional, because several research scripts run without one. When it is
+   * absent the returned client reports `participating: false` rather than
+   * quietly behaving as it always did, so "this process is outside the shared
+   * budget" is a visible state instead of the default nobody noticed.
+   */
+  budgetDb?: BudgetDb,
+): ResearchRpc {
   const override = process.env['RPC_ENDPOINT'] ?? null;
   const endpoint = override ?? configured.rpcHttp;
   if (endpoint === null) {
@@ -33,14 +51,24 @@ export function researchRpc(configured: { rpcHttp: string | null; rpcHttpFallbac
   } catch {
     /* an unparseable endpoint still gets used; the host is only for reporting */
   }
+  const budget = budgetDb === undefined ? null : new SharedEndpointBudget(budgetDb);
+
   return {
     // The unkeyed limiter when overriding, because an override is usually a
     // public or borrowed endpoint and hammering one earns a ban, not data.
-    rpc: new SolanaRpc(RateLimiter.fromConfig(override === null), {
-      primary: endpoint,
-      fallback: override === null ? (configured.rpcHttpFallback ?? null) : null,
-    }),
+    rpc: new SolanaRpc(
+      RateLimiter.fromConfig(override === null),
+      {
+        primary: endpoint,
+        fallback: override === null ? (configured.rpcHttpFallback ?? null) : null,
+      },
+      budget,
+      // The URL never leaves this closure. The budget table sees a host and a
+      // digest, so a Helius key in a query string cannot reach the database.
+      (url) => endpointIdentity(url).key,
+    ),
     host,
     overridden: override !== null,
+    participatingInSharedBudget: budget !== null,
   };
 }

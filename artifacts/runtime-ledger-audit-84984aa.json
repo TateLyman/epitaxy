@@ -1,0 +1,686 @@
+{
+  "artifact": "runtime-ledger-audit",
+  "head": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
+  "branch": "directive/5d24e39-ledger-first",
+  "remoteHead": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
+  "unpushedCommits": 0,
+  "treeAtAuditStart": "clean",
+  "activeContractId": "contract-2572f62959ca05ab",
+  "activeContractFrozenAt": "c3add8bff8044721c316c0559e6103842c25b396",
+  "activeEvidenceContextId": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+  "generatedUtcMs": 1787086800000,
+  "corpus": {
+    "path": "data/runtime.db",
+    "bytes": 9130508288,
+    "schemaVersion": 53
+  },
+  "backup": {
+    "path": "data/backups/vacuum-2026-08-18T19-47-03-751Z.db",
+    "bytes": 8878436352,
+    "sha256": "18a7c4103455164be1229854c933b3546dd23a9721a3d3541bd5cc4c7fc32ebb",
+    "integrity": "ok",
+    "foreignKeyViolations": 0,
+    "exposedPositions": 0
+  },
+  "harnessTally": {
+    "ledgerAlone": {
+      "PASS": 40,
+      "FAIL": 1,
+      "NOT_TESTABLE": 7,
+      "OUT_OF_SCOPE": 5,
+      "terminalState": "MEASUREMENT_REPAIR_REQUIRED"
+    },
+    "withGateSidecar": {
+      "PASS": 49,
+      "FAIL": 1,
+      "NOT_TESTABLE": 3,
+      "OUT_OF_SCOPE": 6,
+      "terminalState": "MEASUREMENT_REPAIR_REQUIRED"
+    }
+  },
+  "blockingInActiveContract": [
+    "B-2",
+    "B-3",
+    "B-4",
+    "S-3"
+  ],
+  "findings": [
+    {
+      "id": "B-4",
+      "section": "2,9",
+      "invariant": "the corpus contains marks taken at their horizon rather than backfilled",
+      "verdict": "FAIL",
+      "source": "trajectory_marks.lateness_ms / sla_status, live database, active context",
+      "mutation": "observation",
+      "runtimeRows": {
+        "context": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+        "marks": 167,
+        "missedHorizon": 12,
+        "onTime": 155,
+        "maxLatenessMs": 272938,
+        "slaMs": 10000,
+        "byOffset": {
+          "60000": {
+            "n": 25,
+            "overSla": 2,
+            "over60s": 0,
+            "maxLate": 15111
+          },
+          "180000": {
+            "n": 25,
+            "overSla": 1,
+            "over60s": 1,
+            "maxLate": 75052
+          },
+          "300000": {
+            "n": 25,
+            "overSla": 3,
+            "over60s": 1,
+            "maxLate": 86265
+          },
+          "600000": {
+            "n": 25,
+            "overSla": 1,
+            "over60s": 1,
+            "maxLate": 78189
+          },
+          "900000": {
+            "n": 25,
+            "overSla": 1,
+            "over60s": 1,
+            "maxLate": 85558
+          },
+          "1800000": {
+            "n": 22,
+            "overSla": 0,
+            "over60s": 0,
+            "maxLate": 9677
+          },
+          "3600000": {
+            "n": 20,
+            "overSla": 4,
+            "over60s": 3,
+            "maxLate": 272938
+          }
+        }
+      },
+      "economicConsequence": "a backfilled horizon carries the right label and the wrong instant; the 60m horizon is worst affected and is the horizon the deterioration policy needs in order to differ from the fixed control"
+    },
+    {
+      "id": "B-2",
+      "section": "9",
+      "invariant": "a single --once pass opens a trajectory and writes current database rows",
+      "verdict": "NOT TESTABLE",
+      "source": "live collector startup at HEAD",
+      "mutation": "ten concurrent --once passes",
+      "runtimeRows": {
+        "collectorsStarted": 10,
+        "acquired": 0,
+        "refused": 10,
+        "exitCodes": [
+          3,
+          4
+        ],
+        "trajectoriesOpened": 0
+      },
+      "economicConsequence": "the loop that produces every number in this system is unproven at the checked-out commit"
+    },
+    {
+      "id": "B-3",
+      "section": "9",
+      "invariant": "the same pass continues to later marks and settles at least one policy outcome",
+      "verdict": "NOT TESTABLE",
+      "source": "the --once run's own mark-and-settle pass",
+      "mutation": "not reachable: startup refused",
+      "runtimeRows": {
+        "reason": "contract contract-2572f62959ca05ab frozen at c3add8b, process running 84984aa"
+      },
+      "economicConsequence": "no mark or settlement can be attributed to a pass at HEAD"
+    },
+    {
+      "id": "S-3",
+      "section": "9",
+      "invariant": "the collector was stopped and restarted with open trajectories and resumed correctly",
+      "verdict": "NOT TESTABLE",
+      "source": "live restart",
+      "mutation": "not reachable: startup refused",
+      "runtimeRows": {
+        "openTrajectoriesInContext": 5,
+        "restartAttempted": true,
+        "restartRefused": true
+      },
+      "economicConsequence": "a collector that loses open trajectories on restart cannot produce a real 60 minute mark; S-1 and S-2 evidence resumption historically but not at HEAD"
+    },
+    {
+      "id": "F-02",
+      "section": "3,9",
+      "invariant": "the active contract is stranded by commits that changed no decision-bearing code",
+      "verdict": "FAIL",
+      "source": "collector startup refusal; git diff --name-only c3add8b 84984aa",
+      "mutation": "ten concurrent collector starts",
+      "runtimeRows": {
+        "contract": "contract-2572f62959ca05ab",
+        "frozenAt": "c3add8bff8044721c316c0559e6103842c25b396",
+        "head": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
+        "filesChangedSinceFreeze": 20,
+        "allUnder": [
+          "artifacts/",
+          "docs/"
+        ],
+        "decisionBearingChanges": 0,
+        "refusalsOnContractMismatch": 8,
+        "refusalOnOsLock": 1
+      },
+      "economicConsequence": "no new evidence can be collected at HEAD; B-2, B-3 and S-3 cannot become testable under this contract. The collector binds the contract to the commit SHA although collector-lock.ts already separates OUTPUT_ONLY paths from decision-bearing ones"
+    },
+    {
+      "id": "F-07",
+      "section": "7",
+      "invariant": "a mutation to the corpus must make the row ineligible or fail a hash/identity check",
+      "verdict": "FAIL",
+      "source": "isolated copy: copy-base.db with blob tree relocated and evidence_blobs.relative_path rewritten",
+      "mutation": "fifteen mutations applied one at a time, each followed by trajectory:trace, evidence:graph-check, evidence:blob-check, settlement:check, then reverted",
+      "runtimeRows": {
+        "mutations": 15,
+        "caught": 1,
+        "uncaught": 14,
+        "caughtBy": {
+          "one lamport of payer delta": "trajectory:trace"
+        },
+        "uncaughtList": [
+          "one quote-vault lamport",
+          "one base atom",
+          "fee config bytes",
+          "Clock",
+          "transfer fee",
+          "rent recovery",
+          "cashback claim",
+          "failed-attempt fee",
+          "snapshot blob",
+          "transaction bytes",
+          "account-plan meta",
+          "worker job ID",
+          "settlement ID",
+          "capability fingerprint"
+        ],
+        "rootCause": "evidence-graph-check.ts:103-113 tests trajectory_evidence_links.entry_settlement_id while joining development_trajectories AS t and never testing t's column",
+        "reproduction": "development_trajectories.entry_settlement_id='set-BOGUS' on 07c58942-777e-4771-927c-9c79224a4071 -> ENTRY_SETTLEMENT_RESOLVES ok, verdict RESOLVES, trace RECOMPUTES unexplained 0",
+        "copiesAgreeToday": {
+          "rowsCompared": 399,
+          "entryDiffers": 0,
+          "snapshotDiffers": 0
+        },
+        "gateReads": "scripts/acceptance-gate.ts:167 selects capability_fingerprint, snapshot_hash FROM development_trajectories"
+      },
+      "economicConsequence": "every integrity guarantee is a guarantee about a shadow table; a corrupted settlement ID, job ID, capability fingerprint or fee config on the row the gate reads passes every check the repository offers"
+    },
+    {
+      "id": "F-05",
+      "section": "13,15",
+      "invariant": "the milestone criterion must be a measurement of the corpus",
+      "verdict": "FAIL",
+      "source": "scripts/runtime-adversarial-audit.ts:2716-2734",
+      "mutation": "replaced artifacts/trajectory-trace.json with a hand-written file, ran the ledger, restored the original",
+      "runtimeRows": {
+        "criterion": "recomputed >= 10 && failures === 0",
+        "readFrom": "artifacts/trajectory-trace.json",
+        "handWritten": {
+          "traced": 10,
+          "recomputed": 10,
+          "failures": 0
+        },
+        "ledgerReported": "independently recomputed trajectories: 10 (0 failure(s))",
+        "trajectoriesActuallyRecomputed": 0,
+        "observedInstability": {
+          "atFirstRun": 10,
+          "afterTenSingleTrajectoryTraces": 1,
+          "cause": "each trace overwrote the artifact with recomputed:1"
+        }
+      },
+      "economicConsequence": "the one criterion separating MEASUREMENT_REPAIR_REQUIRED from VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING is forgeable with a text editor and is perturbed by ordinary use of an unrelated command; it is the exact failure Q-1 forbids, inside the ledger that adjudicates Q-1"
+    },
+    {
+      "id": "F-15",
+      "section": "2",
+      "invariant": "the harness must derive the verdicts it reports",
+      "verdict": "FAIL",
+      "source": "scripts/runtime-adversarial-audit.ts:158, sectionQ, sectionR",
+      "mutation": "read the sidecar contract and ran the ledger with and without it",
+      "runtimeRows": {
+        "env": "AUDIT_SIDECAR",
+        "sectionsConsuming": [
+          "B",
+          "F",
+          "Q",
+          "R",
+          "S"
+        ],
+        "qRule": "bad = q.filter(c => c.verdict === 'FAIL'); PASS iff bad.length === 0",
+        "rRule": "seeds.every(s => s.verdict === 'NOT_READY')",
+        "ledgerAlone": {
+          "PASS": 40,
+          "FAIL": 1,
+          "NOT_TESTABLE": 7,
+          "OUT_OF_SCOPE": 5
+        },
+        "withGateSidecar": {
+          "PASS": 49,
+          "FAIL": 1,
+          "NOT_TESTABLE": 3,
+          "OUT_OF_SCOPE": 6
+        },
+        "note": "pnpm gate does genuinely run the probes and derive the verdicts it supplies; the ledger cannot distinguish that from a hand-written sidecar"
+      },
+      "economicConsequence": "six invariants' PASS is an assertion of provenance rather than a falsification"
+    },
+    {
+      "id": "F-06",
+      "section": "13",
+      "invariant": "an audit artifact must state what it audited",
+      "verdict": "FAIL",
+      "source": "scripts/runtime-adversarial-audit.ts:2740",
+      "mutation": "read the emitted artifact against git",
+      "runtimeRows": {
+        "emitted": "29c7cc7f086b9be5c21445fabd84f47794251857",
+        "actualRemoteHead": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
+        "hardcoded": true
+      },
+      "economicConsequence": "the artifact names a commit three directives old as the head it audited"
+    },
+    {
+      "id": "F-03",
+      "section": "3",
+      "invariant": "one collector session remains live",
+      "verdict": "FAIL",
+      "source": "collector_sessions.ended_utc_ms against the live process list",
+      "mutation": "ten concurrent collector starts",
+      "runtimeRows": {
+        "openSessionsAtStart": 41,
+        "liveProcessesAtStart": 0,
+        "openSessionsAfterAttack": 49,
+        "added": 8,
+        "allTenRefused": true,
+        "cause": "the session row is opened before the contract check and is not closed on the refusal path"
+      },
+      "economicConsequence": "the observable §3 names is not one, it is 49, and it only grows; any check written against it measures history rather than liveness"
+    },
+    {
+      "id": "F-04",
+      "section": "3,13",
+      "invariant": "a status command must not report a single collector as many",
+      "verdict": "FAIL",
+      "source": "scripts/collector-ops.ts TRAJECTORY_PATTERN",
+      "mutation": "ran pnpm collector:lock-status against one running daemon",
+      "runtimeRows": {
+        "pattern": "trajectory-collect\\.ts",
+        "reportedProcesses": 6,
+        "actualLogicalCollectors": 1,
+        "ancestry": [
+          26148,
+          27844,
+          33664,
+          21308,
+          35028,
+          16768
+        ],
+        "linearChain": true,
+        "reported": "single owner: NO",
+        "exit": 1,
+        "sweepTolerates": "mayExitNonZero: true"
+      },
+      "economicConsequence": "the command that exists to answer \"is there exactly one writer\" answers NO whenever there is exactly one writer"
+    },
+    {
+      "id": "F-08",
+      "section": "13",
+      "invariant": "a named settlement check must verify the corpus it names",
+      "verdict": "FAIL",
+      "source": "pnpm settlement:check against the isolated copy",
+      "mutation": "set trajectory_settlements.rent_recovered = '999999999' for 07c58942-…",
+      "runtimeRows": {
+        "output": "0 effect-verified leg(s) since 2026-08-18T19:07:43.470Z",
+        "exit": 0,
+        "detected": false,
+        "legSettlements": 798,
+        "trajectorySettlements": 451
+      },
+      "economicConsequence": "a rolling window that is empty produces a green result indistinguishable from a verified one"
+    },
+    {
+      "id": "F-09",
+      "section": "8",
+      "invariant": "every append-only ambiguity must fail loudly",
+      "verdict": "FAIL",
+      "source": "sqlite_master triggers; direct statements against the isolated copy",
+      "mutation": "six append-only attacks inside a rolled-back transaction",
+      "runtimeRows": {
+        "triggers": [
+          "trg_snapshot_hash_is_a_hash",
+          "trg_capability_fingerprint_is_a_hash"
+        ],
+        "triggersOn": "coherent_snapshots only",
+        "appendOnlyTriggers": 0,
+        "refused": [
+          "same mark offset different value (INSERT) — UNIQUE",
+          "second different exit (INSERT) — UNIQUE"
+        ],
+        "notRefused": [
+          "same mark offset UPDATE in place (changes=1)",
+          "update a nonexistent trajectory (0 rows, no error)",
+          "unguarded UPDATE development_trajectories SET state='SETTLED' (691 rows, no error)"
+        ],
+        "appLayerUpdates": "grep over packages/ and apps/ finds no UPDATE against these tables"
+      },
+      "economicConsequence": "the corpus is append-only by convention; three of five ambiguities are accepted silently at the storage layer"
+    },
+    {
+      "id": "F-10",
+      "section": "11",
+      "invariant": "production records actual decisions and paired outcomes for every treatment",
+      "verdict": "FAIL",
+      "source": "trajectory_policy_decisions, corpus-wide",
+      "mutation": "observation",
+      "runtimeRows": {
+        "HARD_GATES_RANDOM": {
+          "ENTER": 230,
+          "REJECT": 169
+        },
+        "CORRECTED_CURRENT_QUALITY_SCORE": {
+          "ENTER": 0,
+          "REJECT": 399
+        },
+        "SURVIVOR_FLOW_CONTINUATION_V1": {
+          "ENTER": 0,
+          "REJECT": 399
+        },
+        "allPoliciesEvaluatedOnEveryPath": true,
+        "requiredCasesWithZeroInstances": [
+          "random enters, quality rejects — present",
+          "quality enters, random rejects — ZERO",
+          "survivor-flow enters, quality rejects — ZERO"
+        ]
+      },
+      "economicConsequence": "the entry tournament has one populated arm and two empty ones; no comparison between entry policies is available at any sample size"
+    },
+    {
+      "id": "F-11",
+      "section": "12",
+      "invariant": "the recorded risk-fact counterfactual is measured at a layer where it cannot differ",
+      "verdict": "FAIL",
+      "source": "trajectory_policy_decisions.decision vs decision_without_risk_facts; reject_tracking; entity_concentration; collector logs",
+      "mutation": "observation, then upstream verification after an earlier draft of this finding was found to be overstated",
+      "runtimeRows": {
+        "trajectoryLayer": {
+          "rows": 1197,
+          "changed": 0,
+          "enterEnter": 230,
+          "rejectReject": 967,
+          "riskFactsApplied": [
+            "ENTITY_ADJUSTED_CONCENTRATION"
+          ]
+        },
+        "admissionLayer": {
+          "entityGateLogOccurrences": 131,
+          "observedRefusal": "entity-adjusted share 57.6% vs limit 50.0%",
+          "rejectTracking": {
+            "soft:concentration_unknown": 196,
+            "soft:provider_concentration_high": 45
+          },
+          "entityConcentrationRows": 445,
+          "trustworthy": 392
+        },
+        "correction": "the gate IS load-bearing at admission; the trajectory-level counterfactual is structurally incapable of differing because every trajectory already passed the gate",
+        "harnessO2": "PASS, on a constructed counterexample"
+      },
+      "economicConsequence": "the one stored field that should evidence a risk fact changing a decision can never evidence it, because it is computed over a population from which the effect has already been removed; the live evidence exists only in log text, which no invariant covers"
+    },
+    {
+      "id": "F-12",
+      "section": "10",
+      "invariant": "reserve-delta replay calibration",
+      "verdict": "FAIL",
+      "source": "counterfactual_calibration table; artifacts/counterfactual-calibration.json",
+      "mutation": "observation",
+      "runtimeRows": {
+        "calibrationTableRows": 0,
+        "boundedRows": 2253,
+        "replayRows": 22,
+        "pairedRows": 2,
+        "verdict": "BOUND_IS_CONSERVATIVE",
+        "provenance": {
+          "sourceCommit": "c3add8b",
+          "treeDirty": true,
+          "dirtyFiles": 11
+        }
+      },
+      "economicConsequence": "the claim that the bound is conservative rests on two paired observations and is stamped from a dirty tree at a superseded commit"
+    },
+    {
+      "id": "F-13",
+      "section": "13",
+      "invariant": "artifacts carry current clean provenance and no stale artifact is accepted",
+      "verdict": "FAIL",
+      "source": "all 110 files under artifacts/; collector-lock.ts:505-509 vs artifact-provenance.ts:38",
+      "mutation": "ran ten read-only commands and re-read git status",
+      "runtimeRows": {
+        "artifacts": 110,
+        "withProvenance": 27,
+        "stampedDirty": 16,
+        "commitNotHead": 21,
+        "examples": {
+          "trajectory-readiness.json": {
+            "commit": "c3add8b",
+            "dirtyFiles": 13
+          },
+          "experiment-contract.json": {
+            "commit": "c3add8b",
+            "dirtyFiles": 20
+          }
+        },
+        "twoDefinitions": {
+          "collectorLock": "filters OUTPUT_ONLY; artifacts do not dirty the tree",
+          "artifactProvenance": "git status --porcelain non-empty; artifacts do dirty the tree"
+        },
+        "reproduced": "ten read-only commands left 10 modified tracked files without touching any source file"
+      },
+      "economicConsequence": "the flag whose purpose is \"a dirty artifact is not reproducible\" is true almost always and therefore carries no information"
+    },
+    {
+      "id": "F-14",
+      "section": "14",
+      "invariant": "no seeded corpus passes the gate",
+      "verdict": "PARTIAL",
+      "source": "pnpm gate seed sweep",
+      "mutation": "four seeds written into a copy and pnpm readiness run against each",
+      "runtimeRows": {
+        "seedsRun": [
+          "baseline",
+          "200 losses",
+          "a dirty artifact claiming READY",
+          "replay divergences present"
+        ],
+        "allNotReady": true,
+        "conditionsRequiredBySection14": 10,
+        "conditionsExercised": 2,
+        "notExercised": [
+          "a positive sample carried by three winners",
+          "invalid old contexts",
+          "unrelated simulation jobs",
+          "late marks",
+          "unresolved blocked exits",
+          "nonzero unexplained values",
+          "missing raw blobs",
+          "wrong capability fingerprint"
+        ],
+        "harnessOwnNote": "none of these can pass, but only because fourteen gates are hardcoded UNKNOWN. The gate is not discriminating between the seeds; it is refusing all of them for the same reason"
+      },
+      "economicConsequence": "the gate refuses every seed for one reason unrelated to the seed, so refusal is not evidence that it discriminates"
+    },
+    {
+      "id": "F-16",
+      "section": "5,14",
+      "invariant": "a wrong capability fingerprint cannot pass",
+      "verdict": "FAIL",
+      "source": "experiment_contracts.capability_fingerprint; development_trajectories.capability_fingerprint; confirmatory-trajectories.ts:128; trajectory-status.ts:190",
+      "mutation": "compared the frozen contract fingerprint against every capture fingerprint in its own context",
+      "runtimeRows": {
+        "contractFingerprint": "5653c7a51a1392519ce1e09cfc9363a575afff513cfd90fd81a1b9800f2b44eb",
+        "contractFingerprintIs": "sha256(JSON.stringify(SDK_VERSIONS)) — a venue-model statement, documented at contract-freeze.ts:216, deliberately not the per-capture value",
+        "captureFingerprintsInContext": {
+          "d7a568ed": 12,
+          "2bbe26af": 7,
+          "5cde7c92": 6
+        },
+        "approvedFingerprints": "[] in the development path",
+        "enforcementPresent": "only in packages/research/src/confirmatory-trajectories.ts"
+      },
+      "economicConsequence": "capture-capability drift inside a frozen window is undetectable, and it demonstrably occurred three times inside this one"
+    }
+  ],
+  "holds": [
+    {
+      "id": "P-01",
+      "section": "1",
+      "statement": "corpus integrity preserved and verified",
+      "evidence": {
+        "backup": "data/backups/vacuum-2026-08-18T19-47-03-751Z.db",
+        "bytes": 8878436352,
+        "sha256": "18a7c4103455164be1229854c933b3546dd23a9721a3d3541bd5cc4c7fc32ebb",
+        "integrity": "ok",
+        "foreignKeyViolations": 0,
+        "schemaVersion": 53,
+        "exposedPositions": 0,
+        "elapsedMs": 546545
+      }
+    },
+    {
+      "id": "P-02",
+      "section": "5",
+      "statement": "all 21 link classes resolve with no dangling identifiers",
+      "evidence": {
+        "trajectories": 20,
+        "context": "ctx-c3add8bff804-DEV_WINDOW_5D24E",
+        "linkClasses": 21,
+        "dangling": 0
+      }
+    },
+    {
+      "id": "P-03",
+      "section": "6",
+      "statement": "economics recompute exactly from raw pre/post state",
+      "evidence": {
+        "traced": 10,
+        "recomputed": 10,
+        "failures": 0,
+        "unexplained": 0,
+        "independence": "scripts/trajectory-trace.ts imports only openDb, EvidenceStore, writeArtifact; the only occurrence of buildTrajectorySettlement in the file is the comment stating it is not called"
+      }
+    },
+    {
+      "id": "P-04",
+      "section": "4",
+      "statement": "collector refuses evidence mode from a dirty tree",
+      "evidence": {
+        "dirtiedFile": "packages/strategy/src/exits.ts",
+        "exit": 2,
+        "refusalNamesFile": true,
+        "overrideExit": 4,
+        "overrideMessage": "Its context is permanently excluded from every report and from readiness"
+      }
+    },
+    {
+      "id": "P-05",
+      "section": "3",
+      "statement": "single writer, clean lock release, bounded maxPerMint, no duplicate opens",
+      "evidence": {
+        "collectors": 10,
+        "reachedOsLock": 1,
+        "lockReleasedOnExit": true,
+        "maxPerMint": 3,
+        "mintsOverCap": 0,
+        "openedReservations": 399,
+        "duplicateOpens": 0,
+        "caveat": "eight of ten refused on the contract mismatch before reaching lock acquisition, so only about two processes genuinely contended"
+      }
+    },
+    {
+      "id": "P-06",
+      "section": "10",
+      "statement": "the counterfactual impact bound is enforced",
+      "evidence": {
+        "refusedMarks": 41,
+        "refusal": "IMPACT_ABOVE_BOUND: the entry moved the pool 11 bps, over the frozen bound of 10 bps",
+        "boundedCounterfactualV1": 166,
+        "reserveDeltaReplayV1": 4,
+        "haircutAndGradeStored": true
+      }
+    },
+    {
+      "id": "P-07",
+      "section": "11",
+      "statement": "the two exit policies are evaluated on the same path and disagree on it",
+      "evidence": {
+        "sharedPaths": 20,
+        "fixed15mTriggerMs": 900000,
+        "deteriorationFallback900000": 13,
+        "deteriorationExtended1800000": 7,
+        "disagreements": 7
+      }
+    },
+    {
+      "id": "P-08",
+      "section": "12",
+      "statement": "external constants match official documentation",
+      "evidence": {
+        "PUMP_PROGRAM": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+        "MAYHEM_PROGRAM": "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+        "source": "pump-fun/pump-public-docs",
+        "mayhemAgentIdentity": "held UNKNOWN with the reason attached rather than guessed"
+      }
+    },
+    {
+      "id": "P-09",
+      "section": "12",
+      "statement": "Token-2022 NOT_APPLICABLE is distinguished from UNKNOWN",
+      "evidence": {
+        "notApplicable": "risk-facts-order.ts:174 legacy mint; :177 Token-2022 with no transfer-fee extension",
+        "unknown": "only when the fact was not obtained",
+        "blocking": "trajectory-settlement.ts:51 — only UNKNOWN blocks; NOT_APPLICABLE contributes a measured zero"
+      }
+    },
+    {
+      "id": "P-10",
+      "section": "3",
+      "statement": "stale locks are reported dead rather than honoured",
+      "evidence": {
+        "engineLockPid": 35036,
+        "heartbeatStaleSeconds": 309738,
+        "reported": "DEAD",
+        "trajectoryCollectorLockReleasedOnKill": true
+      }
+    }
+  ],
+  "milestoneAssessment": {
+    "required": "VALID_RECOMPUTABLE_TRAJECTORIES_RUNNING",
+    "oneCollector": false,
+    "cleanSource": true,
+    "tenCompletedTimelyTrajectories": false,
+    "allLinksResolve": true,
+    "rawEvidenceDurable": true,
+    "independentPnlRecomputationExact": true,
+    "zeroUnexplainedValue": true,
+    "actualTreatments": false,
+    "validCounterfactualContract": true,
+    "satisfied": 6,
+    "of": 9
+  },
+  "destructiveProbeIsolation": {
+    "copy": "scratchpad/copy-base.db",
+    "blobTree": "scratchpad/evidence-blobs, with evidence_blobs.relative_path rewritten",
+    "liveCorpusMutated": false,
+    "liveWritesAttempted": "the ten-collector start, which opened no trajectory because all ten refused"
+  },
+  "terminalState": "MEASUREMENT_REPAIR_REQUIRED",
+  "terminalStateDerivation": "B-4 FAIL and B-2/B-3/S-3 NOT TESTABLE in the active development contract. Any one pins the state.",
+  "notFixed": "Per the directive, no failure above was repaired. The complete ledger is the deliverable."
+}

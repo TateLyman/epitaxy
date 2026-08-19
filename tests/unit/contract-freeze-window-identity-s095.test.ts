@@ -33,7 +33,16 @@ describe('S095 — a window identifies the contract it freezes', () => {
       // Migrate a fresh database at this path.
       openDb({ path: dbPath, skipBackup: true }).close();
 
-      const env = { ...process.env, DATABASE_PATH: dbPath };
+      /**
+       * ARTIFACT_DIR — so this test cannot overwrite the COMMITTED contract.
+       *
+       * The script writes `artifacts/experiment-contract.json`, and without
+       * this every run of the suite replaced a real provenance record with one
+       * describing a contract that was frozen for no window at all. Spawning
+       * the real script is the right way to test it; sharing the repository's
+       * artifact directory with it is not.
+       */
+      const env = { ...process.env, DATABASE_PATH: dbPath, ARTIFACT_DIR: join(dir, "artifacts") };
       // --instrument-development, because this test must run in CI and locally
       // against whatever tree state happens to exist — the defect under test
       // is about the CONTRACT ID, not about dirty-tree refusal (that is P1.3's

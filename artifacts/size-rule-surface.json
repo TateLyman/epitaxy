@@ -1,0 +1,81 @@
+{
+  "status": "MEASURED",
+  "evaluations": [
+    {
+      "candidate_lamports": "10000000",
+      "admissible": 0,
+      "bound_by": "PRICE_IMPACT",
+      "chosen": 0,
+      "n": 2
+    },
+    {
+      "candidate_lamports": "10000000",
+      "admissible": 1,
+      "bound_by": null,
+      "chosen": 0,
+      "n": 7
+    },
+    {
+      "candidate_lamports": "20000000",
+      "admissible": 0,
+      "bound_by": "PRICE_IMPACT",
+      "chosen": 0,
+      "n": 2
+    },
+    {
+      "candidate_lamports": "20000000",
+      "admissible": 1,
+      "bound_by": null,
+      "chosen": 1,
+      "n": 7
+    },
+    {
+      "candidate_lamports": "2500000",
+      "admissible": 0,
+      "bound_by": "PRICE_IMPACT",
+      "chosen": 0,
+      "n": 2
+    },
+    {
+      "candidate_lamports": "2500000",
+      "admissible": 1,
+      "bound_by": null,
+      "chosen": 0,
+      "n": 7
+    },
+    {
+      "candidate_lamports": "5000000",
+      "admissible": 0,
+      "bound_by": "PRICE_IMPACT",
+      "chosen": 0,
+      "n": 2
+    },
+    {
+      "candidate_lamports": "5000000",
+      "admissible": 1,
+      "bound_by": null,
+      "chosen": 0,
+      "n": 7
+    }
+  ],
+  "bindingConditions": {
+    "PRICE_IMPACT": 8
+  },
+  "context": {
+    "contract": "contract-623ce9c59e896474",
+    "contractHash": "623ce9c59e89647447df95b458632187cb8ca4090332acaa82fdc7db364676b5",
+    "evidenceContextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
+    "windowId": "PROFIT_DISCOVERY_V1_R4",
+    "featureVersions": {
+      "microstructure": "migration-microstructure-v2"
+    },
+    "sampleQuery": "SELECT candidate_lamports, admissible, bound_by, chosen, COUNT(*) AS n\n       FROM size_rule_evaluations GROUP BY candidate_lamports, admissible, bound_by, chosen"
+  },
+  "provenance": {
+    "writer": "profit-discovery-status.ts",
+    "sourceCommit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
+    "treeDirty": true,
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-18T23:39:59.287Z"
+  }
+}

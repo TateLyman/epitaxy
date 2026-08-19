@@ -80,18 +80,18 @@
     ]
   },
   "sample": {
-    "settledInContract": 13,
-    "eligible": 10,
-    "withNetPnl": 10,
-    "distinctMints": 10,
+    "settledInContract": 20,
+    "eligible": 13,
+    "withNetPnl": 13,
+    "distinctMints": 12,
     "distinctUtcDays": 1,
     "droppedNoEvidenceLinks": 0,
-    "droppedLateMark": 3,
+    "droppedLateMark": 7,
     "droppedNonZeroUnexplained": 0
   },
-  "netPnlLamports": "-66307155",
-  "outcomesWithCounterfactualContract": 16,
-  "outcomesTotal": 20,
+  "netPnlLamports": "-85587514",
+  "outcomesWithCounterfactualContract": 22,
+  "outcomesTotal": 26,
   "entryPoliciesDecided": 3,
   "thresholds": {
     "minCompletedTrajectories": 200,
@@ -116,7 +116,7 @@
     {
       "name": "completed trajectories",
       "pass": false,
-      "detail": "10 of 200"
+      "detail": "13 of 200"
     },
     {
       "name": "distinct UTC days",
@@ -126,7 +126,7 @@
     {
       "name": "net PnL positive",
       "pass": false,
-      "detail": "-66307155"
+      "detail": "-85587514"
     },
     {
       "name": "expected log growth positive",
@@ -254,9 +254,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "84984aa963f8e26ae5949c14d300f65dd2f557d3",
     "treeDirty": true,
-    "dirtyFiles": 13,
-    "writtenUtc": "2026-08-18T19:12:59.329Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-18T22:02:19.327Z"
   }
 }

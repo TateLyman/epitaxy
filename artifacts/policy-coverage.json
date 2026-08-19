@@ -1,0 +1,81 @@
+{
+  "status": "MEASURED",
+  "context": {
+    "contract": "contract-7346e383d6266fbb",
+    "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
+    "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "windowId": "PROFIT_DISCOVERY_V1_R5",
+    "featureVersions": {
+      "microstructure": "migration-microstructure-v2"
+    },
+    "sampleQuery": "SELECT entry_policy, evaluability, full_coverage, unknown_fields, COUNT(*) AS n\n         FROM policy_field_coverage c\n        \n        GROUP BY entry_policy, evaluability, full_coverage, unknown_fields"
+  },
+  "evidenceContextFilter": null,
+  "policies": [
+    {
+      "policy": "CORRECTED_CURRENT_QUALITY_SCORE",
+      "eligible": 11,
+      "decisionCoverage": 0,
+      "enter": 0,
+      "rejectedOnSignal": 0,
+      "notEvaluable": 11,
+      "performanceQuotable": false,
+      "unknownFieldHistogram": {
+        "correctedQualityScore": 11
+      }
+    },
+    {
+      "policy": "HARD_GATES_RANDOM",
+      "eligible": 11,
+      "decisionCoverage": 1,
+      "enter": 7,
+      "rejectedOnSignal": 4,
+      "notEvaluable": 0,
+      "performanceQuotable": true,
+      "unknownFieldHistogram": {}
+    },
+    {
+      "policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
+      "eligible": 11,
+      "decisionCoverage": 0,
+      "enter": 0,
+      "rejectedOnSignal": 0,
+      "notEvaluable": 11,
+      "performanceQuotable": false,
+      "unknownFieldHistogram": {
+        "creatorNetSellingLamports": 6,
+        "entityConcentration": 11,
+        "largestFirstBuyerEntityShare": 6,
+        "buyerRetention": 6,
+        "lateSellPressure": 6,
+        "migrationPathEntityDominance": 6,
+        "mintBehaviourSafe": 6
+      }
+    },
+    {
+      "policy": "SURVIVOR_FLOW_CONTINUATION_V1",
+      "eligible": 11,
+      "decisionCoverage": 0,
+      "enter": 0,
+      "rejectedOnSignal": 0,
+      "notEvaluable": 11,
+      "performanceQuotable": false,
+      "unknownFieldHistogram": {
+        "effectiveQuoteReserveTrend": 11,
+        "executableExitCapacityTrend": 11,
+        "continuationSlope": 11,
+        "entityConcentration": 11,
+        "mintBehaviourSafe": 6,
+        "independentBuyerPersistence": 6,
+        "creatorNetSellingLamports": 6
+      }
+    }
+  ],
+  "provenance": {
+    "writer": "policy-coverage.ts",
+    "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
+    "treeDirty": true,
+    "dirtyFiles": 2,
+    "writtenUtc": "2026-08-18T23:58:08.893Z"
+  }
+}

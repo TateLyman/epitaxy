@@ -167,3 +167,34 @@ export function disagreements(
   check('freezeAuthority', audit.freezeAuthorityDisabled, facts.freezeAuthority);
   return out;
 }
+
+/**
+ * Is this mint's BEHAVIOUR safe to hold a position in?
+ *
+ * Extracted because the collector had it inline as
+ *
+ *     facts.mint2022.freezeAuthority === null ? true : null
+ *
+ * and `FactVerdict` is a STRING UNION — 'SAFE' | 'HOSTILE' | 'UNKNOWN' — so
+ * that comparison is always false and the answer was permanently null. It is a
+ * required input of both smart entry policies, so both were NOT_EVALUABLE on
+ * every row ever collected, for a reason that had nothing to do with any token.
+ * TypeScript does not object to comparing a string union against null, and no
+ * test looked, because the expression lived inside a cycle loop that needs a
+ * chain to run.
+ *
+ * Three states, and the third is the point:
+ *
+ *     true   every hostile capability was READ and found absent
+ *     false  at least one hostile capability is PRESENT
+ *     null   at least one could not be read
+ *
+ * `null` never collapses to `false`. "We could not read the mint" and "the mint
+ * is hostile" are different facts, and only the second is a property of the
+ * token; merging them would attribute an apparatus failure to an issuer.
+ */
+export function mintBehaviourSafe(facts: MintFacts): boolean | null {
+  if (facts.overall === 'SAFE') return true;
+  if (facts.overall === 'HOSTILE') return false;
+  return null;
+}

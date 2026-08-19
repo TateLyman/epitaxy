@@ -1,0 +1,67 @@
+{
+  "status": "MEASURED",
+  "severeLossFraction": 0.5,
+  "reports": [
+    {
+      "policy": "HARD_GATES_RANDOM",
+      "rejectedSampled": 10,
+      "rejectedWithMarks": 4,
+      "catastrophicRateAmongRejected": 0,
+      "rightTailRateAmongRejected": 0,
+      "rightTailRateAmongEntered": 0,
+      "opportunityCostMeanLogReturn": -0.41698117730590506,
+      "tailWinnersDiscarded": 0,
+      "verdict": "0 tail winner(s) refused against 0 entered"
+    },
+    {
+      "policy": "CORRECTED_CURRENT_QUALITY_SCORE",
+      "rejectedSampled": 32,
+      "rejectedWithMarks": 17,
+      "catastrophicRateAmongRejected": 0,
+      "rightTailRateAmongRejected": 0,
+      "rightTailRateAmongEntered": null,
+      "opportunityCostMeanLogReturn": -0.35191345172701893,
+      "tailWinnersDiscarded": 0,
+      "verdict": "0 tail winner(s) refused against 0 entered"
+    },
+    {
+      "policy": "SURVIVOR_FLOW_CONTINUATION_V1",
+      "rejectedSampled": 32,
+      "rejectedWithMarks": 17,
+      "catastrophicRateAmongRejected": 0,
+      "rightTailRateAmongRejected": 0,
+      "rightTailRateAmongEntered": null,
+      "opportunityCostMeanLogReturn": -0.35191345172701893,
+      "tailWinnersDiscarded": 0,
+      "verdict": "0 tail winner(s) refused against 0 entered"
+    },
+    {
+      "policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
+      "rejectedSampled": 7,
+      "rejectedWithMarks": 0,
+      "catastrophicRateAmongRejected": null,
+      "rightTailRateAmongRejected": null,
+      "rightTailRateAmongEntered": null,
+      "opportunityCostMeanLogReturn": null,
+      "tailWinnersDiscarded": 0,
+      "verdict": "NOT_EVALUABLE: no rejected candidate carries a mark path, so nothing is known about what was refused"
+    }
+  ],
+  "context": {
+    "contract": "contract-623ce9c59e896474",
+    "contractHash": "623ce9c59e89647447df95b458632187cb8ca4090332acaa82fdc7db364676b5",
+    "evidenceContextId": "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
+    "windowId": "PROFIT_DISCOVERY_V1_R4",
+    "featureVersions": {
+      "microstructure": "migration-microstructure-v2"
+    },
+    "sampleQuery": "SELECT d.entry_policy AS policy,\n         d.decision     AS decision,\n         d.reason       AS reason,\n         t.mint         AS mint,\n         o.gross_delta_lamports    AS gross_delta,\n         o.entry_cash_out_lamports AS entry_cash_out,\n         t.execution_cost_lamports AS execution_cost,\n         COALESCE(t.inclusion_probability, 1.0) AS selection_probability\n    FROM trajectory_policy_decisions d\n    JOIN development_trajectories t ON t.trajectory_id = d.trajectory_id\n    JOIN trajectory_evidence_context x ON x.trajectory_id = t.trajectory_id\n    JOIN evidence_contexts c ON c.evidence_context_id = x.evidence_context_id\n    LEFT JOIN trajectory_policy_outcomes o\n      ON o.trajectory_id = d.trajectory_id AND o.exit_policy = 'FIXED_15M_CONTROL'\n   WHERE c.validity = 'DEVELOPMENT_EVIDENCE'"
+  },
+  "provenance": {
+    "writer": "reject-prospective-v4.ts",
+    "sourceCommit": "35b926bb558ff6a3eee1ec76c9615d9aa8a9a54f",
+    "treeDirty": true,
+    "dirtyFiles": 9,
+    "writtenUtc": "2026-08-18T23:40:11.718Z"
+  }
+}

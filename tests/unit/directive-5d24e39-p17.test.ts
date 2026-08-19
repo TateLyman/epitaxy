@@ -1217,11 +1217,24 @@ describe('P17 30–32 — the treatments are decisions, not labels', () => {
     ...over,
   });
 
-  it('30 — all THREE entry policies decide on ONE shared trajectory', () => {
+  it('30 — EVERY defined entry policy decides on ONE shared trajectory', () => {
     const f = features();
     const decisions = ENTRY_POLICIES.map((p) => decideEntry(p, f, { seed: 'p17' }));
-    expect(decisions).toHaveLength(3);
-    expect(new Set(decisions.map((d) => d.policy)).size).toBe(3);
+    /**
+     * Asserted against `ENTRY_POLICIES.length` rather than a literal.
+     *
+     * The invariant is "every defined policy produces a verdict over the SAME
+     * features" — that is what makes the comparison paired. It was written as
+     * `toHaveLength(3)` when three policies existed, so adding
+     * MIGRATION_MICROSTRUCTURE_RISK_V1 (P9) failed it for the one reason that
+     * is not a defect: a new arm was added and it decided.
+     *
+     * The floor of three is kept so the assertion cannot be satisfied by a
+     * REMOVAL, which is the direction that would actually be a regression.
+     */
+    expect(ENTRY_POLICIES.length).toBeGreaterThanOrEqual(3);
+    expect(decisions).toHaveLength(ENTRY_POLICIES.length);
+    expect(new Set(decisions.map((d) => d.policy)).size).toBe(ENTRY_POLICIES.length);
     // Every one is a real verdict with a reason, over the same features.
     for (const d of decisions) expect(d.reason.length).toBeGreaterThan(0);
   });

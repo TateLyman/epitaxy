@@ -58,10 +58,72 @@ export function writeArtifact(name: string, body: Record<string, unknown>): stri
   if (name.includes('/') || name.includes('\\')) {
     throw new Error(`writeArtifact takes a bare filename, got ${name}`);
   }
-  const path = resolve('artifacts', name);
+  /**
+   * `ARTIFACT_DIR` exists so a TEST cannot overwrite a committed artifact.
+   *
+   * `tests/unit/contract-freeze-window-identity-s095.test.ts` spawns the real
+   * freeze script — which is the right way to test it — and the script wrote
+   * `artifacts/experiment-contract.json` in the repository. Every run of the
+   * suite therefore replaced a committed provenance record with one describing
+   * a contract that was never frozen for any window, and the change looked like
+   * ordinary output in `git status`.
+   *
+   * An artifact is a claim about what a real run measured. A test run is not a
+   * real run, and the two must not share a filename.
+   */
+  const dir = process.env['ARTIFACT_DIR'];
+  const path = dir === undefined || dir.trim() === '' ? resolve('artifacts', name) : resolve(dir, name);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify({ ...body, provenance: provenance() }, null, 2)}\n`);
   return path;
+}
+
+/**
+ * P18 — the research context every profit-discovery artifact must name.
+ *
+ * `provenance()` answers "who wrote this, from what commit". It does not answer
+ * "which experiment is this about", and an artifact that cannot say which
+ * contract, context and window it measured is unusable the moment a second
+ * window exists — which is exactly the situation this phase creates.
+ *
+ * Read from the database rather than passed in, so two scripts reporting on the
+ * same window cannot disagree about which window it was.
+ */
+export interface ResearchContext {
+  readonly contract: string | null;
+  readonly contractHash: string | null;
+  readonly evidenceContextId: string | null;
+  readonly windowId: string | null;
+  readonly featureVersions: Readonly<Record<string, string>>;
+  readonly sampleQuery: string;
+}
+
+export interface ContextDb {
+  prepare(sql: string): { get(...p: unknown[]): unknown; all(...p: unknown[]): unknown };
+}
+
+export function researchContext(db: ContextDb, sampleQuery: string, featureVersions: Record<string, string> = {}): ResearchContext {
+  let contract: { contract_id: string; contract_hash: string; evidence_context_id: string; window_id: string | null } | undefined;
+  try {
+    contract = db
+      .prepare(
+        `SELECT contract_id, contract_hash, evidence_context_id, window_id
+           FROM experiment_contracts
+          ORDER BY frozen_utc_ms DESC
+          LIMIT 1`,
+      )
+      .get() as typeof contract;
+  } catch {
+    contract = undefined;
+  }
+  return {
+    contract: contract?.contract_id ?? null,
+    contractHash: contract?.contract_hash ?? null,
+    evidenceContextId: contract?.evidence_context_id ?? null,
+    windowId: contract?.window_id ?? null,
+    featureVersions,
+    sampleQuery,
+  };
 }
 
 /**

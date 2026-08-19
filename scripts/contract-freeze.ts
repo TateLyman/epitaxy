@@ -26,6 +26,15 @@ import { MARK_SLA_MS } from '../packages/pipeline/src/mark-scheduler.js';
 import { COUNTERFACTUAL_CONTRACT_VERSION, BOUNDED_IMPACT_CAP_BPS } from '../packages/pipeline/src/counterfactual.js';
 import { SDK_VERSIONS } from '../packages/pipeline/src/open-trajectory.js';
 import { readTreeState } from '../packages/storage/src/collector-lock.js';
+import { CANDIDATE_SIZES_LAMPORTS, FROZEN_SIZE_BOUNDS } from '../packages/strategy/src/size-rule.js';
+import { MICROSTRUCTURE_RISK_DEFAULTS } from '../packages/strategy/src/treatments.js';
+import {
+  PERSISTENCE_WINDOW_MS,
+  EXIT_CAPACITY_REFERENCE_FRACTION,
+  CONTINUATION_VERTICAL_CAP,
+} from '../packages/intelligence/src/pre-entry-signals.js';
+import { MICROSTRUCTURE_FEATURE_VERSION } from '../packages/intelligence/src/migration-microstructure.js';
+import { PRIMARY_ENTRY_CLOCKS } from '../packages/pipeline/src/entry-clocks.js';
 import { writeArtifact } from './_artifact.js';
 
 /**
@@ -131,7 +140,18 @@ function main(): void {
        */
       windowId,
       cohort,
-      notionalRule: `fixed ${notional} lamports per entry`,
+      /**
+       * P7 — the notional is a RULE now, and the contract has to say so.
+       *
+       * It read `fixed 20000000 lamports per entry` while the collector chose
+       * the largest admissible size from four candidates. A contract that
+       * misdescribes the sizing is worse than one that omits it: every later
+       * reader would compare rows believing they shared a notional.
+       */
+      notionalRule:
+        `largest admissible of [${CANDIDATE_SIZES_LAMPORTS.join(', ')}] lamports, chosen from one decision-time ` +
+        `coherent snapshot by mechanics only; ceiling ${notional} lamports; falls back to the ceiling when the ` +
+        'rule cannot be evaluated',
       entryPolicies: [...ENTRY_POLICIES],
       exitPolicies: [...EXIT_POLICIES],
       markSlaMs: MARK_SLA_MS,
@@ -146,6 +166,30 @@ function main(): void {
         boundedImpactCapBps: BOUNDED_IMPACT_CAP_BPS,
         markSlaMs: MARK_SLA_MS,
         maxPerMint: 3,
+        /**
+         * P7/P9 — every threshold this window's decisions depend on, IN the
+         * contract hash.
+         *
+         * A threshold that is not in the hash can be changed mid-window without
+         * the contract noticing, and the rows before and after would be pooled
+         * as one experiment. Registered in docs/MULTIPLE_TESTING_LEDGER.csv as
+         * MT049-MT052 before this window opens.
+         */
+        sizeRule: {
+          candidateLamports: CANDIDATE_SIZES_LAMPORTS.map((x) => x.toString()),
+          ...FROZEN_SIZE_BOUNDS,
+        },
+        migrationMicrostructureRisk: {
+          ...MICROSTRUCTURE_RISK_DEFAULTS,
+          maxCreatorNetSellingLamports: MICROSTRUCTURE_RISK_DEFAULTS.maxCreatorNetSellingLamports.toString(),
+        },
+        signalDefinitions: {
+          persistenceWindowMs: PERSISTENCE_WINDOW_MS,
+          exitCapacityReferenceFraction: EXIT_CAPACITY_REFERENCE_FRACTION,
+          continuationVerticalCap: CONTINUATION_VERTICAL_CAP,
+        },
+        featureVersions: { microstructure: MICROSTRUCTURE_FEATURE_VERSION },
+        entryClocks: [...PRIMARY_ENTRY_CLOCKS],
       },
       sdkVersions: SDK_VERSIONS,
       claimedInvariants: CLAIMED_INVARIANTS,

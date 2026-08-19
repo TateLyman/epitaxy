@@ -43,6 +43,19 @@ import {
   ENTRY_POLICIES,
   type PreEntryFeatures,
 } from '../../../packages/strategy/src/treatments.js';
+import { evaluateWithCoverage } from '../../../packages/strategy/src/policy-coverage.js';
+import { mintBehaviourSafe as mintBehaviourSafeOf } from '../../../packages/intelligence/src/mintfacts.js';
+import { computePreEntrySignals } from '../../../packages/intelligence/src/pre-entry-signals.js';
+import {
+  ensureMicrostructure,
+  evaluateSizesOffline,
+  migrationAnchor,
+  opportunityId,
+  persistEntryOpportunity,
+  persistPolicyCoverage,
+  persistSizeEvaluations,
+  persistStrata,
+} from './profit-discovery.js';
 import { SETTLEMENT_VERSION, SDK_VERSIONS } from '../../../packages/pipeline/src/open-trajectory.js';
 import { buildTrajectorySettlement, checkIdentities } from '../../../packages/domain/src/trajectory-settlement.js';
 import { isPnlEligible, transferFeeOrUnknown } from '../../../packages/domain/src/settlement.js';
@@ -244,6 +257,15 @@ interface Args {
   readonly markSlaMs: number;
   /** Longest the scheduler may sleep between mark checks. */
   readonly maxTickMs: number;
+  /**
+   * P3 — fetch the closed pre-migration history and compute its features.
+   *
+   * ON by default, because without it every smart policy input is null again
+   * and this phase has changed nothing. The flag exists so a run under a
+   * genuinely exhausted endpoint can still collect trajectories rather than
+   * stopping on a history fetch it was never going to complete.
+   */
+  readonly microstructure: boolean;
 }
 
 /**
@@ -280,6 +302,7 @@ function parseArgs(argv: readonly string[]): Args {
     contractId: argv.find((x) => x.startsWith('--contract='))?.slice(11) ?? null,
     markSlaMs: num('--mark-sla-ms', MARK_SLA_MS),
     maxTickMs: num('--max-tick-ms', DEFAULT_MAX_TICK_MS),
+    microstructure: !argv.includes('--no-microstructure'),
   };
 }
 
@@ -807,8 +830,19 @@ async function runCycle(
   }
   const args = parseArgs(process.argv.slice(2));
   const secrets = loadSecrets();
-  const { rpc, host } = researchRpc(secrets as never);
+  /**
+   * S079 — the database is opened BEFORE the RPC client, because the client
+   * needs it.
+   *
+   * The endpoint budget is a table, so a client built before the database
+   * exists cannot participate in it and spends the endpoint's quota invisibly
+   * alongside the screening collector. The ordering is the wiring.
+   */
   const db = openDb({ path: secrets.databasePath, skipBackup: true });
+  const { rpc, host, participatingInSharedBudget } = researchRpc(secrets as never, db);
+  if (!participatingInSharedBudget) {
+    console.log('WARNING: this process is NOT in the shared endpoint budget (S079)');
+  }
   const sessionId = lanes?.session.sessionId ?? null;
   /**
    * P3.1 — the content-addressed store, opened once per cycle.
@@ -1037,6 +1071,51 @@ async function runCycle(
         break;
       }
 
+      /**
+       * P3 — THE CLOSED PRE-MIGRATION HISTORY, FETCHED ONCE PER MINT.
+       *
+       * This is the phase's whole economic argument. Every smart policy input
+       * was the literal `null` at the audited head, so the only arm that could
+       * enter was the random control and the tournament measured nothing. The
+       * bonding curve of a MIGRATED token is closed and immutable, which makes
+       * it the cheapest real information available and the only kind that
+       * cannot be contaminated by the future.
+       *
+       * Placed BEFORE admission on purpose. A candidate the risk gates refuse
+       * still teaches us what a refused launch looks like, and the reject panel
+       * (P16) needs those features to say what the filter avoided. The cost is
+       * bounded by the cache: a mint's history is fetched exactly once, ever.
+       *
+       * A THROW here is not swallowed — a quota refusal has to reach the
+       * breaker above rather than being recorded as a token with no history.
+       */
+      let microstructure: Awaited<ReturnType<typeof ensureMicrostructure>> = null;
+      const anchor = migrationAnchor(db, c.mint);
+      if (anchor !== null && args.microstructure) {
+        try {
+          microstructure = await ensureMicrostructure(db, rpc as never, anchor, {
+            migrationReserveLamports: facts.effectiveQuoteReserveLamports ?? null,
+            yieldTo: opts.yieldToMarks,
+          });
+          if (microstructure !== null) {
+            count('microstructure', microstructure.fromCache ? 'cache_hit' : 'fetched');
+            console.log(
+              `  ${c.mint.slice(0, 10)}  MICROSTRUCTURE ${microstructure.coverage.padEnd(11)}` +
+                `${microstructure.fromCache ? 'cached' : 'fetched'}`,
+            );
+          }
+        } catch (e) {
+          // Recorded as an apparatus fact, and the breaker still sees it.
+          refusals['MICROSTRUCTURE_FETCH_FAILED'] = (refusals['MICROSTRUCTURE_FETCH_FAILED'] ?? 0) + 1;
+          breaker.record(e as Error);
+          if (isQuotaExhausted(e as Error)) {
+            console.log('');
+            console.log('STOPPING THIS PASS: the endpoint refused the pre-migration history fetch.');
+            break;
+          }
+        }
+      }
+
       const admission = admitCandidate(facts);
       insertCandidateRiskFacts(db, facts, admission, null);
       if (!admission.admit) {
@@ -1111,13 +1190,108 @@ async function runCycle(
       await worker.close();
       const w = new SequentialWorker({ commandTimeoutMs: 240_000, maxOutputBytes: 256 * 1024 * 1024 });
 
+      /**
+       * P7 — CHOOSE THE SIZE FROM THE POOL, NOT FROM A CONSTANT.
+       *
+       * The fixed 0.02 SOL notional caused depth refusals where the proposed
+       * position was an absurd fraction of the pool. Those refusals were about
+       * an arbitrary research number rather than about the token, and each one
+       * removed a real market observation from the corpus.
+       *
+       * NO SAFETY BOUND MOVED. Every limit in `FROZEN_SIZE_BOUNDS` is the one
+       * the fixed notional already had to clear and 0.02 SOL is now the
+       * ceiling. All four candidate sizes are priced from ONE decision-time
+       * coherent snapshot — offline, so four sizes cost four computations
+       * rather than four round trips — and all four are persisted with the
+       * condition that bound them, because storing only the winner makes the
+       * rule unfalsifiable.
+       *
+       * The snapshot is captured HERE rather than reused from the viability
+       * pass, because a size chosen from migration-time state is a stale fact
+       * and P6 requires decision-time mechanics to be recomputed.
+       */
+      const opportunity = opportunityId(c.mint, 'T0', lanes?.evidenceContextId ?? 'unassigned');
+      let chosenNotional = NOTIONAL_LAMPORTS;
+      try {
+        const poolKey = canonicalPool(c.mint);
+        const poolRow = await readPoolRow(rpc, poolKey);
+        count('solana_rpc', 'getAccountInfo');
+        const addrs = poolAddressesFrom(accountSourceOf([poolRow]), poolKey);
+        const snap = await captureCoherentSnapshotV2(
+          rpc as never,
+          {
+            economicAccounts: [poolKey, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount, c.mint],
+            feeConfig: FEE_CONFIG_ADDR,
+            staticAccounts: [GLOBAL_CONFIG_ADDR],
+            requireDecodable: [poolKey, addrs.poolBaseTokenAccount, addrs.poolQuoteTokenAccount],
+            commitment: 'confirmed',
+          },
+          base58Encode,
+        );
+        const sizeSource = accountSourceOf(
+          snap.accounts.map((a) => ({
+            pubkey: a.pubkey,
+            owner: a.owner,
+            dataBase64: a.dataBase64,
+            lamports: BigInt(a.lamports),
+          })),
+        );
+        const choice = evaluateSizesOffline({
+          source: sizeSource,
+          pool: poolKey,
+          effectiveQuoteReserveLamports: facts.effectiveQuoteReserveLamports ?? null,
+          slippagePct: 3,
+        });
+
+        persistEntryOpportunity(db, {
+          opportunityId: opportunity,
+          mint: c.mint,
+          pool: poolKey,
+          entryClock: 'T0',
+          evidenceContextId: lanes?.evidenceContextId ?? 'unassigned',
+          snapshotHash: snap.snapshotHash,
+          decisionUtcMs: Date.now(),
+          migrationSlot: c.slot,
+          ageSinceMigrationMs: c.block_time === null ? 0 : Date.now() - c.block_time * 1000,
+          mechanicallyViable: choice.chosenLamports !== null,
+          refusal: choice.refusal,
+          trajectoryId: null,
+        });
+        persistSizeEvaluations(db, opportunity, choice, Date.now());
+
+        if (choice.chosenLamports === null) {
+          // Every size refused. That IS a depth refusal, and now it is one the
+          // corpus can distinguish from "the research notional was too large".
+          refusals['SIZE_RULE_REFUSED_EVERY_SIZE'] = (refusals['SIZE_RULE_REFUSED_EVERY_SIZE'] ?? 0) + 1;
+          console.log(`  ${c.mint.slice(0, 10)}  SIZE_RULE_REFUSED  ${choice.refusal ?? ''}`);
+          abandonReservation(db, reservation.reservationId, Date.now(), 'SIZE_RULE_REFUSED_EVERY_SIZE');
+          continue;
+        }
+        chosenNotional = choice.chosenLamports;
+        const bound = choice.evaluations.find((e) => !e.admissible)?.boundBy ?? 'none';
+        console.log(
+          `  ${c.mint.slice(0, 10)}  SIZE ${chosenNotional} lamports ` +
+            `(${choice.evaluations.filter((e) => e.admissible).length}/${choice.evaluations.length} admissible, first bound ${bound})`,
+        );
+      } catch (e) {
+        /**
+         * The size rule could not be evaluated. FALL BACK TO THE CEILING rather
+         * than to an unbounded guess: the fixed notional is the size every
+         * previous trajectory used and it is the one the depth gate downstream
+         * is already written against, so a failure here degrades to the
+         * previous behaviour instead of inventing a new one.
+         */
+        refusals['SIZE_RULE_UNEVALUATED'] = (refusals['SIZE_RULE_UNEVALUATED'] ?? 0) + 1;
+        console.log(`  ${c.mint.slice(0, 10)}  SIZE_RULE_UNEVALUATED  ${(e as Error).message.slice(0, 100)}`);
+      }
+
       const res = await openTrajectory(
         rpc as never,
         w,
         {
           mint: c.mint,
           taker,
-          notionalLamports: NOTIONAL_LAMPORTS,
+          notionalLamports: chosenNotional,
           slippagePct: 3,
           isCashbackCoin: c.is_cashback_coin === 1,
           captureSnapshot: async (accounts, programs) =>
@@ -1584,29 +1758,73 @@ async function runCycle(
          *
          * `decideEntry` had zero production callers. This is where it gets them.
          */
+        /**
+         * P5 — THE SIX LITERAL NULLS, REPLACED BY MEASUREMENTS.
+         *
+         * `computePreEntrySignals` derives them from the closed pre-migration
+         * curve at T0 and from confirmed post-migration flow at T120. Anything
+         * it still cannot measure stays null WITH A RECORDED REASON, because a
+         * null nobody can explain is indistinguishable from a bug — and six of
+         * them in a row was exactly that.
+         *
+         * The clock here is T0: this open happens at the first mechanically
+         * valid post-migration state, so there is no post-migration flow to
+         * read and the curve is the only honest source. Filling it from later
+         * flow would hand T0 information it could not have had and would
+         * destroy the T0/T120 comparison the next phase depends on.
+         */
+        const signals = computePreEntrySignals({
+          entryClock: 'T0',
+          decisionUtcMs: Date.now(),
+          flowEvents: [],
+          checkpoints: [],
+          microstructure: microstructure?.features ?? null,
+          mayhemIsolable: facts.mayhem.enabled !== null,
+        });
+
         const preEntry: PreEntryFeatures = {
           mint: c.mint,
           hardGatesPass: admission.admit,
-          /**
-           * Flow features the collector does not yet measure are NULL, and null
-           * is never a pass: `survivorFlowContinuation` refuses on every unknown
-           * and records which one. That is the honest state of this build — the
-           * challenger will REJECT most candidates for want of a flow history,
-           * and that rejection is a real decision with a real reason, which is
-           * exactly what a sample of zero was not.
-           */
-          independentBuyerPersistence: null,
-          nonMayhemNetQuoteInflowLamports: null,
-          effectiveQuoteReserveTrend: null,
-          executableExitCapacityTrend: null,
-          continuationSlope: null,
-          creatorNetSellingLamports: null,
+          independentBuyerPersistence: signals.independentBuyerPersistence,
+          nonMayhemNetQuoteInflowLamports: signals.nonMayhemNetQuoteInflowLamports,
+          effectiveQuoteReserveTrend: signals.effectiveQuoteReserveTrend,
+          executableExitCapacityTrend: signals.executableExitCapacityTrend,
+          continuationSlope: signals.continuationSlope,
+          creatorNetSellingLamports: signals.creatorNetSellingLamports,
+          // P9 — the pre-migration structure the new risk policy reads. Every
+          // one is computed strictly before the migration signature.
+          largestFirstBuyerEntityShare: microstructure?.features.largestFirstBuyerEntityShare ?? null,
+          buyerRetention: microstructure?.features.first20BuyerRetentionAtMigration ?? null,
+          lateSellPressure: microstructure?.features.lateSellPressure ?? null,
+          migrationPathEntityDominance: microstructure?.features.migrationPathEntityDominance ?? null,
           // O-2 — the ENTITY-ADJUSTED share when it was measured, and null when
           // only balances were read. Never the raw share silently substituted:
           // an incomplete history can only understate clustering.
           entityConcentration:
             facts.concentration.kind === 'MEASURED' ? facts.concentration.entityAdjustedShare : null,
-          mintBehaviourSafe: facts.mint2022.freezeAuthority === null ? true : null,
+          /**
+           * `FactVerdict` is 'SAFE' | 'HOSTILE' | 'UNKNOWN' — a STRING UNION.
+           *
+           * This read `freezeAuthority === null ? true : null`, which compares
+           * a string union against null and is therefore ALWAYS false. So
+           * `mintBehaviourSafe` was permanently null for every candidate this
+           * collector has ever evaluated, and it is a required input of both
+           * smart policies — which made them NOT_EVALUABLE on 100% of rows for
+           * a reason that had nothing to do with the market.
+           *
+           * TypeScript does not object: comparing any type to null is legal.
+           * It took the P2 coverage histogram naming the same field on every
+           * row to make it visible.
+           *
+           * The mint's OVERALL verdict is the right quantity — it aggregates
+           * freeze authority, mint authority, permanent delegate, default
+           * account state, transfer hook, non-transferable and pausable, which
+           * is what "the mint cannot be frozen, inflated or taxed" means. And
+           * UNKNOWN stays null rather than collapsing to false, because "we
+           * could not read the mint" and "the mint is hostile" are different
+           * facts and only the second is a property of the token.
+           */
+          mintBehaviourSafe: mintBehaviourSafeOf(facts.mint2022),
           mechanicsViable: true,
           correctedQualityScore: null,
           scoreCoverageOk: false,
@@ -1621,6 +1839,67 @@ async function runCycle(
          * candidate decision.
          */
         const rawOnly: PreEntryFeatures = { ...preEntry, entityConcentration: facts.rawTopHolderShare };
+
+        /**
+         * P2 — WHAT EACH POLICY KNEW, recorded alongside what it decided.
+         *
+         * A REJECT row used to mean two completely different things: "I looked
+         * at the numbers and declined" and "I have no numbers". The second is
+         * not a strategy result at all, and reading the corpus naively made the
+         * two challengers look like extremely conservative filters when they
+         * were unplugged instruments. `evaluateWithCoverage` calls the SAME
+         * `decideEntry` and adds the third verdict, NOT_EVALUABLE.
+         */
+        const coverageVerdicts = ENTRY_POLICIES.map((policy) =>
+          evaluateWithCoverage(
+            policy,
+            preEntry,
+            {
+              largestFirstBuyerEntityShare: preEntry.largestFirstBuyerEntityShare,
+              buyerRetention: preEntry.buyerRetention,
+              lateSellPressure: preEntry.lateSellPressure,
+              migrationPathEntityDominance: preEntry.migrationPathEntityDominance,
+            },
+            { seed: `${windowId}:${policy}` },
+          ),
+        );
+        persistPolicyCoverage(db, t.trajectoryId, 'TRAJECTORY', coverageVerdicts, 'treatments-v2', Date.now());
+
+        /**
+         * P6 — the opportunity now names the trajectory it produced.
+         *
+         * Written inside the atomic open, so an opportunity can never point at
+         * a trajectory that was rolled back. The link is what lets the T0 and
+         * T120 arms be paired by mint later: without it an opportunity row and
+         * a trajectory row are two facts about the same decision that nothing
+         * joins.
+         */
+        db.prepare('UPDATE entry_opportunities SET trajectory_id = ? WHERE opportunity_id = ?').run(
+          t.trajectoryId,
+          opportunity,
+        );
+
+        /**
+         * P8 — the immutable mechanics labels. One trajectory, four strata,
+         * not sixteen collectors.
+         */
+        persistStrata(
+          db,
+          t.trajectoryId,
+          'TRAJECTORY',
+          c.mint,
+          {
+            feeConfigHash: t.feeConfigHash,
+            marketCapLamports: t.marketCapLamports ?? null,
+            selectedTier: t.selectedTier,
+            // The VERIFIED accrual, never the pool's advertisement.
+            cashbackVerified: t.cashbackVerified,
+            isMayhem: facts.mayhem.enabled,
+            isToken2022: facts.isToken2022,
+          },
+          Date.now(),
+        );
+
         for (const policy of ENTRY_POLICIES) {
           const decision = decideEntry(policy, preEntry, { seed: `${windowId}:${policy}` });
           const withoutRisk = decideEntry(policy, rawOnly, { seed: `${windowId}:${policy}` });
@@ -2182,7 +2461,7 @@ async function main(): Promise<void> {
    * excluding it would understate the load.
    */
   const telemetryDb = openDb({ path: secrets.databasePath, skipBackup: true });
-  const { host } = researchRpc(secrets as never);
+  const { host } = researchRpc(secrets as never, telemetryDb);
 
   /**
    * P1.3 — THE PROVENANCE GATE, BEFORE ANYTHING IS WRITTEN.
@@ -2402,7 +2681,9 @@ async function main(): Promise<void> {
         : new LiveMigrationLane({
             wsUrl,
             programs: MIGRATION_PROGRAMS,
-            rpc: researchRpc(secrets as never).rpc as never,
+            // S079 — the live lane's own client shares the endpoint budget too.
+            // It was the third spender and the least visible one.
+            rpc: researchRpc(secrets as never, telemetryDb).rpc as never,
             db: telemetryDb,
             sessionId: session.sessionId,
             persist: (m, reversal, nowMs) => insertConfirmedMigration(telemetryDb, m as never, reversal as never, nowMs),

@@ -19,8 +19,27 @@ export const ENTRY_POLICIES = [
   'HARD_GATES_RANDOM',
   'CORRECTED_CURRENT_QUALITY_SCORE',
   'SURVIVOR_FLOW_CONTINUATION_V1',
+  'MIGRATION_MICROSTRUCTURE_RISK_V1',
 ] as const;
 export type EntryPolicy = (typeof ENTRY_POLICIES)[number];
+
+/**
+ * The policies whose results may be quoted as PRIMARY inference.
+ *
+ * `CORRECTED_CURRENT_QUALITY_SCORE` is retired from primary inference here, as
+ * P9 requires: it has no trajectory-source coverage — its score was never
+ * computed in this collector — so every row it produced was NOT_EVALUABLE
+ * rather than a decision. It stays in `ENTRY_POLICIES` and keeps deciding,
+ * because a descriptive arm costs nothing and removing it would make the corpus
+ * discontinuous. It simply may not be reported as a result.
+ */
+export const PRIMARY_ENTRY_POLICIES: readonly EntryPolicy[] = [
+  'HARD_GATES_RANDOM',
+  'MIGRATION_MICROSTRUCTURE_RISK_V1',
+  'SURVIVOR_FLOW_CONTINUATION_V1',
+];
+
+export const DESCRIPTIVE_ONLY_POLICIES: readonly EntryPolicy[] = ['CORRECTED_CURRENT_QUALITY_SCORE'];
 
 export const EXIT_POLICIES = ['FIXED_15M_CONTROL', 'FLOW_LIQUIDITY_DETERIORATION_V1'] as const;
 export type ExitPolicy = (typeof EXIT_POLICIES)[number];
@@ -51,6 +70,19 @@ export interface PreEntryFeatures {
   /** The corrected quality score, or null when coverage was insufficient. */
   readonly correctedQualityScore: number | null;
   readonly scoreCoverageOk: boolean;
+
+  /**
+   * P3/P9 — pre-migration structure, from the CLOSED bonding-curve history.
+   *
+   * Optional so that every existing construction of this interface stays valid;
+   * absent reads exactly like null, which is to say never like a pass. All four
+   * are computed strictly before the migration signature, so none of them can
+   * carry post-migration information into an entry decision.
+   */
+  readonly largestFirstBuyerEntityShare?: number | null;
+  readonly buyerRetention?: number | null;
+  readonly lateSellPressure?: number | null;
+  readonly migrationPathEntityDominance?: number | null;
 }
 
 export interface EntryDecision {
@@ -126,7 +158,163 @@ export function decideEntry(
 
     case 'SURVIVOR_FLOW_CONTINUATION_V1':
       return survivorFlowContinuation(f, { ...SURVIVOR_DEFAULTS, ...(opts.thresholds ?? {}) });
+
+    case 'MIGRATION_MICROSTRUCTURE_RISK_V1':
+      return migrationMicrostructureRisk(f);
   }
+}
+
+/**
+ * P9 — `MIGRATION_MICROSTRUCTURE_RISK_V1`.
+ *
+ * The one new mechanism-distinct policy this phase is permitted, and its job is
+ * NOT to predict the winner.
+ *
+ *     remove launch structures associated with catastrophic post-migration loss
+ *     while preserving exposure to the rare right-tail winner
+ *
+ * Those two clauses pull in opposite directions and the second one is the one
+ * that gets quietly abandoned. Epitaxy's own windows show a single ~+14m
+ * lamport path carrying an entire positive window — remove it and both policies
+ * are negative — so a filter that trims the tail to improve the win rate makes
+ * the strategy worse while every summary statistic it is judged on improves.
+ *
+ * Three consequences, all deliberate:
+ *
+ *  1. EVERY THRESHOLD IS EXTREME, not central. `maxEntityDominance` is 0.70,
+ *     not the 0.35 the survivor policy uses for a different purpose. This
+ *     policy is meant to refuse the launch that is one wallet in a trench coat,
+ *     not to prefer the tidiest-looking token. A tidy launch and a winner are
+ *     not the same population.
+ *
+ *  2. IT IS SPARSE. Eight conditions, all mechanical, none fitted. Twenty
+ *     threshold clauses tuned on 13 settled paths would be a curve fit with a
+ *     policy's name on it.
+ *
+ *  3. NOTHING HERE IS FITTED TO THE CURRENT OUTCOMES. The values come from
+ *     protocol mechanics and from published launch-structure research
+ *     (MemeTrans, SolRugDetector, Pump.fun graduation work), which chose the
+ *     FAMILIES. They are registered in docs/MULTIPLE_TESTING_LEDGER.csv before
+ *     the window opens, and they are availability-driven rather than
+ *     outcome-driven, so they spend no alpha.
+ *
+ * An unknown is still a refusal, and that will make this policy NOT_EVALUABLE
+ * on any candidate whose pre-migration history could not be fetched. That is
+ * the honest state and it is measured by `pnpm policy:coverage` rather than
+ * hidden behind a default.
+ */
+export interface MicrostructureRiskThresholds {
+  readonly maxCreatorNetSellingLamports: bigint;
+  readonly maxEntityConcentration: number;
+  readonly maxFirstBuyerEntityShare: number;
+  readonly minBuyerRetention: number;
+  readonly maxLateSellPressure: number;
+  readonly maxEntityDominance: number;
+}
+
+/**
+ * Frozen before the window. See docs/MULTIPLE_TESTING_LEDGER.csv.
+ *
+ * Read them as "this launch is structurally broken", not as "this launch is
+ * good". Every one of them is a wide bound.
+ */
+export const MICROSTRUCTURE_RISK_DEFAULTS: MicrostructureRiskThresholds = {
+  // The creator taking anything out late is the single most repeated finding in
+  // the rug literature. Zero tolerance is not a tuned number; it is the
+  // mechanism — a creator who is selling into their own migration is the
+  // counterparty, not the issuer.
+  maxCreatorNetSellingLamports: 0n,
+  // Wider than the survivor policy's 0.35: this is the catastrophe bound.
+  maxEntityConcentration: 0.6,
+  // One entity behind more than 70% of the first twenty buys is a bundle.
+  maxFirstBuyerEntityShare: 0.7,
+  // At least a fifth of early buyers still holding at migration. A launch where
+  // essentially everyone had already left is one nobody is left to bid.
+  minBuyerRetention: 0.2,
+  // More than 80% of the final minute's volume being sells is a reversal in
+  // progress, not a dip.
+  maxLateSellPressure: 0.8,
+  // One entity providing more than 70% of the whole path to migration.
+  maxEntityDominance: 0.7,
+};
+
+function migrationMicrostructureRisk(
+  f: PreEntryFeatures,
+  t: MicrostructureRiskThresholds = MICROSTRUCTURE_RISK_DEFAULTS,
+): EntryDecision {
+  const unknowns: string[] = [];
+  const fail: string[] = [];
+
+  const need = <T>(name: string, v: T | null | undefined, ok: (x: T) => boolean, why: string): void => {
+    if (v === null || v === undefined) {
+      unknowns.push(name);
+      fail.push(`${name} is unknown`);
+      return;
+    }
+    if (!ok(v)) fail.push(why);
+  };
+
+  // 1. Mechanics. Already checked by the caller, restated so the condition
+  //    count in this policy matches what the ledger registered.
+  if (!f.mechanicsViable) fail.push('the mechanics are not viable');
+
+  // 2. The creator is not net selling.
+  need(
+    'creatorNetSellingLamports',
+    f.creatorNetSellingLamports,
+    (x) => x <= t.maxCreatorNetSellingLamports,
+    'the creator or a linked entity is net selling',
+  );
+
+  // 3. No hostile mint behaviour.
+  need('mintBehaviourSafe', f.mintBehaviourSafe, (x) => x, 'the mint can be frozen, inflated or taxed');
+
+  // 4. Entity concentration under the catastrophe bound.
+  need(
+    'entityConcentration',
+    f.entityConcentration,
+    (x) => x <= t.maxEntityConcentration,
+    `entity concentration exceeds ${t.maxEntityConcentration}`,
+  );
+
+  // 5. No extreme first-buyer entity domination.
+  need(
+    'largestFirstBuyerEntityShare',
+    f.largestFirstBuyerEntityShare,
+    (x) => x <= t.maxFirstBuyerEntityShare,
+    `one entity placed more than ${t.maxFirstBuyerEntityShare} of the first twenty buys`,
+  );
+
+  // 6. Buyer retention above the preregistered floor.
+  need(
+    'buyerRetention',
+    f.buyerRetention,
+    (x) => x >= t.minBuyerRetention,
+    `early buyer retention is below ${t.minBuyerRetention}`,
+  );
+
+  // 7. No extreme late sell-pressure reversal.
+  need(
+    'lateSellPressure',
+    f.lateSellPressure,
+    (x) => x <= t.maxLateSellPressure,
+    `late sell pressure exceeds ${t.maxLateSellPressure}`,
+  );
+
+  // 8. The path to migration was not one entity.
+  need(
+    'migrationPathEntityDominance',
+    f.migrationPathEntityDominance,
+    (x) => x <= t.maxEntityDominance,
+    `a single entity provided more than ${t.maxEntityDominance} of the path to migration`,
+  );
+
+  return {
+    policy: 'MIGRATION_MICROSTRUCTURE_RISK_V1',
+    enter: fail.length === 0,
+    reason: fail.length === 0 ? 'no catastrophic launch structure was present' : fail.join('; '),
+    unknowns,
+  };
 }
 
 /** Frozen. Changing it is a preregistration event, not a tuning step. */

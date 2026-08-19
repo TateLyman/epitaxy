@@ -1,16 +1,17 @@
 {
   "applied": true,
-  "contractId": "contract-0de924d36de6ac28",
-  "contractHash": "0de924d36de6ac28d8e1f577be13cd696b704d7d07bd4cd33211acbaceed5f34",
-  "evidenceContextId": "ctx-c3add8bff804-DEV_WINDOW_B",
-  "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
-  "windowId": "DEV_WINDOW_B",
+  "contractId": "contract-7346e383d6266fbb",
+  "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
+  "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+  "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
+  "windowId": "PROFIT_DISCOVERY_V1_R5",
   "cohort": "FIRST_HOUR",
-  "notionalRule": "fixed 20000000 lamports per entry",
+  "notionalRule": "largest admissible of [2500000, 5000000, 10000000, 20000000] lamports, chosen from one decision-time coherent snapshot by mechanics only; ceiling 20000000 lamports; falls back to the ceiling when the rule cannot be evaluated",
   "entryPolicies": [
     "HARD_GATES_RANDOM",
     "CORRECTED_CURRENT_QUALITY_SCORE",
-    "SURVIVOR_FLOW_CONTINUATION_V1"
+    "SURVIVOR_FLOW_CONTINUATION_V1",
+    "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
   "exitPolicies": [
     "FIXED_15M_CONTROL",
@@ -31,7 +32,39 @@
   "thresholds": {
     "boundedImpactCapBps": 10,
     "markSlaMs": 10000,
-    "maxPerMint": 3
+    "maxPerMint": 3,
+    "sizeRule": {
+      "candidateLamports": [
+        "2500000",
+        "5000000",
+        "10000000",
+        "20000000"
+      ],
+      "maxReserveShareBps": 50,
+      "maxPriceImpactBps": 50,
+      "maxCounterfactualImpactBps": 10,
+      "maxRoundTripDragBps": 400
+    },
+    "migrationMicrostructureRisk": {
+      "maxCreatorNetSellingLamports": "0",
+      "maxEntityConcentration": 0.6,
+      "maxFirstBuyerEntityShare": 0.7,
+      "minBuyerRetention": 0.2,
+      "maxLateSellPressure": 0.8,
+      "maxEntityDominance": 0.7
+    },
+    "signalDefinitions": {
+      "persistenceWindowMs": 60000,
+      "exitCapacityReferenceFraction": 1,
+      "continuationVerticalCap": 5
+    },
+    "featureVersions": {
+      "microstructure": "migration-microstructure-v2"
+    },
+    "entryClocks": [
+      "T0",
+      "T120"
+    ]
   },
   "sdkVersions": {
     "@pump-fun/pump-sdk": "1.36.0",
@@ -103,9 +136,9 @@
   },
   "provenance": {
     "writer": "contract-freeze.ts",
-    "sourceCommit": "c3add8bff8044721c316c0559e6103842c25b396",
+    "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
     "treeDirty": true,
-    "dirtyFiles": 20,
-    "writtenUtc": "2026-08-18T19:29:09.051Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-18T23:55:05.742Z"
   }
 }
