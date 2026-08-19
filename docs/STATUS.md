@@ -8,8 +8,10 @@
 > ```
 > pnpm check green: 135 files, 2,059 tests
 >
-> 720 cells examined, 549 evaluable, 360 tradable — 0 pass on a point estimate,
-> 0 on a holdout lower bound, against 13.5 expected false positives at a=0.05
+> 720 cells examined, 549 evaluable, 360 tradable. Of the 270 evaluable tradable
+> cells, 81 carry a positive point estimate net of cost and ZERO survive a
+> day-clustered lower bound; 72 clear the 120-day calendar and none of those has a
+> positive lower bound. 13.5 false positives were expected at a=0.05.
 > ```
 >
 > **The conditional mean Phase B went looking for exists, and it is not ours.** A
@@ -49,6 +51,21 @@
 >
 > Both unmodelled costs stay UNKNOWN — quote-to-land slippage and crowding — so
 > **every Phase B figure is an upper bound**, the negative ones included.
+>
+> **Next question, preregistered and not yet run: wallet persistence.** A Dune
+> query set arrived to test whether wallets that traded well in a fit window trade
+> well in a disjoint holdout. Reviewed, corrected and preregistered as MT073-MT075;
+> the corrected SQL is `ops/dune/wallet-persistence.sql` and the review is
+> `docs/WALLET_PERSISTENCE_REVIEW.md`. **UNRUN** — there is no Dune access here and
+> no local substitute: `targeted_flow_events`, the one local table with an actor
+> column, is empty.
+>
+> Four defects in the delivered version changed an answer. The largest: it
+> aggregated each position across BOTH windows, so the fit ranking was computed
+> partly from holdout-window sells. The most consequential: it instructed
+> subtracting our 2.69% cost floor from a wallet's realised return, which double
+> counts 2.63 of those points - the AMM fee and the impact are already inside the
+> on-chain amounts, and only the 6 bps of fixed cost is missing.
 
 > **2026-08-18 — d70b4a9a, measurement power and the cost floor, from
 > `d8ede90`. State: `MEASUREMENT_REPAIR_REQUIRED`.**
@@ -188,7 +205,7 @@
 > forever": S078, S090, S092, S093, and S095 (contract identity ignoring the
 > window). Every one presented as a market fact.
 
-Last updated: 2026-08-19T00:20Z
+Last updated: 2026-08-19T01:10Z
 
 ## Operational right now
 

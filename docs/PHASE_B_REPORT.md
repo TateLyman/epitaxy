@@ -38,9 +38,13 @@ entry, with a 10th percentile of −69.6%.
 Three consequences.
 
 1. **`NO_DECIDABLE_CELL`.** 720 cells examined, 549 evaluable, 360 of them in the
-   tradable population. **Zero pass on a point estimate and zero on a holdout
-   lower bound.** A family this size should have thrown up ~13 accidental passes
-   at α = 0.05; it produced none.
+   tradable population. **81 of the 270 evaluable tradable cells carry a positive
+   point estimate net of their own cost floor, and zero of them survive a
+   day-clustered lower bound.** Nothing is decidable: 72 cells clear the 120-day
+   calendar and none of those has a positive lower bound. A family this size should
+   have thrown up ~13 accidental passes at α = 0.05; the lower bound killed all 81.
+   That is D70B4A9A's pattern repeating exactly — four of 36 there, 81 of 270
+   here.
 2. **The tier thesis is confirmed on the cost side and it is not enough.** The
    floor falls monotonically — 2.669% at tier 0, 2.469% at tier 1, 2.350% at
    tier 2, 1.025% at tier 16 — and depth rises with it, which matters more: a
@@ -222,7 +226,9 @@ of the summed return.
 
 **720 cells examined** (8 triggers × 2 populations × 5 tier buckets × 9 notionals),
 549 evaluable, every one of them a row in `docs/PHASE_B_CELL_LEDGER.csv`. Not only
-the passing ones — there are no passing ones.
+the passing ones — no cell passes both tests. In the tradable half, 81 of 270
+evaluable cells have a positive point estimate net of cost, 72 clear the 120-day
+calendar, and **zero** have a positive day-clustered lower bound.
 
 ### Frozen before fitting
 
@@ -309,9 +315,23 @@ and the printed numbers were not.**
 
 ## 5 — HOLDOUT INTERVALS FOR EVERY CELL THAT PASSED ON POINT ESTIMATES
 
-**No cell in the tradable population passed on a point estimate**, so this section
-is the population split that explains why, and the intervals of the cells that
-would have passed had the population not been checked.
+**81 of the 270 evaluable tradable cells carry a positive point estimate net of
+their own cost floor. Zero survive a day-clustered lower bound**, and none of the
+81 is a cell any reader should look at twice: the largest holds 3 observations and
+most hold 1, which is why they have no interval at all. `net_mean_holdout > 0` and
+`net_lower_bound > 0` are the two columns to read against each other in
+`docs/PHASE_B_CELL_LEDGER.csv`.
+
+For contrast, in the untradable population 243 of 279 evaluable cells have a
+positive point estimate and **197 clear their cost floor on a lower bound** — and
+only 13 of those clear the calendar, none of them the same cells. So the untradable
+population produces intervals that survive and a calendar that refuses, while the
+tradable population produces point estimates that do not survive an interval at
+all.
+
+The rest of this section is the population split that explains why, and the
+intervals of the cells that would have been reported had the population not been
+checked.
 
 ### A fee tier belongs to a pool
 
