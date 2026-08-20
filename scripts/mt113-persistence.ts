@@ -44,7 +44,8 @@ for (let k = 1; k <= 12; k += 1) {
 
 interface WalletDay {
   quote: number;       // net SOL flow: negative is spent, positive is received
-  base: Map<string, bigint>; // residual base inventory per pool
+  base: Map<string, bigint>;      // NET residual base inventory per pool
+  gross: Map<string, bigint>;     // GROSS base traded per pool, for the round-trip test
   trades: number;
   deepTrades: number;
   feesPaid: number;
@@ -107,7 +108,7 @@ for (const w of WINDOWS) {
       const day = new Date(e.ts * 1000).toISOString().slice(0, 10);
       const key = `${e.user}|${day}`;
       let wd = wallets.get(key);
-      if (wd === undefined) { wd = { quote: 0, base: new Map(), trades: 0, deepTrades: 0, feesPaid: 0, pools: new Set() }; wallets.set(key, wd); }
+      if (wd === undefined) { wd = { quote: 0, base: new Map(), gross: new Map(), trades: 0, deepTrades: 0, feesPaid: 0, pools: new Set() }; wallets.set(key, wd); }
 
       const ladder = (e.lp + e.pf + e.cf) / 1e4;
       const outOfPool = (e.pf + e.cf) / 1e4;
@@ -118,6 +119,7 @@ for (const w of WINDOWS) {
         const paid = poolDelta / Math.max(1 - outOfPool, 1e-9);
         walletQuote = -paid;
         wd.base.set(pool, (wd.base.get(pool) ?? 0n) + e.base);
+        wd.gross.set(pool, (wd.gross.get(pool) ?? 0n) + e.base);
         wd.feesPaid += paid * ladder;
       } else {
         // The pool gave up gross; poolDelta is gross net of the retained LP fee.
@@ -125,6 +127,7 @@ for (const w of WINDOWS) {
         const received = gross * (1 - ladder);
         walletQuote = received;
         wd.base.set(pool, (wd.base.get(pool) ?? 0n) - e.base);
+        wd.gross.set(pool, (wd.gross.get(pool) ?? 0n) + e.base);
         wd.feesPaid += gross * ladder;
       }
       wd.quote += walletQuote;
@@ -173,23 +176,35 @@ interface WD { wallet: string; day: string; pnl: number; trades: number; deepSha
 const wds: WD[] = [];
 let aggregate = 0;
 let feeSum = 0;
+let openPositions = 0;
 for (const [key, wd] of wallets) {
   if (wd.trades < MIN_TRADES_PER_DAY) continue;
   const [wallet, day] = key.split('|');
   if (wallet === undefined || day === undefined) continue;
   let pnl = wd.quote;
   let anyNonWsol = false;
+  let notRoundTrip = false;
   for (const [pool, amt] of wd.base) {
     if (known.get(pool) !== WSOL) { anyNonWsol = true; break; }
+    const g = wd.gross.get(pool) ?? 0n;
+    const net = amt < 0n ? -amt : amt;
+    // THE MT113 VOID, FIXED. A 2.3-hour window cuts positions at BOTH ends. A wallet that
+    // bought BEFORE the window and sold inside it shows a negative residual - an apparent
+    // naked short - and marking that at the last price fabricated an enormous loss. It put
+    // the aggregate at 328x the fees paid and voided the first run on its own control.
+    //
+    // So a wallet-day now qualifies only if it OPENED AND CLOSED inside the window, in every
+    // pool it touched: residual within 1% of the base it actually traded there. The excluded
+    // share is reported, because this is itself a selection - a wallet that never closes is
+    // not the same animal as one that does.
+    if (g > 0n && net * 100n > g) { notRoundTrip = true; break; }
     if (amt === 0n) continue;
     const px = lastPrice.get(pool);
     if (px === undefined) continue;
-    // Residual base marked at the last observed price, charged a full exit ladder at 250 bps,
-    // the top of the observed range. Marking residual inventory optimistically is the single
-    // most flattering error available in a PnL census, so it is charged the worst ladder.
     pnl += (Number(amt) * px) * (amt > 0n ? 0.975 : 1.025);
   }
   if (anyNonWsol) continue; // mixed-quote wallets are refused rather than mispriced
+  if (notRoundTrip) { openPositions += 1; continue; }
   pnl /= 1e9;
   aggregate += pnl;
   feeSum += wd.feesPaid / 1e9;
@@ -197,6 +212,9 @@ for (const [key, wd] of wallets) {
 }
 console.log(`\n  wallet-days with >=${MIN_TRADES_PER_DAY} trades, all-WSOL: ${wds.length.toLocaleString()}`);
 console.log(`  distinct wallets ${new Set(wds.map((x) => x.wallet)).size.toLocaleString()}   skipped for a zero pool delta ${skippedNoDelta.toLocaleString()}`);
+console.log(`  EXCLUDED as not a completed round trip inside the window: ${openPositions.toLocaleString()} = ${(100 * openPositions / Math.max(openPositions + wds.length, 1)).toFixed(1)}% of wallet-days`);
+console.log('  That exclusion is a selection and is stated as one: a wallet that never closes');
+console.log('  inside a 2.3-hour window is not the same animal as one that opens and closes.');
 
 console.log('\nCONTROL — the aggregate MUST be negative and near the fees paid, or the accounting is wrong');
 console.log(`  aggregate taker PnL  ${aggregate.toFixed(1)} SOL`);

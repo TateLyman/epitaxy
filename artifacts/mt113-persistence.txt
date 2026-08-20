@@ -11,3 +11,60 @@ MT113 — venue-wide performance persistence
   window 439229557..439249556  wallet-days so far 1,187,898
   window 439022063..439042062  wallet-days so far 1,349,904
   window 438814569..438834568  wallet-days so far 1,517,186
+  window 438607075..438627074  wallet-days so far 1,690,430
+  window 438399581..438419580  wallet-days so far 1,854,618
+  window 438192087..438212086  wallet-days so far 2,020,189
+  window 437984593..438004592  wallet-days so far 2,162,823
+
+  pools seen 28,705   needing a mint lookup 6,635
+    resolved 500/6635
+    resolved 1000/6635
+    resolved 1500/6635
+    resolved 2000/6635
+    resolved 2500/6635
+    resolved 3000/6635
+    resolved 3500/6635
+    resolved 4000/6635
+    resolved 4500/6635
+    resolved 5000/6635
+    resolved 5500/6635
+    resolved 6000/6635
+    resolved 6500/6635
+  unresolvable and REFUSED 0
+
+  wallet-days with >=10 trades, all-WSOL: 196,255
+  distinct wallets 93,633   skipped for a zero pool delta 44
+
+CONTROL — the aggregate MUST be negative and near the fees paid, or the accounting is wrong
+  aggregate taker PnL  -6516649.7 SOL
+  fees paid            19856.8 SOL
+  ratio                328.183  (near +1 means the accounting closes)
+
+DISTRIBUTION of wallet-day PnL, SOL
+  p01 -45.76   p10 -1.369   p50 -0.000   p90 1.489   p99 28.70
+  share positive 49.3%
+
+HEADLINE — Spearman rank correlation of wallet PnL, ADJACENT days
+  2026-08-08 -> 2026-08-09   rho   0.1297   wallets in both 2809
+  2026-08-09 -> 2026-08-10   rho   0.2327   wallets in both 4479
+  2026-08-10 -> 2026-08-11   rho   0.1519   wallets in both 7057
+  2026-08-11 -> 2026-08-12   rho   0.0805   wallets in both 7566
+  2026-08-12 -> 2026-08-13   rho   0.2108   wallets in both 8642
+  2026-08-13 -> 2026-08-14   rho   0.3333   wallets in both 5916
+  2026-08-14 -> 2026-08-15   rho   0.1113   wallets in both 7024
+  2026-08-15 -> 2026-08-16   rho   0.1467   wallets in both 7225
+  2026-08-16 -> 2026-08-17   rho   0.0770   wallets in both 5413
+  2026-08-17 -> 2026-08-18   rho   0.1396   wallets in both 7088
+  2026-08-18 -> 2026-08-19   rho   0.0990   wallets in both 10335
+
+SHUFFLE CONTROL — the same statistic on NON-adjacent day pairs, which is the honest zero
+  adjacent pairs  n=11  median rho 0.1396   min 0.0770  max 0.3333
+  shuffle pairs   n=45  median rho 0.1776   min -0.1228  max 0.3126
+
+DEEP-POOL WALLETS ONLY — MT111 showed depth alone moves a round trip by 7 points,
+so a naive persistence signal could be nothing but persistent pool selection.
+  adjacent, deep-pool wallets  n=11  median rho 0.1334
+
+FROZEN READING: a median adjacent rho that is not clearly above the shuffle median is
+NO PERSISTENCE — and would mean the last three negatives are one fact reported three times.
+No position is proposed. Nothing is funded. Nothing is signed.
