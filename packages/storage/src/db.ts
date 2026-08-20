@@ -4164,6 +4164,84 @@ CREATE TABLE IF NOT EXISTS venue_pools (
 );
 `,
   },
+  {
+    id: 60,
+    name: 'copy_positions',
+    sql: `
+-- ===========================================================================
+-- MT104 / MT105 -- A FOLLOWER'S POSITION, WITH ITS ENTRY SNAPSHOT FROZEN.
+--
+-- Every decision in this repository must be re-derivable from its snapshot. A
+-- position could in principle be recomputed by joining venue_trades back to the
+-- signal that opened it, but the entry state would then be whatever that join
+-- returns LATER rather than what was true when the decision was made -- and the
+-- reserves, the fee ladder and the sampling probability are exactly the inputs
+-- that decide the result.
+--
+-- THE STORED RESERVES ARE THE POOL BEFORE THE FOLLOWED WALLET'S OWN BUY, which
+-- is what the tape reports and is deliberately NOT the state a follower enters
+-- against. The wallet moves the pool and we arrive after it. A follower's entry
+-- is priced by applying the wallet's trade first and ours second, in that order,
+-- and the gap between the two is the cost Phase C called quote-to-land and
+-- measured at +2.94% by the mean. Storing the pre-wallet state keeps that cost
+-- visible instead of silently granting us the wallet's own price.
+--
+-- Amounts are TEXT. SQLite INTEGER is 64-bit SIGNED and these are token amounts.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS copy_positions (
+  position_id            TEXT PRIMARY KEY,
+  ledger_row             TEXT NOT NULL,
+  selection_arm          TEXT NOT NULL,
+  fit_decile             INTEGER,
+  trigger_signature      TEXT NOT NULL,
+  trigger_event_index    INTEGER NOT NULL,
+  wallet                 TEXT NOT NULL,
+  pool                   TEXT NOT NULL,
+  base_mint              TEXT,
+  entry_utc_ms           INTEGER NOT NULL,
+  entry_event_utc_s      INTEGER NOT NULL,
+  entry_base_reserves    TEXT NOT NULL,
+  entry_quote_reserves   TEXT NOT NULL,
+  wallet_quote_in        TEXT NOT NULL,
+  notional_lamports      TEXT NOT NULL,
+  lp_fee_bps             INTEGER NOT NULL,
+  protocol_fee_bps       INTEGER NOT NULL,
+  -- NULL when the event payload was too short to carry it. A position whose
+  -- creator fee is unknown CANNOT be priced and is excluded rather than assumed
+  -- at zero, which would understate the bottom-tier leg by 30 of 125 bps.
+  creator_fee_bps        INTEGER,
+  -- MT105, recorded so the sample can be reweighted and so a later reader can
+  -- tell a change in the sampling rate from a change in the market.
+  inclusion_probability  REAL NOT NULL,
+  horizon_ms             INTEGER NOT NULL,
+  exit_utc_ms            INTEGER,
+  exit_base_reserves     TEXT,
+  exit_quote_reserves    TEXT,
+  exit_source            TEXT,
+  quote_out              TEXT,
+  return_fraction        REAL,
+  CHECK (selection_arm IN ('DECILE_1_FOLLOW','DECILE_10_FOLLOW','MOMENTUM_BASELINE','WALLET_FOLLOW')),
+  CHECK (inclusion_probability > 0 AND inclusion_probability <= 1),
+  -- An exit names where its reserves came from, or it is not an exit. A priced
+  -- position with no stated source is the shape of every censoring defect this
+  -- programme has spent five phases on.
+  CHECK (exit_utc_ms IS NULL OR exit_source IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_copy_positions_open
+  ON copy_positions(ledger_row, exit_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_copy_positions_pool
+  ON copy_positions(pool, entry_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_copy_positions_arm
+  ON copy_positions(ledger_row, selection_arm, entry_utc_ms);
+
+-- Which pools the tape must keep every trade for. A position needs its pool's
+-- complete reserve path from entry to horizon, and a pool nobody marked tracked
+-- would have its trades counted and discarded like every other unmatched trade.
+ALTER TABLE venue_pools ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_venue_pools_tracked ON venue_pools(tracked);
+`,
+  },
 ];
 
 export interface OpenOptions {
