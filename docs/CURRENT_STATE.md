@@ -226,6 +226,37 @@ already records producing a bogus 3,897 SOL sell, and it is why the filter is by
 
 ---
 
+## 6D — CASHBACK: COVERAGE MEASURED, SEMANTICS STILL OPEN
+
+A literature sweep named Pump Cashback — which redirects the creator fee away from the creator
+— as the largest recoverable cost on this venue. **Checking the repo first showed the plumbing
+was already built and tested before this session**: `packages/solana/src/cashback.ts` derives the
+PDAs, orders the remaining accounts per leg, keeps `accrued`/`claimable`/`claimed` strictly apart
+with only `claimed` in PnL, and `scripts/cashback-mechanics-surface.ts` cross-checks every
+derivation against the SDK's own. `packages/solana/src/fee-tiers.ts` likewise already models the
+market-cap fee-tier table. Three test files cover cashback. **The gap was never the plumbing.**
+
+**Coverage, measured for the first time** (`scripts/cashback-coverage.ts`, top 250 WSOL pools by
+activity, 21,466 trades, one window): **22.8% of pools and 43.9% of TRADES are cashback-enabled.**
+Zero pools refused. That is a far larger eligible universe than the 23.1% of trades sitting at the
+50 bps cost floor.
+
+**The finding that matters, and the question it opens.** Cashback pools report a mean creator fee
+of **exactly 0.0 bps** in the event, against **48.5 bps** on non-cashback pools. So cashback pools
+*are* the cheap cohort our cost census already found. What is NOT resolved is which of these is
+true, and they differ by up to 190 bps a round trip:
+
+- the trader genuinely pays less, and our 50 bps floor already includes the benefit; or
+- the trader pays the same and the creator portion becomes a **claimable receivable** in the
+  accumulator — in which case our cost model understates cost and there is a matching asset.
+
+`cashback.ts` documents the accrual model, which favours the second. But the event reporting a
+zero creator fee is evidence for the first. **This is not resolvable from historical data** — it
+needs one real trade on a cashback coin followed by a read of the `UserVolumeAccumulator`. It is
+the single best question the first funded canary can answer.
+
+---
+
 ## 6C — THE COST FLOOR, MEASURED
 
 `scripts/cost-census.ts`. The round trip identity, derived from the verified routing, is

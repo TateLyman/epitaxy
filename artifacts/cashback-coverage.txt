@@ -1,0 +1,22 @@
+CASHBACK COVERAGE — top 250 WSOL pools by activity, 21,466 trades
+
+  read 50/250
+  read 100/250
+  read 150/250
+  read 200/250
+  read 250/250
+
+RESULT
+  cashback ENABLED   pools   57   trades   9434
+  cashback disabled  pools  193   trades  12032
+  flag absent from the decoded pool (REFUSED, not assumed) 0
+  unreadable account (REFUSED) 0
+
+  share of POOLS with cashback:  22.8%
+  share of TRADES with cashback: 43.9%   <- the decision-relevant number
+
+  mean creator fee bps, cashback pools 0.0   non-cashback 48.5
+  The creator fee IS the rebate, so a cashback pool with a 5 bps creator fee returns 10 bps
+  a round trip and one with 95 bps returns 190. Coverage alone does not size the prize.
+
+  ONE WINDOW, ONE CLUSTER, top-activity pools only. Not a venue-wide census.
