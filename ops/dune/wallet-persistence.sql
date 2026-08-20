@@ -2440,3 +2440,56 @@ GROUP BY 1, 2, 3, 4, 5
 ORDER BY 2, 3, 4, 5, 1;
 
 --#END
+
+-- ============================================================================
+-- QUERY 13 — MT101 / MT103, THE WATCHLIST ADDRESS EXPORT
+--
+-- Every prior query in this file returns AGGREGATES. That was MT077's deliberate
+-- choice: Q3 returns per-(day, cohort) sufficient statistics rather than the raw
+-- panel, because a day-clustered bootstrap of a mean is a function of (n, sum)
+-- alone. The consequence, discovered when MT101 needed a watchlist, is that this
+-- repository holds NO wallet addresses anywhere. This query is the one that
+-- returns them, and it returns nothing else that could be mistaken for a result.
+--
+-- It is composed from the SAME base and the SAME rank block as Q1 through Q12,
+-- so the wallets it names are ranked by the identical reconstruction that H1 was
+-- measured on. A hand-assembled address list would be a different artifact from
+-- the evidence that justifies following those addresses at all.
+--
+-- THE RANKING STATISTIC IS THE MEDIAN, per MT101. Q1 established that the
+-- pumpswap FIT mean is contaminated at +2.53 with SD 45.45 while every median and
+-- percentile is stable, so ranking on the mean ranks partly on broken marks.
+--
+-- n_hold >= 1 IS A SURVIVORSHIP FILTER AND MT103 RECORDS IT AS ONE. It conditions
+-- on whether a wallet traded in the holdout, never on how well: no holdout
+-- return, mean, median or rank enters the ordering. Section 7 of
+-- WALLET_PERSISTENCE_RESULTS calls this the right conditional for a copier,
+-- because you can only follow a wallet that trades, and H1's own estimate is
+-- already conditional on exactly it.
+--
+-- NO RETURN FIELD FROM THE HOLDOUT IS SELECTED. The output carries the fit-window
+-- statistic the ordering uses and the holdout POSITION COUNT the filter uses, and
+-- nothing else, so this query cannot be re-read as a performance table.
+-- ============================================================================
+--#Q13 needs=BASE,RANK
+SELECT
+  ha.trader_id                                                         AS address,
+  ROW_NUMBER() OVER (ORDER BY ha.median_ret_fit DESC, ha.trader_id)    AS rank_position,
+  ha.median_ret_fit                                                    AS rank_stat,
+  f.n_fit                                                              AS fit_positions,
+  f.amm_entry_share                                                    AS amm_entry_share,
+  ha.n_hold                                                            AS holdout_positions,
+  f.wallets_qualifying                                                 AS wallets_qualifying
+FROM holdout_activity ha
+JOIN flagged f ON f.trader_id = ha.trader_id
+WHERE ha.n_hold >= 1
+  -- The wallet has entered on the venue this apparatus can enter. MT103 states
+  -- why this is a presence test rather than a share threshold: the shared RANK
+  -- block aggregates a wallet's positions across venues, and re-cutting it per
+  -- venue would mean editing the base that every other query composes from. A
+  -- wallet that mostly trades elsewhere simply produces signals the arm refuses,
+  -- and those refusals are counted rather than assumed away.
+  AND f.amm_entry_share > 0
+ORDER BY rank_position
+LIMIT 128
+--#END

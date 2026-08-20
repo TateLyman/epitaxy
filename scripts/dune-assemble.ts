@@ -65,7 +65,7 @@ function sections(sql: string): Map<string, Section> {
 
 const sql = readFileSync(SOURCE, 'utf8');
 const parsed = sections(sql);
-for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12']) {
+for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13']) {
   if (!parsed.has(required)) {
     console.error(`${SOURCE} is missing section ${required}`);
     process.exit(1);
@@ -102,7 +102,14 @@ const compose = (q: Section): string => {
 function stripTerminator(text: string): string {
   const lines = text.split(NEWLINE);
   for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const code = (lines[i] as string).replace(/--.*$/, '').trimEnd();
+    // `[^\r\n]*`, not `.*$`, for the reason spelled out at the statement count
+    // below: on a CRLF checkout `.` cannot cross the trailing `\r` and `$` is
+    // never reached, so no comment is stripped. Here the consequence was worse
+    // than a miscount — the backward scan stopped on the first trailing comment
+    // line, never found the real last statement, and left the `;` in place.
+    // DuneSQL rejects a trailing terminator outright, so every regenerated query
+    // would have failed at the API with a parse error.
+    const code = (lines[i] as string).replace(/--[^\r\n]*/, '').trimEnd();
     if (code.length === 0) continue;
     if (!code.endsWith(';')) break;
     const at = (lines[i] as string).lastIndexOf(';');
@@ -114,20 +121,36 @@ function stripTerminator(text: string): string {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const composed = new Map<string, string>();
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13']) {
   const text = stripTerminator(compose(parsed.get(name) as Section));
   composed.set(name, text);
   const path = `${OUT_DIR}/${name.toLowerCase()}.sql`;
-  writeFileSync(path, text.endsWith('\n') ? text : `${text}\n`);
+  // `trimEnd()` rather than `endsWith('\n')`: on a CRLF checkout the composed
+  // text ends in `\r`, the test reads false, and a spurious blank line is
+  // appended to every generated file on every run. A generated artifact that
+  // differs from its committed form for a reason that is not the query is a
+  // diff nobody can read past.
+  writeFileSync(path, `${text.trimEnd()}${NEWLINE}`);
   // Count EXECUTABLE statements: strip line comments first, because the
   // generated header is a comment and a naive split counts it as a fragment.
   // Strip BLOCK comments before line comments. A `;` inside a /* … */ block is
   // not a statement terminator, and counting it as one refused a valid query —
   // the per-day panel note in Q3 contains a semicolon in prose.
+  //
+  // The line-comment pattern is `--[^\r\n]*` and NOT `--.*$`, which is what it
+  // was and which never matched on this checkout. JavaScript's `.` excludes
+  // `\r` as well as `\n`, so on a CRLF working tree every line handed to the
+  // mapper ends in a `\r` that `.*` cannot cross and `$` therefore never
+  // reaches. No `--` comment was stripped at all, every semicolon written in
+  // prose counted as a statement terminator, and `pnpm dune:assemble` refused
+  // Q1 at six statements on a file whose generated form was committed from a
+  // checkout with LF endings. The check itself is unchanged and still refuses
+  // anything that is not exactly one statement; what was broken was the
+  // stripping it depends on.
   const bare = text
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split(NEWLINE)
-    .map((l) => l.replace(/--.*$/, ''))
+    .map((l) => l.replace(/--[^\r\n]*/, ''))
     .join(NEWLINE);
   const statements = bare.split(';').filter((s) => s.trim().length > 0).length;
   console.log(`${path}  ${text.split('\n').length} lines, ${statements} statement(s)`);
@@ -164,6 +187,7 @@ const NAMES: Record<string, string> = {
   Q10: 'epitaxy · phase F · Q10 H1 at entity level',
   Q11: 'epitaxy · phase G · Q11 coverage by horizon (no returns)',
   Q12: 'epitaxy · phase G · Q12 returns at every horizon',
+  Q13: 'epitaxy · MT101 · Q13 watchlist address export (128 wallets, median cut)',
 };
 
 const ids: Record<string, number> = existsSync(ID_MAP)
