@@ -26,6 +26,8 @@ not exist yesterday is an instrument that makes a test cost hours instead of a m
 | `pnpm venue:collect` — the venue tape | **STOPPED.** Four duplicate processes were found and killed (see §5). Restart deliberately, ONE only. |
 | `pnpm watchlist:sweep` — MT101 polled source | stopped, ran its full 6h |
 | MT104 copy arm | **INVALID, halted.** See §4. Its 42 positions are not evidence. |
+| MT110 impact reversion | **CLOSED NEGATIVE.** See §6.6. |
+| MT111 depth-conditioned reversion | **PREREGISTERED, holdout downloading.** See §7.0. |
 | collector / engine / trajectory collector | not running |
 | Dune | 2 queries executed (Q13, Q14). Account 2 has headroom; account 1 is capped. |
 
@@ -42,9 +44,17 @@ not exist yesterday is an instrument that makes a test cost hours instead of a m
    trade, and the full fee ladder. **Decode verified against pool-vault balances in the same
    transaction at 55/55 exact, zero tolerance.** Code: `packages/intelligence/src/pumpswap-event.ts`,
    `venue-stream.ts`. Reproduce: `pnpm venue:probe`, `pnpm venue:verify`.
-2. **SQD Portal backfill.** `portal.sqd.dev/datasets/solana-mainnet/finalized-stream`, no key.
-   Server-side Anchor discriminator filter works: **39,923 pump_amm buy/sell instructions in 4.15 MB
-   in 0.7 s**. A month of history ≈ 2 hours of downloading, free.
+2. **SQD Portal backfill — BUILT AND VERIFIED.** `scripts/sqd-backfill.ts`. The key finding is that
+   filtering the Anchor `emit_cpi!` self-CPI discriminator `0xe445a52e51cb9a1d` server-side is **1.7x
+   cheaper than asking for account keys and strictly more informative**: the payload carries `pool`,
+   `user`, both quote legs, reserves BEFORE the trade, and the full fee ladder, and the same pass also
+   catches `DepositEvent`/`WithdrawEvent` — which MT106 needs and has never had at scale. Measured
+   **456 slots/s, 707.8 B/instruction, ~26,000 events/s**; 30 days is 3h47m and ~200 GB. The decoded
+   `pool`/`user` are byte-identical to `accounts[0]`/`accounts[1]` fetched the expensive way.
+   **Independently re-verified here by reserve chaining: the BASE leg closes EXACTLY on 35,650 of
+   35,650 adjacent pairs, zero tolerance** — so the ordering key (slot, transactionIndex,
+   instructionAddress) and the offsets are both right. What it does NOT carry is the pool's MINTS;
+   those need `getAccountRaw`, and an unresolved pool must be refused, never assumed WSOL.
 3. **ClickHouse CryptoHouse.** `https://crypto-clickhouse.clickhouse.com/?user=crypto&password=`,
    no signup. Free SQL over all Solana since 2020-10-07. `solana.transactions_non_voting` carries
    pre/post token balances with `owner`. Per-query caps: 10e9 rows, 60 s, 1000 result rows.
@@ -74,6 +84,8 @@ These matter more than any finding, because other conclusions were built on them
 | "pools don't drain in the hour, 360/362" | true of the *collector-admitted* population only. On the wallet-traded population **7.0% of 540 pools fall below 10%** of starting quote reserve | commit `c00a80e` |
 | MT104 decision in "2–4 days" | **~10 day clusters minimum.** At 2 clusters the bootstrap false-positive rate is **25%** against a nominal 2.5% | MT108, `pnpm cluster:power` |
 | H\* = 3600s | wallets followed hold a **median 103 s**; 96.4% out inside the hour. Amended to 120 s | MT109 |
+| "the LP fee is a cost that leaves the pool" | **the LP fee ACCRUES TO THE POOL.** On sells the realised reserve fall is gross x (1 - lp), implied 20 bps p25-p75 20-25 against a declared full ladder of 30 — only protocol and creator leave. 100% of 17,724 sells are consistent | `scripts/diagnose-quote-fields.ts` |
+| a cheap-fee tier of pools clears at +3.41% | **confound, retracted the same hour it was found.** At pool level that tier is 6 pools, every one deep, and the shallow-and-cheap cell is EMPTY — fee and depth were perfectly collinear | `scripts/reversion-per-pool.mjs` |
 
 ---
 
@@ -144,10 +156,29 @@ Ranked by how firmly closed.
    flagged buy against +0.8 for a control, decaying to +19.5 bps by 45 s.
 5. **LP on freshly-migrated tier-0 pools.** MT100: LVR 47× fee income, break-even 93.7 bps against
    22 available.
+6. **Temporary-impact reversion, unconditional (MT110).** The net executable round trip is negative in
+   24 of 25 preregistered cells, medians −1.5% to −3.8%. **But its preregistered check (a) PASSED**: the
+   share of positive round trips rises monotonically with impact — 17.1, 27.8, 35.0, 39.5, 49.9 percent.
+   **This is a different kind of negative from the five above it.** Those were signals that did not
+   exist. This is a signal that exists, scales exactly as the mechanism predicts, and is arbitraged to
+   the fee line: in the deepest bucket the positive rate is 49.9% on a median of −0.03%, which is a fair
+   coin priced at cost. The barrier is COST, not the absence of structure. Its left tail is the warning:
+   median −0.03% sitting on a mean of −2.39%.
 
 ---
 
 ## 7 — WHAT IS STILL OPEN
+
+0. **MT111 — depth-conditioned reversion. The live one.** MT110 established that reversion is real and
+   cost-bound. On the fit day, splitting by pool DEPTH (which is what sets our own impact, while the
+   reversion itself does not scale with it) gives **13 of 18 deep pools positive at a median +1.83%
+   against 6 of 19 shallow at −1.72%**, with the POOL as the unit and overlapping events dropped. That
+   is a sign test at p≈0.048 one-sided on ONE day, which is marginal and is the eleventh row in the
+   ledger. The rule is frozen in absolute terms (5% impact bar, 15s horizon, 35 SOL cut) and declared
+   OUTCOME-DRIVEN. It is being tested on **12 windows drawn from 12 distinct UTC days that were never
+   queried**, which clears MT108's ten-cluster floor. Four conditions, any one of which closes it,
+   including that the shallow control must NOT also pay. A survivor licenses paper mode and nothing else.
+   Runner: `scripts/mt111-holdout.ts`.
 
 1. **MT106 — LP on the deep, high-fee pools.** The only mechanism found that needs **no predictive
    edge, no latency, and no distribution**. MT100 killed LP on median-25-SOL pools at `lpFeeBps=2`;
