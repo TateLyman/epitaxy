@@ -166,7 +166,8 @@
     "watchlist:sweep": "tsx scripts/watchlist-sweep.ts",
     "venue:probe": "tsx scripts/venue-stream-probe.ts",
     "watchlist:load-deciles": "tsx scripts/load-decile-watchlist.ts",
-    "venue:verify": "tsx scripts/verify-event-decode.ts"
+    "venue:verify": "tsx scripts/verify-event-decode.ts",
+    "venue:collect": "tsx scripts/venue-collect.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

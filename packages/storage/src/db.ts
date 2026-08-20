@@ -4059,6 +4059,111 @@ CREATE INDEX IF NOT EXISTS idx_flagged_wallets_address
   ON flagged_wallets(address);
 `,
   },
+  {
+    id: 59,
+    name: 'venue_tape',
+    sql: `
+-- ===========================================================================
+-- THE VENUE TAPE. MT104's source, and the reserve path five phases could not get.
+--
+-- One free logsSubscribe on pump_amm returns every trade on PumpSwap with its
+-- buyer, its amounts, its pool reserves and its fee tier. Measured: 472.5
+-- notifications a second, ZERO log truncation, and the decode verified against
+-- the pool vaults' own balances in the same transaction at 55 of 55 exact.
+--
+-- WHAT IS AND IS NOT STORED, because 472/s is roughly 40M events a day and
+-- storing all of it would add several GB a day to a corpus that is already
+-- 9.4GB and is not reproducible.
+--
+-- Stored: a trade whose 'user' is on SOME watchlist, or whose pool is one we are
+-- tracking (a pool we hold a position in, or are marking). Those are the rows
+-- that answer a question. Everything else is counted in 'venue_stream_sessions'
+-- and discarded, so the DENOMINATOR survives even though the rows do not --
+-- without it, "we saw 40 flagged buys" has no meaning.
+--
+-- RESERVES ARE BEFORE THE TRADE and the column names say so. The event field is
+-- named 'pool_quote_token_reserves' with no qualifier, and reading it as
+-- post-trade shifts a reconstructed reserve path by exactly one trade. That was
+-- established by comparing consecutive trades on one pool against the vaults'
+-- own balances, not assumed; see scripts/verify-event-decode.ts.
+--
+-- Amounts are TEXT. SQLite INTEGER is 64-bit SIGNED and these are token amounts.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS venue_trades (
+  signature            TEXT NOT NULL,
+  event_index          INTEGER NOT NULL,
+  slot                 INTEGER,
+  side                 TEXT NOT NULL,
+  pool                 TEXT NOT NULL,
+  -- Resolved from the pool account, cached. NULL until resolved: the event names
+  -- the pool and never the mint, and guessing one would be worse than waiting.
+  base_mint            TEXT,
+  quote_mint           TEXT,
+  trader               TEXT NOT NULL,
+  -- The POOL's leg. In the pool's quote mint, which is NOT always WSOL.
+  quote_amount         TEXT NOT NULL,
+  -- The TRADER's leg. Differs from the pool's by the fee; this is the one a
+  -- wallet's economics are computed from.
+  user_quote_amount    TEXT NOT NULL,
+  base_amount          TEXT NOT NULL,
+  pool_base_reserves_before   TEXT NOT NULL,
+  pool_quote_reserves_before  TEXT NOT NULL,
+  lp_fee_bps           INTEGER NOT NULL,
+  protocol_fee_bps     INTEGER NOT NULL,
+  -- The program's own clock, seconds. Distinct from when WE saw it.
+  event_utc_s          INTEGER NOT NULL,
+  observed_utc_ms      INTEGER NOT NULL,
+  session_id           TEXT NOT NULL,
+  -- Why this row was kept, so a later reader can tell a watchlist hit from a
+  -- pool we were marking. A row kept for no stated reason is a row nobody can
+  -- interpret.
+  kept_because         TEXT NOT NULL,
+  PRIMARY KEY (signature, event_index),
+  CHECK (side IN ('BUY','SELL')),
+  CHECK (kept_because IN ('WATCHLIST_TRADER','TRACKED_POOL'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_venue_trades_trader ON venue_trades(trader, observed_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_venue_trades_pool ON venue_trades(pool, observed_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_venue_trades_mint ON venue_trades(base_mint, observed_utc_ms);
+
+-- One row per connection. A GAP IS PERSISTED, NOT SMOOTHED: a reconnect that
+-- loses seconds is a fact about the measurement, and an arrival rate computed
+-- across an unrecorded gap reads a dropped subscription as a quiet market. That
+-- rate carries one of MT104's kill conditions, so the gap has to be visible.
+CREATE TABLE IF NOT EXISTS venue_stream_sessions (
+  session_id           TEXT PRIMARY KEY,
+  endpoint             TEXT NOT NULL,
+  opened_utc_ms        INTEGER NOT NULL,
+  closed_utc_ms        INTEGER,
+  close_code           INTEGER,
+  -- The denominator. Every trade seen, whether or not its row was kept.
+  notifications        INTEGER NOT NULL DEFAULT 0,
+  trades_decoded       INTEGER NOT NULL DEFAULT 0,
+  buys_decoded         INTEGER NOT NULL DEFAULT 0,
+  trades_kept          INTEGER NOT NULL DEFAULT 0,
+  failed_tx            INTEGER NOT NULL DEFAULT 0,
+  log_truncated        INTEGER NOT NULL DEFAULT 0,
+  undecodable          INTEGER NOT NULL DEFAULT 0,
+  ledger_row           TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_venue_sessions_open
+  ON venue_stream_sessions(ledger_row, opened_utc_ms);
+
+-- Pool -> mints, resolved once and reused. The only RPC call the stream path
+-- needs at all, and pools repeat constantly.
+CREATE TABLE IF NOT EXISTS venue_pools (
+  pool                 TEXT PRIMARY KEY,
+  base_mint            TEXT NOT NULL,
+  quote_mint           TEXT NOT NULL,
+  base_vault           TEXT NOT NULL,
+  quote_vault          TEXT NOT NULL,
+  coin_creator         TEXT,
+  resolved_utc_ms      INTEGER NOT NULL
+);
+`,
+  },
 ];
 
 export interface OpenOptions {
