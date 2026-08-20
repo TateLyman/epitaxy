@@ -1,0 +1,113 @@
+{
+  "probedUtc": "2026-08-20T01:28:33.744Z",
+  "ledgerRow": "MT101",
+  "frozenSweep": {
+    "wallets": 128,
+    "intervalMs": 90000,
+    "budget": {
+      "maxCallsPerSweep": 198,
+      "signatureCalls": 128,
+      "decodeHeadroom": 70,
+      "signatureRps": 1.4222222222222223
+    }
+  },
+  "http": [
+    {
+      "endpoint": "SOLANA_RPC_HTTP (primary)",
+      "status": 200,
+      "ms": 138,
+      "healthy": true,
+      "error": null
+    },
+    {
+      "endpoint": "helius mainnet",
+      "status": null,
+      "ms": 92,
+      "healthy": false,
+      "error": "Unexpected token 'm', \"max usage reached\" is not valid JSON"
+    },
+    {
+      "endpoint": "public solana (control)",
+      "status": 200,
+      "ms": 80,
+      "healthy": true,
+      "error": null
+    }
+  ],
+  "websocket": [
+    {
+      "endpoint": "helius atlas (Enhanced/LaserStream)",
+      "opened": false,
+      "closeCode": 1006,
+      "ms": 97
+    },
+    {
+      "endpoint": "helius mainnet",
+      "opened": false,
+      "closeCode": 1006,
+      "ms": 35
+    },
+    {
+      "endpoint": "public solana (control)",
+      "opened": true,
+      "closeCode": null,
+      "ms": 28
+    }
+  ],
+  "getSignaturesForAddress": [
+    {
+      "endpoint": "SOLANA_RPC_HTTP (primary)",
+      "targetRps": 1.422475106685633,
+      "actualRps": 1.341381623071764,
+      "ok": 20,
+      "refused429": 0,
+      "other": 0,
+      "n": 20,
+      "statuses": {
+        "200": 20
+      }
+    },
+    {
+      "endpoint": "SOLANA_RPC_HTTP (primary)",
+      "targetRps": 2.840909090909091,
+      "actualRps": 2.558526288857618,
+      "ok": 20,
+      "refused429": 0,
+      "other": 0,
+      "n": 20,
+      "statuses": {
+        "200": 20
+      }
+    },
+    {
+      "endpoint": "helius mainnet",
+      "targetRps": 1.422475106685633,
+      "actualRps": 1.3352917612498332,
+      "ok": 0,
+      "refused429": 20,
+      "other": 0,
+      "n": 20,
+      "statuses": {
+        "429": 20
+      }
+    },
+    {
+      "endpoint": "helius mainnet",
+      "targetRps": 2.840909090909091,
+      "actualRps": 2.4804663276696015,
+      "ok": 0,
+      "refused429": 20,
+      "other": 0,
+      "n": 20,
+      "statuses": {
+        "429": 20
+      }
+    }
+  ],
+  "verdict": {
+    "streamAvailable": false,
+    "wsControlOk": true,
+    "streamVerdictMeaningful": true,
+    "bestSignaturesEndpoint": "SOLANA_RPC_HTTP (primary)"
+  }
+}

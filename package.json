@@ -160,7 +160,8 @@
     "horizon": "tsx scripts/phase-g-horizon.ts",
     "revalidate": "tsx scripts/phase-g-revalidate.ts",
     "curve:sql": "tsx scripts/phase-g-curve-price-sql.ts",
-    "curve:reprice": "tsx scripts/phase-g-curve-reprice.ts"
+    "curve:reprice": "tsx scripts/phase-g-curve-reprice.ts",
+    "provider:probe": "tsx scripts/provider-capability-probe.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

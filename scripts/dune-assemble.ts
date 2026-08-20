@@ -24,6 +24,16 @@
  * credits; only executing does, which this script deliberately does not do.
  */
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { loadDotEnvOnce } from '../packages/domain/src/dotenv.js';
+
+// `.env` is loaded the same way every other entry point loads it, for the
+// reason `loadSecrets` states: so that an entry point gets the environment
+// without having to remember to. This script read `process.env.DUNE_API_KEY`
+// directly and therefore refused `--push` on any shell where the key lives in
+// `.env` and nowhere else, which is every shell in this project. Ambient
+// variables still win, and the key is still never written to a generated file,
+// to the id map, or to stdout.
+loadDotEnvOnce();
 
 const NEWLINE = String.fromCharCode(10);
 const SOURCE = 'ops/dune/wallet-persistence.sql';
