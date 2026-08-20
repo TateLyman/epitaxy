@@ -1,0 +1,27 @@
+COST CENSUS — one window, events-440059533-440059999.jsonl
+
+trades with a fully declared fee ladder: 36,524   pools 792
+
+ROUND-TRIP COST IN BASIS POINTS, by trade
+  p05 50   p25 60   p50 60   p75 160   p95 240   max 250
+
+WHERE THE COST COMES FROM — the creator fee is the only large SELECTABLE term
+  lp fee bps        0, 2, 20, 25
+  creator fee bps   p05 0  p50 0  p95 90   share at ZERO 65.7%
+
+HOW MUCH OF THE VENUE IS AVAILABLE AT EACH COST, by TRADE COUNT and by VOLUME
+  (volume here is the trade quote leg as reported; it is used ONLY to weight cost,
+   never to compute a return, so the known quote-field defect cannot bias a P&L)
+     <=50 bps   trades   8436 =  23.1%   volume   0.0%   distinct pools 74
+   51-100 bps   trades  17580 =  48.1%   volume 100.0%   distinct pools 124
+  101-150 bps   trades   1281 =   3.5%   volume   0.0%   distinct pools 28
+  151-200 bps   trades   3443 =   9.4%   volume   0.0%   distinct pools 175
+     >200 bps   trades   5784 =  15.8%   volume   0.0%   distinct pools 401
+
+THE CELL THAT MATTERS: CHEAP **AND** DEEP — cheap alone was a depth confound (MT111)
+  cheap<=50 & deep>35SOL   trades   8436 =  23.1%   volume share   0.0%   pools 74
+  cheap<=50 & shallow      trades      0 =   0.0%   volume share   0.0%   pools 0
+  dear>200 & deep>35SOL    trades   5387 =  14.7%   volume share   0.0%   pools 326
+  dear>200 & shallow       trades    397 =   1.1%   volume share   0.0%   pools 78
+
+  ONE WINDOW, ONE CLUSTER. A cost distribution, not a return. Nothing is licensed by it.

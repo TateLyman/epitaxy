@@ -1,0 +1,7 @@
+bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+MT113 — venue-wide performance persistence
+
+(node:1700) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+  window 440267027..440287026  wallet-days so far 247,561
+  window 440059533..440079532  wallet-days so far 494,627

@@ -27,7 +27,8 @@ not exist yesterday is an instrument that makes a test cost hours instead of a m
 | `pnpm watchlist:sweep` — MT101 polled source | stopped, ran its full 6h |
 | MT104 copy arm | **INVALID, halted.** See §4. Its 42 positions are not evidence. |
 | MT110 impact reversion | **CLOSED NEGATIVE.** See §6.6. |
-| MT111 depth-conditioned reversion | **PREREGISTERED, holdout downloading.** See §7.0. |
+| MT111 depth-conditioned reversion | **CLOSED** on a 12-day holdout. See §6.7. |
+| MT112 LP on complete coverage | **CLOSED**, control 1 failed. See §6.8. |
 | collector / engine / trajectory collector | not running |
 | Dune | 2 queries executed (Q13, Q14). Account 2 has headroom; account 1 is capped. |
 
@@ -156,6 +157,25 @@ Ranked by how firmly closed.
    flagged buy against +0.8 for a control, decaying to +19.5 bps by 45 s.
 5. **LP on freshly-migrated tier-0 pools.** MT100: LVR 47× fee income, break-even 93.7 bps against
    22 available.
+7. **Depth-conditioned reversion (MT111), on a 12-day holdout of complete venue coverage.**
+   CLOSED: 53.6% of deep pool-days positive against the 60% required, and a day-clustered interval
+   of **[−0.04%, +0.77%]** that straddles zero. The effect shrank ~80% out of sample — fit 13 of 18
+   at +1.83%, holdout 53.6% at +0.35%. **But the by-product replicated overwhelmingly and is the
+   single most useful number this programme has: pool DEPTH separates 53.6% positive from 5.0%
+   positive, and +0.35% from −6.68%.** The shallow arm loses on 95% of pool-days on every one of
+   twelve days, daily medians −4.64% to −20.34%. Anything transacting here outside deep pools pays
+   ~6.7% a round trip, and no edge ever measured here is worth 6.7%. Evidence: 34,061 priced round
+   trips, 4,417 pools, 26.4M decoded trade events, zero unresolvable, zero unpriceable.
+8. **LP on deep, mature, high-fee pools (MT112).** CLOSED, and **its preregistered CONTROL 1
+   FAILED, so its magnitude is not quotable** — fee income does not rise with the fee tier
+   (0.0937% at lp=2, 0.0817% at lp=20, an impossible −9.45% at lp=25). A turnover-composition
+   confound could explain that, but the control existed to forbid exactly that rescue. The SIGN
+   survives because it needs no fee isolation: negative on 3,655 segments, every tier, all twelve
+   days, positive share never above a third. Median fee 0.085% against median rebalancing −1.222%,
+   a ratio of 8 to 1 — against MT100's 47 to 1 on tier-0. **The self-void did NOT trigger: k
+   decreases in 3.622% of 25.7M steps against a 5% bar and against the 30.8% that voided MT106
+   twice.** The instrument is finally sound and the answer is simply no. Known defect for a
+   successor: v is fitted as a global 17.5845 SOL when it is a per-pool quantity.
 6. **Temporary-impact reversion, unconditional (MT110).** The net executable round trip is negative in
    24 of 25 preregistered cells, medians −1.5% to −3.8%. **But its preregistered check (a) PASSED**: the
    share of positive round trips rises monotonically with impact — 17.1, 27.8, 35.0, 39.5, 49.9 percent.
@@ -167,9 +187,82 @@ Ranked by how firmly closed.
 
 ---
 
+## 6B — WHERE THE MONEY ACTUALLY GOES, AND WHY THAT ANSWERS THE WHOLE QUESTION
+
+Pure accounting over one 2.3-hour window, 550 WSOL-quoted pools, 21,345 trades priced from
+reserve deltas rather than the defective quote fields. No return, no strategy, no outcome
+variable. `scripts/money-flow.ts`, artifact `artifacts/money-flow.txt`.
+
+Takers paid **146.6 SOL** in that window. It went:
+
+| recipient | SOL | share | bps of volume | is there an offsetting loss? |
+|---|---|---|---|---|
+| coin creators | 77.45 | **52.8%** | 31.1 | **NO. No inventory, no LVR, no prediction.** |
+| liquidity providers | 47.89 | 32.7% | 19.3 | **YES — MT112 measures rebalancing at ~8x fee income** |
+| protocol | 21.21 | 14.5% | 8.5 | not a seat available to us |
+
+**There are exactly three seats at this table.** The LP seat gives the money back and more.
+The protocol seat is not for sale. The creator seat keeps what it takes — it is the only
+structurally unhedged income on the venue, and it is the largest of the three.
+
+**But it is a lottery, not a business we can enter.** Creator income is brutally concentrated:
+**12 of 346 earning pools carry 80% of it.** The median earning pool makes **0.0076 SOL per
+2.3 hours** — nothing. p99 is 3.61 SOL and the single top pool made 29.29 SOL on 3,109 SOL of
+volume at ~94 bps. Winning that lottery requires *volume*, and volume follows attention. That
+is a distribution problem, not a trading problem, and this system has no distribution.
+
+A related fact that kills the obvious cost-selection idea: **zero-creator-fee pools carry 59.8%
+of volume** (13 pools of the 84 with >=20 priced trades). The cheap pools are where the flow
+already is, so cost selection buys no privileged access — it just puts you in the crowd.
+
+**The synthesis.** Every durable line of income here is a toll on flow. We own neither the flow
+nor the rails. That was written as a slogan on an earlier branch; these are the numbers under it.
+
+CAVEATS THAT TRAVEL WITH THE TABLE: one window, one cluster. 179 of 792 pools (22.6%) were
+REFUSED as unread rather than assumed WSOL, and 63 as non-WSOL. A first cut that skipped the
+WSOL filter reported 21.8M SOL of volume in 2.3 hours — a quarter-billion SOL annualised —
+because non-SOL quote mints carry different decimals; that is the same confusion CURRENT_STATE
+already records producing a bogus 3,897 SOL sell, and it is why the filter is by name.
+
+---
+
+## 6C — THE COST FLOOR, MEASURED
+
+`scripts/cost-census.ts`. The round trip identity, derived from the verified routing, is
+**R = (q_eff+y)/(q_eff+x) · (1−f_total)²**, so a round trip costs **2·f_total and PRICE IMPACT
+CANCELS** — you traverse the curve up and back. Our own impact at research size was never a
+first-order cost, and `copy-fill.ts` charging the full ladder on both legs is CORRECT.
+
+Round-trip cost across trades: **p05 50 bps, p50 60, p75 160, p95 240, max 250.** The creator
+fee is the only large selectable term and is **zero on 65.7%** of trades. **23.1% of trades sit
+at the 50 bps floor, across 74 pools — and every one of them is deep.** `cheap & shallow` is
+again EMPTY, the same collinearity that produced the retracted cheap-fee finding.
+
+---
+
+## 6A — THE ONE SENTENCE THAT NOW SUMMARISES FIFTEEN MONTHS
+
+**Three independent mechanisms, measured on 12 UTC day clusters of complete venue coverage,
+all land on the same line: this venue is priced at its cost boundary.** Reversion exists and
+scales exactly as impact theory predicts, and is arbitraged to the fee (MT110). Conditioning it
+on depth separates catastrophic from break-even but never reaches profit (MT111). Providing
+liquidity instead of taking it improves the fee-to-rebalancing ratio six-fold over MT100 and is
+still 8 to 1 against (MT112). Every route ends at the same place, which is what an efficient
+market at a high cost structure looks like from the inside.
+
+**What that implies for any future attempt.** The binding constraint is COST, not the absence of
+structure. Costs here are protocol 5 bps and LP 20 bps, which nobody escapes; creator fee 0–95
+bps, which is set per coin and IS selectable; price impact, which is set by depth relative to
+size and IS selectable; and priority fees, which have never been measured in this programme. Any
+serious proposal must either lower a cost we are currently paying or find an edge worth more
+than roughly 50 bps a round trip in a deep pool. No edge measured in fifteen months has been.
+
+---
+
 ## 7 — WHAT IS STILL OPEN
 
-0. **MT111 — depth-conditioned reversion. The live one.** MT110 established that reversion is real and
+0. **~~MT111~~ — CLOSED, see §6.7. Retained here only because its by-product is the most useful
+   fact the programme owns: depth. Kept for the successor, not as an open question.** MT110 established that reversion is real and
    cost-bound. On the fit day, splitting by pool DEPTH (which is what sets our own impact, while the
    reversion itself does not scale with it) gives **13 of 18 deep pools positive at a median +1.83%
    against 6 of 19 shallow at −1.72%**, with the POOL as the unit and overlapping events dropped. That

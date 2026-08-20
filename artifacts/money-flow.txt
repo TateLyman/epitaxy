@@ -1,0 +1,29 @@
+MONEY FLOW — one 2.3-hour window, events-440059533-440059999.jsonl
+
+  WSOL-quoted pools measured 550   REFUSED as non-WSOL 63   REFUSED as unread 179
+  trades priced from reserve deltas: 21,345   excluded as oversize artifacts 0
+  total quote volume: 24877.77 SOL
+
+WHO RECEIVES WHAT A TAKER PAYS
+  liquidity providers       47.89 SOL    32.7% of fees   19.3 bps of volume
+  protocol                  21.21 SOL    14.5%              8.5 bps
+  coin creators             77.45 SOL    52.8%              31.1 bps
+  TOTAL EXTRACTED          146.56 SOL over 2.3 hours
+  annualised run-rate at this rate: 558198 SOL/year across the venue
+
+CONCENTRATION — how many pools carry the creator-fee income
+  12 of 346 pools carry 80% of all creator fees
+  top earners this window:
+    GCYK1AJ7     29.287 SOL   volume   3108.7 SOL   depth 3159 SOL
+    BLq971Ns      8.829 SOL   volume    979.5 SOL   depth 203 SOL
+    EyfKXMYM      7.527 SOL   volume    792.3 SOL   depth 134 SOL
+    EfZSY5rE      3.615 SOL   volume    409.9 SOL   depth 198 SOL
+    5Jm4GnWP      2.218 SOL   volume    739.4 SOL   depth 1491 SOL
+    DMAFL613      1.960 SOL   volume    372.9 SOL   depth 2105 SOL
+    EHHDBi98      1.831 SOL   volume    210.4 SOL   depth 70 SOL
+    DREWS98i      1.768 SOL   volume    208.5 SOL   depth 248 SOL
+
+  creator SOL per pool per 2.3h:  p50 0.0076   p90 0.327   p99 3.61   max 29.29
+  pools earning a creator fee at all: 266 of 550
+
+  ONE WINDOW, ONE CLUSTER. Accounting only - no return, no strategy, nothing licensed.
