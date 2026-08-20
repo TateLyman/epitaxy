@@ -155,7 +155,7 @@ Ranked by how firmly closed.
    ten times the LP share. MT106 self-voided on my instrument (sparse sampling made the invariant
    method invalid: k shrank in 30.8% of 139,145 steps). **Fix is known**: dense per-pool coverage
    (the tape now does this for tracked pools) plus `DepositEvent`/`WithdrawEvent` decoding, which is
-   **already built** in `pumpswap-event.ts`.
+   decoded in `pumpswap-event.ts` but NOT wired: no table, never called by the collector, and never verified against a captured event. Calling it built was wrong.
 2. **Sub-120-second horizons.** Every measurement this programme has ever made is ≥120 s. Phase C
    and the identity literature both say the signal lives at seconds. The tape can measure it and
    never has.
