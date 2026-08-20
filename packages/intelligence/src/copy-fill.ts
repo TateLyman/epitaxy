@@ -152,10 +152,24 @@ export interface RoundTrip {
  * them — NOT the reserves our own entry left behind. The difference is every
  * trade the market did in between, which is exactly the thing being measured.
  *
- * Our own entry impact IS included: the base we receive is priced against the
- * pool we moved, and the sell is priced against the exit pool plus our own size.
- * A round trip that ignored its own impact would report an edge that vanishes at
- * any real notional.
+ * Our own entry impact IS included, and CARRYING THE FOOTPRINT IS THE WHOLE POINT.
+ *
+ * D1 — this used to hand `exitReserves` to `priceSell` unmodified while claiming in
+ * this very comment that the sell was priced "against the exit pool plus our own
+ * size". It was not. The buy took `baseOut` OUT of the entry pool and then the sell
+ * pushed it back into a pool that had never received it, so the round trip paid its
+ * own impact TWICE instead of zero times. On a constant-product curve a buy and an
+ * immediate sell of the same base is exactly reversible: you traverse the curve up
+ * and back, and only the fee remains.
+ *
+ * The spurious cost was about 2 * notional / quote, which is small in a deep pool and
+ * enormous in a shallow one — it is why the shallow arm of MT111 read -6.685% when the
+ * corrected figure is near -3.6%, and roughly half of the published "you pay ~6.7% a
+ * round trip outside deep pools" was this bug rather than the market.
+ *
+ * With the footprint carried, an unchanged pool collapses to the closed form
+ * `(1 - f) / (1 + f) - 1`, which is the pure fee and is notional-invariant. That
+ * invariance is the test, and it is asserted in the suite.
  */
 export function priceRoundTrip(
   entryReserves: PoolReserves,
@@ -165,7 +179,20 @@ export function priceRoundTrip(
   exitFees: PoolFeeLadder,
 ): RoundTrip {
   const buy = priceBuy(entryReserves, quoteIn, entryFees);
-  const sell = priceSell(exitReserves, buy.baseOut, exitFees);
+  // Our own footprint: the base we removed and the quote we added on the way in.
+  const quoteAdded = buy.reservesAfter.quote - entryReserves.quote;
+  const exitWithOurFootprint: PoolReserves = {
+    base: exitReserves.base - buy.baseOut,
+    quote: exitReserves.quote + quoteAdded,
+  };
+  if (exitWithOurFootprint.base <= 0n) {
+    // Our position is at least the whole exit pool. There is no price at which this
+    // exits, and inventing one is the single most flattering error available here.
+    throw new FillNotPriceable(
+      `a position of ${buy.baseOut} base cannot exit a pool holding ${exitReserves.base}`,
+    );
+  }
+  const sell = priceSell(exitWithOurFootprint, buy.baseOut, exitFees);
   const pnl = sell.quoteOut - quoteIn;
   return {
     quoteIn,

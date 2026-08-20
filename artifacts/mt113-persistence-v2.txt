@@ -8,3 +8,5 @@ MT113 — venue-wide performance persistence
   window 439852039..439872038  wallet-days so far 696,253
   window 439644545..439664544  wallet-days so far 873,493
   window 439437051..439457050  wallet-days so far 1,023,085
+  window 439229557..439249556  wallet-days so far 1,187,898
+  window 439022063..439042062  wallet-days so far 1,349,904

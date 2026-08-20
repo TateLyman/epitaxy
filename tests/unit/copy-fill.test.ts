@@ -183,15 +183,46 @@ describe('the round trip', () => {
     expect(rt.returnFraction).toBeLessThan(-0.2);
   });
 
-  it('INCLUDES our own entry impact, so an edge cannot survive by ignoring size', () => {
+  it('CARRIES our own footprint, so a static-pool round trip is the pure fee and nothing else', () => {
     /**
-     * The sell is priced against the exit pool plus our own base. A round trip
-     * that ignored its own impact would report an edge that vanishes at any
-     * real notional — and 0.02 SOL into a 108 SOL pool is not a real notional.
+     * THIS TEST USED TO ASSERT THE OPPOSITE, and the old assertion was wrong.
+     *
+     * It required a larger notional to return strictly less, on the reasoning that a
+     * round trip ignoring its own impact "would report an edge that vanishes at any
+     * real notional". But `priceRoundTrip` was handing the sell an exit pool that had
+     * never received our buy, so the position paid its own impact TWICE rather than
+     * zero times, and this test was locking that defect in.
+     *
+     * On a constant-product curve a buy and an immediate sell of the same base is
+     * exactly reversible — you traverse the curve up and back. What remains is the fee
+     * on each leg, taken off the input going in and the output coming out:
+     *
+     *     return = (1 - f) / (1 + f) - 1
+     *
+     * which contains no notional term at all. So the correct invariant is INVARIANCE,
+     * and it is asserted directly against the closed form rather than as an inequality.
      */
+    const f = Number(totalFeeBps(CHEAP)) / 1e4;
+    const closedForm = (1 - f) / (1 + f) - 1;
     const small = priceRoundTrip(DEEP, DEEP, 20_000_000n, CHEAP, CHEAP).returnFraction;
     const large = priceRoundTrip(DEEP, DEEP, 10n * SOL, CHEAP, CHEAP).returnFraction;
-    expect(large).toBeLessThan(small);
+    // 7 decimals, not 8: amounts are bigint and every division truncates, so a
+    // 0.02 SOL leg carries ~2e-8 of rounding. 7 decimals still pins the return to
+    // 0.00005 bps, far inside anything that could matter. The tolerance is mine and
+    // it is being set to the instrument's real precision — the closed form itself is
+    // not being relaxed.
+    expect(small).toBeCloseTo(closedForm, 7);
+    expect(large).toBeCloseTo(closedForm, 7);
+    // Invariant to within integer division, which is the only thing separating them.
+    expect(Math.abs(large - small)).toBeLessThan(1e-7);
+  });
+
+  it('REFUSES a position the exit pool cannot absorb rather than inventing a price', () => {
+    // Size is still a real constraint — it just is not a per-round-trip impact tax.
+    // A position at least as large as the whole exit pool has no exit price, and
+    // fabricating one is the most flattering error available here.
+    const drained: PoolReserves = { base: DEEP.base / 1000n, quote: DEEP.quote };
+    expect(() => priceRoundTrip(DEEP, drained, 100n * SOL, CHEAP, CHEAP)).toThrow(FillNotPriceable);
   });
 
   it('refuses to price anything when the creator fee is unknown', () => {
