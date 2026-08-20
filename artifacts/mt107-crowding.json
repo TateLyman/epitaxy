@@ -1,0 +1,51 @@
+{
+  "probedUtc": "2026-08-20T13:23:32.772Z",
+  "ledgerRow": "MT107",
+  "endpoint": "wss://api.mainnet-beta.solana.com",
+  "runMinutes": 28,
+  "watchedWallets": 13743,
+  "buysSeen": 229790,
+  "flaggedBuysSeen": 2282,
+  "windowsFlagged": 2282,
+  "windowsControl": 943,
+  "controlRate": 0.004,
+  "horizons": [
+    {
+      "horizonS": 2,
+      "flaggedCountMean": 3.53330411919369,
+      "controlCountMean": 4.393425238600212,
+      "flaggedMoveBpsMean": 133.77663970192717,
+      "controlMoveBpsMean": 55.797872116108536,
+      "flaggedMoveBpsP50": 57.724683506426665,
+      "controlMoveBpsP50": 0.8087110406970494
+    },
+    {
+      "horizonS": 5,
+      "flaggedCountMean": 7.771691498685364,
+      "controlCountMean": 11.364793213149524,
+      "flaggedMoveBpsMean": 142.3116138367281,
+      "controlMoveBpsMean": 48.83768821114059,
+      "flaggedMoveBpsP50": 37.162203798003546,
+      "controlMoveBpsP50": 1.0772375445461808
+    },
+    {
+      "horizonS": 15,
+      "flaggedCountMean": 20.411919368974583,
+      "controlCountMean": 33.86426299045599,
+      "flaggedMoveBpsMean": 153.6255339910301,
+      "controlMoveBpsMean": 72.17303246048193,
+      "flaggedMoveBpsP50": 18.073519015654977,
+      "controlMoveBpsP50": 3.353298880272574
+    },
+    {
+      "horizonS": 45,
+      "flaggedCountMean": 52.540753724802805,
+      "controlCountMean": 99.51113467656415,
+      "flaggedMoveBpsMean": 115.41690407786632,
+      "controlMoveBpsMean": -32.83227915545924,
+      "flaggedMoveBpsP50": 19.45898486988286,
+      "controlMoveBpsP50": 8.965593714606305
+    }
+  ],
+  "verdict": "NOT_DEMONSTRATED"
+}
