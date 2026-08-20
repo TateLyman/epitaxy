@@ -3824,6 +3824,150 @@ CREATE INDEX IF NOT EXISTS idx_observation_watch_open
   ON observation_watch(last_observed_utc_ms) WHERE terminal_state IS NULL;
 `,
   },
+  {
+    id: 56,
+    name: 'wallet_follow',
+    sql: `
+-- ===========================================================================
+-- MT101 -- THE FLAGGED-WALLET ENTRY ARM.
+--
+-- H1 is the only confirmed out-of-sample result this programme has produced and
+-- it has never touched the collector: every trajectory ever opened used
+-- token-feature momentum screening, which is the rule measured at -17.44% mean
+-- on 455 own-quote trajectories. These three tables are what it takes to run the
+-- confirmed signal as an entry rule and measure it on OUR OWN fills.
+--
+-- The whole point is that pricing happens on our executable quotes, so the
+-- censoring that killed Phases C through G cannot occur here: it was a property
+-- of asking Dune's trade tape for a price, not a property of the pool. Measured
+-- on 362 trajectories over two UTC days, a post-migration PumpSwap pool ends the
+-- hour at a median 1.0000 of its entry quote reserve and 0 of 362 fall below
+-- 0.1x. An unpriceable position had no TRADE, not no LIQUIDITY.
+-- ===========================================================================
+
+-- The frozen watchlist. MT101 freezes it for the duration: MT073 measured that
+-- top deciles vanish fastest, at 36.7 to 46.6 percent a month, so a wallet that
+-- stops trading must produce NO SIGNAL and be visible as such -- never be
+-- silently replaced by a mid-experiment re-rank, which would make the population
+-- a function of the outcome.
+--
+-- The frozen rule is enforced here rather than remembered: a wallet with fewer
+-- than 20 fit positions cannot be inserted, because that is the bar MT073 set
+-- and a watchlist that quietly admits a 3-position wallet is a different
+-- experiment wearing the same name.
+CREATE TABLE IF NOT EXISTS flagged_wallets (
+  address              TEXT PRIMARY KEY,
+  rank_position        INTEGER NOT NULL,
+  rank_stat            REAL NOT NULL,
+  fit_positions        INTEGER NOT NULL,
+  fit_window_start     TEXT NOT NULL,
+  fit_window_end       TEXT NOT NULL,
+  entry_project        TEXT NOT NULL,
+  cut                  TEXT NOT NULL,
+  source_query_id      TEXT NOT NULL,
+  source_execution_id  TEXT NOT NULL,
+  ledger_row           TEXT NOT NULL,
+  frozen_utc_ms        INTEGER NOT NULL,
+  CHECK (cut IN ('MEDIAN','MEAN')),
+  CHECK (rank_position >= 1),
+  CHECK (fit_positions >= 20)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flagged_wallets_rank
+  ON flagged_wallets(ledger_row, rank_position);
+
+-- Every observed action of a watched wallet, decoded or not. A row is written
+-- before it is known whether the action is usable, because a source whose
+-- undecodable events are dropped reports a detection rate it did not achieve.
+--
+-- Keyed on (signature, instruction_index) because a reconnect replays, a
+-- subscription rebuild replays, and a poll overlaps a stream: two swaps in one
+-- transaction are two events, the same swap twice is one. That is rule 1 of
+-- TARGETED_FLOW_V1 and it is enforced by the primary key rather than by care.
+--
+-- quote_lamports is TEXT because SQLite INTEGER is 64-bit SIGNED and every token
+-- amount in this system is a bigint.
+--
+-- detection_lag_ms is the honest cost of the source and is stored per event, so
+-- a polled result and a streamed result are never pooled without it being
+-- visible which is which. NULL when the block time could not be read -- an
+-- unmeasured lag is not a zero lag.
+CREATE TABLE IF NOT EXISTS wallet_flow_events (
+  signature            TEXT NOT NULL,
+  instruction_index    INTEGER NOT NULL,
+  wallet               TEXT NOT NULL,
+  mint                 TEXT,
+  side                 TEXT,
+  quote_lamports       TEXT,
+  program_id           TEXT,
+  slot                 INTEGER,
+  block_utc_ms         INTEGER,
+  observed_utc_ms      INTEGER NOT NULL,
+  detection_lag_ms     INTEGER,
+  source               TEXT NOT NULL,
+  commitment           TEXT NOT NULL,
+  tx_error             INTEGER NOT NULL DEFAULT 0,
+  decode_refusal       TEXT,
+  PRIMARY KEY (signature, instruction_index),
+  CHECK (side IS NULL OR side IN ('BUY','SELL')),
+  CHECK (source IN ('POLL','STREAM')),
+  CHECK (commitment IN ('processed','confirmed','finalized')),
+  -- A decoded event names its mint and side; an undecoded one names its reason.
+  -- Neither may be silent, because "we saw nothing" and "we could not read what
+  -- we saw" are different facts and only one of them is about the market.
+  CHECK ((mint IS NOT NULL AND side IS NOT NULL) OR decode_refusal IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_flow_mint ON wallet_flow_events(mint, observed_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_wallet_flow_wallet ON wallet_flow_events(wallet, observed_utc_ms);
+
+-- One row per trigger decision, FORWARDED or REFUSED. This is where "rejections
+-- are the product" is enforced for this arm: the CHECK makes a refusal without a
+-- stated reason impossible to insert, so a signal can never disappear between
+-- being detected and being entered.
+--
+-- signal_age_ms is measured against the wallet's own block time where it is
+-- known, and against our observation only where it is not, with which one was
+-- used recorded in age_basis. Those are different quantities and a lag budget
+-- enforced on the wrong one is not the frozen rule.
+CREATE TABLE IF NOT EXISTS wallet_signals (
+  signal_id            TEXT PRIMARY KEY,
+  mint                 TEXT NOT NULL,
+  trigger_signature    TEXT NOT NULL,
+  trigger_instruction  INTEGER NOT NULL,
+  wallet               TEXT NOT NULL,
+  wallet_rank          INTEGER NOT NULL,
+  k_observed           INTEGER NOT NULL,
+  block_utc_ms         INTEGER,
+  observed_utc_ms      INTEGER NOT NULL,
+  evaluated_utc_ms     INTEGER NOT NULL,
+  signal_age_ms        INTEGER NOT NULL,
+  age_basis            TEXT NOT NULL,
+  outcome              TEXT NOT NULL,
+  refusal              TEXT,
+  selection_arm        TEXT NOT NULL,
+  ledger_row           TEXT NOT NULL,
+  contract_id          TEXT,
+  CHECK (age_basis IN ('BLOCK_TIME','OBSERVATION')),
+  CHECK (k_observed >= 1),
+  CHECK (outcome IN (
+    'FORWARDED',
+    'REFUSED_STALE',
+    'REFUSED_NO_POOL',
+    'REFUSED_DUPLICATE_MINT',
+    'REFUSED_NOT_BUY',
+    'REFUSED_WALLET_NOT_FLAGGED',
+    'REFUSED_TX_FAILED'
+  )),
+  CHECK (outcome = 'FORWARDED' OR refusal IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_signals_outcome
+  ON wallet_signals(ledger_row, outcome, evaluated_utc_ms);
+CREATE INDEX IF NOT EXISTS idx_wallet_signals_mint
+  ON wallet_signals(mint, evaluated_utc_ms);
+`,
+  },
 ];
 
 export interface OpenOptions {
