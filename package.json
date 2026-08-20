@@ -164,7 +164,9 @@
     "provider:probe": "tsx scripts/provider-capability-probe.ts",
     "watchlist:load": "tsx scripts/load-watchlist.ts",
     "watchlist:sweep": "tsx scripts/watchlist-sweep.ts",
-    "venue:probe": "tsx scripts/venue-stream-probe.ts"
+    "venue:probe": "tsx scripts/venue-stream-probe.ts",
+    "watchlist:load-deciles": "tsx scripts/load-decile-watchlist.ts",
+    "venue:verify": "tsx scripts/verify-event-decode.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

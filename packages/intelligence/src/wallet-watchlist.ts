@@ -93,6 +93,29 @@ export const MT101 = {
   notionalLamports: 20_000_000n,
 } as const;
 
+/**
+ * MT104's frozen parameters. Everything it does not name is inherited from
+ * MT101 unchanged — the trigger, the lag budget, the notional, the gates, the
+ * exit and the horizon are all identical, so that the only thing separating the
+ * two experiments is the SOURCE and the WATCHLIST.
+ */
+export const MT104 = {
+  ledgerRow: 'MT104',
+  /** Treatment and control, collected concurrently on one clock. */
+  treatmentDecile: 1,
+  controlDecile: 10,
+  treatmentArm: 'DECILE_1_FOLLOW',
+  controlArm: 'DECILE_10_FOLLOW',
+  /**
+   * `logsSubscribe` on pump_amm, free public endpoint.
+   *
+   * Measured before it was frozen: 472.5 notifications/second sustained over
+   * 599 seconds, clean close, ZERO log truncation, and the trader decoded from
+   * the `Program data:` line with no `getTransaction` at all.
+   */
+  source: 'STREAM',
+} as const;
+
 export type FlowSourceKind = 'POLL' | 'STREAM';
 export type Commitment = 'processed' | 'confirmed' | 'finalized';
 export type Side = 'BUY' | 'SELL';
@@ -387,4 +410,77 @@ export function freezeWatchlist(
   }
   assertWatchlistWithinBudget(byAddress.size);
   return byAddress;
+}
+
+/**
+ * A wallet on the MT104 watchlist, carrying the decile it was drawn from.
+ *
+ * The decile is what makes MT104 a controlled experiment rather than a larger
+ * MT101, so it is part of the type rather than a lookup somebody could forget.
+ */
+export interface DecileFlaggedWallet extends FlaggedWallet {
+  readonly fitDecile: number;
+  readonly ammEntryShare: number;
+  readonly holdoutPositions: number;
+}
+
+export interface FrozenDecileWatchlist {
+  readonly byAddress: ReadonlyMap<string, DecileFlaggedWallet>;
+  readonly counts: ReadonlyMap<number, number>;
+}
+
+/**
+ * Freeze the MT104 watchlist.
+ *
+ * Deliberately NOT `freezeWatchlist` with a different size. Three of that
+ * function's conditions are properties of the POLLED source and would be
+ * meaningless here — the fixed 128, the contiguous rank range, and the sweep
+ * budget, which exists because a poll costs one RPC call per wallet per sweep.
+ * A stream matches locally and its watchlist is free at any size, so applying a
+ * request-rate bound to it would be enforcing a constraint that no longer
+ * exists and quietly shrinking the experiment.
+ *
+ * What IS enforced is everything that is a property of the RULE: the
+ * 20-position bar MT073 set, address uniqueness, and — the one that matters
+ * most — that BOTH deciles are present and non-empty. A control arm that
+ * silently arrived empty would leave a single-arm experiment wearing a
+ * controlled experiment's name, and every conclusion drawn from it would be the
+ * one MT104 exists to avoid.
+ */
+export function freezeDecileWatchlist(rows: readonly DecileFlaggedWallet[]): FrozenDecileWatchlist {
+  if (rows.length === 0) throw new WatchlistInvalid('MT104 watchlist is empty');
+  const byAddress = new Map<string, DecileFlaggedWallet>();
+  const counts = new Map<number, number>();
+  for (const r of rows) {
+    if (r.fitPositions < MT101.minFitPositions) {
+      throw new WatchlistInvalid(
+        `${r.address} has ${r.fitPositions} fit positions against the frozen minimum ${MT101.minFitPositions}`,
+      );
+    }
+    if (r.fitDecile !== MT104.treatmentDecile && r.fitDecile !== MT104.controlDecile) {
+      throw new WatchlistInvalid(
+        `${r.address} is in decile ${r.fitDecile}; MT104 froze ${MT104.treatmentDecile} and ${MT104.controlDecile} only`,
+      );
+    }
+    if (byAddress.has(r.address)) {
+      throw new WatchlistInvalid(`${r.address} appears twice; a wallet counted twice is not two wallets`);
+    }
+    byAddress.set(r.address, r);
+    counts.set(r.fitDecile, (counts.get(r.fitDecile) ?? 0) + 1);
+  }
+  for (const d of [MT104.treatmentDecile, MT104.controlDecile]) {
+    if ((counts.get(d) ?? 0) === 0) {
+      throw new WatchlistInvalid(
+        `decile ${d} is empty; MT104 is a CONTROLLED comparison and a missing arm is not a smaller one`,
+      );
+    }
+  }
+  return { byAddress, counts };
+}
+
+/** Which MT104 arm a wallet belongs to, or null when it is not on the watchlist. */
+export function armForDecile(fitDecile: number): string | null {
+  if (fitDecile === MT104.treatmentDecile) return MT104.treatmentArm;
+  if (fitDecile === MT104.controlDecile) return MT104.controlArm;
+  return null;
 }

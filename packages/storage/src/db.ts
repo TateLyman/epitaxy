@@ -3997,6 +3997,68 @@ CREATE INDEX IF NOT EXISTS idx_flagged_wallets_decile
   ON flagged_wallets(ledger_row, fit_decile);
 `,
   },
+  {
+    id: 58,
+    name: 'flagged_wallets_keyed_by_experiment',
+    sql: `
+-- ===========================================================================
+-- A WALLET CAN BE ON MORE THAN ONE WATCHLIST, AND MIGRATION 56 SAID IT COULD NOT.
+--
+-- 56 made \`address\` the PRIMARY KEY, which is globally unique across every
+-- ledger row. That is wrong, and the load that found it is the proof: MT101's
+-- 128 wallets are the top 128 by median fit return, so they are BY CONSTRUCTION
+-- inside MT104's decile 1, and inserting MT104 failed on the primary key.
+--
+-- The identity of a row here is the pair (experiment, wallet), not the wallet.
+-- Two experiments following the same address are two facts, and collapsing them
+-- into one would have meant either refusing the second experiment or silently
+-- overwriting the first -- which would rewrite a FROZEN watchlist, the single
+-- thing MT101 and MT104 both exist to prevent.
+--
+-- SQLite cannot alter a primary key, so the table is rebuilt and the existing
+-- rows are carried across. MT101's frozen 128 must survive this unchanged: the
+-- copy is an explicit column list rather than SELECT *, so a column added later
+-- in the wrong position cannot silently shift the data.
+-- ===========================================================================
+CREATE TABLE flagged_wallets_v2 (
+  address              TEXT NOT NULL,
+  rank_position        INTEGER NOT NULL,
+  rank_stat            REAL NOT NULL,
+  fit_positions        INTEGER NOT NULL,
+  fit_window_start     TEXT NOT NULL,
+  fit_window_end       TEXT NOT NULL,
+  entry_project        TEXT NOT NULL,
+  cut                  TEXT NOT NULL,
+  source_query_id      TEXT NOT NULL,
+  source_execution_id  TEXT NOT NULL,
+  ledger_row           TEXT NOT NULL,
+  frozen_utc_ms        INTEGER NOT NULL,
+  fit_decile           INTEGER,
+  PRIMARY KEY (ledger_row, address),
+  CHECK (cut IN ('MEDIAN','MEAN')),
+  CHECK (rank_position >= 1),
+  CHECK (fit_positions >= 20)
+);
+
+INSERT INTO flagged_wallets_v2
+  (address, rank_position, rank_stat, fit_positions, fit_window_start, fit_window_end,
+   entry_project, cut, source_query_id, source_execution_id, ledger_row, frozen_utc_ms, fit_decile)
+SELECT
+   address, rank_position, rank_stat, fit_positions, fit_window_start, fit_window_end,
+   entry_project, cut, source_query_id, source_execution_id, ledger_row, frozen_utc_ms, fit_decile
+FROM flagged_wallets;
+
+DROP TABLE flagged_wallets;
+ALTER TABLE flagged_wallets_v2 RENAME TO flagged_wallets;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flagged_wallets_rank
+  ON flagged_wallets(ledger_row, rank_position);
+CREATE INDEX IF NOT EXISTS idx_flagged_wallets_decile
+  ON flagged_wallets(ledger_row, fit_decile);
+CREATE INDEX IF NOT EXISTS idx_flagged_wallets_address
+  ON flagged_wallets(address);
+`,
+  },
 ];
 
 export interface OpenOptions {

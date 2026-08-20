@@ -1,0 +1,243 @@
+{
+  "verifiedUtc": "2026-08-20T03:05:06.360Z",
+  "endpoint": "wss://api.mainnet-beta.solana.com",
+  "check": "event pool reserves BEFORE trade == pool vault preTokenBalances, exact, no tolerance",
+  "caught": 25,
+  "exact": 25,
+  "mismatched": 0,
+  "unverifiable": 0,
+  "logTruncatedSkipped": 0,
+  "coverage": {
+    "note": "MT104 coverage, not decode accuracy: the watchlist is keyed on Dune trader_id",
+    "userIsFeePayer": 23,
+    "userNotFeePayer": 2,
+    "shareUserIsFeePayer": 0.92
+  },
+  "rows": [
+    {
+      "signaturePrefix": "3YG27B5JitW1Wq4SjaFY78twByhMeqnRnCCDKjCf81yBwGWcWdG5vKdFyBgKyNr9",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "68872415854206016",
+      "chainPoolQuoteReservesPre": "68872415854206016",
+      "eventPoolBaseReservesBefore": "339510028713",
+      "chainPoolBaseReservesPre": "339510028713",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "2WjeHQSqR9DD7LFEtjkubFgGXACR4WYWzAun9SqdrUyyTvyg5bjFCJ8nNcvgZ8vx",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "317524924811",
+      "chainPoolQuoteReservesPre": "317524924811",
+      "eventPoolBaseReservesBefore": "52571997450750",
+      "chainPoolBaseReservesPre": "52571997450750",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "FwQ4Jjb3oa7YzoZN6rweg9K4MgYQhVYSYBmK5EAeCmV5LyVsVT6B2hDMTRrzfik3",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "366768039387",
+      "chainPoolQuoteReservesPre": "366768039387",
+      "eventPoolBaseReservesBefore": "45850084083620",
+      "chainPoolBaseReservesPre": "45850084083620",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "3CZJZf7Zg8DM2Wu4HgTWPbTHoNfQ5eeZtps43Sf26d8wQJNmQd7mDyvaryPbLhqm",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "185314904742",
+      "chainPoolQuoteReservesPre": "185314904742",
+      "eventPoolBaseReservesBefore": "96817163331286",
+      "chainPoolBaseReservesPre": "96817163331286",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4y1WkpdK2zExiAnogsDkHZ6XEPX4bG4ekTUJcbDZhEXkMNvgoeajLmjPzcTKaePC",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "1682747578193",
+      "chainPoolQuoteReservesPre": "1682747578193",
+      "eventPoolBaseReservesBefore": "10363667787693",
+      "chainPoolBaseReservesPre": "10363667787693",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4q2esmXgxgFqJ2VBgAerHpstCUXAensKatuqibGcgANJaZ9cT5nvUGHGQkCPkFfb",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "359578672072538",
+      "chainPoolQuoteReservesPre": "359578672072538",
+      "eventPoolBaseReservesBefore": "280586611223",
+      "chainPoolBaseReservesPre": "280586611223",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "64gmptjJN41Sd9eTZSAPEvpvmUenao3mi3URuN7hf7oa6nEBMFuqdLWTzH2qAWG1",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "593116519082538",
+      "chainPoolQuoteReservesPre": "593116519082538",
+      "eventPoolBaseReservesBefore": "87878982695",
+      "chainPoolBaseReservesPre": "87878982695",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "2NSwc7qcHCuayo9bdHe2xhxjQj3gPFe4dxJKgNBQ8At8yUPrx42s5ExWc31J5UY3",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "781191119821849",
+      "chainPoolQuoteReservesPre": "781191119821849",
+      "eventPoolBaseReservesBefore": "39213458398",
+      "chainPoolBaseReservesPre": "39213458398",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4f5kLdBXKwhEVAf17D7c5SCdQgnfpLXXkq7APqdm33QjsH3qvkKez4qfLCzwcrtd",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "520832394156944",
+      "chainPoolQuoteReservesPre": "520832394156944",
+      "eventPoolBaseReservesBefore": "170430258763",
+      "chainPoolBaseReservesPre": "170430258763",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "5ChnwzmdM5Ty13ULpzbHwSBko2v7XxjSRQp8L6YNkd81VvDLw9hTmNqSqr9e7pt3",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "88812606093501",
+      "chainPoolQuoteReservesPre": "88812606093501",
+      "eventPoolBaseReservesBefore": "105758359098",
+      "chainPoolBaseReservesPre": "105758359098",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4vZu3KQfRVtQRTTytMRJWLcsSRTWRMouTuWYWtw1e4ftMVkMds1H6yLKs3Nr8iKr",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "46948117861",
+      "chainPoolQuoteReservesPre": "46948117861",
+      "eventPoolBaseReservesBefore": "277873133286250",
+      "chainPoolBaseReservesPre": "277873133286250",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "3J8cjKCPzb8PN7eUkyFxzdVsceURK6wFKRa7pAmnbcUpaukfzbrgwrnHhNe8jZC6",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "180336161819",
+      "chainPoolQuoteReservesPre": "180336161819",
+      "eventPoolBaseReservesBefore": "99257626526593",
+      "chainPoolBaseReservesPre": "99257626526593",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "Jr1FZZTfbHyCGfaxkq6HrKuWCKPF7jMiEaEazhmu3QRAy9CLyBxmcbwxwgTmLfpv",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "381789109788",
+      "chainPoolQuoteReservesPre": "381789109788",
+      "eventPoolBaseReservesBefore": "100415154033548",
+      "chainPoolBaseReservesPre": "100415154033548",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "5mXwRjWeMicUeE1wPRk7Nai1gX6b7m6UvDYgu4MgxjtRCiuuNWfCRfNuNmzvaD1U",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "385015036973",
+      "chainPoolQuoteReservesPre": "385015036973",
+      "eventPoolBaseReservesBefore": "43775096887789",
+      "chainPoolBaseReservesPre": "43775096887789",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "5L7BLCjMJQNyzdFCd7hxoRKLUzrCtFqW8QuowEmcQz5ZFCiafzEeoCjobov1wSUn",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "366965798173",
+      "chainPoolQuoteReservesPre": "366965798173",
+      "eventPoolBaseReservesBefore": "45826552265300",
+      "chainPoolBaseReservesPre": "45826552265300",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "y8q71zYQtfdtheSUW1HSYF1q1CUGaFYKWyZiAwsTo3ehxPwxZ6PSVTUKFuRuywXK",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "2194018450563",
+      "chainPoolQuoteReservesPre": "2194018450563",
+      "eventPoolBaseReservesBefore": "7967387538314",
+      "chainPoolBaseReservesPre": "7967387538314",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "5ZfLWMHRdiukBw5H6Z27DvFGhrqFoZAuWU9RMojsVZWmFSw34y1kLCzBvYwkTuMe",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "251162848886",
+      "chainPoolQuoteReservesPre": "251162848886",
+      "eventPoolBaseReservesBefore": "75984732481403",
+      "chainPoolBaseReservesPre": "75984732481403",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4qmCTuwHHgYJMjVJWvVKArpK3hQXHTEB9vmQg9q24gDaCjND7RrCrNKt3JNjrfo4",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "12661389134609269",
+      "chainPoolQuoteReservesPre": "12661389134609269",
+      "eventPoolBaseReservesBefore": "1744941081779",
+      "chainPoolBaseReservesPre": "1744941081779",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "339vuBYsSrCbanL8dz5eAwGgrmhhQc88YVugwvesX787AH7ShzQi8bBhSiXSWfip",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "516920857401480",
+      "chainPoolQuoteReservesPre": "516920857401480",
+      "eventPoolBaseReservesBefore": "171723160131",
+      "chainPoolBaseReservesPre": "171723160131",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "3aKwsqLRmS4ir2V6uwhKXwLseQgmuc44E9ZX4y2f3V2s3tXWysg3z2CZ7JjsQBWv",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "747242723508797",
+      "chainPoolQuoteReservesPre": "747242723508797",
+      "eventPoolBaseReservesBefore": "118342596618",
+      "chainPoolBaseReservesPre": "118342596618",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "5xWqvmqe8dEFHuecHKwqi39y1P1FUjahS4exNPkfmDFFmYSbppDsWBJqfBeRwMqN",
+      "side": "SELL",
+      "eventPoolQuoteReservesBefore": "84794237333931",
+      "chainPoolQuoteReservesPre": "84794237333931",
+      "eventPoolBaseReservesBefore": "85350798337",
+      "chainPoolBaseReservesPre": "85350798337",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "529N5VXe1BbxLd5D2dh6BWtmDbve6zNq4KHbTvomorbCWFeAPfozv89jbgbnmDif",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "307903173451511",
+      "chainPoolQuoteReservesPre": "307903173451511",
+      "eventPoolBaseReservesBefore": "39307207035",
+      "chainPoolBaseReservesPre": "39307207035",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "26iAHSCr7eHXxKDc8susYdBb8CFaDGYHqL5k3MsPnY88GqXJ9xPBUoj22pEHY8Z6",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "590808316886732",
+      "chainPoolQuoteReservesPre": "590808316886732",
+      "eventPoolBaseReservesBefore": "88223176951",
+      "chainPoolBaseReservesPre": "88223176951",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "4rKouZVhToa1xNkpFhtGaU2moE7J8noebjg3AETW6wRxpjBLrwWn2BtqKGXkf8y6",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "1448660713443",
+      "chainPoolQuoteReservesPre": "1448660713443",
+      "eventPoolBaseReservesBefore": "12037430495040",
+      "chainPoolBaseReservesPre": "12037430495040",
+      "exactMatch": true
+    },
+    {
+      "signaturePrefix": "3xnWe7s8QkEWwBtwZCpChFTxTKqfVnMApSpBTRao8Mw4jfwPLDuNNT9Pf8Cv25yX",
+      "side": "BUY",
+      "eventPoolQuoteReservesBefore": "182285752293",
+      "chainPoolQuoteReservesPre": "182285752293",
+      "eventPoolBaseReservesBefore": "98291353532806",
+      "chainPoolBaseReservesPre": "98291353532806",
+      "exactMatch": true
+    }
+  ]
+}
