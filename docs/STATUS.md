@@ -1,6 +1,63 @@
 # STATUS
 
-> **2026-08-19 (LATEST) — Decompose the LP result, directive 40c005ff.
+> **2026-08-20 (LATEST) — The low-capital profit path, operator request.
+> State: `NO_CAPITAL_SCALED_PATH: REVENUE_MUST_BE_DECOUPLED_FROM_CAPITAL`.**
+>
+> Full account: `docs/LOW_CAPITAL_PROFIT_PATH.md`. Not a directive and not a phase — an operator
+> request to analyse the whole repository and say how it becomes profitable, answered under the
+> binding constraint the operator then stated: **low capital, tooling available, speed matters.**
+> The state string is this note's own. No ledger row, because it preregisters no decision rule.
+>
+> ```
+> 0 Dune credits. No query created, run or paid for.
+> pnpm check green: 144 files, 2,203 tests, 14.87s.
+> Every corpus figure recomputed from data/runtime.db rather than quoted.
+> ```
+>
+> **THE BRANCH HAS A CEILING AND NOBODY HAD COMPUTED IT.** Every phase asked whether the edge
+> exists; none asked how large the business is if it does. From this corpus: **201 eligible
+> admissions/day** (1,427 of 837,876 screened over 7.1 days), **0.25–0.5 SOL** per position before
+> a tier-0 pool refuses the size, and a best-anywhere candidate edge of **+16 to +38 bps** that
+> never survived a lower bound. That is **$2,500–$12,000/year at the ceiling on roughly $400 of
+> working capital**, needing **340–632 days** to confirm. The memecoin branch was not merely
+> unprofitable — **it was never large enough to be worth confirming**, and that was computable on
+> day one from three numbers already held.
+>
+> **NINE PHASES DIED OF THREE MULTIPLICATIVE PENALTIES, ALL PROPERTIES OF THE VENUE.** Against a
+> major perpetual: **28–83× the round-trip cost floor** (250 bps against 9 taker / 3 maker),
+> **~35× the per-observation variance** (41.8% measured here, n=455, against ~1.2%), and about
+> **10⁵× less capacity per position**. Required gross edge scales with the first; required sample
+> scales with (σ/edge)². To resolve a 0.5% edge at the measured σ takes **26,828 positions — 340
+> days**; D70B4A9A's own figure is 49,854 and 632 days. In a 9 bps market a 25 bps edge is
+> confirmable in **~84 observations**. `NO_DECIDABLE_CELL` was a design outcome, not a discovery —
+> the standard of evidence was never the problem and the apparatus was never the problem.
+>
+> **THE RECOMPUTATION REPRODUCES THE REPORTS.** Independently, from the database: this system's own
+> gated admissions at 60 minutes are **−17.44% mean**, −18.6% median, SD 41.8%, p10 −69.6% on
+> n=455 — Phase B's −17.4% and −69.6%, reached by a different route. Nothing in the corpus was
+> found to be wrong.
+>
+> **LOW CAPITAL REMOVES THE CAPITAL-SCALED COLUMN ENTIRELY.** Delta-neutral carry returns a
+> percentage: at $1,000 and a representative 12–19%, **$120–190/year**. Not a bad strategy, an
+> irrelevant one at this size. What is left are the four revenue lines *not* proportional to
+> capital, ranked by time to first dollar: **(1) sell the demonstrated capability** — bounties and
+> contracting, where Immunefi paid $7.87M across 1,104 reports in Q1 2026 alone and this repository
+> is a record of finding real defects in other people's systems; **(2) publish the corpus**, which
+> holds the only measured decomposition of memecoin LP returns in existence — the `FEE_ON_FLOW`
+> brief lists its absence as its own unknown #1; **(3) prediction markets**, the one trading answer
+> that survives every constraint at once, where cost is zero on most Polymarket markets and applied
+> to `p(1-p)` rather than notional where it exists, thin liquidity makes low capital an advantage,
+> and the loop closes in days; **(4) referral**, whose only input is (2)'s output.
+>
+> **WHAT IT DOES NOT CLAIM.** That any of the four is profitable. None is preregistered, none has a
+> hold-out, and the prediction-market path has **no measurement by this apparatus at all** — its
+> entire virtue is that its test finishes in days rather than 632 of them. §8 states what would
+> have to happen before any of it becomes a phase, and the two cheap items that would close the
+> copy branch for ~120 credits are named there rather than abandoned.
+>
+> No mode changed, no gate moved, no wallet funded, nothing signed. `MEASUREMENT_ONLY`.
+
+> **2026-08-19 — Decompose the LP result, directive 40c005ff.
 > State: `MECHANISM_FAILS_AT_ANY_FEE_SHARE`.**
 >
 > Full account: `docs/LP_DECOMPOSITION_REPORT.md`. Directive transcribed from PDF and committed
