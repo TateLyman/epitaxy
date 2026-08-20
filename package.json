@@ -168,7 +168,8 @@
     "watchlist:load-deciles": "tsx scripts/load-decile-watchlist.ts",
     "venue:verify": "tsx scripts/verify-event-decode.ts",
     "venue:collect": "tsx scripts/venue-collect.ts",
-    "venue:bridge": "tsx scripts/venue-bridge.ts"
+    "venue:bridge": "tsx scripts/venue-bridge.ts",
+    "lp:flagged": "tsx scripts/lp-on-flagged-pools.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

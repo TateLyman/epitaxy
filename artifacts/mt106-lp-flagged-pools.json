@@ -1,0 +1,33 @@
+{
+  "computedUtc": "2026-08-20T12:46:02.354Z",
+  "ledgerRow": "MT106",
+  "poolsIncluded": 381,
+  "minTrades": 20,
+  "minSpanMs": 1800000,
+  "internalCheck": {
+    "phiP10": 19.963339300250713,
+    "phiP25": 20.138794649270007,
+    "phiP50": 56.6164039886207,
+    "medianDecodedLpFeeBps": 2,
+    "consistent": false
+  },
+  "pooledFeeTerm": 0.004431971971781061,
+  "pooledLvrTerm": 0.3468789509884027,
+  "lvrOverFee": 78.26740629160696,
+  "pooledLpMinusHodl": -0.34244697901662163,
+  "poolsBeatingHodl": 111,
+  "turnover": {
+    "p10": -3597.5484044410896,
+    "p50": -2.8378947597881288,
+    "p90": 144.51968536355108
+  },
+  "mt100Comparison": {
+    "feeTerm": 0.000077,
+    "lvrTerm": 0.003612,
+    "lvrOverFee": 47,
+    "lpMinusHodl": -0.00353,
+    "turnoverMedian": 0.000038,
+    "turnoverP90": 0.39,
+    "breakEvenTurnoverAt21Bps": 1.72
+  }
+}
