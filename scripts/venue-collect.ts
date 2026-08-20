@@ -58,11 +58,29 @@ if (watched.size === 0) {
   process.exit(1);
 }
 
-const trackedPools = new Set<string>(
-  (db.prepare('SELECT DISTINCT pool FROM development_trajectories WHERE pool IS NOT NULL').all() as {
+/**
+ * Pools whose EVERY trade must be stored, because a position in one needs its
+ * complete reserve path from entry to horizon.
+ *
+ * REFRESHED, not loaded once. The first version read this at startup only, so a
+ * pool the bridge marked tracked five minutes later never had its trades kept -
+ * and the exit reserves for those positions came from whatever flagged-wallet
+ * trade happened to land in the same pool. That is a sparse and non-random
+ * sample of a price path, which is precisely the defect this whole arm exists to
+ * avoid, arriving through the back door.
+ */
+const trackedPools = new Set<string>();
+function refreshTrackedPools(): void {
+  for (const r of db.prepare('SELECT pool FROM venue_pools WHERE tracked = 1').all() as { pool: string }[]) {
+    trackedPools.add(r.pool);
+  }
+  for (const r of db.prepare('SELECT DISTINCT pool FROM development_trajectories WHERE pool IS NOT NULL').all() as {
     pool: string;
-  }[]).map((r) => r.pool),
-);
+  }[]) {
+    trackedPools.add(r.pool);
+  }
+}
+refreshTrackedPools();
 
 const insertTrade = db.prepare(
   `INSERT OR IGNORE INTO venue_trades
@@ -175,7 +193,7 @@ const stream = new VenueLogStream(
 console.log('MT104 venue tape — OBSERVATION ONLY, nothing is opened and nothing is signed');
 console.log(`  endpoint      ${stream.endpoint}`);
 console.log(`  watched       ${watched.size} wallets (${MT104.ledgerRow} + ${MT101.ledgerRow})`);
-console.log(`  tracked pools ${trackedPools.size}`);
+console.log(`  tracked pools ${trackedPools.size} (refreshed every reporting tick)`);
 console.log('');
 
 function report(): void {
@@ -186,6 +204,7 @@ function report(): void {
   // the session row kept zeros while the console had 237,681 notifications. A
   // denominator that survives only a clean shutdown is not a denominator, and
   // this table exists precisely so that "we saw N flagged buys" has one.
+  refreshTrackedPools();
   if (sessionId.length > 0) {
     saveCounters.run(c.notifications, c.tradesDecoded, c.buysDecoded, c.tradesKept, c.failedTx, c.logTruncated, c.undecodable, sessionId);
   }
