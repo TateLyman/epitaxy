@@ -484,3 +484,72 @@ export function armForDecile(fitDecile: number): string | null {
   if (fitDecile === MT104.controlDecile) return MT104.controlArm;
   return null;
 }
+
+/**
+ * MT105 — which signals get opened, when there are far more than capacity.
+ *
+ * The tape delivers roughly 69,500 flagged decile-1 buys a day per arm. The
+ * apparatus can carry a few hundred to a few thousand trajectories a day. So
+ * something has to choose, and the choice is part of the strategy whether or not
+ * anybody writes it down.
+ *
+ * It is NOT first-come. Arrival order is latency, latency correlates with wallet
+ * behaviour, and "we took whichever landed first" would be an unrecorded rule
+ * doing real selection.
+ *
+ * It is NOT rank-ordered within a decile. That would smuggle a second, untested
+ * hypothesis into an experiment whose entire point is the decile CONTRAST.
+ *
+ * It is a deterministic hash of the signal itself. The same signal is admitted
+ * or refused identically on a replay, which is what lets a decision be
+ * re-derived from its snapshot — the invariant this repository applies
+ * everywhere else and which a call to Math.random would quietly break.
+ */
+export const MT105 = {
+  ledgerRow: 'MT105',
+  /** Salt, so the same mint draws differently under a later arm. */
+  salt: 'MT105',
+  /** What the bridge aims to open per day across both arms. */
+  targetOpensPerDay: 1_000,
+  precision: 10_000,
+} as const;
+
+/** FNV-1a, 32-bit. Chosen because it is short, seedless and reproducible anywhere. */
+export function fnv1a32(input: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    // The 32-bit FNV prime, 16777619, by shift-add so it stays exact in a double.
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * Is this signal in the sample?
+ *
+ * Keyed on (mint, wallet) and NOT on the signature, so the same wallet buying
+ * the same mint twice draws the same answer. That matters because MT101 already
+ * admits one position per mint: keying on the signature would let a refused mint
+ * come back on the wallet's next buy and turn "one position per mint" into
+ * "however many attempts it took".
+ */
+export function admitSignal(mint: string, wallet: string, inclusionProbability: number): boolean {
+  if (!(inclusionProbability > 0)) return false;
+  if (inclusionProbability >= 1) return true;
+  const bucket = fnv1a32(`${mint}|${wallet}|${MT105.salt}`) % MT105.precision;
+  return bucket < Math.floor(inclusionProbability * MT105.precision);
+}
+
+/**
+ * The rate that hits the target, given what the tape is actually delivering.
+ *
+ * Computed from an OBSERVED signal rate rather than assumed, and clamped to 1:
+ * if the tape ever delivers fewer signals than the target, the honest response
+ * is to take all of them and report the shortfall, never to silently behave as
+ * though the target were met.
+ */
+export function inclusionProbabilityFor(observedSignalsPerDay: number, target = MT105.targetOpensPerDay): number {
+  if (observedSignalsPerDay <= 0) return 1;
+  return Math.min(1, target / observedSignalsPerDay);
+}
