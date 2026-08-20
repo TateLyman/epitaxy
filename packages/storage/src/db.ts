@@ -3968,6 +3968,35 @@ CREATE INDEX IF NOT EXISTS idx_wallet_signals_mint
   ON wallet_signals(mint, evaluated_utc_ms);
 `,
   },
+  {
+    id: 57,
+    name: 'flagged_wallet_decile',
+    sql: `
+-- ===========================================================================
+-- MT104 -- THE CONTROL ARM NEEDS TO KNOW WHICH DECILE A WALLET CAME FROM.
+--
+-- MT101 followed one cut of 128 wallets and had nothing to compare it against
+-- except a historical baseline. MT104 follows H1's TOP fit decile and its
+-- BOTTOM one concurrently, on the same clock, through the same gates, at the
+-- same notional, with the same exit -- differing only in which decile the
+-- follower came from. H1 measured that gradient at +36.74% against -28.90% on
+-- Dune's reconstruction; reproducing any part of it on our OWN executable fills
+-- is a far stronger claim than one arm beating a historical number.
+--
+-- One column, because the decile belongs to the WALLET and every other table
+-- can reach it by joining on the address. Adding it to the event rows as well
+-- would be a second place for the same fact to be wrong.
+--
+-- NULLABLE, because MT101's 128 rows were frozen before this column existed and
+-- have no decile: they were a top-128 cut, not a decile. Backfilling them with a
+-- 1 would assert something the Q13 export never established.
+-- ===========================================================================
+ALTER TABLE flagged_wallets ADD COLUMN fit_decile INTEGER;
+
+CREATE INDEX IF NOT EXISTS idx_flagged_wallets_decile
+  ON flagged_wallets(ledger_row, fit_decile);
+`,
+  },
 ];
 
 export interface OpenOptions {

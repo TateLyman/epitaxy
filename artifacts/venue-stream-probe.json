@@ -1,0 +1,21 @@
+{
+  "probedUtc": "2026-08-20T02:38:45.378Z",
+  "endpoint": "wss://api.mainnet-beta.solana.com",
+  "program": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+  "seconds": 598.952,
+  "subscribed": true,
+  "closeCode": null,
+  "notificationsPerSecond": 472.51365718788816,
+  "watchlistSize": 128,
+  "stats": {
+    "notifications": 283013,
+    "withProgramData": 204949,
+    "decodedBuy": 84810,
+    "decodedSell": 91155,
+    "unknownDiscriminator": 17865,
+    "truncated": 0,
+    "failedTx": 45862,
+    "watchlistHits": 0
+  },
+  "distinctTraders": 40467
+}

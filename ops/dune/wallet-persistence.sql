@@ -2493,3 +2493,61 @@ WHERE ha.n_hold >= 1
 ORDER BY rank_position
 LIMIT 128
 --#END
+
+-- ============================================================================
+-- QUERY 14 — MT104, THE TOP AND BOTTOM DECILE ADDRESS EXPORT
+--
+-- Q13 exported 128 addresses because a POLLED source could not afford more
+-- against an 8 req/s shared endpoint budget. A free venue-wide logsSubscribe on
+-- pump_amm removes that bound entirely: the BuyEvent carries `user`, so the
+-- watchlist is matched locally and its size costs nothing. Measured, not
+-- assumed — 472.5 notifications a second sustained over 599 seconds with zero
+-- log truncation, and the trader decoded from the Program data log line with no
+-- getTransaction at all.
+--
+-- THE BOTTOM DECILE IS THE POINT. H1 measured a monotone gradient across ten
+-- deciles, +36.74% at decile 1 against -28.90% at decile 10. Reproducing part of
+-- that gradient on our OWN executable fills is a far stronger claim than one arm
+-- beating a historical baseline, because it is a within-experiment control that
+-- shares the clock, the venue, the gates, the notional and the exit and differs
+-- only in which decile the follower came from.
+--
+-- THE DECILE IS CUT ON THE MEDIAN, not on the mean that `fit_decile` in the RANK
+-- block uses. MT101 froze the median cut because Q1 established the pumpswap fit
+-- MEAN is contaminated at +2.53 with SD 45.45 while every median and percentile
+-- is stable. Re-cutting here rather than editing RANK keeps Q1 through Q13
+-- returning exactly what they have always returned.
+--
+-- NTILE IS COMPUTED BEFORE THE FILTERS AND FILTERED AFTER, so a decile stays a
+-- tenth of the ranked population rather than a tenth of whatever survived the
+-- restrictions. Filtering first would silently redefine both deciles.
+--
+-- NO HOLDOUT RETURN FIELD IS SELECTED, for the same reason as Q13: the output
+-- carries the fit statistic the ordering uses and the holdout POSITION COUNT the
+-- filter uses, and nothing that could be re-read as a performance table.
+-- ============================================================================
+--#Q14 needs=BASE,RANK
+SELECT
+  d.trader_id                                                                   AS address,
+  d.median_decile                                                               AS fit_decile_median_cut,
+  ROW_NUMBER() OVER (PARTITION BY d.median_decile ORDER BY d.median_ret_fit DESC, d.trader_id) AS rank_in_decile,
+  d.median_ret_fit                                                              AS rank_stat,
+  d.n_fit                                                                       AS fit_positions,
+  d.amm_entry_share                                                             AS amm_entry_share,
+  d.n_hold                                                                      AS holdout_positions
+FROM (
+  SELECT
+    ha.trader_id,
+    ha.median_ret_fit,
+    ha.n_hold,
+    f.n_fit,
+    f.amm_entry_share,
+    NTILE(10) OVER (ORDER BY ha.median_ret_fit DESC) AS median_decile
+  FROM holdout_activity ha
+  JOIN flagged f ON f.trader_id = ha.trader_id
+) d
+WHERE d.median_decile IN (1, 10)
+  AND d.n_hold >= 1
+  AND d.amm_entry_share > 0
+ORDER BY d.median_decile, rank_in_decile
+--#END

@@ -75,7 +75,7 @@ function sections(sql: string): Map<string, Section> {
 
 const sql = readFileSync(SOURCE, 'utf8');
 const parsed = sections(sql);
-for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13']) {
+for (const required of ['BASE', 'RANK', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14']) {
   if (!parsed.has(required)) {
     console.error(`${SOURCE} is missing section ${required}`);
     process.exit(1);
@@ -131,7 +131,7 @@ function stripTerminator(text: string): string {
 
 mkdirSync(OUT_DIR, { recursive: true });
 const composed = new Map<string, string>();
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14']) {
   const text = stripTerminator(compose(parsed.get(name) as Section));
   composed.set(name, text);
   const path = `${OUT_DIR}/${name.toLowerCase()}.sql`;
@@ -198,6 +198,7 @@ const NAMES: Record<string, string> = {
   Q11: 'epitaxy · phase G · Q11 coverage by horizon (no returns)',
   Q12: 'epitaxy · phase G · Q12 returns at every horizon',
   Q13: 'epitaxy · MT101 · Q13 watchlist address export (128 wallets, median cut)',
+  Q14: 'epitaxy · MT104 · Q14 top and bottom decile address export (median cut)',
 };
 
 const ids: Record<string, number> = existsSync(ID_MAP)
@@ -219,7 +220,7 @@ const call = async (path: string, method: string, body: unknown): Promise<{ stat
   return { status: res.status, json };
 };
 
-for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13']) {
+for (const name of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7', 'Q8', 'Q10', 'Q11', 'Q12', 'Q13', 'Q14']) {
   const text = composed.get(name) as string;
   const existing = ids[name];
   if (existing !== undefined) {
