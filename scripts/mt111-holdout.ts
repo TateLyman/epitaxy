@@ -298,63 +298,95 @@ const med = (a: number[]): number => {
 };
 const F = (v: number, d = 2): string => (Number.isFinite(v) ? (100 * v).toFixed(d).padStart(8) : '     n/a');
 
-interface PoolAgg { pool: string; n: number; depthSol: number; med: number; day: string }
-const aggs: PoolAgg[] = [];
-const grouped = new Map<string, Scored[]>();
-for (const s of scored) {
-  const a = grouped.get(s.pool);
-  if (a === undefined) grouped.set(s.pool, [s]);
-  else a.push(s);
-}
-for (const [pool, rows] of grouped) {
-  if (rows.length < MIN_EVENTS_PER_POOL) continue;
-  aggs.push({ pool, n: rows.length, depthSol: med(rows.map((r) => r.depthSol)), med: med(rows.map((r) => r.ret)), day: rows[0]?.day ?? 'unknown' });
-}
+interface Agg { key: string; pool: string; day: string; n: number; depthSol: number; med: number }
 
-const deep = aggs.filter((a) => a.depthSol > DEPTH_CUT_SOL);
-const shallow = aggs.filter((a) => a.depthSol <= DEPTH_CUT_SOL);
-console.log(`\nPOOLS with >=${MIN_EVENTS_PER_POOL} non-overlapping events: ${aggs.length}   deep ${deep.length}   shallow ${shallow.length}`);
-
-const arm = (label: string, a: PoolAgg[]): { share: number; median: number } => {
-  if (a.length === 0) {
-    console.log(`  ${label.padEnd(9)} no pools`);
-    return { share: NaN, median: NaN };
+/**
+ * A NOTE ON THE UNIT, written before the numbers were seen.
+ *
+ * MT111 froze "the POOL is the unit of observation" and separately required a bootstrap
+ * that "resamples DAYS not events". Those two were the same thing on the fit, which was a
+ * SINGLE UTC day. On a twelve-day holdout they are not: a pool trades on many of the twelve
+ * days, so collapsing it to one number silently assigns it one arbitrary day and makes the
+ * day-clustered bootstrap incoherent.
+ *
+ * The generalisation that preserves the intent - events inside a pool on a day share one
+ * price path, and the DAY is the cluster - is the POOL-DAY. That is used as the primary.
+ * The pool-collapsed version the frozen text literally names is reported directly beside
+ * it. Both are shown whichever way they run, because choosing between them after seeing
+ * them is exactly the move this ledger exists to prevent.
+ */
+const build = (keyOf: (s: Scored) => string): Agg[] => {
+  const g = new Map<string, Scored[]>();
+  for (const s2 of scored) {
+    const k = keyOf(s2);
+    const a = g.get(k);
+    if (a === undefined) g.set(k, [s2]);
+    else a.push(s2);
   }
+  const out: Agg[] = [];
+  for (const [key, rows] of g) {
+    if (rows.length < MIN_EVENTS_PER_POOL) continue;
+    const first = rows[0];
+    if (first === undefined) continue;
+    out.push({ key, pool: first.pool, day: first.day, n: rows.length,
+               depthSol: med(rows.map((r) => r.depthSol)), med: med(rows.map((r) => r.ret)) });
+  }
+  return out;
+};
+
+const arm = (label: string, a: Agg[]): { share: number; median: number } => {
+  if (a.length === 0) { console.log(`  ${label.padEnd(11)} no units`); return { share: NaN, median: NaN }; }
   const pos = a.filter((p) => p.med > 0).length;
   const m = med(a.map((p) => p.med));
-  console.log(`  ${label.padEnd(9)} pools ${String(a.length).padStart(4)}   positive ${String(pos).padStart(4)}/${a.length} = ${(100 * pos / a.length).toFixed(1)}%   median of pool medians ${F(m)}%   events ${a.reduce((x, y) => x + y.n, 0)}`);
+  console.log(`  ${label.padEnd(11)} units ${String(a.length).padStart(5)}   positive ${String(pos).padStart(5)}/${a.length} = ${(100 * pos / a.length).toFixed(1)}%   median of unit medians ${F(m)}%   events ${a.reduce((x, y) => x + y.n, 0).toLocaleString()}`);
   return { share: pos / a.length, median: m };
 };
-console.log('\nTHE TWO ARMS');
-const dRes = arm('DEEP', deep);
-const sRes = arm('SHALLOW', shallow);
+
+const poolDays = build((x) => `${x.pool}|${x.day}`);
+const poolsOnly = build((x) => x.pool);
+const deepPD = poolDays.filter((a) => a.depthSol > DEPTH_CUT_SOL);
+const shallowPD = poolDays.filter((a) => a.depthSol <= DEPTH_CUT_SOL);
+const deepP = poolsOnly.filter((a) => a.depthSol > DEPTH_CUT_SOL);
+const shallowP = poolsOnly.filter((a) => a.depthSol <= DEPTH_CUT_SOL);
+
+console.log(`
+UNITS with >=${MIN_EVENTS_PER_POOL} non-overlapping events`);
+console.log(`  pool-days ${poolDays.length.toLocaleString()}  (deep ${deepPD.length.toLocaleString()} / shallow ${shallowPD.length.toLocaleString()})`);
+console.log(`  pools     ${poolsOnly.length.toLocaleString()}  (deep ${deepP.length.toLocaleString()} / shallow ${shallowP.length.toLocaleString()})`);
+console.log(`  distinct pools overall ${new Set(scored.map((s2) => s2.pool)).size.toLocaleString()}`);
+
+console.log('');
+console.log('PRIMARY — POOL-DAY as the unit');
+const dRes = arm('DEEP', deepPD);
+const sRes = arm('SHALLOW', shallowPD);
+console.log('');
+console.log('SECONDARY — POOL collapsed across days, which is what the frozen text literally names');
+const dResP = arm('DEEP', deepP);
+const sResP = arm('SHALLOW', shallowP);
 
 // ---------------------------------------------------------------------------
-// 5. Bootstrap over UTC DAYS, resampling days and never events. MT108 established
-//    that the cluster is the day and that anything less has a false-positive rate an
-//    order of magnitude above nominal.
+// Bootstrap over UTC DAYS, resampling days and never events (MT108).
 // ---------------------------------------------------------------------------
-const dayOf = new Map<string, PoolAgg[]>();
-for (const p of deep) {
+const dayOf = new Map<string, Agg[]>();
+for (const p of deepPD) {
   const a = dayOf.get(p.day);
   if (a === undefined) dayOf.set(p.day, [p]);
   else a.push(p);
 }
 const days = [...dayOf.keys()].sort();
-console.log(`\nDAY-CLUSTERED BOOTSTRAP over ${days.length} UTC days, resampling DAYS`);
+console.log(`
+DAY-CLUSTERED BOOTSTRAP over ${days.length} UTC days, resampling DAYS`);
 for (const d of days) {
   const a = dayOf.get(d) ?? [];
-  console.log(`  ${d}  pools ${String(a.length).padStart(3)}  median ${F(med(a.map((p) => p.med)))}%  positive ${a.filter((p) => p.med > 0).length}/${a.length}`);
+  const sh = dayOf.get(d) === undefined ? [] : shallowPD.filter((x) => x.day === d);
+  console.log(`  ${d}  deep ${String(a.length).padStart(4)}  median ${F(med(a.map((p) => p.med)))}%  positive ${(100 * a.filter((p) => p.med > 0).length / Math.max(a.length, 1)).toFixed(1)}%   |  shallow ${String(sh.length).padStart(4)}  median ${F(med(sh.map((p) => p.med)))}%`);
 }
 let lo = NaN;
 let hi = NaN;
 if (days.length >= 2) {
-  // Deterministic resampling: a fixed LCG, so the interval is reproducible byte-for-byte.
+  // Deterministic LCG so the interval is reproducible byte-for-byte.
   let seed = 0x9e3779b9;
-  const rnd = (): number => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 0x1_0000_0000;
-  };
+  const rnd = (): number => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 0x1_0000_0000; };
   const draws: number[] = [];
   for (let b = 0; b < 10_000; b += 1) {
     const picked: number[] = [];
@@ -367,22 +399,28 @@ if (days.length >= 2) {
   draws.sort((a, b) => a - b);
   lo = draws[Math.floor(0.025 * (draws.length - 1))] ?? NaN;
   hi = draws[Math.floor(0.975 * (draws.length - 1))] ?? NaN;
-  console.log(`  95% CI on the deep-arm median of pool medians: [${F(lo)}%, ${F(hi)}%]`);
+  console.log(`  95% CI on the deep-arm median: [${F(lo)}%, ${F(hi)}%]`);
 } else {
   console.log('  FEWER THAN 2 DAY CLUSTERS — no interval is computable and none is reported.');
 }
 
 // ---------------------------------------------------------------------------
-// 6. The frozen decision rule. Four conditions; any one failing closes it.
+// The frozen decision rule. Four conditions; any one failing closes it.
 // ---------------------------------------------------------------------------
 const c1 = dRes.share >= 0.6;
 const c2 = dRes.median > 0;
 const c3 = Number.isFinite(lo) && lo > 0;
 const c4 = !(sRes.median > 0);
-console.log('\nFROZEN DECISION RULE (MT111, written before this file existed)');
-console.log(`  (1) deep arm >=60% of pools positive .......... ${c1 ? 'PASS' : 'FAIL'}  (${Number.isFinite(dRes.share) ? (100 * dRes.share).toFixed(1) : 'n/a'}%)`);
-console.log(`  (2) deep arm median of pool medians > 0 ....... ${c2 ? 'PASS' : 'FAIL'}  (${F(dRes.median)}%)`);
-console.log(`  (3) day-clustered bootstrap lower bound > 0 ... ${c3 ? 'PASS' : 'FAIL'}  (${F(lo)}%)`);
-console.log(`  (4) shallow control NOT also positive ......... ${c4 ? 'PASS' : 'FAIL'}  (${F(sRes.median)}%)`);
-console.log(`\n  VERDICT: ${c1 && c2 && c3 && c4 ? 'SURVIVES — licenses paper mode against live quotes, and nothing else' : 'CLOSED'}`);
+console.log('');
+console.log('FROZEN DECISION RULE (MT111, written before the holdout was read)');
+console.log(`  (1) deep arm >=60% of units positive ......... ${c1 ? 'PASS' : 'FAIL'}  (${Number.isFinite(dRes.share) ? (100 * dRes.share).toFixed(1) : 'n/a'}%)`);
+console.log(`  (2) deep arm median > 0 ..................... ${c2 ? 'PASS' : 'FAIL'}  (${F(dRes.median)}%)`);
+console.log(`  (3) day-clustered bootstrap lower bound > 0 .. ${c3 ? 'PASS' : 'FAIL'}  (${F(lo)}%)`);
+console.log(`  (4) shallow control NOT also positive ....... ${c4 ? 'PASS' : 'FAIL'}  (${F(sRes.median)}%)`);
+console.log(`
+  VERDICT: ${c1 && c2 && c3 && c4 ? 'SURVIVES — licenses paper mode against live quotes, and NOTHING else' : 'CLOSED'}`);
+console.log(`  on the pool-collapsed secondary: deep ${Number.isFinite(dResP.share) ? (100 * dResP.share).toFixed(1) : 'n/a'}% positive at ${F(dResP.median)}%, shallow ${F(sResP.median)}%`);
+console.log('');
+console.log('  THE HOLDOUT IS A HARDER TEST THAN THE FIT, not merely a later one: the fit ran on 48');
+console.log('  wallet-conditioned tracked pools and this runs on complete venue coverage.');
 console.log('  No position is proposed. Nothing is funded. Nothing is signed.');

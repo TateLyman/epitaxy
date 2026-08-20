@@ -1,0 +1,91 @@
+MT111 HOLDOUT — days never queried
+  window 440267027..440287026  files 2  candidates +3025  (running 3025)
+  window 440059533..440079532  files 2  candidates +3853  (running 6878)
+  window 439852039..439872038  files 2  candidates +3460  (running 10338)
+  window 439644545..439664544  files 2  candidates +3132  (running 13470)
+  window 439437051..439457050  files 2  candidates +2892  (running 16362)
+  window 439229557..439249556  files 2  candidates +4409  (running 20771)
+  window 439022063..439042062  files 2  candidates +4227  (running 24998)
+  window 438814569..438834568  files 2  candidates +3550  (running 28548)
+  window 438607075..438627074  files 2  candidates +4923  (running 33471)
+  window 438399581..438419580  files 2  candidates +4366  (running 37837)
+  window 438192087..438212086  files 2  candidates +3863  (running 41700)
+  window 437984593..438004592  files 2  candidates +3626  (running 45326)
+
+  blocks 239,372   instructions 27,955,838   trade events 26,365,888
+  base58 undecodable 0   not emit_cpi-wrapped 0
+  distinct UTC days represented: 12
+
+  candidate triggers before the WSOL filter: 45,326
+  dropped: no mark past the horizon 4229   creator fee absent 0
+  horizon actually realised: p50 16s  p90 132s  (target 15s, second granularity)
+
+  pools needing a mint lookup: 4730 (of 5114 candidate pools; 384 already cached)
+    resolved 200/4730
+    resolved 400/4730
+    resolved 600/4730
+    resolved 800/4730
+    resolved 1000/4730
+    resolved 1200/4730
+    resolved 1400/4730
+    resolved 1600/4730
+    resolved 1800/4730
+    resolved 2000/4730
+    resolved 2200/4730
+    resolved 2400/4730
+    resolved 2600/4730
+    resolved 2800/4730
+    resolved 3000/4730
+    resolved 3200/4730
+    resolved 3400/4730
+    resolved 3600/4730
+    resolved 3800/4730
+    resolved 4000/4730
+    resolved 4200/4730
+    resolved 4400/4730
+    resolved 4600/4730
+  unresolvable and therefore REFUSED: 0
+  candidates in WSOL-quoted pools: 34,061
+  priced 34,061   unpriceable and refused 0
+  distinct UTC days present: 12
+
+UNITS with >=5 non-overlapping events
+  pool-days 1,812  (deep 821 / shallow 991)
+  pools     1,935  (deep 871 / shallow 1,064)
+  distinct pools overall 4,417
+
+PRIMARY — POOL-DAY as the unit
+  DEEP        units   821   positive   440/821 = 53.6%   median of unit medians     0.35%   events 12,879
+  SHALLOW     units   991   positive    50/991 = 5.0%   median of unit medians    -6.68%   events 13,096
+
+SECONDARY — POOL collapsed across days, which is what the frozen text literally names
+  DEEP        units   871   positive   439/871 = 50.4%   median of unit medians     0.06%   events 14,775
+  SHALLOW     units  1064   positive    45/1064 = 4.2%   median of unit medians    -6.41%   events 14,471
+
+DAY-CLUSTERED BOOTSTRAP over 12 UTC days, resampling DAYS
+  2026-08-08  deep   52  median     1.79%  positive 59.6%   |  shallow   86  median   -20.34%
+  2026-08-09  deep   54  median     1.32%  positive 57.4%   |  shallow   61  median    -5.59%
+  2026-08-10  deep   90  median    -0.29%  positive 45.6%   |  shallow   80  median    -4.64%
+  2026-08-11  deep   71  median    -0.24%  positive 49.3%   |  shallow   87  median    -5.49%
+  2026-08-12  deep   70  median    -0.62%  positive 42.9%   |  shallow  101  median    -7.02%
+  2026-08-13  deep   80  median     0.31%  positive 58.8%   |  shallow  112  median    -5.49%
+  2026-08-14  deep   78  median     0.80%  positive 57.7%   |  shallow  115  median   -11.76%
+  2026-08-15  deep   69  median     0.87%  positive 58.0%   |  shallow   61  median    -7.25%
+  2026-08-16  deep   64  median     0.27%  positive 53.1%   |  shallow   57  median    -6.46%
+  2026-08-17  deep   67  median     0.34%  positive 50.7%   |  shallow   62  median    -5.51%
+  2026-08-18  deep   74  median     1.23%  positive 66.2%   |  shallow   97  median    -6.93%
+  2026-08-19  deep   52  median    -0.89%  positive 44.2%   |  shallow   72  median    -5.55%
+  95% CI on the deep-arm median: [   -0.04%,     0.77%]
+
+FROZEN DECISION RULE (MT111, written before the holdout was read)
+  (1) deep arm >=60% of units positive ......... FAIL  (53.6%)
+  (2) deep arm median > 0 ..................... PASS  (    0.35%)
+  (3) day-clustered bootstrap lower bound > 0 .. FAIL  (   -0.04%)
+  (4) shallow control NOT also positive ....... PASS  (   -6.68%)
+
+  VERDICT: CLOSED
+  on the pool-collapsed secondary: deep 50.4% positive at     0.06%, shallow    -6.41%
+
+  THE HOLDOUT IS A HARDER TEST THAN THE FIT, not merely a later one: the fit ran on 48
+  wallet-conditioned tracked pools and this runs on complete venue coverage.
+  No position is proposed. Nothing is funded. Nothing is signed.

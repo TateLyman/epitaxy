@@ -1,0 +1,72 @@
+MT112 — LP on complete coverage, liquidity events excised
+
+  window 440267027..440287026  segments so far 545
+  window 440059533..440079532  segments so far 1089
+  window 439852039..439872038  segments so far 1664
+  window 439644545..439664544  segments so far 2173
+  window 439437051..439457050  segments so far 2585
+  window 439229557..439249556  segments so far 3175
+  window 439022063..439042062  segments so far 3691
+  window 438814569..438834568  segments so far 4239
+  window 438607075..438627074  segments so far 4817
+  window 438399581..438419580  segments so far 5383
+  window 438192087..438212086  segments so far 5863
+  window 437984593..438004592  segments so far 6354
+
+  liquidity events seen 3,429
+  CONTROL 2 — share of adjacent steps where k DECREASED inside a liquidity-free segment:
+    932,549 of 25,743,453 = 3.622%
+    MT106 measured 30.8% under the sparse instrument and voided itself on it.
+
+  segments 6354   pools needing a mint lookup 2525
+    resolved 200/2525
+    resolved 400/2525
+    resolved 600/2525
+    resolved 800/2525
+    resolved 1000/2525
+    resolved 1200/2525
+    resolved 1400/2525
+    resolved 1600/2525
+    resolved 1800/2525
+    resolved 2000/2525
+    resolved 2200/2525
+    resolved 2400/2525
+  unresolvable and REFUSED 0
+  WSOL-quoted segments measured: 3655
+
+PER SEGMENT, as a fraction of WITHDRAWABLE capital (2*q_raw + v)
+  capital SOL      p10 101.5   p50 288.5   p90 3127.9
+  segment hours    p10 0.48   p50 2.29   p90 2.34
+  trades/segment   p10 256   p50 822   p90 7169
+
+  FEE INCOME %     p10     0.0063  p50     0.0850  p90     1.5743
+  REBALANCING %    p10   -45.8589  p50    -1.2222  p90    -0.0039
+  NET %            p10   -45.9687  p50    -0.7261  p90     0.0816
+
+  FEE / |REBALANCING|   p10 0.000   p50 0.126   p90 7.840
+  segments where fee beats rebalancing: 1012 of 3655 = 27.7%
+  MT100 on freshly-migrated tier-0 pools: rebalancing was 47x fee income.
+
+CONTROL 1 — fee income MUST rise with the fee tier, or the fee is not what is being measured
+  lp=  2 bps   segments  1440   median fee     0.0937%   median net   -24.2204%   net>0 12.5%
+  lp= 20 bps   segments  2186   median fee     0.0817%   median net    -0.0661%   net>0 37.6%
+  lp= 25 bps   segments    29   median fee    -9.4513%   median net    -9.7107%   net>0 37.9%
+
+BY UTC DAY — the cluster, per MT108
+  2026-08-08  segments   258  median net    -0.1512%  net>0 33.3%
+  2026-08-09  segments   265  median net    -0.7890%  net>0 30.2%
+  2026-08-10  segments   313  median net    -0.9367%  net>0 30.7%
+  2026-08-11  segments   335  median net    -0.4426%  net>0 28.4%
+  2026-08-12  segments   341  median net    -0.7695%  net>0 30.2%
+  2026-08-13  segments   329  median net    -1.1114%  net>0 30.4%
+  2026-08-14  segments   325  median net    -0.5396%  net>0 27.1%
+  2026-08-15  segments   278  median net    -0.7369%  net>0 27.0%
+  2026-08-16  segments   267  median net    -1.2810%  net>0 20.2%
+  2026-08-17  segments   294  median net    -0.6891%  net>0 26.5%
+  2026-08-18  segments   326  median net    -0.7261%  net>0 26.4%
+  2026-08-19  segments   324  median net    -1.5726%  net>0 21.9%
+
+  12 day clusters.
+  NOT INCLUDED IN ANY NUMBER ABOVE: the LP's own entry and exit round trip, and the
+  fact that a pool which dies costs the position rather than impermanent loss.
+  No position is proposed. Nothing is funded. Nothing is signed.
