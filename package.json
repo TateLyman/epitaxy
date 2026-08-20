@@ -169,7 +169,8 @@
     "venue:verify": "tsx scripts/verify-event-decode.ts",
     "venue:collect": "tsx scripts/venue-collect.ts",
     "venue:bridge": "tsx scripts/venue-bridge.ts",
-    "lp:flagged": "tsx scripts/lp-on-flagged-pools.ts"
+    "lp:flagged": "tsx scripts/lp-on-flagged-pools.ts",
+    "crowding": "tsx scripts/crowding-probe.ts"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",

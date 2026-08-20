@@ -222,3 +222,104 @@ export function tradesFromLogs(logs: readonly string[]): { trade: PumpSwapTrade;
 export function logsWereTruncated(logs: readonly string[]): boolean {
   return logs.some((l) => l.includes('Log truncated'));
 }
+
+// ---------------------------------------------------------------------------
+// Liquidity events, which are why MT106 was void.
+// ---------------------------------------------------------------------------
+
+/**
+ * `sha256("event:DepositEvent"|"event:WithdrawEvent")[0..8]`, from the pinned IDL.
+ *
+ * These matter for one reason. The invariant method recovers fee income from the
+ * growth of `k = base * quote`, and it is only valid when k moves for ONE reason.
+ * A deposit or a withdrawal moves k without a single trade happening, and MT106
+ * measured the consequence directly: k SHRANK in 30.8% of 139,145 steps, against
+ * MT100's 1.0% of 623 on a densely sampled population, and the recovered fee rate
+ * came out 100 to 1000 times too high. Any step spanning one of these is not a
+ * fee measurement and must be excluded rather than averaged in.
+ */
+export const DEPOSIT_EVENT_DISCRIMINATOR = Buffer.from([120, 248, 61, 83, 31, 142, 107, 144]);
+export const WITHDRAW_EVENT_DISCRIMINATOR = Buffer.from([22, 9, 133, 26, 160, 44, 71, 192]);
+
+export type LiquiditySide = 'DEPOSIT' | 'WITHDRAW';
+
+export interface PumpSwapLiquidity {
+  readonly side: LiquiditySide;
+  readonly pool: string;
+  readonly user: string;
+  /** Reserves as the event reports them, on the same convention as a trade. */
+  readonly poolBaseReserves: bigint;
+  readonly poolQuoteReserves: bigint;
+  /** LP token supply after the event — the denominator an LP's share is measured in. */
+  readonly lpMintSupply: bigint;
+  readonly lpTokenAmount: bigint;
+  readonly timestamp: bigint;
+}
+
+/*
+ *   0    discriminator            8
+ *   8    timestamp                i64
+ *   16   lp_token_amount out/in   u64
+ *   56   pool_base_token_reserves u64
+ *   64   pool_quote_token_reserves u64
+ *   88   lp_mint_supply           u64
+ *   96   pool                     pubkey
+ *   128  user                     pubkey
+ */
+const LIQ = {
+  timestamp: 8,
+  lpTokenAmount: 16,
+  poolBase: 56,
+  poolQuote: 64,
+  lpMintSupply: 88,
+  pool: 96,
+  user: 128,
+} as const;
+
+export const MIN_LIQUIDITY_BYTES = LIQ.user + 32;
+
+/** Decode a deposit or withdrawal, or null when the payload is neither. */
+export function decodePumpSwapLiquidity(payload: Buffer): PumpSwapLiquidity | null {
+  if (payload.length < 8) return null;
+  const disc = payload.subarray(0, 8);
+  const isDeposit = disc.equals(DEPOSIT_EVENT_DISCRIMINATOR);
+  const isWithdraw = disc.equals(WITHDRAW_EVENT_DISCRIMINATOR);
+  if (!isDeposit && !isWithdraw) return null;
+  if (payload.length < MIN_LIQUIDITY_BYTES) {
+    throw new PumpSwapEventLayoutError(
+      `a ${isDeposit ? 'DepositEvent' : 'WithdrawEvent'} discriminator on ${payload.length} bytes cannot hold ` +
+        `${MIN_LIQUIDITY_BYTES}; the layout changed and a partial decode would be a plausible wrong number`,
+    );
+  }
+  return {
+    side: isDeposit ? 'DEPOSIT' : 'WITHDRAW',
+    pool: base58Encode(payload.subarray(LIQ.pool, LIQ.pool + 32)),
+    user: base58Encode(payload.subarray(LIQ.user, LIQ.user + 32)),
+    poolBaseReserves: payload.readBigUInt64LE(LIQ.poolBase),
+    poolQuoteReserves: payload.readBigUInt64LE(LIQ.poolQuote),
+    lpMintSupply: payload.readBigUInt64LE(LIQ.lpMintSupply),
+    lpTokenAmount: payload.readBigUInt64LE(LIQ.lpTokenAmount),
+    timestamp: payload.readBigInt64LE(LIQ.timestamp),
+  };
+}
+
+/** Every deposit or withdrawal in one transaction's logs. */
+export function liquidityFromLogs(logs: readonly string[]): { event: PumpSwapLiquidity; index: number }[] {
+  const out: { event: PumpSwapLiquidity; index: number }[] = [];
+  let index = 0;
+  for (const line of logs) {
+    const at = line.indexOf(PROGRAM_DATA_PREFIX);
+    if (at < 0) continue;
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(line.slice(at + PROGRAM_DATA_PREFIX.length).trim(), 'base64');
+    } catch {
+      continue;
+    }
+    const event = decodePumpSwapLiquidity(buf);
+    if (event === null) continue;
+    out.push({ event, index });
+    index += 1;
+  }
+  return out;
+}

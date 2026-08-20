@@ -206,3 +206,104 @@ describe('the round trip', () => {
     expect(typeof rt.pnl).toBe('bigint');
   });
 });
+
+// ---------------------------------------------------------------------------
+
+import {
+  BUY_EVENT_DISCRIMINATOR,
+  MIN_EVENT_BYTES,
+  DEPOSIT_EVENT_DISCRIMINATOR,
+  WITHDRAW_EVENT_DISCRIMINATOR,
+  MIN_LIQUIDITY_BYTES,
+  PROGRAM_DATA_PREFIX,
+  PumpSwapEventLayoutError,
+  decodePumpSwapLiquidity,
+  decodePumpSwapTrade,
+  liquidityFromLogs,
+} from '../../packages/intelligence/src/pumpswap-event.js';
+import { base58Decode } from '../../packages/solana/src/base58.js';
+
+/**
+ * Liquidity events, which are the reason MT106 was void.
+ *
+ * The invariant method recovers fee income from the growth of k = base * quote,
+ * and it is valid only when k moves for ONE reason. A deposit or a withdrawal
+ * moves k with no trade at all. MT106 measured the consequence: k SHRANK in
+ * 30.8% of 139,145 steps against MT100's 1.0% of 623, and the recovered fee rate
+ * came out two to three orders of magnitude too high.
+ */
+const LPOOL = 'GAKj13ZPPekCvYoXt2xwmsbtaQp7EcZxzdqjCUcmASmw';
+const LUSER = 'ARu4n5mFdZogZAravu7CcizaojWnS6oqka37gdLT5SZn';
+
+/** A minimal trade event, local to this file so the two suites stay independent. */
+function buildTradeEvent(): Buffer {
+  const b = Buffer.alloc(MIN_EVENT_BYTES);
+  BUY_EVENT_DISCRIMINATOR.copy(b, 0);
+  b.writeBigInt64LE(1_700_000_000n, 8);
+  b.writeBigUInt64LE(12_345n, 16);
+  b.writeBigUInt64LE(999_000n, 48);
+  b.writeBigUInt64LE(888_000n, 56);
+  b.writeBigUInt64LE(20_000_000n, 64);
+  b.writeBigUInt64LE(20n, 72);
+  b.writeBigUInt64LE(5n, 88);
+  b.writeBigUInt64LE(19_950_000n, 112);
+  Buffer.from(base58Decode(LPOOL)).copy(b, 120);
+  Buffer.from(base58Decode(LUSER)).copy(b, 152);
+  return b;
+}
+
+function buildLiquidity(side: 'DEPOSIT' | 'WITHDRAW'): Buffer {
+  const b = Buffer.alloc(MIN_LIQUIDITY_BYTES);
+  (side === 'DEPOSIT' ? DEPOSIT_EVENT_DISCRIMINATOR : WITHDRAW_EVENT_DISCRIMINATOR).copy(b, 0);
+  b.writeBigInt64LE(1_700_000_000n, 8);
+  b.writeBigUInt64LE(4_242n, 16);
+  b.writeBigUInt64LE(777_000n, 56);
+  b.writeBigUInt64LE(888_000n, 64);
+  b.writeBigUInt64LE(9_999n, 88);
+  Buffer.from(base58Decode(LPOOL)).copy(b, 96);
+  Buffer.from(base58Decode(LUSER)).copy(b, 128);
+  return b;
+}
+
+describe('liquidity events', () => {
+  it('reads a deposit back at the offsets the program wrote it', () => {
+    const e = decodePumpSwapLiquidity(buildLiquidity('DEPOSIT'))!;
+    expect(e.side).toBe('DEPOSIT');
+    expect(e.pool).toBe(LPOOL);
+    expect(e.user).toBe(LUSER);
+    expect(e.poolBaseReserves).toBe(777_000n);
+    expect(e.poolQuoteReserves).toBe(888_000n);
+    expect(e.lpMintSupply).toBe(9_999n);
+    expect(e.lpTokenAmount).toBe(4_242n);
+  });
+
+  it('takes the side from the discriminator', () => {
+    expect(decodePumpSwapLiquidity(buildLiquidity('WITHDRAW'))!.side).toBe('WITHDRAW');
+  });
+
+  it('does not confuse a liquidity event with a trade, or the reverse', () => {
+    /**
+     * They share a log line format and a pool field at DIFFERENT offsets — 96
+     * here against 120 for a trade. Decoding one as the other would return a
+     * plausible pubkey from the wrong bytes, which is the failure mode that does
+     * not announce itself.
+     */
+    expect(decodePumpSwapTrade(buildLiquidity('DEPOSIT'))).toBeNull();
+    expect(decodePumpSwapLiquidity(buildTradeEvent())).toBeNull();
+  });
+
+  it('REFUSES a liquidity discriminator on a short payload', () => {
+    const short = buildLiquidity('WITHDRAW').subarray(0, MIN_LIQUIDITY_BYTES - 1);
+    expect(() => decodePumpSwapLiquidity(short)).toThrow(PumpSwapEventLayoutError);
+  });
+
+  it('finds liquidity events in a log array and leaves trades alone', () => {
+    const logs = [
+      `${PROGRAM_DATA_PREFIX}${buildTradeEvent().toString('base64')}`,
+      `${PROGRAM_DATA_PREFIX}${buildLiquidity('WITHDRAW').toString('base64')}`,
+    ];
+    const liq = liquidityFromLogs(logs);
+    expect(liq).toHaveLength(1);
+    expect(liq[0]!.event.side).toBe('WITHDRAW');
+  });
+});
