@@ -1,0 +1,208 @@
+import { describe, it, expect } from 'vitest';
+import {
+  FillNotPriceable,
+  priceBuy,
+  priceRoundTrip,
+  priceSell,
+  roundTripFloorBps,
+  totalFeeBps,
+  type PoolFeeLadder,
+  type PoolReserves,
+} from '../../packages/intelligence/src/copy-fill.js';
+
+/**
+ * Pricing a follower's round trip off the reserve path.
+ *
+ * This is the module that replaces a trade tape with an invariant, and it is the
+ * reason MT104 cannot inherit the censoring that killed Phases C through G. It
+ * is also the module where a wrong constant is worth basis points on every
+ * position, so the fee rule and the sign conventions are pinned here.
+ */
+
+/** Bottom tier: LP 2 / protocol 93 / creator 30 = 125 bps a leg. */
+const BOTTOM: PoolFeeLadder = {
+  lpFeeBasisPoints: 2n,
+  protocolFeeBasisPoints: 93n,
+  coinCreatorFeeBasisPoints: 30n,
+};
+/** The tier 71.7% of flagged buys land on: LP 20 / protocol 5 / creator 0. */
+const CHEAP: PoolFeeLadder = {
+  lpFeeBasisPoints: 20n,
+  protocolFeeBasisPoints: 5n,
+  coinCreatorFeeBasisPoints: 0n,
+};
+
+const SOL = 1_000_000_000n;
+/** A pool at the flagged-population median: ~108 SOL of quote. */
+const DEEP: PoolReserves = { base: 500_000_000_000_000n, quote: 108n * SOL };
+/**
+ * A pool at what our own collector admits: ~25 SOL of quote, and scaled to the
+ * SAME price as DEEP.
+ *
+ * Scaling matters and the first version of this file got it wrong: holding the
+ * base fixed and lowering the quote makes the token four times CHEAPER, not the
+ * pool shallower, and a buy then returns more base for reasons that have nothing
+ * to do with depth. Same price, less depth, is the only comparison that isolates
+ * impact.
+ */
+const THIN: PoolReserves = { base: (500_000_000_000_000n * 25n) / 108n, quote: 25n * SOL };
+
+describe('the fee ladder', () => {
+  it('sums all three components', () => {
+    expect(totalFeeBps(BOTTOM)).toBe(125n);
+    expect(totalFeeBps(CHEAP)).toBe(25n);
+  });
+
+  it('REFUSES when the creator component is unknown', () => {
+    /**
+     * At the bottom tier the creator fee is 30 of 125 bps. Assuming zero would
+     * understate the leg by a quarter, and an optimistic fee is
+     * indistinguishable from edge in every downstream number.
+     */
+    expect(() => totalFeeBps({ ...BOTTOM, coinCreatorFeeBasisPoints: null })).toThrow(FillNotPriceable);
+    expect(() => totalFeeBps({ ...BOTTOM, coinCreatorFeeBasisPoints: null })).toThrow(/30 of 125/);
+  });
+});
+
+describe('the buy side', () => {
+  it('takes the fee off the input, so the pool receives quote/(1+f)', () => {
+    const fill = priceBuy(DEEP, SOL, BOTTOM);
+    const toPool = fill.reservesAfter.quote - DEEP.quote;
+    // 1 SOL / 1.0125 = 987,654,320 lamports, to integer division.
+    expect(toPool).toBe((SOL * 10_000n) / 10_125n);
+  });
+
+  it('conserves the invariant on the pool side', () => {
+    const fill = priceBuy(DEEP, SOL, BOTTOM);
+    const kBefore = DEEP.base * DEEP.quote;
+    const kAfter = fill.reservesAfter.base * fill.reservesAfter.quote;
+    // Integer division only ever loses a fraction of one base unit.
+    expect(kAfter).toBeLessThanOrEqual(kBefore);
+    expect(kBefore - kAfter).toBeLessThan(fill.reservesAfter.quote);
+  });
+
+  it('executes further from mid in a thinner pool at the same price — that is impact', () => {
+    // Effective price against the pool mid. Absolute baseOut cannot be compared
+    // across pools of different size; the DISTANCE FROM MID can.
+    const slip = (r: PoolReserves): number => {
+      const fill = priceBuy(r, SOL, BOTTOM);
+      const effective = Number(SOL) / Number(fill.baseOut);
+      const mid = Number(r.quote) / Number(r.base);
+      return effective / mid - 1;
+    };
+    expect(slip(THIN)).toBeGreaterThan(slip(DEEP));
+    expect(slip(DEEP)).toBeGreaterThan(0);
+  });
+
+  it('refuses a pool with no reserves rather than dividing by it', () => {
+    expect(() => priceBuy({ base: 0n, quote: SOL }, SOL, BOTTOM)).toThrow(FillNotPriceable);
+    expect(() => priceBuy(DEEP, 0n, BOTTOM)).toThrow(FillNotPriceable);
+  });
+});
+
+describe('the sell side', () => {
+  it('takes the fee off the OUTPUT, which is the asymmetry Phase G had to measure', () => {
+    /**
+     * Phase G probed the program rather than assuming symmetry: a buy has the
+     * pool keep quote/(1+f) and a sell has the trader receive quote x (1-f).
+     * The obvious alternative agrees at tier 0 by coincidence and separates at
+     * tier 16.
+     */
+    const sell = priceSell(DEEP, 1_000_000_000_000n, BOTTOM);
+    const fromPool = DEEP.quote - sell.reservesAfter.quote;
+    expect(sell.quoteOut).toBe((fromPool * 9_875n) / 10_000n);
+    expect(sell.quoteOut).toBeLessThan(fromPool);
+  });
+
+  it('is not the inverse of a buy, because the fee is charged on both legs', () => {
+    const buy = priceBuy(DEEP, SOL, BOTTOM);
+    const back = priceSell(buy.reservesAfter, buy.baseOut, BOTTOM);
+    expect(back.quoteOut).toBeLessThan(SOL);
+  });
+});
+
+describe('the round trip', () => {
+  it('loses 246.9 bps at the bottom tier, NOT the 250 that two legs of 125 suggests', () => {
+    /**
+     * The programme has quoted 250 bps throughout, as 2 x 125. The measured
+     * rule does not compound that way: a buy pays f/(1+f) of the input, which
+     * is 123.46 bps rather than 125, and the sell then takes 125 bps of a
+     * slightly smaller output. The true instant round trip is 246.9 bps.
+     *
+     * Three basis points is not worth an argument by itself. It is worth a test
+     * because it shows the naive doubling is not what the program does, and the
+     * same asymmetry is what separates the tiers at the other end of the ladder.
+     */
+    const rt = priceRoundTrip(DEEP, DEEP, SOL, BOTTOM, BOTTOM);
+    expect(rt.pnl).toBeLessThan(0n);
+    const floor = roundTripFloorBps(DEEP, SOL, BOTTOM);
+    expect(floor).toBeGreaterThan(246);
+    expect(floor).toBeLessThan(248);
+  });
+
+  it('shows the cheap tier costing about a fifth of the bottom tier', () => {
+    /**
+     * This is the measured re-rating: 71.7% of flagged buys land on the 20/5
+     * tier. Every prior phase priced against 2.669%, which is the bottom tier
+     * plus impact on a pool a fifth the size.
+     */
+    const bottom = roundTripFloorBps(DEEP, SOL, BOTTOM);
+    const cheap = roundTripFloorBps(DEEP, SOL, CHEAP);
+    expect(cheap).toBeGreaterThan(49);
+    expect(cheap).toBeLessThan(51);
+    expect(bottom / cheap).toBeGreaterThan(4.9);
+  });
+
+  it('IMPACT CANCELS on an instant round trip, so the floor is the fee and nothing else', () => {
+    /**
+     * This corrects an intuition I had wrong. Constant product is path
+     * independent: buying and immediately selling the same base back traverses
+     * the curve in reverse and returns the same quote, so slippage nets to zero
+     * and only the fee remains. A thin pool and a deep pool have the SAME
+     * instant round-trip floor.
+     *
+     * Where depth actually pays is elsewhere, and the next test is where: size
+     * costs when the exit happens at reserves the entry did not leave behind.
+     * That is also why a 150 bps impact cap is a CAPACITY bound rather than a
+     * cost - it limits how far we may move the pool, not what the move charges.
+     */
+    expect(roundTripFloorBps(THIN, SOL, CHEAP)).toBeCloseTo(roundTripFloorBps(DEEP, SOL, CHEAP), 6);
+  });
+
+  it('profits when the price rose enough between entry and exit to clear both legs', () => {
+    // Quote reserves up 20% against the same base: the token appreciated.
+    const exit: PoolReserves = { base: DEEP.base, quote: (DEEP.quote * 120n) / 100n };
+    const rt = priceRoundTrip(DEEP, exit, SOL, CHEAP, CHEAP);
+    expect(rt.pnl).toBeGreaterThan(0n);
+    expect(rt.returnFraction).toBeGreaterThan(0.15);
+  });
+
+  it('loses when the price fell, and the loss exceeds the move by the fee', () => {
+    const exit: PoolReserves = { base: DEEP.base, quote: (DEEP.quote * 80n) / 100n };
+    const rt = priceRoundTrip(DEEP, exit, SOL, CHEAP, CHEAP);
+    expect(rt.returnFraction).toBeLessThan(-0.2);
+  });
+
+  it('INCLUDES our own entry impact, so an edge cannot survive by ignoring size', () => {
+    /**
+     * The sell is priced against the exit pool plus our own base. A round trip
+     * that ignored its own impact would report an edge that vanishes at any
+     * real notional — and 0.02 SOL into a 108 SOL pool is not a real notional.
+     */
+    const small = priceRoundTrip(DEEP, DEEP, 20_000_000n, CHEAP, CHEAP).returnFraction;
+    const large = priceRoundTrip(DEEP, DEEP, 10n * SOL, CHEAP, CHEAP).returnFraction;
+    expect(large).toBeLessThan(small);
+  });
+
+  it('refuses to price anything when the creator fee is unknown', () => {
+    const unknown: PoolFeeLadder = { ...BOTTOM, coinCreatorFeeBasisPoints: null };
+    expect(() => priceRoundTrip(DEEP, DEEP, SOL, unknown, unknown)).toThrow(FillNotPriceable);
+  });
+
+  it('keeps every amount a bigint, because these are token amounts', () => {
+    const rt = priceRoundTrip(DEEP, DEEP, SOL, CHEAP, CHEAP);
+    expect(typeof rt.quoteIn).toBe('bigint');
+    expect(typeof rt.quoteOut).toBe('bigint');
+    expect(typeof rt.pnl).toBe('bigint');
+  });
+});

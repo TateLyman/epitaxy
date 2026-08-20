@@ -82,6 +82,16 @@ export interface PumpSwapTrade {
   readonly poolQuoteReservesBefore: bigint;
   readonly lpFeeBasisPoints: bigint;
   readonly protocolFeeBasisPoints: bigint;
+  /**
+   * The third component of the fee, and the one that is easy to miss.
+   *
+   * At the bottom tier the split is LP 2 / protocol 93 / CREATOR 30, so pricing
+   * a fill from lp+protocol alone understates the total by 30 bps - a quarter of
+   * the whole 125 bps leg. NULL when the payload is too short to carry it,
+   * because a fabricated zero here would make every modelled fill optimistic by
+   * exactly the amount nobody was looking at.
+   */
+  readonly coinCreatorFeeBasisPoints: bigint | null;
   /** Seconds, as the program recorded it. */
   readonly timestamp: bigint;
 }
@@ -123,10 +133,13 @@ const OFF = {
   protocolFeeBps: 88,
   pool: 120,
   user: 152,
+  coinCreatorFeeBps: 344,
 } as const;
 
-/** Smallest buffer that carries every field this decoder reads. */
+/** Smallest buffer that carries every REQUIRED field. */
 export const MIN_EVENT_BYTES = OFF.user + 32;
+/** Smallest buffer that also carries the creator fee, which is optional here. */
+export const CREATOR_FEE_BYTES = OFF.coinCreatorFeeBps + 8;
 
 /**
  * Decode one `Program data:` payload, or null when it is not a PumpSwap trade.
@@ -161,6 +174,8 @@ export function decodePumpSwapTrade(payload: Buffer): PumpSwapTrade | null {
     poolQuoteReservesBefore: payload.readBigUInt64LE(OFF.poolQuoteReserves),
     lpFeeBasisPoints: payload.readBigUInt64LE(OFF.lpFeeBps),
     protocolFeeBasisPoints: payload.readBigUInt64LE(OFF.protocolFeeBps),
+    coinCreatorFeeBasisPoints:
+      payload.length >= CREATOR_FEE_BYTES ? payload.readBigUInt64LE(OFF.coinCreatorFeeBps) : null,
     timestamp: payload.readBigInt64LE(OFF.timestamp),
   };
 }
