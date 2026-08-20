@@ -338,3 +338,66 @@ describe('liquidity events', () => {
     expect(liq[0]!.event.side).toBe('WITHDRAW');
   });
 });
+
+describe('D2 — the fee actually charged beats the fee derived from components', () => {
+  // On a cashback coin the creator fee is redirected to the trader's volume accumulator.
+  // The creator receives nothing, so `coinCreatorFeeBasisPoints` honestly reads 0 — and the
+  // trader still pays it. Measured on 18,171 single-layout sell legs: the declared ladder
+  // understates the charge on 26.8%, and the cross-tabulation against each pool's own
+  // is_cashback_coin flag is perfect at 67 of 67, median hidden fee 35.0 bps a leg.
+  const cashbackLooking: PoolFeeLadder = {
+    lpFeeBasisPoints: 20n,
+    protocolFeeBasisPoints: 5n,
+    coinCreatorFeeBasisPoints: 0n,
+    chargedFeeBasisPoints: 60n,
+  };
+
+  it('uses the observed charge when it is supplied', () => {
+    expect(totalFeeBps(cashbackLooking)).toBe(60n);
+  });
+
+  it('falls back to the sum when the charge is unknown, which is a LOWER bound on cost', () => {
+    expect(totalFeeBps({ ...cashbackLooking, chargedFeeBasisPoints: null })).toBe(25n);
+    const { chargedFeeBasisPoints: _drop, ...noField } = cashbackLooking;
+    expect(totalFeeBps(noField)).toBe(25n);
+  });
+
+  it('makes a round trip more expensive, not less — the direction the defect had backwards', () => {
+    const declared = priceRoundTrip(DEEP, DEEP, SOL, { ...cashbackLooking, chargedFeeBasisPoints: null }, { ...cashbackLooking, chargedFeeBasisPoints: null });
+    const charged = priceRoundTrip(DEEP, DEEP, SOL, cashbackLooking, cashbackLooking);
+    expect(charged.returnFraction).toBeLessThan(declared.returnFraction);
+  });
+});
+
+describe('D3 — the constant product runs on quote + virtualQuote', () => {
+  // Solving each event's own invariant for v over 25,281 events across 643 pools returns
+  // EXACTLY 0 or EXACTLY 17.584505 SOL, IQR 1e-6 within a pool. v is real, exact and PER
+  // POOL. Pricing against raw quote treats the pool as thinner than it is.
+  const V = 17_584_500_000n;
+
+  it('defaults to zero, so a pool without one prices exactly as before', () => {
+    const withoutField = priceBuy(DEEP, SOL, CHEAP);
+    const explicitZero = priceBuy({ ...DEEP, virtualQuote: 0n }, SOL, CHEAP);
+    expect(explicitZero.baseOut).toBe(withoutField.baseOut);
+  });
+
+  it('a virtual reserve makes the pool DEEPER, so the same buy takes less base out', () => {
+    const raw = priceBuy(DEEP, SOL, CHEAP);
+    const eff = priceBuy({ ...DEEP, virtualQuote: V }, SOL, CHEAP);
+    expect(eff.baseOut).toBeLessThan(raw.baseOut);
+  });
+
+  it('carries v forward, so a chained fill stays on the same curve', () => {
+    const buy = priceBuy({ ...DEEP, virtualQuote: V }, SOL, CHEAP);
+    expect(buy.reservesAfter.virtualQuote).toBe(V);
+    // And the RAW quote moved, not the virtual part.
+    expect(buy.reservesAfter.quote).toBeGreaterThan(DEEP.quote);
+  });
+
+  it('still collapses a static round trip to the pure fee, with v present', () => {
+    const f = Number(totalFeeBps(CHEAP)) / 1e4;
+    const withV: PoolReserves = { ...DEEP, virtualQuote: V };
+    const rt = priceRoundTrip(withV, withV, 20_000_000n, CHEAP, CHEAP);
+    expect(rt.returnFraction).toBeCloseTo((1 - f) / (1 + f) - 1, 7);
+  });
+});

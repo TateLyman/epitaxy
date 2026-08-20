@@ -39,11 +39,46 @@ export interface PoolFeeLadder {
   readonly lpFeeBasisPoints: bigint;
   readonly protocolFeeBasisPoints: bigint;
   readonly coinCreatorFeeBasisPoints: bigint | null;
+  /**
+   * D2 — the fee ACTUALLY charged, when it is known to differ from the sum above.
+   *
+   * On a cashback coin the creator fee is redirected to the trader's volume
+   * accumulator, so the creator receives nothing and `coinCreatorFeeBasisPoints`
+   * truthfully reads 0 — but the TRADER STILL PAYS IT. Measured on 18,171 sell legs,
+   * whose struct has a single layout: the declared ladder understates the charge on
+   * 26.8% of them, mean 10.92 bps per leg, and the cross-tabulation against each
+   * pool's own `is_cashback_coin` flag is perfect — 12 of 12 cashback pools understate,
+   * 55 of 55 non-cashback pools are clean, median hidden fee 35.0 bps per leg.
+   *
+   * Summing the three components therefore UNDERSTATES cost on cashback pools by up to
+   * 95 bps a leg. A caller that can observe the real charge — on a sell it is exactly
+   * `(quote_amount - user_quote_amount) / quote_amount` — should pass it here, and the
+   * fee model will use it instead of the sum.
+   *
+   * Left null when unknown, in which case the sum is used and the result is a LOWER
+   * BOUND on cost, never an upper one.
+   */
+  readonly chargedFeeBasisPoints?: bigint | null;
 }
 
 export interface PoolReserves {
   readonly base: bigint;
   readonly quote: bigint;
+  /**
+   * D3 — the pool's VIRTUAL quote reserve, which the constant product includes and
+   * the withdrawable balance does not.
+   *
+   * The curve operates on `quote + virtualQuote`; pricing a fill against raw `quote`
+   * overstates the relative price move by `(q+v)/q`. Solving each event's own constant
+   * product for v over 25,281 events across 643 pools returns EXACTLY 0 or EXACTLY
+   * 17.584505 SOL, with an interquartile range of 1e-6 within a pool — so v is real,
+   * exact, and PER POOL, not a population constant to be fitted. 14.7% of WSOL pools
+   * have v = 0.
+   *
+   * Defaults to 0n, which is correct for a pool that has none and is the conservative
+   * reading for a pool whose v has not been established.
+   */
+  readonly virtualQuote?: bigint;
 }
 
 const BPS = 10_000n;
@@ -63,6 +98,11 @@ export function totalFeeBps(f: PoolFeeLadder): bigint {
         'pricing without it would understate the cost by a quarter of the leg',
     );
   }
+  // D2 — an observed charge beats a derived one. On a cashback coin the creator fee is
+  // redirected to the trader's accumulator, so the creator's component honestly reads 0
+  // while the trader still pays it, and the sum understates the leg by up to 95 bps.
+  const observed = f.chargedFeeBasisPoints;
+  if (observed !== undefined && observed !== null) return observed;
   return f.lpFeeBasisPoints + f.protocolFeeBasisPoints + f.coinCreatorFeeBasisPoints;
 }
 
@@ -88,17 +128,23 @@ export function priceBuy(reserves: PoolReserves, quoteIn: bigint, fees: PoolFeeL
     throw new FillNotPriceable(`a pool with reserves ${reserves.base}/${reserves.quote} cannot price a fill`);
   }
   const f = totalFeeBps(fees);
-  const k = reserves.base * reserves.quote;
+  // D3 — the invariant is over the EFFECTIVE quote. Pricing against raw `quote` treats a
+  // pool as thinner than it is and overstates the price move by (q+v)/q.
+  const v = reserves.virtualQuote ?? 0n;
+  const qEff = reserves.quote + v;
+  const k = reserves.base * qEff;
   // quoteIn / (1 + f/1e4) == quoteIn * 1e4 / (1e4 + f)
   const quoteToPool = (quoteIn * BPS) / (BPS + f);
-  const newQuote = reserves.quote + quoteToPool;
-  const newBase = k / newQuote;
+  const newQEff = qEff + quoteToPool;
+  const newBase = k / newQEff;
   const baseOut = reserves.base - newBase;
   if (baseOut <= 0n) throw new FillNotPriceable('the trade is too small to move a whole base unit');
   return {
     quoteIn,
     baseOut,
-    reservesAfter: { base: newBase, quote: newQuote },
+    // The RAW quote moves by the same amount the effective one did; v is not ours and
+    // does not change. Carrying it forward keeps a chained fill on the same curve.
+    reservesAfter: { base: newBase, quote: reserves.quote + quoteToPool, virtualQuote: v },
     feeBps: f,
   };
 }
@@ -125,13 +171,21 @@ export function priceSell(reserves: PoolReserves, baseIn: bigint, fees: PoolFeeL
     throw new FillNotPriceable(`a pool with reserves ${reserves.base}/${reserves.quote} cannot price a fill`);
   }
   const f = totalFeeBps(fees);
-  const k = reserves.base * reserves.quote;
+  // D3 — same correction as the buy: the invariant is over the effective quote.
+  const v = reserves.virtualQuote ?? 0n;
+  const qEff = reserves.quote + v;
+  const k = reserves.base * qEff;
   const newBase = reserves.base + baseIn;
-  const newQuote = k / newBase;
-  const quoteFromPool = reserves.quote - newQuote;
+  const newQEff = k / newBase;
+  const quoteFromPool = qEff - newQEff;
   if (quoteFromPool <= 0n) throw new FillNotPriceable('the trade is too small to move a whole quote unit');
   const quoteOut = (quoteFromPool * (BPS - f)) / BPS;
-  return { baseIn, quoteOut, reservesAfter: { base: newBase, quote: newQuote }, feeBps: f };
+  return {
+    baseIn,
+    quoteOut,
+    reservesAfter: { base: newBase, quote: reserves.quote - quoteFromPool, virtualQuote: v },
+    feeBps: f,
+  };
 }
 
 export interface RoundTrip {
@@ -184,6 +238,9 @@ export function priceRoundTrip(
   const exitWithOurFootprint: PoolReserves = {
     base: exitReserves.base - buy.baseOut,
     quote: exitReserves.quote + quoteAdded,
+    // Carry v. Dropping it here made the exit pool look ~17.6 SOL thinner than it is and
+    // turned a 50 bps round trip into a 1,443 bps one — caught by the invariance test.
+    virtualQuote: exitReserves.virtualQuote ?? 0n,
   };
   if (exitWithOurFootprint.base <= 0n) {
     // Our position is at least the whole exit pool. There is no price at which this
