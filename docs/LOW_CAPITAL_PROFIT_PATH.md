@@ -362,37 +362,67 @@ SOL price context: [August 2026 range](https://changelly.com/blog/solana-price-p
 
 ## 10 — CORRECTIONS, 2026-08-20
 
-Four numbers in this document are wrong. They are corrected here rather than edited away,
-because how they were reached is the more useful artifact.
+Four numbers in this document are wrong. They are corrected here rather than edited away, because
+how they were reached is the more useful artifact. All four were surfaced by an adversarial review
+and a corpus-mining pass, and every one was verified against the database before being accepted.
 
-**The -17.44% is not one population, and the triple I published never existed.** The mean, SD and
-p10 are computed against  (n=455); the -18.6% median I printed beside them is
-from  (n=229). Measured separately:
+### 10.1 The triple published in §2 never existed
 
+The mean, SD and p10 are computed against `notional_lamports` (n=455). The −18.6% median printed
+beside them comes from `entry_cash_out_lamports` (n=229). Measured separately at 3600s:
 
+| denominator | n | mean | median | SD | p10 |
+|---|---|---|---|---|---|
+| `notional_lamports` | 455 | −17.44% | **−2.68%** | 41.8% | −69.6% |
+| `entry_cash_out_lamports` | 229 | −17.83% | **−18.64%** | 33.6% | −27.4% |
 
-No single population produces "-17.44% mean, -18.6% median, SD 41.8%, p10 -69.6%, n=455". The
-median is now taken from the same population as everything beside it.
+**No single population produces "−17.44% mean, −18.6% median, SD 41.8%, p10 −69.6%, n=455".** A
+median was taken from one denominator and everything beside it from another, under the n of only
+one. §2 now reports the median from the same population as the rest of its row.
 
-**And the -17.44% is mostly the apparatus measuring its own footprint.** Split on the corpus own
- flag at 3600s: positions sized inside the pool return **-8.31% (n=381)**;
-positions that were not return **-64.42% (n=74)**. The distribution of notional over effective
-quote reserve is bimodal with nothing in between - p50 0.00087, p90 0.705, p99 1.426, max 1.700 -
-and **122 of 685 entries took more than half the pool they entered**. The pooled -17.44% is a
-mixture of a market measurement and a self-impact measurement, and 18% of the rows are the second.
+### 10.2 The −17.44% is substantially the apparatus measuring its own footprint
 
-**The 250 bps floor is a property of the slice this apparatus sampled, not of the venue.** 392 of
-405 decoded trajectories sit at tier 0 because the sampler admits freshly-migrated first-hour
-pools. Measured on live venue flow, 79.1% of trades sit at lp 20 / protocol 5, and the taker fee
-recovered from  against the pool leg puts 43.4% of buy legs under 50 bps a leg.
+Split on the corpus's own `within_small_impact` flag, at 3600s:
 
-** books a one-time cost on every position.**  shows
-WALLET_GLOBAL and WALLET_QUOTE_MINT are ONE PUBKEY EACH, charged 640 and 199 times - the wallet
-global account and its WSOL ATA, paid once ever. Together 3,883,680 lamports, which is 1,942 bps of
-a 0.02 SOL notional if booked per position and 4.7 bps if amortised across the 412 round trips.
+| sized inside the pool | n | mean |
+|---|---|---|
+| yes | 381 | **−8.31%** |
+| no | 74 | **−64.42%** |
 
-**What this does to the ceiling in section 3.** The inputs move in both directions - a lower fee
-band and deeper pools raise it, a corrected baseline is less negative - and the honest position is
-that section 3 should be recomputed on the restratified corpus before any figure from it is quoted
-again. It is not recomputed here, and until it is, the ,500-2,000 range should be read as
-resting on a population that section 4 of this same document argues was the wrong one.
+The distribution of notional over effective quote reserve is bimodal with nothing in between —
+p10 0.00029, p50 0.00087, p90 0.705, p99 1.426, max 1.700 — and **122 of 685 entries took more than
+half of the pool they entered**. The pooled figure is a mixture of a market measurement and a
+self-impact measurement, and roughly 18% of rows are the second.
+
+This matters beyond the headline: the σ of 41.8% used in every power calculation in this programme,
+including the 340–632 day sample requirement and this session's cluster analysis, is computed on
+that mixture.
+
+### 10.3 The 250 bps floor is a property of the sampled slice, not of the venue
+
+392 of 405 decoded trajectories sit at tier 0 because the sampler admits freshly-migrated
+first-hour pools. Measured on live venue flow instead, 79.1% of trades sit at lp 20 / protocol 5,
+and the taker fee recovered from `user_quote_amount` against the pool's own leg — a measurement
+that does not depend on the `FeeConfig` decode at all — puts **43.4% of buy legs under 50 bps a
+leg**, on pools averaging 11.7× the depth.
+
+The direction is confirmed and the magnitude is not yet settled: the creator component runs 0–95
+bps and is set per coin, so a full weighted floor cannot be stated until it is collected across the
+population.
+
+### 10.4 `entry_cash_out_lamports` books a one-time cost on every position
+
+`created_accounts` shows `WALLET_GLOBAL` and `WALLET_QUOTE_MINT` are **one pubkey each**, charged
+640 and 199 times respectively — the wallet's PumpSwap global account and its WSOL ATA, paid once
+ever. Together 3,883,680 lamports: **1,942 bps of a 0.02 SOL notional if booked per position, 4.7
+bps if amortised across the 412 round trips.** MT057 had already concluded that rent is locked
+capital rather than a cost; the note that closed the branch did not use that conclusion.
+
+### 10.5 What this does to §3
+
+The ceiling in §3 is **not** recomputed here, and no figure from it should be quoted until it is.
+Its inputs move in both directions — a lower fee band and deeper pools raise it, a corrected and
+less negative baseline raises it, a per-position cost floor that is now known to vary by coin
+complicates it. Until §3 is recomputed on a restratified corpus, the $2,500–$12,000 range should be
+read as resting on exactly the population that §4 of this same document argues was the wrong one to
+have measured.
