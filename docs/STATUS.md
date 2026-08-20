@@ -33,7 +33,7 @@
 > the standard of evidence was never the problem and the apparatus was never the problem.
 >
 > **THE RECOMPUTATION REPRODUCES THE REPORTS.** Independently, from the database: this system's own
-> gated admissions at 60 minutes are **−17.44% mean**, −18.6% median, SD 41.8%, p10 −69.6% on
+> gated admissions at 60 minutes are **−17.44% mean**, −2.68% median, SD 41.8%, p10 −69.6% on
 > n=455 — Phase B's −17.4% and −69.6%, reached by a different route. Nothing in the corpus was
 > found to be wrong.
 >

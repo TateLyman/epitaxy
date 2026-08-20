@@ -87,7 +87,7 @@ Recomputed from `data/runtime.db` for this note rather than quoted, and it repro
 
 | result | figure | source |
 |---|---|---|
-| this system's own gated admissions, 60 min | **−17.44% mean**, −18.6% median, SD 41.8%, p10 −69.6%, n=455 | recomputed here; reproduces Phase B's −17.4% / −69.6% |
+| this system's own gated admissions, 60 min | **−17.44% mean**, −2.68% median, SD 41.8%, p10 −69.6%, n=455 — and see the correction below | recomputed here; reproduces Phase B's −17.4% / −69.6% |
 | copying the best wallets, at honest coverage | **−4.28%** [−5.61%, −2.91%], H\*=120s, 87.2% coverage | Phase G |
 | liquidity provision on 377 own pools | fee 0.0077% vs **LVR 0.3612%** — 47×; break-even 93.7 bps against 22 available | LP decomposition |
 | migrated-population conditional mean | −60.2% to −98.7% by tier | Phase B |
@@ -356,3 +356,43 @@ US access: [CFTC opens the perp door with the first approval at a regulated firm
 Referral and ecosystem: [Solana referral programme sizing](https://madeonsol.com/blog/solana-referral-affiliate-programs) · [Solana Foundation Frontier Traders](https://solana.com/news/introducing-frontier-traders) · DefiLlama figures as computed in `docs/FEE_ON_FLOW_RESEARCH_REPORT.md`
 
 SOL price context: [August 2026 range](https://changelly.com/blog/solana-price-prediction/)
+
+
+---
+
+## 10 — CORRECTIONS, 2026-08-20
+
+Four numbers in this document are wrong. They are corrected here rather than edited away,
+because how they were reached is the more useful artifact.
+
+**The -17.44% is not one population, and the triple I published never existed.** The mean, SD and
+p10 are computed against  (n=455); the -18.6% median I printed beside them is
+from  (n=229). Measured separately:
+
+
+
+No single population produces "-17.44% mean, -18.6% median, SD 41.8%, p10 -69.6%, n=455". The
+median is now taken from the same population as everything beside it.
+
+**And the -17.44% is mostly the apparatus measuring its own footprint.** Split on the corpus own
+ flag at 3600s: positions sized inside the pool return **-8.31% (n=381)**;
+positions that were not return **-64.42% (n=74)**. The distribution of notional over effective
+quote reserve is bimodal with nothing in between - p50 0.00087, p90 0.705, p99 1.426, max 1.700 -
+and **122 of 685 entries took more than half the pool they entered**. The pooled -17.44% is a
+mixture of a market measurement and a self-impact measurement, and 18% of the rows are the second.
+
+**The 250 bps floor is a property of the slice this apparatus sampled, not of the venue.** 392 of
+405 decoded trajectories sit at tier 0 because the sampler admits freshly-migrated first-hour
+pools. Measured on live venue flow, 79.1% of trades sit at lp 20 / protocol 5, and the taker fee
+recovered from  against the pool leg puts 43.4% of buy legs under 50 bps a leg.
+
+** books a one-time cost on every position.**  shows
+WALLET_GLOBAL and WALLET_QUOTE_MINT are ONE PUBKEY EACH, charged 640 and 199 times - the wallet
+global account and its WSOL ATA, paid once ever. Together 3,883,680 lamports, which is 1,942 bps of
+a 0.02 SOL notional if booked per position and 4.7 bps if amortised across the 412 round trips.
+
+**What this does to the ceiling in section 3.** The inputs move in both directions - a lower fee
+band and deeper pools raise it, a corrected baseline is less negative - and the honest position is
+that section 3 should be recomputed on the restratified corpus before any figure from it is quoted
+again. It is not recomputed here, and until it is, the ,500-2,000 range should be read as
+resting on a population that section 4 of this same document argues was the wrong one.
