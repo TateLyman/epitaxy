@@ -1,0 +1,8 @@
+         30                  2099.12                   0.004              35.85%
+
+  MINIMUM SHARE-DECREASED at v = 17.5845 SOL, at 2.45%. Dispersion is NOT the criterion - it falls monotonically in v and always prefers the largest candidate. NON-NEGATIVITY is, because the pool retains the LP fee
+
+HOW TO READ IT: if v = 0 wins, PumpSwap has NO virtual quote reserve and the 17.5845
+constant belongs to the pump.fun bonding curve, not to this AMM - in which case the
+price definition used by MT110 and MT111 carries an additive error and must be redone.
+A high "share k DECREASED" at every v would mean liquidity events, not a wrong v.
