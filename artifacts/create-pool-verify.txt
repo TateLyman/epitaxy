@@ -1,0 +1,13 @@
+pools already resolved by RPC in venue_pools: 14,854
+
+(node:14968) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+CreatePoolEvent payloads scanned: 400
+
+WHICH OFFSET IS THE POOL ADDRESS? (matched against venue_pools keys)
+
+EVENTS WHOSE POOL IS ALSO IN venue_pools: 0
+AGREEMENT WITH THE RPC-RESOLVED ACCOUNT:
+
+  A field that matches the account on EVERY overlapping pool can replace the account
+  read. That turns pool->mints from one getAccountInfo per pool into zero, forever.

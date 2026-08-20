@@ -1,0 +1,19 @@
+known base mints 11,050   known pools 14,854
+
+(node:16356) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+CreatePoolEvent payloads scanned: 2000
+
+WSOL found at:
+  offset   50    1413 of 2000   70.7%
+  offset   82     560 of 2000   28.0%
+
+a KNOWN base_mint found at:
+  offset   50     527 of 2000   26.4%
+  offset   82      23 of 2000   1.1%
+
+a KNOWN pool address found at:
+  offset  173    1426 of 2000   71.3%
+
+  Two stable offsets - one carrying WSOL, one carrying a mint we independently know -
+  means the mint pair is in the event, and pool->mints costs no account read.
