@@ -26,7 +26,8 @@
  *
  * Read-only. Opens no capital-bearing table, imports nothing from packages/execution.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { createReadStream, readdirSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { openDb } from '../packages/storage/src/db.js';
 import { loadSecrets } from '../packages/domain/src/config.js';
 import { researchRpc } from '../packages/solana/src/endpoint.js';
@@ -53,7 +54,6 @@ for (let k = 1; k <= 12; k += 1) {
   const to = HEAD - k * SLOTS_PER_DAY;
   WINDOWS.push({ from: to - 19_999, to });
 }
-const inHoldout = (slot: number): boolean => WINDOWS.some((w) => slot >= w.from && slot <= w.to);
 
 interface Ev {
   readonly slot: number;
@@ -64,74 +64,15 @@ interface Ev {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Decode. Only the holdout windows; anything else on disk is ignored.
-// ---------------------------------------------------------------------------
-const byPool = new Map<string, Ev[]>();
-let blocks = 0;
-let instrs = 0;
-let undecodable = 0;
-let notWrapped = 0;
-
-const files = readdirSync(DIR).filter((f) => f.endsWith('.jsonl') && f.startsWith('events-'));
-for (const f of files) {
-  const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(f);
-  if (m === null) continue;
-  const lo = Number(m[1]);
-  const hi = Number(m[2]);
-  if (!WINDOWS.some((w) => hi >= w.from && lo <= w.to)) continue;
-
-  for (const line of readFileSync(`${DIR}/${f}`, 'utf8').split('\n')) {
-    if (line.length === 0) continue;
-    const b = JSON.parse(line) as {
-      header: { number: number; timestamp: number };
-      instructions: { transactionIndex: number; instructionAddress: number[]; data: string }[];
-    };
-    if (!inHoldout(b.header.number)) continue;
-    blocks += 1;
-    for (const ins of b.instructions) {
-      instrs += 1;
-      let raw: Buffer;
-      try {
-        raw = Buffer.from(base58Decode(ins.data, 4096));
-      } catch {
-        undecodable += 1;
-        continue;
-      }
-      // Anchor emit_cpi! wraps the event. Anything not wrapped is not ours to interpret.
-      if (raw.length < 8 || !raw.subarray(0, 8).equals(CPI_WRAPPER)) {
-        notWrapped += 1;
-        continue;
-      }
-      const t = decodePumpSwapTrade(raw.subarray(8));
-      if (t === null) continue; // Deposit/Withdraw and the 5 unknown discriminators
-      let a = byPool.get(t.pool);
-      if (a === undefined) {
-        a = [];
-        byPool.set(t.pool, a);
-      }
-      a.push({
-        slot: b.header.number,
-        ts: b.header.timestamp,
-        txIndex: ins.transactionIndex,
-        addr: ins.instructionAddress.join('.'),
-        t,
-      });
-    }
-  }
-}
-console.log('MT111 HOLDOUT — days never queried');
-console.log(`  windows ${WINDOWS.length}   blocks ${blocks.toLocaleString()}   instructions ${instrs.toLocaleString()}`);
-console.log(`  trade events ${[...byPool.values()].reduce((a, b) => a + b.length, 0).toLocaleString()} across ${byPool.size.toLocaleString()} pools`);
-console.log(`  base58 undecodable ${undecodable}   not emit_cpi-wrapped ${notWrapped}`);
-if (byPool.size === 0) {
-  console.log('\n  NO HOLDOUT DATA ON DISK YET. The backfill has not reached these windows. Nothing computed.');
-  process.exit(0);
-}
-
-// ---------------------------------------------------------------------------
-// 2. Candidate triggers, before any mint is resolved. Resolving mints only for pools
-//    that produce a candidate is a cost saving and cannot bias the result: the WSOL
-//    requirement is a property of the pool, independent of how the trade turned out.
+// 1+2. Decode and extract candidates ONE WINDOW AT A TIME.
+//
+//   Two hard constraints force this shape. A backfill file is about a gigabyte, which is
+//   past Node's maximum string length, so files are streamed line by line rather than read
+//   whole. And twelve windows of decoded trades will not fit in a heap at once, so each
+//   window is reduced to its candidate triggers and then released. Candidates are a tiny
+//   fraction of trades, so the accumulated set is small.
+//
+//   The frozen rule is applied exactly as MT111 states it; only the memory shape changed.
 // ---------------------------------------------------------------------------
 const price = (q: bigint, b: bigint): number => (b > 0n ? Number(q + V) / Number(b) : NaN);
 
@@ -146,67 +87,144 @@ interface Cand {
   readonly lagS: number;
 }
 const cands: Cand[] = [];
+let blocks = 0;
+let instrs = 0;
+let tradeEvents = 0;
+let undecodable = 0;
+let notWrapped = 0;
 let noMark = 0;
 let noCreatorFee = 0;
+const daysSeen = new Set<string>();
 
-for (const [pool, evs] of byPool) {
-  evs.sort((x, y) => x.slot - y.slot || x.txIndex - y.txIndex || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0));
-  let lastEnd = -1;
-  for (let i = 1; i < evs.length - 1; i += 1) {
-    const evPre = evs[i];
-    const evPost = evs[i + 1];
-    if (evPre === undefined || evPost === undefined) continue;
-    const pre = evPre.t;
-    const post = evPost.t;
-    const bPre = pre.poolBaseReservesBefore;
-    const qPre = pre.poolQuoteReservesBefore;
-    const bPost = post.poolBaseReservesBefore;
-    const qPost = post.poolQuoteReservesBefore;
-    if (bPre <= 0n || qPre <= 0n || bPost <= 0n || qPost <= 0n) continue;
-    const p0 = price(qPre, bPre);
-    const p1 = price(qPost, bPost);
-    if (!Number.isFinite(p0) || !Number.isFinite(p1) || p0 <= 0 || p1 <= 0) continue;
-    if (!(p1 / p0 - 1 < 0)) continue; // downward only
-    const rel = Math.abs(Number(qPost - qPre)) / Number(qPre);
-    if (rel < IMPACT_BAR) continue;
-    if (pre.coinCreatorFeeBasisPoints === null) {
-      noCreatorFee += 1;
-      continue;
-    }
-    const entryTs = evPost.ts;
-    if (entryTs < lastEnd) continue; // non-overlapping
-    let mark: { b: bigint; q: bigint } | null = null;
-    let lagS = 0;
-    for (let j = i + 2; j < evs.length; j += 1) {
-      const e = evs[j];
-      if (e !== undefined && e.ts >= entryTs + HORIZON_S) {
-        mark = { b: e.t.poolBaseReservesBefore, q: e.t.poolQuoteReservesBefore };
-        lagS = e.ts - entryTs;
-        break;
+const allFiles = readdirSync(DIR).filter((f) => /^events-\d+-\d+\.jsonl$/.test(f));
+
+console.log('MT111 HOLDOUT — days never queried');
+for (const w of WINDOWS) {
+  const files = allFiles.filter((f) => {
+    const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(f);
+    if (m === null) return false;
+    const lo = Number(m[1]);
+    const hi = Number(m[2]);
+    return hi >= w.from && lo <= w.to;
+  });
+  if (files.length === 0) continue;
+
+  const byPool = new Map<string, Ev[]>();
+  for (const f of files) {
+    const rl = createInterface({ input: createReadStream(`${DIR}/${f}`, { encoding: 'utf8' }), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (line.length === 0) continue;
+      const b = JSON.parse(line) as {
+        header?: { number: number; timestamp: number };
+        instructions?: { transactionIndex: number; instructionAddress: number[]; data: string }[];
+      };
+      // A block line with no instructions is a covered slot that held nothing for this
+      // program. It is not a gap and it is not an error; it is counted and skipped.
+      const hdr = b.header;
+      if (hdr === undefined) continue;
+      if (hdr.number < w.from || hdr.number > w.to) continue;
+      blocks += 1;
+      for (const ins of b.instructions ?? []) {
+        instrs += 1;
+        let raw: Buffer;
+        try {
+          raw = Buffer.from(base58Decode(ins.data, 4096));
+        } catch {
+          undecodable += 1;
+          continue;
+        }
+        if (raw.length < 8 || !raw.subarray(0, 8).equals(CPI_WRAPPER)) {
+          notWrapped += 1;
+          continue;
+        }
+        const t = decodePumpSwapTrade(raw.subarray(8));
+        if (t === null) continue;
+        tradeEvents += 1;
+        let a = byPool.get(t.pool);
+        if (a === undefined) {
+          a = [];
+          byPool.set(t.pool, a);
+        }
+        a.push({ slot: hdr.number, ts: hdr.timestamp, txIndex: ins.transactionIndex, addr: ins.instructionAddress.join('.'), t });
       }
     }
-    if (mark === null) {
-      noMark += 1;
-      continue;
-    }
-    lastEnd = entryTs + HORIZON_S;
-    cands.push({
-      pool,
-      day: new Date(entryTs * 1000).toISOString().slice(0, 10),
-      depthSol: Number(qPost) / 1e9,
-      bPost,
-      qPost,
-      fees: {
-        lpFeeBasisPoints: pre.lpFeeBasisPoints,
-        protocolFeeBasisPoints: pre.protocolFeeBasisPoints,
-        coinCreatorFeeBasisPoints: pre.coinCreatorFeeBasisPoints,
-      },
-      mark,
-      lagS,
-    });
   }
+
+  let added = 0;
+  for (const [pool, evs] of byPool) {
+    evs.sort((x, y) => x.slot - y.slot || x.txIndex - y.txIndex || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0));
+    let lastEnd = -1;
+    for (let i = 1; i < evs.length - 1; i += 1) {
+      const evPre = evs[i];
+      const evPost = evs[i + 1];
+      if (evPre === undefined || evPost === undefined) continue;
+      const pre = evPre.t;
+      const post = evPost.t;
+      const bPre = pre.poolBaseReservesBefore;
+      const qPre = pre.poolQuoteReservesBefore;
+      const bPost = post.poolBaseReservesBefore;
+      const qPost = post.poolQuoteReservesBefore;
+      if (bPre <= 0n || qPre <= 0n || bPost <= 0n || qPost <= 0n) continue;
+      const p0 = price(qPre, bPre);
+      const p1 = price(qPost, bPost);
+      if (!Number.isFinite(p0) || !Number.isFinite(p1) || p0 <= 0 || p1 <= 0) continue;
+      if (!(p1 / p0 - 1 < 0)) continue;
+      const rel = Math.abs(Number(qPost - qPre)) / Number(qPre);
+      if (rel < IMPACT_BAR) continue;
+      if (pre.coinCreatorFeeBasisPoints === null) {
+        noCreatorFee += 1;
+        continue;
+      }
+      const entryTs = evPost.ts;
+      if (entryTs < lastEnd) continue;
+      let mark: { b: bigint; q: bigint } | null = null;
+      let lagS = 0;
+      for (let j = i + 2; j < evs.length; j += 1) {
+        const e = evs[j];
+        if (e !== undefined && e.ts >= entryTs + HORIZON_S) {
+          mark = { b: e.t.poolBaseReservesBefore, q: e.t.poolQuoteReservesBefore };
+          lagS = e.ts - entryTs;
+          break;
+        }
+      }
+      if (mark === null) {
+        noMark += 1;
+        continue;
+      }
+      lastEnd = entryTs + HORIZON_S;
+      const day = new Date(entryTs * 1000).toISOString().slice(0, 10);
+      daysSeen.add(day);
+      cands.push({
+        pool,
+        day,
+        depthSol: Number(qPost) / 1e9,
+        bPost,
+        qPost,
+        fees: {
+          lpFeeBasisPoints: pre.lpFeeBasisPoints,
+          protocolFeeBasisPoints: pre.protocolFeeBasisPoints,
+          coinCreatorFeeBasisPoints: pre.coinCreatorFeeBasisPoints,
+        },
+        mark,
+        lagS,
+      });
+      added += 1;
+    }
+  }
+  byPool.clear();
+  console.log(`  window ${w.from}..${w.to}  files ${files.length}  candidates +${added}  (running ${cands.length})`);
 }
-console.log(`\n  candidate triggers before the WSOL filter: ${cands.length.toLocaleString()}`);
+
+console.log(`
+  blocks ${blocks.toLocaleString()}   instructions ${instrs.toLocaleString()}   trade events ${tradeEvents.toLocaleString()}`);
+console.log(`  base58 undecodable ${undecodable}   not emit_cpi-wrapped ${notWrapped.toLocaleString()}`);
+console.log(`  distinct UTC days represented: ${daysSeen.size}`);
+if (cands.length === 0) {
+  console.log('  NO CANDIDATES. Nothing computed.');
+  process.exit(0);
+}
+console.log(`
+  candidate triggers before the WSOL filter: ${cands.length.toLocaleString()}`);
 console.log(`  dropped: no mark past the horizon ${noMark}   creator fee absent ${noCreatorFee}`);
 const lags = cands.map((c) => c.lagS).sort((a, b) => a - b);
 if (lags.length > 0) {
