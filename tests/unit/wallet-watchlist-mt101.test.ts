@@ -91,7 +91,19 @@ describe('MT101 frozen parameters agree with the preregistration', () => {
     expect(MT101.confluenceK).toBe(1);
     expect(MT101.minFitPositions).toBe(20);
     expect(MT101.notionalLamports).toBe(20_000_000n);
-    expect(MT101.primaryHorizonMs).toBe(3_600_000);
+
+  });
+
+  it('the horizon comes from MT109, and MT101 still says what it originally froze', () => {
+    /**
+     * MT101 froze H* = 3600s for a reason about our own instrument. The wallets
+     * it follows hold for a median of 103 seconds. MT109 amended it to 120s
+     * before any flagged-arm return was read, and MT101 is left verbatim so the
+     * original claim stays auditable.
+     */
+    expect(row).toContain('H* = 3600s');
+    expect(ledger).toContain('H* becomes 120s');
+    expect(MT101.primaryHorizonMs).toBe(120_000);
   });
 
   it('the sweep interval comes from MT102, and MT101 still says what it originally froze', () => {

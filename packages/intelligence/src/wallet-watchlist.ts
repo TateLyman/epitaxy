@@ -88,7 +88,22 @@ export const MT101 = {
   minFitPositions: 20,
   cut: 'MEDIAN',
   entryProject: 'pumpswap',
-  primaryHorizonMs: 3_600_000,
+  /**
+   * AMENDED BY MT109, before any flagged-arm return was read.
+   *
+   * MT101 froze 3,600,000 ms on a reason about OUR instrument - where the
+   * incumbent baseline sits and the longest offset the collector marks - and no
+   * reason at all about the wallets being followed. Measured on 34,547 completed
+   * wallet round trips from the tape, the treatment decile holds for a MEDIAN OF
+   * 103 SECONDS, with 40.1% out under 60s and 96.4% out inside the hour.
+   *
+   * Holding an hour was therefore not copying a wallet. It was holding what the
+   * wallet had already sold.
+   *
+   * Hold time is a property of the WALLETS, not of our returns, so this is a
+   * population-driven amendment and not an outcome-driven one.
+   */
+  primaryHorizonMs: 120_000,
   /** Unchanged from the incumbent, so the arms compare to each other and to the stored baseline. */
   notionalLamports: 20_000_000n,
 } as const;
