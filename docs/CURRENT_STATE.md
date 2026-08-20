@@ -19,6 +19,48 @@ not exist yesterday is an instrument that makes a test cost hours instead of a m
 
 ---
 
+## 1A — TRADING READINESS, MEASURED (2026-08-20)
+
+**`pnpm doctor`: 15 checks, 0 failed.** **`pnpm check`: 150 files, 2312 tests green.**
+
+**The acceptance gate is the authority on readiness, not my opinion.** Clean run, nothing
+else executing: **PASS 43, FAIL 2, NOT TESTABLE 5, terminal state
+`MEASUREMENT_REPAIR_REQUIRED`.**
+
+**THE TRADING PATH IS NOT WHAT THE RESEARCH DEFECTS TOUCHED.** `copy-fill.ts` — where D1/D2/D3
+live — is imported by exactly two research scripts and its own test. It is NOT on the live path.
+The live cycle prices against **Jupiter executable quotes** (`measureRoundTrip`), and
+`platformFee.feeBps` is already parsed, stored, and **fails closed** when the provider omits it.
+Jupiter `/order` charges **50 bps per leg on tokens under 24h** (confirmed from Jupiter's own
+docs, not a relay), which is a real cost the bot pays and already books.
+
+### What is actually blocking, and what is not
+
+| item | status | truth |
+|---|---|---|
+| Q-1 command sweep | **NOT A DEFECT** | Failed twice from MY OWN contamination — once by running `cashback-status.ts` beside the audit, once by leaving the collector running so `scheduler:status` exited 1. Clean runs PASS. **Do not "fix" it.** |
+| B-2, B-3, S-3 | needs `--with-live-run` | The gate does NOT run its live collector pass by default: *"It writes to the corpus, which this gate does not do by default."* Hand-running collectors does NOT satisfy them — the audit wants the probe **supplied**, and it performs it itself. |
+| B-2/B-3/S-3 with the flag | FAIL, `opened 0` | With `--with-live-run` the probes execute but open nothing. NOT max-open — that caps opens per pass, not total. The audit runs against a temp COPY db (`AUDIT_COPY_DB`); suspect the harness environment, not the collector, which opens trajectories normally when run directly. **This is the open thread.** |
+| S-4, N-3 | needs data in-contract | `N-3` is `0 of 0 paired paths`. Both need trajectories settling inside the ACTIVE contract `contract-7346e383d6266fbb`. |
+| **184 stuck trajectories** | **real corpus problem** | `AWAITING_FILL_OBSERVATION`, oldest 2026-08-17, accumulating and never settling. Worth diagnosing on its own. |
+
+### Verified, so it is not re-litigated
+
+**Nothing capital-bearing has ever run:** 0 fills with `simulated=0` or a non-null signature,
+0 real positions, all 40 fills `simulated=1`. The invariant holds.
+
+### Operational traps paid for again this session
+
+- **S096 is real and it bit me.** Killing a background job left a **5.5 GB orphaned `node` leaf**.
+  Always kill by command-line match and verify zero remain.
+- **Never run the gate concurrently with anything.** It attributes artifacts by what changed
+  during a command's run, so a concurrent script makes it report a defect that does not exist.
+- **Two heavy jobs at once get OOM-killed.** MT113 runs a 12 GB heap; serialise.
+- **The collector lock refuses a restart within 90 s** of the prior heartbeat rather than racing
+  a shutting-down process. That is correct — wait it out.
+
+---
+
 ## 1 — WHAT IS RUNNING, WHAT IS STOPPED
 
 | thing | state |

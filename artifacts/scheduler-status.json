@@ -27,43 +27,43 @@
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 691,
-      "onTime": 333,
+      "total": 692,
+      "onTime": 334,
       "missed": 66,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 399,
-      "onTime": 371,
+      "total": 400,
+      "onTime": 372,
       "missed": 28,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 663,
-      "onTime": 313,
+      "total": 664,
+      "onTime": 314,
       "missed": 58,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 362,
-      "onTime": 322,
+      "total": 363,
+      "onTime": 323,
       "missed": 40,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 632,
-      "onTime": 272,
+      "total": 633,
+      "onTime": 273,
       "missed": 68,
       "unclassified": 292
     },
     {
       "offsetMs": 1800000,
-      "total": 588,
-      "onTime": 241,
+      "total": 589,
+      "onTime": 242,
       "missed": 55,
       "unclassified": 292
     },
@@ -83,9 +83,9 @@
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
     "treeDirty": true,
-    "dirtyFiles": 34,
-    "writtenUtc": "2026-08-19T03:57:25.041Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-20T21:07:19.354Z"
   }
 }

@@ -5,9 +5,10 @@
     "ctx-01f03fc0f760-PROFIT_DISCOVERY_V1_R2",
     "ctx-ca50a7ada970-PROFIT_DISCOVERY_V1_R3",
     "ctx-35b926bb558f-PROFIT_DISCOVERY_V1_R4",
-    "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5"
+    "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "ctx-637f7688df98-DEV_WINDOW_V1"
   ],
-  "trajectoriesInScope": 38,
+  "trajectoriesInScope": 39,
   "checks": [
     {
       "name": "LINK_ROW_EXISTS",
@@ -94,9 +95,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
     "treeDirty": true,
-    "dirtyFiles": 18,
-    "writtenUtc": "2026-08-19T03:56:24.348Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-20T21:07:14.821Z"
   }
 }

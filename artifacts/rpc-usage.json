@@ -1,7 +1,7 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 67768,
-  "sessionsNeverEnded": 31,
+  "activeSeconds": 69754,
+  "sessionsNeverEnded": 33,
   "sessionsFromDirtyTree": 1,
   "byKind": [
     {
@@ -13,61 +13,61 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 24371,
-      "q": 48
+      "n": 24559,
+      "q": 52
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 6923,
+      "n": 6982,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 6923,
+      "n": 6982,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 3642,
+      "n": 3648,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "entityTierWalk",
-      "n": 837,
-      "q": 0
-    },
-    {
-      "kind": "microstructure",
-      "detail": "fetched",
-      "n": 21,
+      "n": 838,
       "q": 0
     },
     {
       "kind": "microstructure",
       "detail": "cache_hit",
-      "n": 3,
+      "n": 48,
+      "q": 0
+    },
+    {
+      "kind": "microstructure",
+      "detail": "fetched",
+      "n": 37,
       "q": 0
     }
   ],
-  "totalCalls": 136655,
-  "callsPerActiveSecond": 2.0165122181560617,
-  "quotaErrors": 48,
-  "trajectories": 704,
-  "trajectoriesPerActiveDay": 897.5563687876283,
+  "totalCalls": 137029,
+  "callsPerActiveSecond": 1.9644608194512143,
+  "quotaErrors": 52,
+  "trajectories": 705,
+  "trajectoriesPerActiveDay": 873.2402442870659,
   "recommendations": [
-    "48 quota refusal(s) at 2.02 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "52 quota refusal(s) at 1.96 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
     "treeDirty": true,
-    "dirtyFiles": 61,
-    "writtenUtc": "2026-08-19T04:28:39.772Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-20T21:07:20.206Z"
   }
 }

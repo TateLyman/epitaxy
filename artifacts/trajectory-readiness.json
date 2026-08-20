@@ -216,8 +216,8 @@
     },
     {
       "name": "zero replay divergence",
-      "pass": true,
-      "detail": "0 divergence(s)"
+      "pass": false,
+      "detail": "2 divergence(s)"
     },
     {
       "name": "zero unresolved reconciliation",
@@ -252,13 +252,14 @@
     "positive under 2x costs",
     "positive under stress",
     "positive exact canary-size shadow",
+    "zero replay divergence",
     "fingerprints stable"
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "8e7d184a12a886d4748bd2c507d65af908f8fb48",
+    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
     "treeDirty": true,
-    "dirtyFiles": 24,
-    "writtenUtc": "2026-08-19T03:56:28.159Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-20T21:07:20.438Z"
   }
 }
