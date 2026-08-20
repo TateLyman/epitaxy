@@ -1,0 +1,1193 @@
+{
+  "execution_id": "01M0EDTGT8MA39ZZ6498CT8ZXF",
+  "query_id": 8384727,
+  "is_execution_finished": true,
+  "state": "QUERY_STATE_COMPLETED",
+  "submitted_at": "2026-08-20T01:50:57.865353Z",
+  "expires_at": "2026-11-18T01:52:52.721796Z",
+  "execution_started_at": "2026-08-20T01:50:59.05717Z",
+  "execution_ended_at": "2026-08-20T01:52:52.721775Z",
+  "result": {
+    "rows": [
+      {
+        "address": "GAKj13ZPPekCvYoXt2xwmsbtaQp7EcZxzdqjCUcmASmw",
+        "amm_entry_share": 0.19047619047619047,
+        "fit_positions": 42,
+        "holdout_positions": 26,
+        "rank_position": 1,
+        "rank_stat": 4.8054888550120065,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "H6zpaY14WgkEmB3MJTvC7Wb5PQJkBVLd4KwLD2ktVgop",
+        "amm_entry_share": 0.030303030303030304,
+        "fit_positions": 33,
+        "holdout_positions": 16,
+        "rank_position": 2,
+        "rank_stat": 2.111445346899922,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3bbDEL917JkpMSCBTf43azASbkttCYNYaNoQpzPLPV8X",
+        "amm_entry_share": 0.020833333333333332,
+        "fit_positions": 48,
+        "holdout_positions": 97,
+        "rank_position": 3,
+        "rank_stat": 1.521452399105488,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3f6ZzvjZYbvTFpXauyDn316bfPrEP71PpHXeqZAGsGcw",
+        "amm_entry_share": 0.19047619047619047,
+        "fit_positions": 21,
+        "holdout_positions": 41,
+        "rank_position": 4,
+        "rank_stat": 1.4807314830944363,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ChHLuMTdwcv2oUKfoWzxotDs9q6881xnR8uGwUAqBQVE",
+        "amm_entry_share": 0.046242774566473986,
+        "fit_positions": 173,
+        "holdout_positions": 156,
+        "rank_position": 5,
+        "rank_stat": 1.4485321843423364,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AURAn5AyKfYHdBjk2dkq9zT1aj7zdt9K7R6JphxxH24e",
+        "amm_entry_share": 0.9318181818181818,
+        "fit_positions": 44,
+        "holdout_positions": 14,
+        "rank_position": 6,
+        "rank_stat": 1.3337710868244368,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HbGr2RVBGLUUru6qeXcJY24yxRsU5NADULQeiRp9xwDE",
+        "amm_entry_share": 0.04,
+        "fit_positions": 25,
+        "holdout_positions": 57,
+        "rank_position": 7,
+        "rank_stat": 1.15816965683559,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7p4AkPb9AQHhzmUHF2kUaHdXp2xizrUnmn7vQw9D4GXD",
+        "amm_entry_share": 0.037800687285223365,
+        "fit_positions": 291,
+        "holdout_positions": 515,
+        "rank_position": 8,
+        "rank_stat": 1.1240221997313105,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HcrgHm8SRVMGusPxrimAzK4oNMgLeibPrxwj3tkcHnR3",
+        "amm_entry_share": 0.05263157894736842,
+        "fit_positions": 171,
+        "holdout_positions": 147,
+        "rank_position": 9,
+        "rank_stat": 1.0548570491798088,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GDUtKmvuRJRPyw6cLC7VUW5c3BioayTvYeYCYEAkwWJH",
+        "amm_entry_share": 0.2608695652173913,
+        "fit_positions": 23,
+        "holdout_positions": 61,
+        "rank_position": 10,
+        "rank_stat": 1.0269517677174798,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "5eBsQfskW7i5MryKvj33StHp7kwThgBr9zuQByn7ptwD",
+        "amm_entry_share": 0.034482758620689655,
+        "fit_positions": 29,
+        "holdout_positions": 57,
+        "rank_position": 11,
+        "rank_stat": 0.8430733748388708,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CLAvvbt9nFrfcgh19BkPsRKkwKxGFnXsND8riWr59Lbw",
+        "amm_entry_share": 0.047619047619047616,
+        "fit_positions": 21,
+        "holdout_positions": 7,
+        "rank_position": 12,
+        "rank_stat": 0.7409013889462963,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "82Bo1Mac8UwDaWFRDCGFpFWfbzFK3wvZMuXX3xka3Emd",
+        "amm_entry_share": 0.05235602094240838,
+        "fit_positions": 191,
+        "holdout_positions": 154,
+        "rank_position": 13,
+        "rank_stat": 0.7348900083617358,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "JDiLmTYh43LZxaSP13Z2EyJ49uwnJ8WGNRHVP2o58DT6",
+        "amm_entry_share": 0.35714285714285715,
+        "fit_positions": 56,
+        "holdout_positions": 68,
+        "rank_position": 14,
+        "rank_stat": 0.7093809782417969,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HXuSaaZ6QjnyX4mQLZQGoVSwb83uNyJpYTMUAuPcnbht",
+        "amm_entry_share": 0.48214285714285715,
+        "fit_positions": 56,
+        "holdout_positions": 254,
+        "rank_position": 15,
+        "rank_stat": 0.6949687399950991,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "DZPPSTnbrN2XPtWeeivFs4CTXbuoUDBD6HP1azKjuFAT",
+        "amm_entry_share": 0.21739130434782608,
+        "fit_positions": 46,
+        "holdout_positions": 23,
+        "rank_position": 16,
+        "rank_stat": 0.69111124556962,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AcifR5m5iZPygxjboikwqAKo5aWKgTRWpodfu8b1XgLc",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 65,
+        "rank_position": 17,
+        "rank_stat": 0.6141508279370278,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HRDfnXo4m2QNJj4WQsE58hcDYmj5iDgADSidwrGy1UUi",
+        "amm_entry_share": 1,
+        "fit_positions": 47,
+        "holdout_positions": 20,
+        "rank_position": 18,
+        "rank_stat": 0.5959804481802524,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CZMvsfuFkCLQV6cgXkyMDvDAQ5sL3B7r6Jy69CRuBYyF",
+        "amm_entry_share": 0.03985507246376811,
+        "fit_positions": 276,
+        "holdout_positions": 157,
+        "rank_position": 19,
+        "rank_stat": 0.5881772847232055,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "C9ZrMR6j6YQGt59m1Wg7xutVYkEAKfuNoqAvHvQbHTpe",
+        "amm_entry_share": 0.2,
+        "fit_positions": 25,
+        "holdout_positions": 58,
+        "rank_position": 20,
+        "rank_stat": 0.5703726460454303,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "5CTwsyzMSpWaLvp5GKvKjoRFzTxBPtmcaaT6SVvV6NNe",
+        "amm_entry_share": 0.030959752321981424,
+        "fit_positions": 323,
+        "holdout_positions": 885,
+        "rank_position": 21,
+        "rank_stat": 0.5565479496140053,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AT5ar678o3pp3kde2Z9i2nANjEAkRVb9waYMpH45SPCS",
+        "amm_entry_share": 0.6666666666666666,
+        "fit_positions": 24,
+        "holdout_positions": 4,
+        "rank_position": 22,
+        "rank_stat": 0.5370405262561274,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ELwPDnLGPJZvPTAv2v1ACFzrQkSTwWWHttoApB2Vk6eF",
+        "amm_entry_share": 0.40540540540540543,
+        "fit_positions": 37,
+        "holdout_positions": 23,
+        "rank_position": 23,
+        "rank_stat": 0.5330076146699239,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "iGiyBNJ9eKcPfBLaoVCEMx3WCyrnUT1SfKZL2DYifcL",
+        "amm_entry_share": 0.04316546762589928,
+        "fit_positions": 278,
+        "holdout_positions": 197,
+        "rank_position": 24,
+        "rank_stat": 0.5272931894564665,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9Tv6X9cnttoKiquEXCWaMYJL6Zkb1hXqVANRPVAEJ8Tv",
+        "amm_entry_share": 0.05555555555555555,
+        "fit_positions": 72,
+        "holdout_positions": 68,
+        "rank_position": 25,
+        "rank_stat": 0.5129703437840831,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "61KVq3xGTDnTo1qhWerKSXfebPpGNgoFKe7iwHfWrjJc",
+        "amm_entry_share": 0.14285714285714285,
+        "fit_positions": 70,
+        "holdout_positions": 76,
+        "rank_position": 26,
+        "rank_stat": 0.4930975852874149,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "2Y4Q4sEPezD2aQ1f5j278Jj7QbCg7mnKZmAdXTVADz5s",
+        "amm_entry_share": 0.05952380952380952,
+        "fit_positions": 168,
+        "holdout_positions": 144,
+        "rank_position": 27,
+        "rank_stat": 0.4882899078073901,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Gc3yruQ4NJ8SKKSGagfEN3vgDmJDXGvaALEeKf5Wv6he",
+        "amm_entry_share": 0.023809523809523808,
+        "fit_positions": 42,
+        "holdout_positions": 90,
+        "rank_position": 28,
+        "rank_stat": 0.4860584084013743,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8JMfvR38spY6n8bVE9A1x5PzUgLH9zax6zdzQsy36c9n",
+        "amm_entry_share": 0.05555555555555555,
+        "fit_positions": 72,
+        "holdout_positions": 67,
+        "rank_position": 29,
+        "rank_stat": 0.4744169925931695,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3jBzE4c92T5F9qYok9KjoiaLr1oALJmCwoxGSXBJhAfg",
+        "amm_entry_share": 0.02564102564102564,
+        "fit_positions": 39,
+        "holdout_positions": 11,
+        "rank_position": 30,
+        "rank_stat": 0.4674421035070797,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "76iSUXBUy1QXmJe1VpMeQfx6ZcJLxvzMt78JRpokNnqG",
+        "amm_entry_share": 0.0009041591320072332,
+        "fit_positions": 1106,
+        "holdout_positions": 1327,
+        "rank_position": 31,
+        "rank_stat": 0.46160354042658386,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3E24vzfkyYEbaEyWqixwJfrg9SMC1THEM9xAi1ZbRkqE",
+        "amm_entry_share": 0.38095238095238093,
+        "fit_positions": 21,
+        "holdout_positions": 30,
+        "rank_position": 32,
+        "rank_stat": 0.4610708325477147,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8qhyb7tAHt2RzPVKWdND9JeSFr7JrUakvXk5vGPTM7so",
+        "amm_entry_share": 0.06944444444444445,
+        "fit_positions": 72,
+        "holdout_positions": 66,
+        "rank_position": 33,
+        "rank_stat": 0.45308546511080366,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HnQLmYohgJ5c9o7UkfoDKg13APCnrWVxgBSvcqHQRTbB",
+        "amm_entry_share": 0.02702702702702703,
+        "fit_positions": 74,
+        "holdout_positions": 68,
+        "rank_position": 34,
+        "rank_stat": 0.44266324818375963,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CfE3PpB4cyVbDCarQTYVFAfSuLLCW2iZEL79mKf4qva2",
+        "amm_entry_share": 0.014705882352941176,
+        "fit_positions": 68,
+        "holdout_positions": 109,
+        "rank_position": 35,
+        "rank_stat": 0.44009360152232785,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CPckh553LDtPAQxKk9cpDot71vcic3TNrt45jfzNJzkH",
+        "amm_entry_share": 0.08450704225352113,
+        "fit_positions": 71,
+        "holdout_positions": 65,
+        "rank_position": 36,
+        "rank_stat": 0.43538858303181416,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3paSLCYBjagCSwACNdcguXaYpyfwcXhb3btBJYgThxxM",
+        "amm_entry_share": 0.08333333333333333,
+        "fit_positions": 72,
+        "holdout_positions": 65,
+        "rank_position": 37,
+        "rank_stat": 0.4312240328815454,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CpC2aEVLJKpFba6iH6LJuEr5Ds7yg4GX2UAvm16voAYb",
+        "amm_entry_share": 0.9230769230769231,
+        "fit_positions": 65,
+        "holdout_positions": 5,
+        "rank_position": 38,
+        "rank_stat": 0.4269484604025693,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CxDKCJWQSz4frJMXB6FDG2pgiLQBqHsuc2UurRFKqZFH",
+        "amm_entry_share": 0.3620689655172414,
+        "fit_positions": 58,
+        "holdout_positions": 83,
+        "rank_position": 39,
+        "rank_stat": 0.4172321943535093,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CF7rajKuxb6Zj683CEDtrs6NA88UkMhE87sqKQJJf6vY",
+        "amm_entry_share": 0.025974025974025976,
+        "fit_positions": 231,
+        "holdout_positions": 10,
+        "rank_position": 40,
+        "rank_stat": 0.41617594788929013,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9eHWergbLkbD8k9zSSZSBtqxaAU9b34SY6zqR2fJPs72",
+        "amm_entry_share": 0.08333333333333333,
+        "fit_positions": 72,
+        "holdout_positions": 65,
+        "rank_position": 41,
+        "rank_stat": 0.41387953954052714,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "JBV41vYBL2b8HuBmNcCnpRoBfrLDJrUFViQFPJ2vZrWd",
+        "amm_entry_share": 0.034482758620689655,
+        "fit_positions": 290,
+        "holdout_positions": 180,
+        "rank_position": 42,
+        "rank_stat": 0.4061519122095806,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8mndMJC1CqaDqhJb6Pcs4hvhyjp6hwhBvW6o6nVpkT6i",
+        "amm_entry_share": 0.07236842105263158,
+        "fit_positions": 152,
+        "holdout_positions": 8,
+        "rank_position": 43,
+        "rank_stat": 0.4011154538818399,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GFU4behUdjH46Miw9x68mjMPvK4KCEV63AAU343javkJ",
+        "amm_entry_share": 0.06944444444444445,
+        "fit_positions": 72,
+        "holdout_positions": 66,
+        "rank_position": 44,
+        "rank_stat": 0.39864253329891347,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "82kPkLhYJPmoExKsCXMr6CN7yxNzs3HigH6P3mD16Am8",
+        "amm_entry_share": 0.037037037037037035,
+        "fit_positions": 27,
+        "holdout_positions": 66,
+        "rank_position": 45,
+        "rank_stat": 0.39798268038959195,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GVV12FBCS566eq8i1wQNGqg8sowJqpMGY9tr6E84ubUV",
+        "amm_entry_share": 1,
+        "fit_positions": 24,
+        "holdout_positions": 6,
+        "rank_position": 46,
+        "rank_stat": 0.39663319324828183,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AWdeACAwBP2MVJNi6KnPVxvCMLBVmwkESaazHss4m1Ku",
+        "amm_entry_share": 0.02702702702702703,
+        "fit_positions": 74,
+        "holdout_positions": 69,
+        "rank_position": 47,
+        "rank_stat": 0.3947398397027315,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "D551hh7fj1i1jP2mUd1mYiRKuKVtV9x21FGNXzthmBZj",
+        "amm_entry_share": 1,
+        "fit_positions": 23,
+        "holdout_positions": 5,
+        "rank_position": 48,
+        "rank_stat": 0.3945119514708855,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ArCRzXEGaZ2M3Nv77d2ZV4tjJdbVssZ9Y81ufCrueZgm",
+        "amm_entry_share": 0.02702702702702703,
+        "fit_positions": 74,
+        "holdout_positions": 68,
+        "rank_position": 49,
+        "rank_stat": 0.39330430510829406,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7jtykZNN9wrRKXL9DCj68SSuiLKBW3itoQGVpJSid14v",
+        "amm_entry_share": 0.3389830508474576,
+        "fit_positions": 59,
+        "holdout_positions": 96,
+        "rank_position": 50,
+        "rank_stat": 0.3866126101518433,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "4cTEM4hcVbJGFAmn9gNmDBisFGTM8kqUNDYRvsAcXUJ4",
+        "amm_entry_share": 1,
+        "fit_positions": 20,
+        "holdout_positions": 5,
+        "rank_position": 51,
+        "rank_stat": 0.37941260461012033,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "6JixpQ4tbzx8UXsXGNbYCp38piwXoaruR4J4xmzD5q88",
+        "amm_entry_share": 0.04054054054054054,
+        "fit_positions": 74,
+        "holdout_positions": 68,
+        "rank_position": 52,
+        "rank_stat": 0.37790557007777753,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "6A59APPsPXCBbMZJsAKfMSf1tiXnYFxWM4Ho3b78dAeP",
+        "amm_entry_share": 0.047619047619047616,
+        "fit_positions": 21,
+        "holdout_positions": 120,
+        "rank_position": 53,
+        "rank_stat": 0.37275080828881396,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ECnkfA4Kez8GLKaZ3XGjWTCFqFyKNK4p52KgpDtGa8zn",
+        "amm_entry_share": 1,
+        "fit_positions": 73,
+        "holdout_positions": 55,
+        "rank_position": 54,
+        "rank_stat": 0.37203905134254706,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "5MPfsQ9bHBNPJTyH58EhgjAxqDwBCaZrWDH1YFVFAYdR",
+        "amm_entry_share": 0.025974025974025976,
+        "fit_positions": 77,
+        "holdout_positions": 70,
+        "rank_position": 55,
+        "rank_stat": 0.36950427816746245,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "2XnQafdVn3n3o2d9XTDZ7ezAnR7xoN6fbvNTyGEkf5US",
+        "amm_entry_share": 0.75,
+        "fit_positions": 24,
+        "holdout_positions": 7,
+        "rank_position": 56,
+        "rank_stat": 0.36853171508072324,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "F5baUkz3EsnktgwFhSis3pJogDJvS9a3gS8FkchsDFZp",
+        "amm_entry_share": 0.5769230769230769,
+        "fit_positions": 26,
+        "holdout_positions": 50,
+        "rank_position": 57,
+        "rank_stat": 0.36758041257094554,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9R8TUXGwxXa7HGW2FgxETMTLthKUZsysehtJt3yC8SoL",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 69,
+        "rank_position": 58,
+        "rank_stat": 0.3661579877651441,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "DbF5DojVT7BcqPAatxC6AbPrAuPY8F6qeB5zBELLsgKE",
+        "amm_entry_share": 0.17475728155339806,
+        "fit_positions": 103,
+        "holdout_positions": 95,
+        "rank_position": 59,
+        "rank_stat": 0.36077973420992254,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "EGodWCPaDEvnvqD13X1ddQmRXegQajuAmedwghaBfZa5",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 60,
+        "rank_stat": 0.3493088317969939,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "DPAN2Vig8BokpQCCu4mtV1mTWYLS7ktKe1hHKVBcsayL",
+        "amm_entry_share": 0.40625,
+        "fit_positions": 32,
+        "holdout_positions": 27,
+        "rank_position": 61,
+        "rank_stat": 0.34904641227894895,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "EeDS5xYZyCD5k9cptNajzckHNSjpJwuWiq1zEUQ4frsZ",
+        "amm_entry_share": 0.14084507042253522,
+        "fit_positions": 71,
+        "holdout_positions": 62,
+        "rank_position": 62,
+        "rank_stat": 0.34303690831266836,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Fme9WpRjf6zcf3Txjv9qzrsVXqbSkT8218rMZxJk8uZo",
+        "amm_entry_share": 0.06944444444444445,
+        "fit_positions": 72,
+        "holdout_positions": 65,
+        "rank_position": 63,
+        "rank_stat": 0.3430142444422028,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "E6KJuGWYxo4FCMnRhiXkySNBYR5rzmuwGhRCtZSegszY",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 64,
+        "rank_stat": 0.33873497390520796,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Gxv9mMqughrghhYrJ8X8uaWhcQfBMjAbjwvu5mR7Mmtt",
+        "amm_entry_share": 0.08450704225352113,
+        "fit_positions": 71,
+        "holdout_positions": 65,
+        "rank_position": 65,
+        "rank_stat": 0.33757604748776127,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "CLZmZ6QxxQj5ZqEHfhPBjSVH6qpJN546K4VNSNxPN68P",
+        "amm_entry_share": 0.4074074074074074,
+        "fit_positions": 54,
+        "holdout_positions": 27,
+        "rank_position": 66,
+        "rank_stat": 0.33651728202537656,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AyAHoyzsSFWUhnNJdfNeDUfxn9kB4pLSibkSgkxyxnKc",
+        "amm_entry_share": 0.17757009345794392,
+        "fit_positions": 214,
+        "holdout_positions": 194,
+        "rank_position": 67,
+        "rank_stat": 0.326596323748443,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "2tEcYaRTwzVajfQ1HdBVhj8fxopfZm5oBpEYZFcoNTss",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 68,
+        "rank_stat": 0.3238170326683654,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Eb719Xf361d8NWoJURj9edXjkignuHDhTsbhkymRRsWK",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 69,
+        "rank_position": 69,
+        "rank_stat": 0.32313453158294286,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3zCaBBrzT77nD4pNDvTxui8BmJ4PoKP56qeV1aaW43Uw",
+        "amm_entry_share": 0.02531645569620253,
+        "fit_positions": 79,
+        "holdout_positions": 71,
+        "rank_position": 70,
+        "rank_stat": 0.32090763596610794,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Em88dfnFgSKgQUuxY9uspisiyjpfP2Mpnx3GK3SN7viY",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 71,
+        "rank_stat": 0.3194896107808427,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GYeWrvWYNRt8Bn2VEupnpbc1bGev5NxUygPtZFaHhZAx",
+        "amm_entry_share": 0.14084507042253522,
+        "fit_positions": 71,
+        "holdout_positions": 63,
+        "rank_position": 72,
+        "rank_stat": 0.31689157964790066,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GTryCeJWuLYAbehqaL2in7qPFEcJvxxbdXRxANmozWri",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 73,
+        "rank_stat": 0.31639110357268335,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Acphq6jyn5WCebyCF6gqrwRjLWFPyq93evLJReKHHFZN",
+        "amm_entry_share": 0.9090909090909091,
+        "fit_positions": 22,
+        "holdout_positions": 14,
+        "rank_position": 74,
+        "rank_stat": 0.3161996755891479,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "2PrG6tbC66oJaajwa4KuDCxdBfWgrkzLoCBjFMrYepeW",
+        "amm_entry_share": 1,
+        "fit_positions": 27,
+        "holdout_positions": 37,
+        "rank_position": 75,
+        "rank_stat": 0.31579063586163547,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7EwtFFz3BhCtMzDuJwhArtxZiX6k6u6nYoWXAVyZQqZa",
+        "amm_entry_share": 0.5476190476190477,
+        "fit_positions": 42,
+        "holdout_positions": 2,
+        "rank_position": 76,
+        "rank_stat": 0.31434830550674553,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "26Z2tTPTbaP6ENciE2nXdFbgUUJByKKXY7hGSgNrU6pJ",
+        "amm_entry_share": 0.14285714285714285,
+        "fit_positions": 70,
+        "holdout_positions": 61,
+        "rank_position": 77,
+        "rank_stat": 0.3133324048281363,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "4dQwnJWfYmKQLogJRZciqfoavVpVKhhLddL6ev69KHZk",
+        "amm_entry_share": 0.9666666666666667,
+        "fit_positions": 30,
+        "holdout_positions": 7,
+        "rank_position": 78,
+        "rank_stat": 0.3119723867707561,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Ea8nRosSCYqmEtzsnqXN54Hi5MqzbzY1hiq92hDzqwLC",
+        "amm_entry_share": 0.9545454545454546,
+        "fit_positions": 22,
+        "holdout_positions": 60,
+        "rank_position": 79,
+        "rank_stat": 0.309152564051338,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7GVaSJCB1ZhKmSx6SR4oi6HMMEqy7863rUcrfxR6xyzp",
+        "amm_entry_share": 0.2978723404255319,
+        "fit_positions": 47,
+        "holdout_positions": 23,
+        "rank_position": 80,
+        "rank_stat": 0.3087076985363395,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "4RJD8MRk4sVosxKGZZS2ixe7DdeUwyHYWdrQekN25GyK",
+        "amm_entry_share": 0.13636363636363635,
+        "fit_positions": 22,
+        "holdout_positions": 20,
+        "rank_position": 81,
+        "rank_stat": 0.3081852890251479,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "55pj7DaqF5VZP4JbWHf3Nk2z6ddtq8CDoXxS68EDg5jw",
+        "amm_entry_share": 0.021739130434782608,
+        "fit_positions": 46,
+        "holdout_positions": 2,
+        "rank_position": 82,
+        "rank_stat": 0.307618397786891,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8Br64heZZnCwPcj5FVzHtRTvWBv5oP8euDgDMJzEKx5M",
+        "amm_entry_share": 0.003875968992248062,
+        "fit_positions": 1032,
+        "holdout_positions": 1248,
+        "rank_position": 83,
+        "rank_stat": 0.3043713695938053,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "J5zktbzRKzHxf1psnyjG3b4utAPa7CtvJidxVLXPnmMN",
+        "amm_entry_share": 0.92,
+        "fit_positions": 25,
+        "holdout_positions": 47,
+        "rank_position": 84,
+        "rank_stat": 0.3043562353361325,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3cHsGS7tC5598JsehiEMTN7yHvjyPQz51i3tLfGayeRp",
+        "amm_entry_share": 0.06818181818181818,
+        "fit_positions": 44,
+        "holdout_positions": 71,
+        "rank_position": 85,
+        "rank_stat": 0.30392554276274814,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "whamNNP9tHoxLg92yHvJPdYhghEoCg1qYTsh5a2oLbx",
+        "amm_entry_share": 0.00033046926635822867,
+        "fit_positions": 3026,
+        "holdout_positions": 2202,
+        "rank_position": 86,
+        "rank_stat": 0.3035310618336464,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "BoAsNq96xvwTncriQ13CVZmyu9degJEpwCy4U8fSLgaU",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 87,
+        "rank_stat": 0.3033522433921689,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Bkr8KKmx8TMWraMayVHNAjrQrjbxdc2QLySBcpuSCuMS",
+        "amm_entry_share": 1,
+        "fit_positions": 46,
+        "holdout_positions": 76,
+        "rank_position": 88,
+        "rank_stat": 0.30254762296257776,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HDCaGXpL1qDcMDFucM1j41QdtL7KJxPrGzTmhUoDajzw",
+        "amm_entry_share": 0.2112676056338028,
+        "fit_positions": 71,
+        "holdout_positions": 59,
+        "rank_position": 89,
+        "rank_stat": 0.3018179299922488,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GfkTHQowcfFeMLeuKA2N9qufdRwXJVaJdaPXTHEbwwE3",
+        "amm_entry_share": 0.012345679012345678,
+        "fit_positions": 81,
+        "holdout_positions": 74,
+        "rank_position": 90,
+        "rank_stat": 0.30055529698232486,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8N72Jvj3j95TThoZaDy8GBqWPibRYrPSoNQH1ism1Rir",
+        "amm_entry_share": 0.0625,
+        "fit_positions": 32,
+        "holdout_positions": 9,
+        "rank_position": 91,
+        "rank_stat": 0.3002220449981354,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7U9QvT5REUgNFJC4LuPBbMTSAugou5aphCkqQ4D3pRDa",
+        "amm_entry_share": 0.1267605633802817,
+        "fit_positions": 71,
+        "holdout_positions": 64,
+        "rank_position": 92,
+        "rank_stat": 0.2995463754217679,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HJanh4pRroez2icDzkNdnF889wMUYDMvKPaR8FmFsnSk",
+        "amm_entry_share": 0.026217228464419477,
+        "fit_positions": 267,
+        "holdout_positions": 142,
+        "rank_position": 93,
+        "rank_stat": 0.2989676413346281,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "FfSnRL1f9EyqosuMv7xkH78FnKhu9X29x2vL717M38jx",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 94,
+        "rank_stat": 0.2988725337652452,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "44boWnJeX38PKGkMujhMex8YHFBSk8tSDCFAxZA4JQoL",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 95,
+        "rank_stat": 0.291820421106928,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GG523Binvn66ttUgQLanFRJTHLXhohyhjcJUvWsjJoBU",
+        "amm_entry_share": 1,
+        "fit_positions": 46,
+        "holdout_positions": 60,
+        "rank_position": 96,
+        "rank_stat": 0.2884817271875575,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "hBALDRs6jGivy2SRYs9Vs5UJAeZJc7W8XdbFUgEqECq",
+        "amm_entry_share": 0.8888888888888888,
+        "fit_positions": 27,
+        "holdout_positions": 14,
+        "rank_position": 97,
+        "rank_stat": 0.28776007968327594,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "44xQWLi4EahPMsnEoqF5FTxSuN469E5XbcP9qGa5zNzx",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 67,
+        "rank_position": 98,
+        "rank_stat": 0.2875711472364315,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "EPFhSnLD7F88cUqthizbTie3gSvQ3ekPkwYptz3ewCSD",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 70,
+        "rank_position": 99,
+        "rank_stat": 0.28729574900398336,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3VHNK1GodM7Ws3gBxsymTRigqHibAN6toJEWrbfk7Gwg",
+        "amm_entry_share": 0.125,
+        "fit_positions": 40,
+        "holdout_positions": 40,
+        "rank_position": 100,
+        "rank_stat": 0.285851929342869,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "5DxCdFq2PwcR2GfN1YTwkCV8aTApjF1j3fnLp5RcmHSP",
+        "amm_entry_share": 1,
+        "fit_positions": 22,
+        "holdout_positions": 6,
+        "rank_position": 101,
+        "rank_stat": 0.28520413016567175,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "EF2V5G2vYAaiiwzRt8U7W5SbW9NYWWfVfk4vyJBYyV4G",
+        "amm_entry_share": 1,
+        "fit_positions": 22,
+        "holdout_positions": 2,
+        "rank_position": 102,
+        "rank_stat": 0.2840201683025882,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "HbJCGHTFx7gNaSSF483gGqDCkW43oPg2avxQ9yFKHnUY",
+        "amm_entry_share": 1,
+        "fit_positions": 28,
+        "holdout_positions": 17,
+        "rank_position": 103,
+        "rank_stat": 0.28115809954538684,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "25mtE4kjcUG9fea4ZfKgjGrDuHt3inN1gNfZJQP7QzsF",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 62,
+        "rank_position": 104,
+        "rank_stat": 0.28043767685716964,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "3ssx5dKSAeyULW9jkhd6mZpQEcPSGuizDUsvW7dgURUH",
+        "amm_entry_share": 0.9642857142857143,
+        "fit_positions": 28,
+        "holdout_positions": 7,
+        "rank_position": 105,
+        "rank_stat": 0.2799933696224186,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "4d7v2hwx6YyTNrpMEvMLU2HALoUU6BeDDRcSzDdeWFiR",
+        "amm_entry_share": 0.24285714285714285,
+        "fit_positions": 70,
+        "holdout_positions": 57,
+        "rank_position": 106,
+        "rank_stat": 0.27930449110403976,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "J3vZ1r9sN8WiC5tN1CufpZxBh5d3Es3wm85WP9tc1VNF",
+        "amm_entry_share": 1,
+        "fit_positions": 28,
+        "holdout_positions": 7,
+        "rank_position": 107,
+        "rank_stat": 0.27750442206127096,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "AuZN1DhBrupdgxzgrucQxG6K9Cr7LJ1AkBaSfLTJ7nVT",
+        "amm_entry_share": 0.55,
+        "fit_positions": 20,
+        "holdout_positions": 29,
+        "rank_position": 108,
+        "rank_stat": 0.2750046388438348,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8df4SvMPUwhbCn5r4U4i7hUFTbrb13LpReP1bFpGnXGB",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 109,
+        "rank_stat": 0.27370221865410577,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "FXEZduS3cSGGgDegTJzW2b7Kbt9sT6q7eR6x59Sn7QLp",
+        "amm_entry_share": 1,
+        "fit_positions": 30,
+        "holdout_positions": 7,
+        "rank_position": 110,
+        "rank_stat": 0.2732807472524669,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "25BN6FqRBDyYbVAsfDaPPTysNjiceALimgeASmpT6zTK",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 111,
+        "rank_stat": 0.27292327644441217,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9eLMx5eQJmcwWbqEwneSoHsVSTxUh97XkGNbjRBgrv6i",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 64,
+        "rank_position": 112,
+        "rank_stat": 0.2724032295513967,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "4MVQPo7RrwrWBCAn2UkyAnwLbeKfEcz7ixXUXREYAzNF",
+        "amm_entry_share": 0.1016949152542373,
+        "fit_positions": 59,
+        "holdout_positions": 73,
+        "rank_position": 113,
+        "rank_stat": 0.2711754281441685,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "EKvDm5YoPYjjNM5zV7mq4Uotj2ddo2XQ5xhWx7ReB8Bg",
+        "amm_entry_share": 0.8888888888888888,
+        "fit_positions": 27,
+        "holdout_positions": 14,
+        "rank_position": 114,
+        "rank_stat": 0.27008984583468887,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7278qEKnfPdQVDAGCbJgFxHuCVFaxsGiBrEhqDSvQiLq",
+        "amm_entry_share": 0.2,
+        "fit_positions": 70,
+        "holdout_positions": 60,
+        "rank_position": 115,
+        "rank_stat": 0.26830377400767497,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ATMvTWD7v4zHewvMqYXQvhRKVqtkCCRf2kghbhohPPiB",
+        "amm_entry_share": 0.6956521739130435,
+        "fit_positions": 69,
+        "holdout_positions": 32,
+        "rank_position": 116,
+        "rank_stat": 0.2661525585154805,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "Akt6awHxqqUJxmkLXuV2LVvbazCkdcLbmUvuZ4KBrdTY",
+        "amm_entry_share": 0.28888888888888886,
+        "fit_positions": 45,
+        "holdout_positions": 24,
+        "rank_position": 117,
+        "rank_stat": 0.265641931798952,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9mtbJFodZKpm9bDbKpmiA8B1Xjuc4EVnuDpGFSitBdVg",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 118,
+        "rank_stat": 0.26374224527338813,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8p1CSXiqCugKyA9xCwu2RpNBSSwSe6bMMpR12gY3obnP",
+        "amm_entry_share": 1,
+        "fit_positions": 29,
+        "holdout_positions": 7,
+        "rank_position": 119,
+        "rank_stat": 0.2636160619637568,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "ByLZDDggABKiRPB5pMiWbhvjXWZZuCPCG2iPDW9M6Hs9",
+        "amm_entry_share": 0.03333333333333333,
+        "fit_positions": 30,
+        "holdout_positions": 69,
+        "rank_position": 120,
+        "rank_stat": 0.26352495459384445,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "GEvqEAgLSPXEDAtSK4vNwJFEpmnuFjwUQtiTwbjR8dtH",
+        "amm_entry_share": 0.03225806451612903,
+        "fit_positions": 31,
+        "holdout_positions": 63,
+        "rank_position": 121,
+        "rank_stat": 0.2631938954043596,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8gLS3FD9dWidH1afdzySdynF3vq5y2ASVCqD57Ko6FN6",
+        "amm_entry_share": 0.015384615384615385,
+        "fit_positions": 65,
+        "holdout_positions": 101,
+        "rank_position": 122,
+        "rank_stat": 0.262874327202105,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "13yanePKmMPtjcgHjPYrcjHj4i4qDi9bQcmKpcnVkzWU",
+        "amm_entry_share": 0.2916666666666667,
+        "fit_positions": 24,
+        "holdout_positions": 32,
+        "rank_position": 123,
+        "rank_stat": 0.2628093108068641,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "7ZvL4scL2rYvfstvCui74pZJo4mudEws8W9C8r3toU1E",
+        "amm_entry_share": 0.09433962264150944,
+        "fit_positions": 53,
+        "holdout_positions": 4,
+        "rank_position": 124,
+        "rank_stat": 0.26231048421340075,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "DZMfgQWZxUQrvBTNWEw5iYDPRiah2o44oeamttpQ6ANg",
+        "amm_entry_share": 0.9705882352941176,
+        "fit_positions": 34,
+        "holdout_positions": 7,
+        "rank_position": 125,
+        "rank_stat": 0.26159048712728805,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "75NCJwieyRjocdY6RMJ5qadjh4ozfW7mDhAWJSYbZF7w",
+        "amm_entry_share": 0.2,
+        "fit_positions": 70,
+        "holdout_positions": 60,
+        "rank_position": 126,
+        "rank_stat": 0.2588609541773568,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "9XvdR5VsuqdKkPi3sMs2QZZXBcjFbmJy1dDhn8emy8X8",
+        "amm_entry_share": 1,
+        "fit_positions": 31,
+        "holdout_positions": 7,
+        "rank_position": 127,
+        "rank_stat": 0.2583178563762106,
+        "wallets_qualifying": 211225
+      },
+      {
+        "address": "8YqMbhkF9wpqhYFgoQLeDxfJcyQuv4Ga4ANM9VmPARFB",
+        "amm_entry_share": 0.7619047619047619,
+        "fit_positions": 21,
+        "holdout_positions": 3,
+        "rank_position": 128,
+        "rank_stat": 0.258227072377899,
+        "wallets_qualifying": 211225
+      }
+    ],
+    "metadata": {
+      "column_names": [
+        "address",
+        "rank_position",
+        "rank_stat",
+        "fit_positions",
+        "amm_entry_share",
+        "holdout_positions",
+        "wallets_qualifying"
+      ],
+      "column_types": [
+        "varchar",
+        "bigint",
+        "double",
+        "bigint",
+        "double",
+        "bigint",
+        "bigint"
+      ],
+      "row_count": 128,
+      "result_set_bytes": 11773,
+      "total_row_count": 128,
+      "total_result_set_bytes": 11773,
+      "datapoint_count": 896,
+      "pending_time_millis": 1191,
+      "execution_time_millis": 113664
+    }
+  }
+}
