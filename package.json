@@ -171,7 +171,8 @@
     "venue:bridge": "tsx scripts/venue-bridge.ts",
     "lp:flagged": "tsx scripts/lp-on-flagged-pools.ts",
     "crowding": "tsx scripts/crowding-probe.ts",
-    "cluster:power": "node scripts/cluster-power.mjs"
+    "cluster:power": "node scripts/cluster-power.mjs",
+    "panel:drift": "node --max-old-space-size=6144 scripts/forward-panel-drift.mjs"
   },
   "devDependencies": {
     "@solana/kit": "^4.0.0",
