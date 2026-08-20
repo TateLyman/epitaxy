@@ -250,6 +250,15 @@ liquidity instead of taking it improves the fee-to-rebalancing ratio six-fold ov
 still 8 to 1 against (MT112). Every route ends at the same place, which is what an efficient
 market at a high cost structure looks like from the inside.
 
+**A FOURTH route, added after the first three.** MT114 swept the forward panel and found the
+same line, plus one negative that replicates *hard*: **the more a pump.fun token has already
+moved, the worse it does next.** At 10m→24h — flat −3.06%, up 2–20% −20.30%, above +20%
+−48.87%; add depth over $5k and it is **−78.54% mean, −88.57% median, 6 of 6 days, fit −80.6%
+/ holdout −70.0%.** This is the strongest-replicating effect the programme has ever measured
+and it is **on the unshortable side** — there is no borrow for these tokens on this venue. The
+one thing that clearly works cannot be traded here. That is worth stating plainly rather than
+filing as another negative.
+
 **What that implies for any future attempt.** The binding constraint is COST, not the absence of
 structure. Costs here are protocol 5 bps and LP 20 bps, which nobody escapes; creator fee 0–95
 bps, which is set per coin and IS selectable; price impact, which is set by depth relative to
@@ -286,7 +295,21 @@ than roughly 50 bps a round trip in a deep pool. No edge measured in fifteen mon
 3. **A systematic conditional sweep over the whole venue.** We have every trade with buyer, size,
    reserves and fees. Only one conditioning variable has ever been tested (flagged-wallet buy).
    Requires a preregistered fit/holdout split — now affordable because history is free.
-4. **The 626,449-row forward panel**, beyond the one cell that failed to replicate.
+4. ~~**The forward panel.**~~ **EXHAUSTED — MT114.** ~216 cells swept. On the executable
+   population (pump.fun, 93% of the panel) **all 48 cells are negative at BOTH a 50 bps and a
+   250 bps floor, fit and holdout, 0 of 6 days positive.** Three structural defects shrink
+   1.25M rows to almost nothing, and they are properties of the TABLE, not the market:
+   **paired observations exist on only 6 UTC days, so it can NEVER clear MT108's ten-cluster
+   floor whatever is asked of it**; the median forward return is *exactly* 0.00% in every
+   unconditional cell because only 16–53% of consecutive priced pairs differ at all; and the
+   means are single-observation artifacts — one of 66,011 observations is 65% of the sum in
+   one cell and **114%** in another, and winsorising at p99 turns every unconditional mean
+   negative. Decisively: **`price_usd` is a provider USD price, not an executable quote** —
+   `route_exists` is non-null on 2,309 of 1,668,615 rows — so no cell here has ever been shown
+   executable. The one strong cell found (+41.41% net, 6/6 days) was retracted by the same pass:
+   the variable was launchpad not liquidity, censoring is 55–61% and forcing it to −100% flips
+   the cell to −43%, and the mechanism is **a feed backfilling to a value it then freezes at**
+   — 24.2% of those mints have a strictly monotone-rising path with not one down-tick.
 
 ---
 
