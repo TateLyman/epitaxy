@@ -94,6 +94,35 @@ export interface PumpSwapTrade {
   readonly coinCreatorFeeBasisPoints: bigint | null;
   /** Seconds, as the program recorded it. */
   readonly timestamp: bigint;
+  /**
+   * The payload length this event was decoded from.
+   *
+   * NOT cosmetic. `BuyEvent` arrives in TWO struct lengths and `SellEvent` in one:
+   * 465-byte buy, 480-byte buy, 417-byte sell. Measured over 36,524 live events.
+   * A caller that needs the quote legs MUST NOT assume one layout - see
+   * `grossQuoteAmount` / `poolQuoteAmount` below.
+   */
+  readonly payloadLength: number;
+  /**
+   * The GROSS quote leg - what the trader actually paid on a buy, before any fee left.
+   *
+   * WHY THIS EXISTS. `quoteAmount` and `userQuoteAmount` were long recorded as being
+   * "swapped on about a third of buys", cause unknown, and that open defect blocked LP
+   * volume measurement twice. The cause is not a swap and it is not random: it is the two
+   * BuyEvent structs. Crossing struct length against which field is larger gives a PERFECT
+   * split over 18,353 live buys - 465-byte buys are `userQuoteAmount` larger in 6,675 of
+   * 6,675, and 480-byte buys are `quoteAmount` larger in 11,627 of 11,627, with 51 equal.
+   * The ratio deviates from 1 by 50-60 bps in BOTH directions, which is a fee ladder, so
+   * both classes are internally consistent and only the field NAMES are exchanged.
+   *
+   * So the gross leg is the larger of the two and the pool leg is the smaller. That rule is
+   * empirical and exact on the measured sample rather than read off a spec, and it is stated
+   * that way deliberately: if a third struct appears, the invariant to re-check is that the
+   * two differ by roughly the declared ladder and in the direction the side implies.
+   */
+  readonly grossQuoteAmount: bigint;
+  /** The POOL's quote leg, by the same rule. The smaller of the two on a buy. */
+  readonly poolQuoteAmount: bigint;
 }
 
 /*
@@ -163,12 +192,14 @@ export function decodePumpSwapTrade(payload: Buffer): PumpSwapTrade | null {
         `${MIN_EVENT_BYTES}; the layout changed and a partial decode would be a plausible wrong number`,
     );
   }
+  const q = payload.readBigUInt64LE(OFF.quoteAmount);
+  const u = payload.readBigUInt64LE(OFF.userQuoteAmount);
   return {
     side: isBuy ? 'BUY' : 'SELL',
     pool: base58Encode(payload.subarray(OFF.pool, OFF.pool + 32)),
     user: base58Encode(payload.subarray(OFF.user, OFF.user + 32)),
-    quoteAmount: payload.readBigUInt64LE(OFF.quoteAmount),
-    userQuoteAmount: payload.readBigUInt64LE(OFF.userQuoteAmount),
+    quoteAmount: q,
+    userQuoteAmount: u,
     baseAmount: payload.readBigUInt64LE(OFF.baseAmount),
     poolBaseReservesBefore: payload.readBigUInt64LE(OFF.poolBaseReserves),
     poolQuoteReservesBefore: payload.readBigUInt64LE(OFF.poolQuoteReserves),
@@ -177,6 +208,9 @@ export function decodePumpSwapTrade(payload: Buffer): PumpSwapTrade | null {
     coinCreatorFeeBasisPoints:
       payload.length >= CREATOR_FEE_BYTES ? payload.readBigUInt64LE(OFF.coinCreatorFeeBps) : null,
     timestamp: payload.readBigInt64LE(OFF.timestamp),
+    payloadLength: payload.length,
+    grossQuoteAmount: q > u ? q : u,
+    poolQuoteAmount: q > u ? u : q,
   };
 }
 

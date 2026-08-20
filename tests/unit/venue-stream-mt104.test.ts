@@ -243,3 +243,59 @@ describe('the venue stream matching rule', () => {
     expect(base58Encode(base58Decode(TRADER))).toBe(TRADER);
   });
 });
+
+describe('BuyEvent struct variants (the long-open quote-field defect)', () => {
+  // BuyEvent arrives in TWO struct lengths and SellEvent in one: 465, 480 and 417 bytes,
+  // measured across 36,524 live events. Crossing struct length against which quote field is
+  // larger gives a PERFECT split: 465-byte buys are userQuoteAmount-larger in 6,675 of 6,675,
+  // and 480-byte buys are quoteAmount-larger in 11,627 of 11,627, with 51 exactly equal. The
+  // ratio departs from 1 by 50-60 bps in BOTH directions, which is a fee ladder, so each class
+  // is internally consistent and only the field NAMES are exchanged between them.
+  //
+  // This is what was recorded for a long time as "swapped on about a third of buys, cause
+  // unknown", and it blocked LP volume measurement twice. It was never a swap and never
+  // random - it is two structs read through one offset table.
+  const buy = (length: number, quoteAt64: bigint, userQuoteAt112: bigint): Buffer => {
+    const b = Buffer.alloc(length);
+    BUY_EVENT_DISCRIMINATOR.copy(b, 0);
+    b.writeBigInt64LE(1_700_000_000n, 8);
+    b.writeBigUInt64LE(1_000_000n, 16);
+    b.writeBigUInt64LE(500_000_000n, 48);
+    b.writeBigUInt64LE(1_000_000_000n, 56);
+    b.writeBigUInt64LE(quoteAt64, 64);
+    b.writeBigUInt64LE(20n, 72);
+    b.writeBigUInt64LE(5n, 88);
+    b.writeBigUInt64LE(userQuoteAt112, 112);
+    return b;
+  };
+
+  it('reports the payload length it decoded from', () => {
+    expect(decodePumpSwapTrade(buy(465, 1_000_000n, 1_005_310n))?.payloadLength).toBe(465);
+    expect(decodePumpSwapTrade(buy(480, 1_005_310n, 1_000_000n))?.payloadLength).toBe(480);
+  });
+
+  it('resolves gross and pool legs on a 465-byte buy, where user_quote is the larger field', () => {
+    const t = decodePumpSwapTrade(buy(465, 1_000_000n, 1_005_310n));
+    expect(t?.grossQuoteAmount).toBe(1_005_310n);
+    expect(t?.poolQuoteAmount).toBe(1_000_000n);
+  });
+
+  it('resolves gross and pool legs on a 480-byte buy, where quote is the larger field', () => {
+    const t = decodePumpSwapTrade(buy(480, 1_005_310n, 1_000_000n));
+    expect(t?.grossQuoteAmount).toBe(1_005_310n);
+    expect(t?.poolQuoteAmount).toBe(1_000_000n);
+  });
+
+  it('yields the SAME economics whichever struct carried the trade', () => {
+    const a = decodePumpSwapTrade(buy(465, 1_000_000n, 1_005_310n));
+    const b = decodePumpSwapTrade(buy(480, 1_005_310n, 1_000_000n));
+    expect(a?.grossQuoteAmount).toBe(b?.grossQuoteAmount);
+    expect(a?.poolQuoteAmount).toBe(b?.poolQuoteAmount);
+  });
+
+  it('leaves the raw named fields untouched, so nothing already stored is reinterpreted silently', () => {
+    const t = decodePumpSwapTrade(buy(480, 1_005_310n, 1_000_000n));
+    expect(t?.quoteAmount).toBe(1_005_310n);
+    expect(t?.userQuoteAmount).toBe(1_000_000n);
+  });
+});
