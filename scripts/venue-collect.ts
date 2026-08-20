@@ -69,8 +69,8 @@ const insertTrade = db.prepare(
      (signature, event_index, slot, side, pool, base_mint, quote_mint, trader,
       quote_amount, user_quote_amount, base_amount,
       pool_base_reserves_before, pool_quote_reserves_before,
-      lp_fee_bps, protocol_fee_bps, event_utc_s, observed_utc_ms, session_id, kept_because)
-   VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      lp_fee_bps, protocol_fee_bps, creator_fee_bps, event_utc_s, observed_utc_ms, session_id, kept_because)
+   VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 const openSession = db.prepare(
   `INSERT INTO venue_stream_sessions (session_id, endpoint, opened_utc_ms, ledger_row) VALUES (?, ?, ?, ?)`,
@@ -115,6 +115,10 @@ const stream = new VenueLogStream(
         t.trade.poolQuoteReservesBefore.toString(),
         Number(t.trade.lpFeeBasisPoints),
         Number(t.trade.protocolFeeBasisPoints),
+        // Null when the payload was too short. Measured at 4,000 of 4,000 present,
+        // but a null must stay a null: the creator fee ranges 0 to 95 bps and is
+        // not derivable from the tier, so inferring it manufactures edge.
+        t.trade.coinCreatorFeeBasisPoints === null ? null : Number(t.trade.coinCreatorFeeBasisPoints),
         Number(t.trade.timestamp),
         t.observedUtcMs,
         sessionId,

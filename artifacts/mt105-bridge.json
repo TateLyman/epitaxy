@@ -1,0 +1,32 @@
+{
+  "ranUtc": "2026-08-20T04:07:08.660Z",
+  "ledgerRow": "MT104",
+  "samplingRow": "MT105",
+  "observedFlaggedBuysPerDay": 114843.94502003911,
+  "inclusionProbability": 0.008707468206752302,
+  "horizonMs": 3600000,
+  "notionalLamports": "20000000",
+  "opened": 12,
+  "refusedSample": 3700,
+  "refusedNonSol": 31,
+  "refusedDuplicateMint": 11,
+  "poolsResolved": 339,
+  "poolsUnresolvable": 0,
+  "priced": 0,
+  "unpriceable": 0,
+  "evidenceGrade": "RESERVE_MODELLED",
+  "arms": [
+    {
+      "arm": "DECILE_10_FOLLOW",
+      "n": 5,
+      "settled": 0,
+      "mean_ret": null
+    },
+    {
+      "arm": "DECILE_1_FOLLOW",
+      "n": 7,
+      "settled": 0,
+      "mean_ret": null
+    }
+  ]
+}

@@ -4242,6 +4242,37 @@ ALTER TABLE venue_pools ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_venue_pools_tracked ON venue_pools(tracked);
 `,
   },
+  {
+    id: 61,
+    name: 'venue_trade_creator_fee',
+    sql: `
+-- ===========================================================================
+-- THE CREATOR FEE IS NOT A PROPERTY OF THE TIER, AND MIGRATION 59 DROPPED IT.
+--
+-- 59 stored lp_fee_bps and protocol_fee_bps and left the third component out,
+-- on the unstated assumption that the fee ladder follows the tier. Measured
+-- over 4,000 consecutive live events, it does not:
+--
+--   tier 25/5   n=2103   creator bps 0
+--   tier 20/5   n=1757   creator bps 0,5,8,10,13,15,18,20,23,25,28,30,35,40,
+--                                    45,50,55,60,65,70,75,80,85,90,95
+--   tier  2/93  n= 134   creator bps 0 or 30
+--
+-- The creator sets it per coin. A 20/5 pool carrying a 95 bps creator fee costs
+-- 120 bps a leg, which is very nearly the bottom tier -- so a cost floor built
+-- from lp plus protocol alone can understate the truth by four times the tier
+-- fee itself, and it would do so in the direction that manufactures edge.
+--
+-- Every event carries the field: 4,000 of 4,000. There is nothing to assume and
+-- nothing to infer, only a column that should have been there.
+--
+-- Nullable, because rows written before this migration genuinely do not have it
+-- and backfilling them from the tier is exactly the inference this row exists to
+-- refuse. Those positions stay unpriceable, which copy-fill.ts already enforces.
+-- ===========================================================================
+ALTER TABLE venue_trades ADD COLUMN creator_fee_bps INTEGER;
+`,
+  },
 ];
 
 export interface OpenOptions {
