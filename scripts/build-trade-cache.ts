@@ -34,7 +34,12 @@ const SLOTS_PER_DAY = 207_494;
 
 const arg = (n: string): string | null => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? null;
 const only = (arg('windows') ?? '').split(',').filter((s) => s.length > 0).map(Number);
-if (only.length === 0) { console.error('need --windows=1,2,3 (1-based)'); process.exit(2); }
+// Explicit-range mode, for windows that are NOT on the HEAD - k*SLOTS_PER_DAY grid. The
+// time-of-day test needs windows deliberately staggered around the clock, which that grid
+// cannot express - every window on it lands at the same wall-clock hour, which is exactly the
+// confound MT122 disclosed.
+const explicit = arg('range');   // form: label:from:to
+if (only.length === 0 && explicit === null) { console.error('need --windows=1,2,3 or --range=label:from:to'); process.exit(2); }
 
 const db = openDb({ path: 'data/runtime.db' });
 const wsol = new Set<string>();
@@ -43,9 +48,17 @@ db.close();
 mkdirSync(OUT, { recursive: true });
 console.log(`cache builder — windows ${only.join(',')} — ${wsol.size.toLocaleString()} WSOL pools known`);
 
-for (const w of only) {
-  const to = HEAD - w * SLOTS_PER_DAY;
-  const from = to - 19_999;
+const jobs: { label: string; from: number; to: number }[] = [];
+for (const w of only) { const to = HEAD - w * SLOTS_PER_DAY; jobs.push({ label: String(w), from: to - 19_999, to }); }
+if (explicit !== null) {
+  const [lab, f, t] = explicit.split(':');
+  if (lab === undefined || f === undefined || t === undefined) { console.error('bad --range'); process.exit(2); }
+  jobs.push({ label: lab, from: Number(f), to: Number(t) });
+}
+for (const job of jobs) {
+  const w = job.label;
+  const from = job.from;
+  const to = job.to;
   const files = readdirSync(DIR).filter((f) => {
     const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(f);
     return m !== null && Number(m[2]) >= from && Number(m[1]) <= to;

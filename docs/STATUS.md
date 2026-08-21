@@ -1,5 +1,52 @@
 # STATUS
 
+> **2026-08-21 (LATEST) — The incumbent strategy's own window is measured, and it is negative.
+> State: `INCUMBENT_WINDOW_CLOSED_NEGATIVE: GATE_WAS_CERTIFYING_AN_UNMEASURED_STRATEGY`.**
+>
+> Ledger rows `MT126`, `MT127`, `MT127-RESULT`, `MT127-DEFECT`. Read-only throughout — nothing
+> was proposed, funded or signed.
+>
+> **`delayed-momentum-v0` holds 120s to 3600s, and in 136 ledger rows that window had never been
+> measured.** `MT101`, `MT104` and `MT105` all target it and all three are still `preregistered`;
+> every *completed* horizon test stopped at or below 60 seconds. `config/canary.json` sets
+> `maxTokenAgeMs` to 3,600,000 for this strategy, so the green acceptance gate has been
+> certifying the machinery around a strategy whose expectancy was never established.
+>
+> **`MT127` measures it. It is negative at every horizon it declares** — the 10% winsorised mean
+> is negative in all ten cells (five horizons × fit and validation), the median runs −2.09% at
+> 120s to −6.52% at 3600s worsening monotonically with hold, and only 37–39% of holds are
+> positive. **The top 1% of outcomes contributes 78%–447% of the raw mean.** The incumbent is a
+> lottery, which is the payoff shape a fixed-fraction sizing rule handles worst.
+>
+> **THE SAME TABLE READ POSITIVE BEFORE THE COST MODEL WAS FIXED, AND THAT IS THE REAL FINDING.**
+> The first run showed all five horizons positive on both fit and validation, rising to +8.09% at
+> 3600s. It used a fee model inherited from `MT123` that clamps the observed charge at **25 bps**.
+> The measured charge is **115 bps a leg, with the clamp binding on 100% of 228 pools** — an
+> understatement of roughly **180 bps round trip**. Because `totalFeeBps` returns
+> `chargedFeeBasisPoints` whenever present, the clamp *was* the entire cost model. Unclamping it
+> turned all ten cells negative.
+>
+> **`MT127-DEFECT` records the scope: the clamp is in nine scripts** — MT117, MT118, MT119,
+> MT120, MT122, MT123, MT126, `tail-anatomy`, and MT127 before correction. **No conclusion
+> changes**, and the reason is directional: every one of those concluded `closed_negative`, and
+> raising modelled cost can only move a round-trip return down. What is wrong is their reported
+> *magnitudes*, optimistic by ~180 bps. Future comparisons must use the corrected model, not the
+> published number.
+>
+> **Why a run of negatives is not evidence the instrument works.** Understating cost makes a
+> negative result *less* negative — the test still fails, and the defect stays invisible. The
+> clamp survived seven tests because every one returned the expected answer, and became visible
+> only on the first test whose uncorrected answer was positive. A preregistered prediction
+> protects against fitting the conclusion; it does not protect against an instrument biased in a
+> profitable direction. Probe the instrument on a schedule, not when a result surprises you.
+>
+> **`MT126` separately closes hour-of-day**, the last conditioner `MT122` left open. `MT122` had
+> disclosed that it never actually tested it — 19,002 of 19,674 triggers fell in one bucket
+> because every window was a fixed offset from one head slot. Eight windows staggered ~3h apart
+> now spread 264–492 triggers per bucket. One of 16 cells is positive (+0.212%, n=322) and it
+> does not validate; more tellingly the same hour reads −0.727% under the other exit rule, and a
+> real time-of-day effect would show under both.
+
 > **2026-08-20 (LATEST) — The low-capital profit path, operator request.
 > State: `NO_CAPITAL_SCALED_PATH: REVENUE_MUST_BE_DECOUPLED_FROM_CAPITAL`.**
 >
