@@ -5,43 +5,43 @@
     "SURVIVOR_FLOW_CONTINUATION_V1",
     "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
-  "trajectories": 717,
-  "decisionRows": 1301,
-  "trajectoriesWithAllPolicies": 26,
-  "trajectoriesWherePoliciesDisagree": 244,
+  "trajectories": 809,
+  "decisionRows": 1669,
+  "trajectoriesWithAllPolicies": 118,
+  "trajectoriesWherePoliciesDisagree": 307,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 425
+      "n": 517
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 241
+      "n": 296
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 184
+      "n": 221
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "ENTER",
-      "n": 5
+      "n": 27
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "REJECT",
-      "n": 21
+      "n": 91
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 425
+      "n": 517
     }
   ],
-  "riskFactsApplied": 1212,
+  "riskFactsApplied": 1580,
   "riskFactsChangedADecision": 2,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -50,22 +50,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 522
+      "n": 597
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 522
+      "n": 597
     }
   ],
-  "pairedPaths": 522,
-  "pathsWithDifferentTriggerOffsets": 129,
-  "challengerExitedEarlier": 5,
+  "pairedPaths": 597,
+  "pathsWithDifferentTriggerOffsets": 162,
+  "challengerExitedEarlier": 9,
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
+    "sourceCommit": "b6b6053ca7c73d74f11be0a89a01569b1bf2df43",
     "treeDirty": true,
-    "dirtyFiles": 7,
-    "writtenUtc": "2026-08-21T01:17:42.921Z"
+    "dirtyFiles": 18,
+    "writtenUtc": "2026-08-21T14:05:22.003Z"
   }
 }
