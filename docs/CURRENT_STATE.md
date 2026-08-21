@@ -313,6 +313,40 @@ again EMPTY, the same collinearity that produced the retracted cheap-fee finding
 
 ---
 
+## 6Z — READ THIS BEFORE TRUSTING ANY MEDIAN IN THIS REPOSITORY
+
+**On this venue the MEDIAN and the MEAN point in opposite directions, in every depth band.**
+Measured on 23,995 observations over 18 UTC days (MT121):
+
+| depth | median | MEAN | %positive |
+|---|---|---|---|
+| 0–35 SOL | −0.565% | **+0.847%** | 43.2% |
+| 35–120 | **+1.019%** | −0.895% | 54.8% |
+| 120–300 | **+1.116%** | −0.962% | 61.4% |
+| 300–1000 | **+1.082%** | −1.425% | 63.1% |
+| 1000+ | −4.269% | −5.315% | 29.6% |
+
+**The one positive mean is a single lottery win.** The 0–35 band's +0.847% collapses to
+**+0.005%** winsorised at 1% and goes **negative** at 5%; its best trade returned **+1037%**.
+Same pattern as MT114, where one observation of 66,011 was 114% of the sum.
+
+**THE CORRECTION THIS FORCES.** MT111's depth finding — deep +0.35% vs shallow −6.68% — is a
+MEDIAN, and it was quoted throughout this programme as the strongest observable we own. Its sign
+INVERTS by mean. The honest restatement: **depth separates the SHAPE of the distribution, not its
+expectation.** Deep pools win small and often and lose rarely and enormously; shallow pools do the
+reverse. Neither has positive expectancy once outliers are handled. **The mean is what compounds.**
+
+Two more durable facts from the same pass:
+
+- **A stop does not bound a loss here.** Worst single trade −**99.120%** despite a −400 bps stop.
+  Price gaps between observed prints, so a stop is an instruction, not a guarantee. Any risk model
+  that assumes a stop caps anything is wrong on this venue.
+- **The catastrophic tail IS identifiable ex ante** — worst 1% of trades sit in pools of median
+  depth **0.1 SOL** against **63.7 SOL** for the rest — but it is **not concentrated enough to
+  excise**: worst 1% carries only 17.3% of total loss, worst 10% carries 58.3%.
+
+---
+
 ## 6A — THE ONE SENTENCE THAT NOW SUMMARISES FIFTEEN MONTHS
 
 **Three independent mechanisms, measured on 12 UTC day clusters of complete venue coverage,

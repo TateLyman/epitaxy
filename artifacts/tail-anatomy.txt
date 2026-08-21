@@ -1,0 +1,37 @@
+TAIL ANATOMY — diagnostic only, selects nothing
+  fit: 21,473 triggers
+  val: 3,338 triggers
+
+observations: 23,995
+
+IS THE LOSS CONCENTRATED? share of ALL losses carried by the worst trades
+  worst 0.5%  (119 trades) -> 10.6% of total loss
+  worst 1%    (239 trades) -> 17.3%
+  worst 5%    (1199 trades) -> 41.8%
+  worst 10%   (2399 trades) -> 58.3%
+
+  worst single trade:   -99.120%   p01   -36.940%   (a -400bps stop should have bounded this at -4.000%)
+
+ARE THE TAIL TRADES IDENTIFIABLE EX ANTE? worst 1% vs the rest
+  depth SOL   tail p50       0.1   rest p50      63.7
+  arrival s   tail p50      1.00   rest p50      2.00
+
+THE MT120 RE-AUDIT — every median with its MEAN beside it, by depth
+  depth band          n      median       MEAN     %positive
+  0-35 SOL         6074    -0.565%     0.847%    43.2%
+  35-120          12210     1.019%    -0.895%    54.8%
+  120-300          4636     1.116%    -0.962%    61.4%
+  300-1000          977     1.082%    -1.425%    63.1%
+  1000+              98    -4.269%    -5.315%    29.6%
+
+IS THE ONE POSITIVE MEAN REAL, OR ONE LOTTERY WIN? winsorised at each level
+  0-35 SOL   raw mean     0.847%   w1%     0.005%   w5%    -0.433%   best trade  1037.072%
+  35-120     raw mean    -0.895%   w1%    -0.909%   w5%    -0.916%   best trade   312.904%
+  120-300    raw mean    -0.962%   w1%    -0.909%   w5%    -0.817%   best trade    30.265%
+
+  A mean that collapses under winsorisation is one lottery win, not an edge. That is the
+  same test that turned every unconditional mean in MT114 negative at p99.
+
+  If the loss is concentrated AND the tail is identifiable ex ante, a rule excluding it
+  must be preregistered and tested on days not in this analysis, exactly as MT119 was.
+  If a depth band shows median and MEAN both positive, that is the first such cell here.
