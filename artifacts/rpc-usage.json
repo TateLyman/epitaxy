@@ -1,7 +1,7 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 66051,
-  "sessionsNeverEnded": 32,
+  "activeSeconds": 65824,
+  "sessionsNeverEnded": 34,
   "sessionsFromDirtyTree": 1,
   "byKind": [
     {
@@ -54,20 +54,20 @@
     }
   ],
   "totalCalls": 138139,
-  "callsPerActiveSecond": 2.091399070415285,
+  "callsPerActiveSecond": 2.0986114487117162,
   "quotaErrors": 53,
   "trajectories": 715,
-  "trajectoriesPerActiveDay": 935.2772857337512,
+  "trajectoriesPerActiveDay": 938.5026737967914,
   "recommendations": [
-    "53 quota refusal(s) at 2.09 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "53 quota refusal(s) at 2.10 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
+    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
     "treeDirty": true,
-    "dirtyFiles": 10,
-    "writtenUtc": "2026-08-21T01:06:05.314Z"
+    "dirtyFiles": 9,
+    "writtenUtc": "2026-08-21T01:09:10.142Z"
   }
 }

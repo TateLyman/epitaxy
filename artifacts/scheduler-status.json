@@ -83,9 +83,9 @@
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
+    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
     "treeDirty": true,
-    "dirtyFiles": 6,
-    "writtenUtc": "2026-08-21T01:06:04.455Z"
+    "dirtyFiles": 5,
+    "writtenUtc": "2026-08-21T01:09:09.284Z"
   }
 }
