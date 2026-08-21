@@ -1,0 +1,90 @@
+/**
+ * Decode the backfill ONCE into a compact cache, so a test costs seconds instead of an hour.
+ *
+ * WHY. The bottleneck is not disk - 22 GB reads in about two minutes - it is base58-decoding
+ * roughly 28 million instruction payloads at about 5,200 a second. MT116 and MT117 decode the
+ * SAME bytes to the same values, and every future test would decode them again. This pays that
+ * cost once.
+ *
+ * WHAT IS AND IS NOT FILTERED. Only two filters are applied, and both are ones every consumer
+ * already applies identically, so caching them changes no result:
+ *   - the payload must be an emit_cpi-wrapped PumpSwap trade event
+ *   - the pool must be WSOL-quoted BY NAME in venue_pools, never inferred
+ * Everything else - impact bars, depth cuts, virtual reserves, fee models - stays in the test.
+ * A cache that pre-applied those would be a cache that decided the answer.
+ *
+ * ORDER IS PRESERVED as (slot, transactionIndex, instructionAddress), which is the ordering the
+ * reserve chain was verified against at 35,650 of 35,650 exact.
+ *
+ * Run one process per window range; they are independent. Verify against a known trigger count
+ * before trusting it.
+ */
+import { createReadStream, readdirSync, createWriteStream, mkdirSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { openDb } from '../packages/storage/src/db.js';
+import { decodePumpSwapTrade } from '../packages/intelligence/src/pumpswap-event.js';
+import { base58Decode } from '../packages/solana/src/base58.js';
+
+const WSOL = 'So11111111111111111111111111111111111111112';
+const CPI = Buffer.from([0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d]);
+const DIR = 'data/sqd/events-pAMMBay6';
+const OUT = 'data/trade-cache';
+const HEAD = 440_494_520;
+const SLOTS_PER_DAY = 207_494;
+
+const arg = (n: string): string | null => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? null;
+const only = (arg('windows') ?? '').split(',').filter((s) => s.length > 0).map(Number);
+if (only.length === 0) { console.error('need --windows=1,2,3 (1-based)'); process.exit(2); }
+
+const db = openDb({ path: 'data/runtime.db' });
+const wsol = new Set<string>();
+for (const r of db.prepare('SELECT pool FROM venue_pools WHERE quote_mint = ?').all(WSOL) as { pool: string }[]) wsol.add(r.pool);
+db.close();
+mkdirSync(OUT, { recursive: true });
+console.log(`cache builder — windows ${only.join(',')} — ${wsol.size.toLocaleString()} WSOL pools known`);
+
+for (const w of only) {
+  const to = HEAD - w * SLOTS_PER_DAY;
+  const from = to - 19_999;
+  const files = readdirSync(DIR).filter((f) => {
+    const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(f);
+    return m !== null && Number(m[2]) >= from && Number(m[1]) <= to;
+  });
+  if (files.length === 0) { console.log(`  window ${w}: no files`); continue; }
+  const out = createWriteStream(`${OUT}/w${w}.jsonl`);
+  let kept = 0;
+  let seen = 0;
+  for (const f of files) {
+    const rl = createInterface({ input: createReadStream(`${DIR}/${f}`, { encoding: 'utf8' }), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (line.length === 0) continue;
+      let blk: { header?: { number: number; timestamp: number }; instructions?: { transactionIndex: number; instructionAddress: number[]; data: string }[] };
+      try { blk = JSON.parse(line); } catch { continue; }
+      const h = blk.header;
+      if (h === undefined || h.number < from || h.number > to) continue;
+      for (const i of blk.instructions ?? []) {
+        seen += 1;
+        let raw: Buffer;
+        try { raw = Buffer.from(base58Decode(i.data, 4096)); } catch { continue; }
+        if (raw.length < 8 || !raw.subarray(0, 8).equals(CPI)) continue;
+        const t = decodePumpSwapTrade(raw.subarray(8));
+        if (t === null || t.coinCreatorFeeBasisPoints === null) continue;
+        if (!wsol.has(t.pool)) continue;
+        // Compact positional record. bigints as strings: SQLite INTEGER is 64-bit SIGNED and
+        // JSON numbers lose precision above 2^53, and these are raw token units.
+        out.write(JSON.stringify([
+          t.pool, h.number, h.timestamp, i.transactionIndex, i.instructionAddress.join('.'),
+          t.side === 'BUY' ? 1 : 0,
+          t.poolBaseReservesBefore.toString(), t.poolQuoteReservesBefore.toString(),
+          t.quoteAmount.toString(), t.userQuoteAmount.toString(),
+          Number(t.lpFeeBasisPoints), Number(t.protocolFeeBasisPoints), Number(t.coinCreatorFeeBasisPoints),
+        ]) + '\n');
+        kept += 1;
+      }
+    }
+    rl.close();
+  }
+  await new Promise<void>((res) => out.end(res));
+  console.log(`  window ${w}: ${kept.toLocaleString()} WSOL trades cached from ${seen.toLocaleString()} instructions`);
+}
+console.log('done');

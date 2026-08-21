@@ -1,0 +1,7 @@
+bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+MT116 — reversion under two cost models
+
+(node:15932) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+  window 440267027..440287026  triggers 2245
+  window 440059533..440079532  triggers 5138

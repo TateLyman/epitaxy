@@ -1,0 +1,42 @@
+MT117 — net round trip against ENTRY LATENCY, cost held constant
+
+  window 1 (440267027..440287026)  triggers 2170
+  window 2 (440059533..440079532)  triggers 4951
+  window 3 (439852039..439872038)  triggers 7152
+  window 4 (439644545..439664544)  triggers 9370
+  window 5 (439437051..439457050)  triggers 11272
+  window 6 (439229557..439249556)  triggers 14272
+  window 7 (439022063..439042062)  triggers 17111
+  window 8 (438814569..438834568)  triggers 19718
+  window 9 (438607075..438627074)  triggers 22282
+  window 10 (438399581..438419580)  triggers 24733
+  window 11 (438192087..438212086)  triggers 26569
+  window 12 (437984593..438004592)  triggers 28551
+
+triggers evaluated: 28,551
+
+NET ROUND TRIP vs ENTRY DELAY — cost identical at every row, only entry time moves
+  delay      n     median      p25        p05      %positive   days
+    0s  27969     0.437%    -5.091%   -37.179%     52.3%    12
+    1s  27696    -0.357%    -4.984%   -35.149%     46.6%    12
+    2s  27677    -0.481%    -4.994%   -34.055%     44.6%    12
+    3s  27657    -0.499%    -5.058%   -32.965%     43.7%    12
+    5s  27628    -0.508%    -5.048%   -30.931%     42.5%    12
+
+PER-DAY MEDIAN at the decision delay of 2s — day clustering, per MT108
+  2026-08-08  n= 1881  median    -0.514%  positive 43.8%
+  2026-08-09  n= 1784  median    -0.394%  positive 45.6%
+  2026-08-10  n= 2384  median    -0.498%  positive 44.2%
+  2026-08-11  n= 2497  median    -0.571%  positive 41.2%
+  2026-08-12  n= 2531  median    -0.460%  positive 45.1%
+  2026-08-13  n= 2756  median    -0.465%  positive 44.7%
+  2026-08-14  n= 2892  median    -0.529%  positive 43.3%
+  2026-08-15  n= 1849  median    -0.290%  positive 47.1%
+  2026-08-16  n= 2166  median    -0.257%  positive 46.9%
+  2026-08-17  n= 2145  median    -0.349%  positive 46.2%
+  2026-08-18  n= 2691  median    -0.479%  positive 45.1%
+  2026-08-19  n= 2101  median    -0.499%  positive 43.5%
+
+  FROZEN READING: a graceful monotone decay that stays POSITIVE through 2 seconds is the
+  only result that licenses anything further. Positive at 0 and negative by 1 means the
+  reversion belongs to whoever is already in the block, and this closes - for free.

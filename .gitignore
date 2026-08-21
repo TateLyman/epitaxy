@@ -48,3 +48,4 @@ artifacts/replay-armed/
 # committed as artifacts/phase-h-mint-venues.csv and artifacts/phase-h-venue.json.
 /ops/dune/results/q16-venue-*.json
 /ops/dune/results/q17-program-*.json
+data/trade-cache/
