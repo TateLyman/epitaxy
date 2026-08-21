@@ -25,8 +25,8 @@
     "weeklyLossHaltPct": 4,
     "drawdownHaltPct": 6,
     "minSolReserveLamports": "100000000",
-    "maxEntryLamports": "20000000",
-    "maxTotalExposureLamports": "40000000",
+    "maxEntryLamports": "21000000",
+    "maxTotalExposureLamports": "21000000",
     "dailyLossCapLamports": "20000000",
     "maxPriorityFeeLamports": "500000",
     "maxSlippageBps": 200
