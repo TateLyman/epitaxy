@@ -1,0 +1,33 @@
+MT119 — the deep-and-fast cell on six days never queried
+
+  window 13: cumulative triggers 1124
+  window 14: cumulative triggers 1875
+  window 15: cumulative triggers 2649
+  window 16: cumulative triggers 3366
+  window 17: cumulative triggers 3740
+  window 18: cumulative triggers 4012
+
+triggers 4,012   priced 3,946   in-cell 476   control 706
+
+THE FROZEN CELL — deep >120 SOL, arrival <1s, 2s delay, 15s hold
+  median net           -0.306%
+  positive share    46.8%
+
+PER DAY
+  2026-08-02  n=   29  median    -1.419%  positive 37.9%
+  2026-08-03  n=   41  median    -1.684%  positive 39.0%
+  2026-08-04  n=  126  median    -0.851%  positive 44.4%
+  2026-08-05  n=   76  median    -0.035%  positive 50.0%
+  2026-08-06  n=  103  median     0.593%  positive 52.4%
+  2026-08-07  n=  101  median    -0.242%  positive 47.5%
+
+SLOW-ARRIVAL CONTROL, same deep pools:  median    -0.498%   n=706
+
+FROZEN DECISION RULE (MT119, written before these windows were decoded)
+  (1) median net > 0 ................... FAIL
+  (2) positive share > 50% ............. FAIL
+  (3) positive on >= 4 of 6 days ....... FAIL  (1/6)
+  (4) slow-arrival control NOT positive  PASS
+
+  VERDICT: CLOSED
+  Six clusters is BELOW the MT108 ten-cluster floor. A survivor is a candidate, never a licence.

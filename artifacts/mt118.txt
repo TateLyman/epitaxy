@@ -1,0 +1,41 @@
+MT117 — net round trip against ENTRY LATENCY, cost held constant
+
+  window 1 (440267027..440287026)  triggers 2170
+  window 2 (440059533..440079532)  triggers 4951
+  window 3 (439852039..439872038)  triggers 7152
+  window 4 (439644545..439664544)  triggers 9370
+  window 5 (439437051..439457050)  triggers 11272
+  window 6 (439229557..439249556)  triggers 14272
+  window 7 (439022063..439042062)  triggers 17111
+  window 8 (438814569..438834568)  triggers 19718
+  window 9 (438607075..438627074)  triggers 22282
+  window 10 (438399581..438419580)  triggers 24733
+  window 11 (438192087..438212086)  triggers 26569
+  window 12 (437984593..438004592)  triggers 28551
+
+triggers evaluated: 28,551   priced: 27,677
+
+ALL POOLS
+  arrival gap      n      median net@2s   %positive   days
+  <1s         10291      -0.138%      49.2%    12
+  1-3s         7707      -0.369%      46.9%    12
+  3-10s        5063      -0.509%      40.3%    12
+  10-30s       2592      -0.509%      37.2%    12
+  >30s         2024      -0.532%      33.0%    12
+
+DEPTH CONTROL — pools above 120 SOL effective quote
+  arrival gap      n      median net@2s   %positive   days
+  <1s          3462       0.885%      55.5%    12
+  1-3s         1321      -0.418%      44.6%    12
+  3-10s         591      -0.384%      39.6%    12
+  10-30s        367      -0.437%      37.1%    12
+  >30s          266      -0.493%      30.8%    12
+
+PREREGISTERED CONFIRMATIONS
+  (1) monotone in arrival gap, all pools ...... NO
+  (2) monotone, depth-controlled .............. NO
+  (3) slowest bucket positive ................. all NO   deep NO
+
+  A single positive bucket WITHOUT monotonicity is a multiplicity artifact across five
+  cells and is read as noise. If the effect survives only in thin pools it is the
+  thinness, not the arrival rate, and MT111 already priced thinness at -6.68%.
