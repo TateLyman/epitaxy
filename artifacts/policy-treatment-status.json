@@ -5,25 +5,25 @@
     "SURVIVOR_FLOW_CONTINUATION_V1",
     "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
-  "trajectories": 715,
-  "decisionRows": 1293,
-  "trajectoriesWithAllPolicies": 24,
-  "trajectoriesWherePoliciesDisagree": 243,
+  "trajectories": 717,
+  "decisionRows": 1301,
+  "trajectoriesWithAllPolicies": 26,
+  "trajectoriesWherePoliciesDisagree": 244,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 423
+      "n": 425
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 240
+      "n": 241
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 183
+      "n": 184
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
@@ -33,15 +33,15 @@
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "REJECT",
-      "n": 19
+      "n": 21
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 423
+      "n": 425
     }
   ],
-  "riskFactsApplied": 1204,
+  "riskFactsApplied": 1212,
   "riskFactsChangedADecision": 2,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -63,9 +63,9 @@
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
+    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
     "treeDirty": true,
-    "dirtyFiles": 6,
-    "writtenUtc": "2026-08-21T01:09:09.521Z"
+    "dirtyFiles": 7,
+    "writtenUtc": "2026-08-21T01:17:42.921Z"
   }
 }

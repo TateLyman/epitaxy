@@ -5,12 +5,12 @@
   "verdict": "NOT_READY",
   "ready": false,
   "contract": {
-    "contractId": "contract-7346e383d6266fbb",
-    "contractHash": "7346e383d6266fbb7aa510f301bc58dea99e629d0e8c1bd60478b2f5ea237a76",
-    "evidenceContextId": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+    "contractId": "contract-53ebb78e388d8686",
+    "contractHash": "53ebb78e388d86865a57cc967862b551e919487b9b00a19b08a5070a63b64de2",
+    "evidenceContextId": "ctx-51217a92f2bb-DEV_WINDOW_5D24E",
     "contextValidity": "DEVELOPMENT_EVIDENCE",
-    "frozenUtcMs": 1787097305697,
-    "sourceCommit": "b51538d74e232908da0e186a667fa89f4ee8951c",
+    "frozenUtcMs": 1787274803343,
+    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
     "markSlaMs": 10000,
     "counterfactualContract": "counterfactual-v1 (bounded impact cap 10 bps)",
     "entryPolicies": [
@@ -257,9 +257,9 @@
   ],
   "provenance": {
     "writer": "trajectory-readiness.ts",
-    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
+    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
     "treeDirty": true,
-    "dirtyFiles": 10,
-    "writtenUtc": "2026-08-21T01:09:10.380Z"
+    "dirtyFiles": 11,
+    "writtenUtc": "2026-08-21T01:17:43.785Z"
   }
 }

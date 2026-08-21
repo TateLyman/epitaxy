@@ -1,7 +1,7 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 65824,
-  "sessionsNeverEnded": 34,
+  "activeSeconds": 59344,
+  "sessionsNeverEnded": 33,
   "sessionsFromDirtyTree": 1,
   "byKind": [
     {
@@ -13,61 +13,61 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 25136,
+      "n": 25145,
       "q": 53
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 7135,
+      "n": 7137,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 7135,
+      "n": 7137,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 3690,
+      "n": 3691,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "entityTierWalk",
-      "n": 848,
+      "n": 850,
       "q": 0
     },
     {
       "kind": "microstructure",
       "detail": "cache_hit",
-      "n": 213,
+      "n": 214,
       "q": 0
     },
     {
       "kind": "microstructure",
       "detail": "fetched",
-      "n": 47,
+      "n": 48,
       "q": 0
     }
   ],
-  "totalCalls": 138139,
-  "callsPerActiveSecond": 2.0986114487117162,
+  "totalCalls": 138157,
+  "callsPerActiveSecond": 2.3280702345645725,
   "quotaErrors": 53,
-  "trajectories": 715,
-  "trajectoriesPerActiveDay": 938.5026737967914,
+  "trajectories": 717,
+  "trajectoriesPerActiveDay": 1043.8932326772715,
   "recommendations": [
-    "53 quota refusal(s) at 2.10 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
+    "53 quota refusal(s) at 2.33 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
     "No Shreds, dedicated validator, colocation, archival node or Business infrastructure before a positive untouched edge exists."
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
+    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
     "treeDirty": true,
-    "dirtyFiles": 9,
-    "writtenUtc": "2026-08-21T01:09:10.142Z"
+    "dirtyFiles": 10,
+    "writtenUtc": "2026-08-21T01:17:43.552Z"
   }
 }

@@ -1,35 +1,21 @@
 {
-  "activeContext": "ctx-b51538d74e23-PROFIT_DISCOVERY_V1_R5",
+  "activeContext": "ctx-51217a92f2bb-DEV_WINDOW_5D24E",
   "slaMs": 10000,
   "activeContextByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 2,
-      "onTime": 2,
-      "missed": 0,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 180000,
-      "total": 2,
-      "onTime": 2,
-      "missed": 0,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 300000,
-      "total": 2,
-      "onTime": 2,
-      "missed": 0,
+      "total": 1,
+      "onTime": 0,
+      "missed": 1,
       "unclassified": 0
     }
   ],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 701,
+      "total": 702,
       "onTime": 337,
-      "missed": 72,
+      "missed": 73,
       "unclassified": 292
     },
     {
@@ -75,17 +61,17 @@
       "unclassified": 292
     }
   ],
-  "dueNow": 8,
-  "overdue": 8,
+  "dueNow": 1,
+  "overdue": 1,
   "nextWakeMs": 0,
-  "activeTotal": 6,
-  "activeMissedOrUnclassified": 0,
+  "activeTotal": 1,
+  "activeMissedOrUnclassified": 1,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "cf5ddac8dc2ff168fd6c98a3c2c151f6c987b0b0",
+    "sourceCommit": "51217a92f2bb76a2751662fda769eb5d0275c23b",
     "treeDirty": true,
-    "dirtyFiles": 5,
-    "writtenUtc": "2026-08-21T01:09:09.284Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-21T01:17:42.690Z"
   }
 }
