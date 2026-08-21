@@ -1,0 +1,34 @@
+MT120 — exit policy vs exit clock
+
+  FIT windows 1-12: 17,352 triggers
+  VALIDATION windows 13-18: 2,768 triggers
+
+FIT — windows 1-12
+  policy          n       median       MEAN   WINSOR-1%  WINSOR-5%  %positive  daysPos
+  fixed15s        16826    -0.403%     0.564%    -0.156%    -0.062%    44.8%     0
+  tp50_sl200      16875     0.519%     0.062%    -0.263%    -0.296%    52.5%     11
+  tp50_sl400      16869     0.643%    -0.024%    -0.349%    -0.388%    57.7%     12
+  tp100_sl200     16871    -0.032%     0.072%    -0.252%    -0.267%    49.8%     5
+  tp100_sl400     16865     1.064%    -0.009%    -0.334%    -0.363%    55.2%     12
+  tp200_sl200     16865    -0.531%     0.106%    -0.214%    -0.215%    45.8%     0
+  tp200_sl400     16859     0.298%     0.026%    -0.296%    -0.314%    51.2%     9
+
+VALIDATION — windows 13-18, six days pulled after MT118 reported
+  policy          n       median       MEAN   WINSOR-1%  WINSOR-5%  %positive  daysPos
+  fixed15s         2730    -0.384%     1.070%     0.225%     0.268%    43.9%     0
+  tp50_sl200       2735     0.296%    -0.201%    -0.307%    -0.388%    51.2%     4
+  tp50_sl400       2732     0.600%    -0.283%    -0.390%    -0.479%    56.5%     6
+  tp100_sl200      2735    -0.256%    -0.146%    -0.252%    -0.323%    48.3%     3
+  tp100_sl400      2732     0.921%    -0.219%    -0.325%    -0.400%    54.0%     6
+  tp200_sl200      2733    -0.608%    -0.057%    -0.189%    -0.238%    44.1%     0
+  tp200_sl400      2729    -0.005%    -0.112%    -0.244%    -0.311%    49.9%     2
+
+PREREGISTERED CONFIRMATIONS
+  (1) baseline reproduces MT117 near -0.48% ... PASS  (   -0.403%)
+  (2) best fit policy beats baseline on BOTH moments
+      best by mean: tp200_sl200   median    -0.531% vs    -0.403%   mean     0.106% vs     0.564%   -> FAIL
+  (3) SAME parameters on the six validation days
+      tp200_sl200   median    -0.608%   mean    -0.057%   daysPositive 0/6   baseline median    -0.384%
+
+  A rule that lifts the median while worsening the mean has MOVED the loss, not removed
+  it, and is a failure. A cell that passes fit and fails validation is closed, as MT119 was.
