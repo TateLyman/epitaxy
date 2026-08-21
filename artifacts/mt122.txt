@@ -1,0 +1,63 @@
+MT122 — conditioning sweep, 32 frozen cells, every one reported
+  fit 19,674 triggers   validation 3,062
+
+OFI x fixed15s
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,    -0.32)    4809    -0.533%    -1.789%    -1.964%   38.7%
+  [   -0.32,    -0.01)    4744    -0.483%    -0.101%    -0.770%   44.9%
+  [   -0.01,     0.29)    4806    -0.459%    -1.199%    -1.721%   45.4%
+  [    0.29, Infinity)    4868    -0.346%    -1.671%    -2.030%   45.6%
+
+OFI x tp100sl400
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,    -0.32)    4774    -0.290%    -0.973%    -1.048%   48.1%
+  [   -0.32,    -0.01)    4769     1.038%    -0.180%    -0.648%   54.4%
+  [   -0.01,     0.29)    4825     1.077%    -0.535%    -0.779%   55.5%
+  [    0.29, Infinity)    4867     1.088%    -0.861%    -0.937%   57.1%
+
+volatility x fixed15s
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,     0.01)    4865    -0.387%    -2.835%    -2.949%   44.8%
+  [    0.01,     0.02)    4875    -0.490%    -0.828%    -0.951%   43.5%
+  [    0.02,     0.04)    4846    -0.485%    -0.574%    -0.635%   43.5%
+  [    0.04, Infinity)    4641    -0.610%    -0.509%    -1.379%   42.7%
+
+volatility x tp100sl400
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,     0.01)    4824     1.054%    -1.130%    -1.030%   57.5%
+  [    0.01,     0.02)    4875     1.036%    -0.914%    -0.951%   54.8%
+  [    0.02,     0.04)    4841     1.000%    -0.714%    -0.666%   53.4%
+  [    0.04, Infinity)    4695    -0.143%     0.231%    -0.439%   49.4%
+
+activity x fixed15s
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,   116.00)    4717    -0.499%    -0.808%    -1.548%   40.7%
+  [  116.00,   564.00)    4784    -0.391%    -0.507%    -0.962%   44.8%
+  [  564.00,  2291.00)    4860    -0.451%    -1.059%    -1.193%   46.1%
+  [ 2291.00, Infinity)    4866    -0.531%    -2.382%    -2.561%   42.8%
+
+activity x tp100sl400
+  bucket                     n     median      mean    WINSORISED   %pos
+  [-Infinity,   116.00)    4752    -0.242%    -0.340%    -0.672%   47.6%
+  [  116.00,   564.00)    4789     0.872%    -0.352%    -0.853%   53.7%
+  [  564.00,  2291.00)    4852     1.114%    -0.769%    -0.804%   57.2%
+  [ 2291.00, Infinity)    4842     1.094%    -1.082%    -1.033%   56.6%
+
+hourUTC x fixed15s
+  bucket                     n     median      mean    WINSORISED   %pos
+  [0.00, 6.00)  n<50
+  [    6.00,    12.00)     232    -0.349%    -4.908%    -5.263%   47.4%
+  [   12.00,    18.00)   18995    -0.493%    -1.150%    -1.608%   43.6%
+  [18.00, 24.00)  n<50
+
+hourUTC x tp100sl400
+  bucket                     n     median      mean    WINSORISED   %pos
+  [0.00, 6.00)  n<50
+  [    6.00,    12.00)     233     1.071%    -1.699%    -1.779%   57.1%
+  [   12.00,    18.00)   19002     1.020%    -0.625%    -0.864%   53.8%
+  [18.00, 24.00)  n<50
+
+CELLS EXAMINED: 32
+CANDIDATES with a POSITIVE winsorised mean on fit: 0
+
+  NONE. The conditioning space this data supports is exhausted.
