@@ -5,43 +5,43 @@
     "SURVIVOR_FLOW_CONTINUATION_V1",
     "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
-  "trajectories": 823,
-  "decisionRows": 1725,
-  "trajectoriesWithAllPolicies": 132,
-  "trajectoriesWherePoliciesDisagree": 317,
+  "trajectories": 843,
+  "decisionRows": 1805,
+  "trajectoriesWithAllPolicies": 152,
+  "trajectoriesWherePoliciesDisagree": 333,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 531
+      "n": 551
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 304
+      "n": 316
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 227
+      "n": 235
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "ENTER",
-      "n": 29
+      "n": 36
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "REJECT",
-      "n": 103
+      "n": 116
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 531
+      "n": 551
     }
   ],
-  "riskFactsApplied": 1636,
+  "riskFactsApplied": 1716,
   "riskFactsChangedADecision": 2,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -50,22 +50,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 608
+      "n": 621
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 608
+      "n": 621
     }
   ],
-  "pairedPaths": 608,
-  "pathsWithDifferentTriggerOffsets": 165,
-  "challengerExitedEarlier": 9,
+  "pairedPaths": 621,
+  "pathsWithDifferentTriggerOffsets": 168,
+  "challengerExitedEarlier": 10,
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "b69fa007e53084209cf708cfb3f508c21565f67c",
+    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
     "treeDirty": true,
-    "dirtyFiles": 8,
-    "writtenUtc": "2026-08-21T17:12:05.990Z"
+    "dirtyFiles": 19,
+    "writtenUtc": "2026-08-21T20:52:39.551Z"
   }
 }

@@ -1,0 +1,117 @@
+1. VACUUM-consistent copy …
+   9,825,742,848 bytes
+
+2. worker exactness probe …
+   supplied
+
+3. command sweep …
+  ok    collector:list             exit=0
+  ok    collector:lock-status      exit=0
+  ok    evidence:graph-check       exit=0
+  ok    evidence:blob-check        exit=0
+  ok    trajectory:conflict-test   exit=0
+  ok    scheduler:status           exit=1
+  ok    policy:treatments-status   exit=0
+  ok    counterfactual:calibrate   exit=1
+  ok    cashback:status            exit=0
+  ok    rpc:usage                  exit=0
+  ok    readiness                  exit=1
+  ok    readiness:positions        exit=0
+  ok    landed:parity-v2           exit=1
+
+4. seed sweep against the copy …
+  ok    baseline                           NOT_READY
+  ok    200 losses                         NOT_READY
+  ok    a dirty artifact claiming READY    NOT_READY
+  ok    replay divergences present         NOT_READY
+
+5. the live collector pass (B-2, B-3, S-3) …
+   opened 0, marks 1, settled 0; restart PASS
+
+6. the ledger …
+
+active contract: contract-f9d8275d8794a989
+active context : ctx-9fcf99a201e1-DEV_WINDOW_5D24E
+claimed        : 54 invariant(s)
+
+PASS  A-1   the running collector is reproducible from its stamped commit
+PASS  A-2   the collector takes the process lock, so one writer owns the corpus
+PASS  B-1   trajectory:collect imports no signer or network-send code
+FAIL  B-2   a single --once pass opens a trajectory and writes current database rows
+FAIL  B-3   the same pass continues to later marks and settles at least one policy outcome
+FAIL  B-4   the corpus contains marks taken at their horizon rather than backfilled
+PASS  C-1   every link in the trace is a foreign key or a checked immutable identity
+PASS  C-2   the entry identity columns are foreign keys across the whole corpus
+PASS  C-3   snapshot_hash commits to the captured state, and capability_fingerprint to the capability
+PASS  C-4   every economic amount is recomputable from raw pre/post state stored against the trajectory
+PASS  D-1   the direct lane rejects a routed or split entry
+PASS  D-2   mutating one vault delta breaks reconciliation
+PASS  E-1   capture, execution and fingerprint all describe one build
+PASS  E-2   the exit plan is frozen from the bytes the sell executed
+PASS  E-3   a rebuild dependency is detected rather than assumed absent
+PASS  E-4   the April 2026 fee-recipient accounts and account ordering match the installed SDK
+PASS  F-1   u64 lamports and rentEpoch boundary values survive the worker exactly
+PASS  F-2   a negative i64 timestamp is carried exactly or refused by a domain constraint
+PASS  F-3   re-init clears known accounts, changes the instance id and keeps sysvars exact
+PASS  F-4   a timeout never mis-pairs a later response with an earlier request
+PASS  F-5   an init between a quote and an execution is detectable
+PASS  F-6   the job output bound is enforced and is job-scoped
+SKIP  F-7   a 0.04 SOL round trip completes under the output limit
+PASS  G-1   each required mutation between quote and sell breaks equality or invalidates the job
+PASS  G-2   no successful trajectory carries required incompleteness or unobserved accounts
+PASS  H-1   every created account carries owner, space, rent, payer, recoverability and scope
+PASS  H-2   the recurring mechanics surface excludes one-time shared setup rent
+SKIP  H-3   cold, prewarmed-nonprice and repeat runs exist for one original price snapshot
+SKIP  H-4   a primary warm trajectory refuses creation of a shared non-user account
+PASS  I-1   both legs accrue, measured rather than asserted
+PASS  I-2   omitted or misordered cashback accounts refuse before the leg runs
+PASS  I-3   accrued is not cash; claimable is measured from account state; claimed enters PnL once
+SKIP  I-4   amortisation changes allocated cost and one-time accumulator setup is classified
+PASS  J-1   the selected tier is a function of market cap, not of quote reserve
+PASS  J-2   a market cap below the first threshold is charged the first tier, not nothing
+PASS  J-3   the fee-config hash and the selected tier are bound to the trajectory
+PASS  J-4   the selected tier matches the official SDK fee result
+PASS  K-1   each settlement component enters exactly once and a mutation is visible
+PASS  K-2   the payer identity closes, or net PnL is withheld
+PASS  K-3   the trajectory, the settlement, the policy outcome and the report agree exactly
+PASS  L-1   every append-only ambiguity fails LOUDLY
+PASS  M-1   a bounded future trajectory and a full event replay exist for the same entry, and their errors are compared
+PASS  M-2   no policy outcome rests on a later mainnet quote without a bounded or replayed contract
+PASS  N-1   the policies are genuinely different treatments over one shared path
+PASS  N-2   one shared path is evaluated by ALL entry policies, and the label is not attached after a common decision
+PASS  N-3   the two exit policies are evaluated on the SAME path and can disagree on it
+PASS  O-1   agent flow does not count as independent breadth, and unknown contamination is not organic
+PASS  O-2   entity-adjusted concentration alters an actual entry decision on a counterexample
+SKIP  O-3   the currently disclosed Mayhem agent wallet and program are the ones this tree uses
+PASS  P-1   subscriptions are exact accounts, a pool PDA is refused by the token decoder, and the unwatch uses stored addresses
+SKIP  P-2   a material update is delivered, queued urgently, consumed, and survives a disconnect and resync
+PASS  Q-1   no named command aliases an unrelated script, emits placeholder zeroes, reads a proof artifact as database evidence, exits zero while saying not implemented, or overwrites another command's artifact
+PASS  R-1   the default pnpm readiness reads ONE database-stamped exact trajectory contract
+PASS  R-2   no seeded corpus passes the gate
+PASS  R-3   a development result cannot satisfy a real-canary gate
+PASS  S-1   a restart resumes without duplicate candidates
+PASS  S-2   a restart resumes without duplicate marks or lost policy state
+PASS  S-3   the collector was stopped and restarted with open trajectories and resumed correctly
+PASS  S-4   the run was long enough to produce actual 1m, 5m and 15m marks in the current context
+
+PASS 50   FAIL 3   NOT TESTABLE 0   OUT OF SCOPE 6
+
+blocking, in the ACTIVE CONTRACT:
+  FAIL  B-2  a single --once pass opens a trajectory and writes current database rows
+  FAIL  B-3  the same pass continues to later marks and settles at least one policy outcome
+  FAIL  B-4  the corpus contains marks taken at their horizon rather than backfilled
+
+independently recomputed trajectories: 10 (0 failure(s)) — 10 with zero failures are required
+terminal state: MEASUREMENT_REPAIR_REQUIRED
+wrote artifacts/runtime-adversarial-audit-9fcf99a.json
+wrote artifacts/runtime-trajectory-trace-5a86cd7a.json
+bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+(node:25416) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Command failed: C:\Program Files\nodejs\node.exe C:\Users\lyman\tradseee\node_modules\tsx\dist\cli.mjs scripts/runtime-adversarial-audit.ts
+bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+(node:25416) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+(node:6468) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
