@@ -40,6 +40,16 @@
 > protects against fitting the conclusion; it does not protect against an instrument biased in a
 > profitable direction. Probe the instrument on a schedule, not when a result surprises you.
 >
+> **PRECISELY WHAT `MT127` DOES AND DOES NOT COVER.** It tests the *hold window* with a
+> momentum-style trigger — a 5% up-move impact event — not the incumbent's full screen, which
+> also carries scoring and risk gates. Two things make it bite anyway. First, `config/canary.json`
+> sets `minHoldMs` 60,000 and `maxHoldMs` 1,800,000, so the configured hold window is *bracketed*
+> by the 120s/300s/600s/1800s horizons measured here. Second, the result is negative at **every**
+> horizon rather than at some, so no choice of hold inside the configured range escapes it. What
+> remains formally untested is whether the incumbent's screen selects a subpopulation on which
+> the same holds are positive — that is what `MT101` and `MT104` were preregistered to answer and
+> still have not.
+>
 > **`MT126` separately closes hour-of-day**, the last conditioner `MT122` left open. `MT122` had
 > disclosed that it never actually tested it — 19,002 of 19,674 triggers fell in one bucket
 > because every window was a fixed offset from one head slot. Eight windows staggered ~3h apart
