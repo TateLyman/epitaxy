@@ -12,33 +12,48 @@
       "mode": "observe",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 162011041,
+      "ageMs": 176331635,
       "pidAlive": false,
       "program": "apps/collector/src/main.ts"
     },
     {
       "lock_name": "engine",
-      "pid": 35036,
+      "pid": 25488,
       "hostname": "TATE",
-      "acquired_utc_ms": 1786737240038,
-      "heartbeat_utc_ms": 1786772646724,
+      "acquired_utc_ms": 1787270118389,
+      "heartbeat_utc_ms": 1787274354666,
       "mode": "paper",
       "source_commit": null,
       "command_line": null,
-      "ageMs": 487387579,
-      "pidAlive": false,
+      "ageMs": 231,
+      "pidAlive": true,
       "program": "unknown"
+    },
+    {
+      "lock_name": "trajectory_collector",
+      "pid": 16380,
+      "hostname": "TATE",
+      "acquired_utc_ms": 1787272511128,
+      "heartbeat_utc_ms": 1787274117545,
+      "mode": "observe",
+      "source_commit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
+      "command_line": "C:\\Program Files\\nodejs\\node.exe C:\\Users\\lyman\\tradseee\\apps\\collector\\src\\trajectory-collect.ts --mode=observe",
+      "ageMs": 237352,
+      "pidAlive": false,
+      "program": "apps/collector/src/trajectory-collect.ts"
     }
   ],
   "recentSessions": [],
   "lockIsAuthoritative": true,
-  "singleOwner": true,
-  "problems": [],
+  "singleOwner": false,
+  "problems": [
+    "the trajectory_collector lock names a dead pid"
+  ],
   "provenance": {
     "writer": "collector-ops.ts",
-    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
+    "sourceCommit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-20T21:07:14.585Z"
+    "dirtyFiles": 3,
+    "writtenUtc": "2026-08-21T01:05:55.185Z"
   }
 }

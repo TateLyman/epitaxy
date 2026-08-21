@@ -27,51 +27,51 @@
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
-      "total": 692,
-      "onTime": 334,
-      "missed": 66,
+      "total": 701,
+      "onTime": 337,
+      "missed": 72,
       "unclassified": 292
     },
     {
       "offsetMs": 180000,
-      "total": 400,
-      "onTime": 372,
-      "missed": 28,
+      "total": 408,
+      "onTime": 374,
+      "missed": 34,
       "unclassified": 0
     },
     {
       "offsetMs": 300000,
-      "total": 664,
-      "onTime": 314,
-      "missed": 58,
+      "total": 672,
+      "onTime": 317,
+      "missed": 63,
       "unclassified": 292
     },
     {
       "offsetMs": 600000,
-      "total": 363,
-      "onTime": 323,
-      "missed": 40,
+      "total": 369,
+      "onTime": 326,
+      "missed": 43,
       "unclassified": 0
     },
     {
       "offsetMs": 900000,
-      "total": 633,
-      "onTime": 273,
-      "missed": 68,
+      "total": 638,
+      "onTime": 277,
+      "missed": 69,
       "unclassified": 292
     },
     {
       "offsetMs": 1800000,
-      "total": 589,
-      "onTime": 242,
-      "missed": 55,
+      "total": 594,
+      "onTime": 246,
+      "missed": 56,
       "unclassified": 292
     },
     {
       "offsetMs": 3600000,
-      "total": 521,
+      "total": 522,
       "onTime": 181,
-      "missed": 48,
+      "missed": 49,
       "unclassified": 292
     }
   ],
@@ -83,9 +83,9 @@
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
+    "sourceCommit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-20T21:07:19.354Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-21T01:06:04.455Z"
   }
 }

@@ -5,38 +5,43 @@
     "SURVIVOR_FLOW_CONTINUATION_V1",
     "MIGRATION_MICROSTRUCTURE_RISK_V1"
   ],
-  "trajectories": 705,
-  "decisionRows": 1253,
-  "trajectoriesWithAllPolicies": 14,
-  "trajectoriesWherePoliciesDisagree": 238,
+  "trajectories": 715,
+  "decisionRows": 1293,
+  "trajectoriesWithAllPolicies": 24,
+  "trajectoriesWherePoliciesDisagree": 243,
   "decisionsByPolicy": [
     {
       "entry_policy": "CORRECTED_CURRENT_QUALITY_SCORE",
       "decision": "REJECT",
-      "n": 413
+      "n": 423
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "ENTER",
-      "n": 238
+      "n": 240
     },
     {
       "entry_policy": "HARD_GATES_RANDOM",
       "decision": "REJECT",
-      "n": 175
+      "n": 183
+    },
+    {
+      "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
+      "decision": "ENTER",
+      "n": 5
     },
     {
       "entry_policy": "MIGRATION_MICROSTRUCTURE_RISK_V1",
       "decision": "REJECT",
-      "n": 14
+      "n": 19
     },
     {
       "entry_policy": "SURVIVOR_FLOW_CONTINUATION_V1",
       "decision": "REJECT",
-      "n": 413
+      "n": 423
     }
   ],
-  "riskFactsApplied": 1164,
+  "riskFactsApplied": 1204,
   "riskFactsChangedADecision": 2,
   "exitPoliciesDefined": [
     "FIXED_15M_CONTROL",
@@ -45,22 +50,22 @@
   "outcomesByPolicy": [
     {
       "exit_policy": "FIXED_15M_CONTROL",
-      "n": 521
+      "n": 522
     },
     {
       "exit_policy": "FLOW_LIQUIDITY_DETERIORATION_V1",
-      "n": 521
+      "n": 522
     }
   ],
-  "pairedPaths": 521,
+  "pairedPaths": 522,
   "pathsWithDifferentTriggerOffsets": 129,
   "challengerExitedEarlier": 5,
   "verdict": "TREATMENTS_WIRED",
   "provenance": {
     "writer": "policy-treatments-status.ts",
-    "sourceCommit": "637f7688df9899443326119b5edec92304ef64b9",
+    "sourceCommit": "9de8e1a827f78200c653c54d0aaca84602aafd55",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-20T21:07:19.585Z"
+    "dirtyFiles": 7,
+    "writtenUtc": "2026-08-21T01:06:04.691Z"
   }
 }
