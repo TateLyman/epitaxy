@@ -95,6 +95,12 @@ for (const job of jobs) {
           // `user` is what makes a wallet-selected entry testable at all: without it the tape
           // records that a buy happened and not WHO bought, and MT101/MT104 are both wallet tests.
           t.user,
+          // Field 14. The DECODED base leg. Do not be tempted to recover this from the reserve
+          // chain instead: baseAfter(i) == baseBefore(i+1) holds only when nothing but a trade
+          // happened in between, and MT106 recorded that liquidity deposits and withdrawals move
+          // reserves for reasons that are not trades. Inferring it produced phantom balances and
+          // a venue-wide profit of +1,075,843 SOL, which is arithmetically impossible.
+          t.baseAmount.toString(),
         ]) + '\n');
         kept += 1;
       }
