@@ -14,7 +14,8 @@
     "ctx-51217a92f2bb-DEV_WINDOW_5D24E",
     "ctx-b6b6053ca7c7-DEV_WINDOW_5D24E",
     "ctx-b69fa007e530-DEV_WINDOW_5D24E",
-    "ctx-9fcf99a201e1-DEV_WINDOW_5D24E"
+    "ctx-9fcf99a201e1-DEV_WINDOW_5D24E",
+    "ctx-4f489fc5d8b3-CALIBRATION_V1"
   ],
   "trajectoriesInScope": 177,
   "checks": [
@@ -103,9 +104,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
+    "sourceCommit": "4f489fc5d8b33a8e50a6f486724351b09b3eacab",
     "treeDirty": true,
-    "dirtyFiles": 1,
-    "writtenUtc": "2026-08-22T03:57:56.008Z"
+    "dirtyFiles": 13,
+    "writtenUtc": "2026-08-22T04:14:18.068Z"
   }
 }

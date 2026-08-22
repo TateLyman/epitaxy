@@ -7,9 +7,9 @@
   "toleranceBps": 200,
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
+    "sourceCommit": "4f489fc5d8b33a8e50a6f486724351b09b3eacab",
     "treeDirty": true,
-    "dirtyFiles": 6,
-    "writtenUtc": "2026-08-22T03:58:03.682Z"
+    "dirtyFiles": 13,
+    "writtenUtc": "2026-08-22T04:14:24.757Z"
   }
 }

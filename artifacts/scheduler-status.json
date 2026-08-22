@@ -1,57 +1,7 @@
 {
-  "activeContext": "ctx-9fcf99a201e1-DEV_WINDOW_5D24E",
+  "activeContext": "ctx-4f489fc5d8b3-CALIBRATION_V1",
   "slaMs": 10000,
-  "activeContextByHorizon": [
-    {
-      "offsetMs": 60000,
-      "total": 20,
-      "onTime": 17,
-      "missed": 3,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 180000,
-      "total": 20,
-      "onTime": 17,
-      "missed": 3,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 300000,
-      "total": 20,
-      "onTime": 17,
-      "missed": 3,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 600000,
-      "total": 17,
-      "onTime": 16,
-      "missed": 1,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 900000,
-      "total": 17,
-      "onTime": 16,
-      "missed": 1,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 1800000,
-      "total": 16,
-      "onTime": 14,
-      "missed": 2,
-      "unclassified": 0
-    },
-    {
-      "offsetMs": 3600000,
-      "total": 13,
-      "onTime": 11,
-      "missed": 2,
-      "unclassified": 0
-    }
-  ],
+  "activeContextByHorizon": [],
   "corpusByHorizon": [
     {
       "offsetMs": 60000,
@@ -103,17 +53,17 @@
       "unclassified": 292
     }
   ],
-  "dueNow": 17,
-  "overdue": 17,
-  "nextWakeMs": 0,
-  "activeTotal": 123,
-  "activeMissedOrUnclassified": 15,
-  "verdict": "SLA_BREACHED",
+  "dueNow": 0,
+  "overdue": 0,
+  "nextWakeMs": 3000,
+  "activeTotal": 0,
+  "activeMissedOrUnclassified": 0,
+  "verdict": "NO_MARKS_YET",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
+    "sourceCommit": "4f489fc5d8b33a8e50a6f486724351b09b3eacab",
     "treeDirty": true,
-    "dirtyFiles": 4,
-    "writtenUtc": "2026-08-22T03:58:03.146Z"
+    "dirtyFiles": 13,
+    "writtenUtc": "2026-08-22T04:14:24.269Z"
   }
 }
