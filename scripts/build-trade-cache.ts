@@ -91,6 +91,10 @@ for (const job of jobs) {
           t.poolBaseReservesBefore.toString(), t.poolQuoteReservesBefore.toString(),
           t.quoteAmount.toString(), t.userQuoteAmount.toString(),
           Number(t.lpFeeBasisPoints), Number(t.protocolFeeBasisPoints), Number(t.coinCreatorFeeBasisPoints),
+          // Field 13, APPENDED so every existing consumer that indexes 0-12 is unaffected.
+          // `user` is what makes a wallet-selected entry testable at all: without it the tape
+          // records that a buy happened and not WHO bought, and MT101/MT104 are both wallet tests.
+          t.user,
         ]) + '\n');
         kept += 1;
       }

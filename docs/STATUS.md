@@ -1,5 +1,48 @@
 # STATUS
 
+> **2026-08-21 (LATEST) — Wallet selection does not rescue the horizon either.
+> State: `SELECTION_TESTED_AND_NEGATIVE: NO_MECHANISM_FAMILY_REMAINS_UNTESTED`.**
+>
+> Ledger rows `MT128`, `MT128-RESULT`. Read-only. Nothing proposed, funded or signed.
+>
+> **`MT127` left exactly one thing open: whether a different SELECTION rule picks a subpopulation
+> on which the incumbent holds are positive.** `MT101` and `MT104` were both preregistered to
+> answer that; MT101 died on a polled source returning zero buys in 39 minutes, MT104 needed
+> 6–25 days of prospective collection plus a Dune query and was never started.
+>
+> **The instrument turned out to be free and already on disk.** The PumpSwap trade event carries
+> `user` at byte offset 152, so every buy in the backfill names its buyer. Adding that one field
+> to the trade cache (field 13, appended so existing consumers are unaffected) converted a 25-day
+> prospective experiment into arithmetic. Feasibility was measured before preregistering: 41.8% of
+> wallets rankable on one day still trade 17 days later, which independently matches `MT073`'s
+> separately-measured 36.7–46.6% monthly vanish rate.
+>
+> **`MT128` ranks wallets on the nine older days and measures them on the nine newer ones**, with
+> decile 10 as a within-experiment control — chosen because `MT127-DEFECT` showed a cost model
+> wrong in the cheap direction manufactures an edge the size of its error, and a *difference*
+> between two arms priced identically is immune to that where a *level* is not.
+>
+> **NOT SUPPORTED — both frozen tests fail.** Decile 1 loses **8.695%** at 600s with a 95%
+> day-clustered CI of **[−11.887%, −5.586%]**, entirely below zero. The paired gradient is +59.055
+> points but its CI spans **[−97.0%, +89.6%]**: nine holdout days is below the ten-cluster floor
+> `MT108` already set, and decile 10 appears on only four of them.
+>
+> **I do not get to claim my own prediction.** I predicted a real gradient with both arms below
+> cost. The level half is confirmed; the gradient half is *not established*. The point estimates
+> are close to monotone across ten cells — %positive runs 64.6, 75.7, 66.7, 50.8, 32.7, 33.9,
+> 33.0, 29.6, 29.1, 15.8 — but the preregistered test on that gradient failed, and a point
+> estimate whose interval spans −97 to +90 is not evidence.
+>
+> **The structure is the useful part.** Decile 1 wins 64.6% of the time with a median of +1.253%
+> and still loses on the mean: a high win rate with a catastrophic left tail. That is the exact
+> mirror of `MT127`, where momentum entries won 37–39% with the mean carried by the top 1%. Two
+> opposite payoff shapes, both negative, failing in opposite directions — and neither can rescue
+> the other, because each is negative alone.
+>
+> **What must NOT be read off that table:** deciles 2 and 3 have positive winsorised means
+> (+1.054%, +0.168%). Two positive cells out of ten examined, neither the frozen treatment arm.
+> Recorded as observed, explicitly **not** candidates.
+
 > **2026-08-21 (LATEST) — The incumbent strategy's own window is measured, and it is negative.
 > State: `INCUMBENT_WINDOW_CLOSED_NEGATIVE: GATE_WAS_CERTIFYING_AN_UNMEASURED_STRATEGY`.**
 >
