@@ -188,16 +188,29 @@ for (const [pool, evsRaw] of evsOf) {
 }
 console.log(`  ${paths.length} priced mark paths`);
 
-/** Book the position at the ACTUAL mark of the crossing trade, so a gap is charged in full. */
-function run(up: number, down: number, cap: number): { out: number[]; hitUp: number; hitDn: number; none: number } {
+/**
+ * Book the position at the ACTUAL mark of the crossing trade, so a gap is charged in full.
+ *
+ * EXIT DELAY IS THE AXIS THAT DECIDES THIS. A barrier strategy is a promise to act on an observed
+ * price, and acting requires seeing the cross and landing a transaction — at least one slot later
+ * and in practice several trades later on an active pool. `lag` books the exit not at the crossing
+ * trade but at the Nth trade after it, which is the honest version of the same strategy. Every
+ * previous positive result in this programme died in exactly this gap: MT144 found the reversion
+ * gone inside one slot, and MT157 watched the delay-4 median fall from +317 to +76 by delay 8.
+ */
+function run(up: number, down: number, cap: number, lag = 0): { out: number[]; hitUp: number; hitDn: number; none: number } {
   const out: number[] = []; let hu = 0; let hd = 0; let nn = 0;
+  const book = (p: Path, i: number): number => {
+    const j = Math.min(i + lag, p.mark.length - 1);
+    return p.mark[j] as number;
+  };
   for (const p of paths) {
     let done = false;
     for (let i = 0; i < p.mark.length; i += 1) {
       const t = p.ts[i] as number; const m = p.mark[i] as number;
       if (t > cap) break;
-      if (m >= up) { out.push(m); hu += 1; done = true; break; }
-      if (m <= -down) { out.push(m); hd += 1; done = true; break; }
+      if (m >= up) { out.push(book(p, i)); hu += 1; done = true; break; }
+      if (m <= -down) { out.push(book(p, i)); hd += 1; done = true; break; }
     }
     if (done) continue;
     let last = NaN;
@@ -235,5 +248,55 @@ for (const [u, dn] of ASYMMETRIC) {
   }
 }
 console.log('');
-console.log('  Exit is booked at the observed crossing trade, so this is an UPPER BOUND: a real stop');
-console.log('  needs a slot or more to observe and land. Refine only if the upper bound is positive.');
+console.log('EXECUTION LATENCY — the same +/-3000 barrier, booked N trades AFTER the cross.');
+console.log('  This is the honest version: seeing a barrier break and acting on it are not the same event.');
+console.log('  lag   cap      n   up first  down first   mean bps   median   %pos   E[log growth]');
+for (const lag of [0, 1, 2, 4]) {
+  for (const cap of CAPS_S) {
+    const r = run(3000, 3000, cap, lag);
+    if (r.out.length < 30) continue;
+    const g = mean(r.out.map((x) => Math.log(Math.max(1e-6, 1 + x / 1e4))));
+    console.log(
+      `  ${String(lag).padStart(3)} ${(cap + 's').padStart(6)} ${String(r.out.length).padStart(6)} ${String(r.hitUp).padStart(10)} ${String(r.hitDn).padStart(11)} ${mean(r.out).toFixed(0).padStart(10)} ${med(r.out).toFixed(0).padStart(8)} ${(100 * r.out.filter((x) => x > 0).length / r.out.length).toFixed(1).padStart(6)}% ${g.toFixed(4).padStart(15)}`,
+    );
+  }
+}
+/**
+ * FRACTIONAL SIZING. Expected log growth at FULL stake is the growth rate of a bankroll that bets
+ * everything each time, and on a distribution with near-total losses in its left tail that is
+ * almost always negative even when the mean is positive - the logarithm punishes ruin without
+ * mercy. The question a bankroll actually faces is whether some SMALLER fraction grows.
+ *
+ * g(f) = E[log(1 + f*x)] over the realised outcomes. If g is negative for every f in (0,1], the
+ * edge cannot be compounded at any size and the positive mean is not usable. If it peaks at some
+ * f*, that f* is the Kelly fraction and the peak is the achievable growth rate per trade.
+ *
+ * HALF-KELLY IS REPORTED ALONGSIDE because full Kelly on an estimated edge, from 89 observations
+ * with a fat left tail, is not a real-world stake - the estimate error alone would overbet it.
+ */
+function growthAt(out: number[], f: number): number {
+  let s2 = 0;
+  for (const x of out) s2 += Math.log(Math.max(1e-9, 1 + f * (x / 1e4)));
+  return s2 / out.length;
+}
+console.log('');
+console.log('FRACTIONAL SIZING — is there ANY stake at which this compounds?');
+console.log('  lag   cap      n   full-stake g   best f    g(f*)    g(f*/2)   verdict');
+for (const lag of [0, 1, 2, 4]) {
+  for (const cap of CAPS_S) {
+    const r = run(3000, 3000, cap, lag);
+    if (r.out.length < 30) continue;
+    let bestF = 0; let bestG = 0;
+    for (let f = 0.01; f <= 1.0001; f += 0.01) {
+      const g = growthAt(r.out, f);
+      if (g > bestG) { bestG = g; bestF = f; }
+    }
+    const full = growthAt(r.out, 1);
+    const half = bestF > 0 ? growthAt(r.out, bestF / 2) : 0;
+    console.log(
+      `  ${String(lag).padStart(3)} ${(cap + 's').padStart(6)} ${String(r.out.length).padStart(6)} ${full.toFixed(4).padStart(14)} ${(bestF > 0 ? bestF.toFixed(2) : '-').padStart(8)} ${(bestF > 0 ? bestG.toFixed(4) : '-').padStart(9)} ${(bestF > 0 ? half.toFixed(4) : '-').padStart(10)}   ${bestF > 0 ? 'compounds at f=' + bestF.toFixed(2) : 'NO STAKE COMPOUNDS'}`,
+    );
+  }
+}
+console.log('');
+console.log('  A positive mean with negative growth at every f is an edge that cannot be held.');
