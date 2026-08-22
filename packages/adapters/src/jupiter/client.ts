@@ -287,7 +287,7 @@ export class JupiterClient {
         }))),
         routeLabels: (b.routePlan ?? []).map((r) => r.swapInfo.label ?? r.swapInfo.ammKey.slice(0, 8)),
         blockhash,
-        lastValidBlockHeight: b.lastValidBlockHeight ?? bh?.lastValidBlockHeight ?? null,
+        lastValidBlockHeight: numericHeight(b.lastValidBlockHeight) ?? numericHeight(bh?.lastValidBlockHeight) ?? null,
         expireAt: expireAtNum !== null && Number.isFinite(expireAtNum) ? expireAtNum : null,
         contextSlot: b.contextSlot ?? null,
         rawBody: res.rawBody,
@@ -512,6 +512,28 @@ function base58FromBytes(bytes: readonly number[]): string {
     out = '1' + out;
   }
   return out;
+}
+
+/**
+ * `lastValidBlockHeight` arrives as a NUMBER or as a decimal STRING depending on the endpoint,
+ * and the drift is live — a string here once made `buildSignableOrder` throw on every call, which
+ * meant the executor could not place any order at all.
+ *
+ * The schema accepts both shapes WITHOUT a transform on purpose. A `z.transform` would make the
+ * schema's input and output types diverge, and every call site that passes a parsed body onward
+ * then fails to typecheck. Normalising here keeps one shape in the schema and one number in the
+ * domain.
+ *
+ * `z.coerce.number()` is deliberately NOT used: it maps a malformed string to NaN, and a NaN block
+ * height would sail through as a number and expire nothing. The regex in the schema has already
+ * refused anything that is not decimal digits, so a value reaching here is either a real number or
+ * a string of digits; anything else becomes null and fails closed.
+ */
+function numericHeight(v: number | string | null | undefined): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function toExecutableQuote(

@@ -78,7 +78,7 @@ for (const entry of MINTS) {
     costs.push(1e4 * (1 - Number(b.out) / Number(N)));
     routes.push(`${a.labels.join('>')} | back ${b.labels.join('>')}${a.priceImpactPct !== null ? ` | impact ${(100 * a.priceImpactPct).toFixed(2)}%` : ''}`);
   }
-  const small = costs[0]; const big = costs[1];
+  const small = costs[0] ?? null; const big = costs[1] ?? null;
   const verdict = small === null || big === null ? 'incomplete'
     : Math.abs(small - big) < 30 ? 'FIXED CHARGE — size-invariant'
     : small < big ? 'OUR OWN IMPACT — falls with size'

@@ -95,7 +95,7 @@ export const OrderResponseSchema = z
      * A union rather than a coercion on purpose: `z.coerce.number()` would silently turn a
      * malformed string into NaN, and a block height we cannot read is not a block height.
      */
-    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
+    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/)]).nullish(),
     expireAt: z.union([z.string(), z.number()]).nullish(),
     taker: z.string().nullish(),
     gasless: z.boolean().optional(),
@@ -276,13 +276,13 @@ export const BuildResponseSchema = z
     blockhashWithMetadata: z
       .object({
         blockhash: z.union([z.string(), z.array(z.number())]).nullish(),
-        lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
+        lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/)]).nullish(),
       })
       .passthrough()
       .nullish(),
     contextSlot: z.number().nullish(),
     expireAt: z.union([z.string(), z.number()]).nullish(),
-    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
+    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/)]).nullish(),
     requestId: z.string().nullish(),
     router: z.string().nullish(),
     errorCode: z.number().nullish(),

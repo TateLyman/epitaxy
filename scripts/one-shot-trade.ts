@@ -64,10 +64,28 @@ console.log('');
 // ---- candidate selection: liquid and cheap, which is the opposite of what MT135 found losing ----
 const { DatabaseSync } = await import('node:sqlite');
 const db = new DatabaseSync('data/runtime.db', { readOnly: true });
-const mints = (db.prepare(
+/**
+ * MT137 / MT155 — WHY THE DEFAULT CANDIDATE SOURCE IS WRONG AND `--mint=` EXISTS.
+ *
+ * The `quotes` table looks like the liquid set, and that was the reasoning when this script was
+ * written. It is not. The collector screens `minTokenAgeMs: 120000, maxTokenAgeMs: 3600000`, so
+ * the table contains ONLY tokens between two minutes and one hour old — which is exactly the
+ * 1.25%-a-leg fee bracket and exactly the population MT135 measured collapsing 80% of the time.
+ * Every live fill in this repository's history came from here.
+ *
+ * MT155 then found the fee bracket is not the operative quantity anyway: the ROUTE sets the cost.
+ * Any Pump.fun AMM route fills at about 270-290 bps a round trip whatever the pool's own charge,
+ * while a Meteora DLMM route on the same size fills at 36. So a candidate has to be named and its
+ * route measured, not drawn from a table whose contents were decided by an unrelated screen.
+ *
+ * `--mint=` names one. The default path is kept, unchanged, for reproducing what was run before.
+ */
+const explicit = arg('mint');
+const mints = explicit !== null ? [explicit] : (db.prepare(
   `SELECT mint FROM quotes WHERE side='buy' AND out_amount IS NOT NULL
     GROUP BY mint ORDER BY MAX(requested_utc_ms) DESC LIMIT ${Number(arg('scan') ?? '10')}`).all() as { mint: string }[]).map((r) => r.mint);
 db.close();
+if (explicit !== null) console.log(`  candidate named explicitly: ${explicit}`);
 
 const JH: Record<string, string> = secrets.jupiterApiKey ? { 'x-api-key': secrets.jupiterApiKey } : {};
 async function quoteOut(inMint: string, outMint: string, amount: bigint): Promise<bigint | null> {
