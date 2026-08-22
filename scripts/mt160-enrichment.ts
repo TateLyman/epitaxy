@@ -177,8 +177,8 @@ for (const tag of ['A', 'B', 'S', 'C']) {
   const rets = rows.map((r) => r.ret);
   const t1 = quantile(rets, 0.99);
   const t10 = quantile(rets, 0.90);
-  const isTop1 = rows.map((r) => (r.ret >= t1 ? 1 : 0));
-  const isTop10 = rows.map((r) => (r.ret >= t10 ? 1 : 0));
+  const isTop1: number[] = rows.map((r) => (r.ret >= t1 ? 1 : 0));
+  const isTop10: number[] = rows.map((r) => (r.ret >= t10 ? 1 : 0));
   const K = isTop1.reduce((a, b) => a + b, 0);
 
   /** The model's top decile. */
@@ -211,7 +211,7 @@ for (const tag of ['B', 'S']) {
   if (rows.length === 0) continue;
   const rets = rows.map((r) => r.ret);
   const t1 = quantile(rets, 0.99);
-  const isTop1 = rows.map((r) => (r.ret >= t1 ? 1 : 0));
+  const isTop1: number[] = rows.map((r) => (r.ret >= t1 ? 1 : 0));
   const K = isTop1.reduce((a, b) => a + b, 0);
   const nDraw = Math.max(1, Math.round(0.10 * rows.length));
   const caps: number[] = [];
