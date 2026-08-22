@@ -46,6 +46,22 @@ const HOLD_S = Number(arg('hold-s') ?? '15');
 const SCAN = Number(arg('scan') ?? '5');
 /** Stop the whole loop if cumulative loss reaches this, whatever the round count says. */
 const STOP_LOSS_LAMPORTS = BigInt(arg('stop-loss') ?? '12000000');
+/**
+ * WHICH UNIVERSE TO DRAW FROM, and this is the whole experiment now.
+ *
+ * `collector` reads the local quotes table. MT137 found that table contains NOTHING but tokens
+ * two minutes to one hour old, because the collector screens on minTokenAgeMs 120,000 and
+ * maxTokenAgeMs 3,600,000 — so selecting "liquid, actively quoted" candidates from it was
+ * selecting the cheapest member of the population MT135 measured at an 80% collapse rate. Four
+ * live rounds lost 15 to 32 percent each, which is what that population does.
+ *
+ * `established` draws from Jupiter's top-traded list instead. The argument is SIGNAL TO NOISE, not
+ * safety: on a first-hour memecoin the 25-second price noise is tens of percent and swamps any
+ * edge worth 25 bps, so no number of rounds could ever measure one. On an established token the
+ * round trip costs about 23 bps (MT136) and the noise is a fraction of a percent, which makes an
+ * edge of that size detectable at all. Same capital, far more information per lamport.
+ */
+const UNIVERSE = arg('universe') ?? 'collector';
 
 const config = loadConfig(modeFromArgv(process.argv));
 const secrets = loadSecrets();
@@ -184,12 +200,29 @@ async function sweepRent(round: number): Promise<bigint> {
   return recovered;
 }
 
+/** Top-traded mints over 24h, excluding SOL itself and anything not on a standard token program. */
+async function establishedUniverse(limit: number): Promise<string[]> {
+  try {
+    const res = await fetch(`https://lite-api.jup.ag/tokens/v2/toptraded/24h?limit=${limit * 4}`, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { id?: string; symbol?: string; tokenProgram?: string }[];
+    const out: string[] = [];
+    for (const t of j) {
+      if (t.id === undefined || t.id === WSOL) continue;
+      if (t.tokenProgram !== undefined && !TOKEN_PROGRAMS.includes(t.tokenProgram)) continue;
+      out.push(t.id);
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch { return []; }
+}
+
 const { DatabaseSync } = await import('node:sqlite');
 const runStart = await balance();
 console.log(`LIVE LOOP   owner ${owner}`);
-console.log(`  rounds ${ROUNDS}   notional ${(Number(NOTIONAL) / 1e9).toFixed(4)} SOL   hold ${HOLD_S}s   cost bar ${MAX_COST_BPS} bps   ${APPLY ? 'APPLY' : 'DRY RUN'}`);
+console.log(`  universe ${UNIVERSE}   rounds ${ROUNDS}   notional ${(Number(NOTIONAL) / 1e9).toFixed(4)} SOL   hold ${HOLD_S}s   cost bar ${MAX_COST_BPS} bps   ${APPLY ? 'APPLY' : 'DRY RUN'}`);
 console.log(`  starting balance ${(Number(runStart) / 1e9).toFixed(9)} SOL   loop stops at -${(Number(STOP_LOSS_LAMPORTS) / 1e9).toFixed(4)} SOL`);
-rec({ event: 'loop_start', owner, rounds: ROUNDS, notional: NOTIONAL.toString(), startLamports: runStart.toString() });
+rec({ event: 'loop_start', owner, universe: UNIVERSE, rounds: ROUNDS, notional: NOTIONAL.toString(), startLamports: runStart.toString() });
 
 for (let round = 1; round <= ROUNDS; round += 1) {
   const before = await balance();
@@ -200,11 +233,17 @@ for (let round = 1; round <= ROUNDS; round += 1) {
   }
   console.log(`\n=== ROUND ${round} of ${ROUNDS} ===  balance ${(Number(before) / 1e9).toFixed(9)} SOL`);
 
-  const db = new DatabaseSync('data/runtime.db', { readOnly: true });
-  const mints = (db.prepare(
-    `SELECT mint FROM quotes WHERE side='buy' AND out_amount IS NOT NULL
-      GROUP BY mint ORDER BY MAX(requested_utc_ms) DESC LIMIT ?`).all(SCAN) as { mint: string }[]).map((r) => r.mint);
-  db.close();
+  let mints: string[];
+  if (UNIVERSE === 'established') {
+    mints = await establishedUniverse(SCAN);
+    if (mints.length === 0) { console.log('    universe unavailable this round'); rec({ round, event: 'universe_unavailable' }); continue; }
+  } else {
+    const db = new DatabaseSync('data/runtime.db', { readOnly: true });
+    mints = (db.prepare(
+      `SELECT mint FROM quotes WHERE side='buy' AND out_amount IS NOT NULL
+        GROUP BY mint ORDER BY MAX(requested_utc_ms) DESC LIMIT ?`).all(SCAN) as { mint: string }[]).map((r) => r.mint);
+    db.close();
+  }
 
   let best: { mint: string; costBps: number } | null = null;
   for (const mint of mints) {
@@ -244,7 +283,7 @@ for (let round = 1; round <= ROUNDS; round += 1) {
   const pnl = after - before;
   console.log(`    ROUND ${round} PnL ${(Number(pnl) / 1e9).toFixed(9)} SOL  (${(1e4 * Number(pnl) / Number(NOTIONAL)).toFixed(0)} bps)`);
   rec({
-    round, event: 'round_complete', mint: best.mint,
+    round, event: 'round_complete', universe: UNIVERSE, mint: best.mint,
     beforeLamports: before.toString(), afterLamports: after.toString(),
     pnlLamports: pnl.toString(), pnlBps: Math.round(1e4 * Number(pnl) / Number(NOTIONAL)),
     rentRecovered: recovered.toString(), buySig, sellSig,
