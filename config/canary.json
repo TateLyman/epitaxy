@@ -11,7 +11,7 @@
   "assumedPriorityFeeLamports": "8000",
   "assumedAtaRentLamports": "2039280",
   "assumedSignatureFeeLamports": "5000",
-  "assumedRentRecoveryRate": 0.5,
+  "assumedRentRecoveryRate": 0.95,
   "maxFeeFractionBps": 500,
   "quoteProbeLamports": "20000000",
   "maxQuotesPerCycle": 1,

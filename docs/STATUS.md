@@ -1,5 +1,48 @@
 # STATUS
 
+> **2026-08-22 (LATEST) — The executor refused to trade real money, and it was right.
+> State: `CANARY_REFUSED_ON_OWN_EVIDENCE: 519_SHADOW_POSITIONS_AT_MINUS_88_PERCENT`.**
+>
+> Ledger rows `MT134`, `MT135`. The operator funded 0.0503 SOL and removed the guard so a real
+> trade could be attempted. **Nothing was signed and no key was loaded. The balance is untouched.**
+>
+> **THE RENT FIX WORKED.** `MT134` built `close-account.ts` — the only transaction this repo
+> constructs itself — after finding that an abandoned token account strands 2,039,280 lamports,
+> **1,020 bps of a 0.02 SOL position and fourteen times the entire 71 bps AMM fee** `MT132`
+> measured. All 133 earlier tests priced the 71 and ignored the 1,020. With recovery real,
+> `doctor --mode=canary` went green on its own terms: viability floor 20,912,800 → 2,559,280, and
+> **no risk cap was widened to get there.**
+>
+> **THEN THE READINESS GATE REFUSED, 22 of 35.** The decisive one:
+> `readiness.shadow.canarySizePositive — 519 closed canary-shadow positions, net -9,167,573,727`.
+>
+> **519 real positions at canary size. −9.1676 SOL on 10.38 deployed. −88.32%. 44 winners: an
+> 8.5% win rate.** Median per-trade −11,221 bps — *worse than a total loss*, because a rugged
+> position also strands its rent, and 100% of notional plus ~10 points of rent is exactly −112%.
+>
+> **THE FAILURE MODE IS NOT WHAT ANY OF US ASSUMED.** `liquidity_collapse` is 414 of 519 exits and
+> −9.2524 SOL of the −9.1676 total. Every other exit nets near zero: stop_loss −0.6192 over 50,
+> take_profit **+0.6614** over 30, max_hold +0.0515 over 23. **Strip out liquidity collapse and the
+> strategy is roughly flat.** It is not the fee (71 bps). Not latency (`MT131`: perfect
+> zero-latency copying still loses 18%). Not selection (`MT128`–`MT131`, closed four ways).
+> **80% of the tokens it buys collapse.**
+>
+> Mean token age at open is **7.9 minutes** and mean entry round-trip loss is **386 bps** — five
+> times the `MT132` floor, because the strategy trades fresh thin pools rather than liquid ones.
+> Entering at 386 bps into a pool with an 80% drain rate is an adverse-selection problem wearing a
+> strategy costume.
+>
+> **THE ONE CONSTRUCTIVE SIGNAL.** Positions tagged `AGE_2M_60M` win **26%** and lose 1.049 SOL
+> over 113; untagged positions win **4%** and lose 8.111 SOL over 405. Still losing — but six times
+> better, and the only conditioner in this corpus that separates the population by an order of
+> magnitude. The 44 winners are real too: 30 exited on take_profit, best three trades returned
+> 4,898, 4,749 and 381 bps. The upside exists and is swamped 10:1 by total losses.
+>
+> **WHAT THIS CHANGES ABOUT WHAT TO STUDY.** Every remaining question is about SURVIVAL, not edge.
+> What distinguishes a pool that drains from one that does not, measurable *before* entry, is the
+> only variable that could move a −88% return — and it is the one thing this programme never
+> studied, because it spent fifteen months looking for price prediction instead.
+
 > **2026-08-21 (LATEST) — Copying is impossible in principle, not in practice.
 > State: `ZERO_LATENCY_PERFECT_COPY_STILL_LOSES: COPY_FAMILY_CLOSED_ON_FOUR_INSTRUMENTS`.**
 >
