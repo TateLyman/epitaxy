@@ -1,5 +1,51 @@
 # STATUS
 
+> **2026-08-22 (LATEST) — THE FIRST REAL TRADE. Cost is settled at 23 bps; the price is the problem.
+> State: `FIRST_MAINNET_ROUND_TRIP_COMPLETE: COST_VALIDATED_EDGE_UNCHANGED`.**
+>
+> Ledger row `MT136`. Fifteen months, 135 preregistered rows, and no fill until now.
+>
+> ```
+> start   0.050329286 SOL
+> buy    -0.024153866   5VPKxJgx…
+> sell   +0.019604797   2ms5ojrb…
+> rent   +0.002069080   YS7wCG1r…
+> final   0.047849297 SOL   (confirmed on chain)
+> PnL    -0.002479989 SOL = -1,240 bps = -$0.24
+> ```
+>
+> **98% OF THE LOSS WAS PRICE MOVEMENT. 2% WAS COST.** The position fell 12.2% in about two
+> minutes (−2,434,483 lamports, −1,217 bps). Total cost drag was **45,506 lamports — 23 bps
+> all-in** for a complete round trip including both fills, every signature, every priority fee,
+> and full rent recovery.
+>
+> **FOUR THINGS ARE NOW VALIDATED AGAINST THE CHAIN RATHER THAN ASSUMED.**
+> **The simulation is exact** — `verifyEffect` predicted a buy lamportDelta of 24,153,866 and the
+> balance moved by exactly 24,153,866.
+> **The cost floor is real and lower than measured** — `MT124` said 130–250 bps, the copy family
+> used 230, `MT132` measured 71 by simulation, and the realised figure is **23**.
+> **Rent recovery works** — `MT134`'s close instruction returned 2,069,080 lamports. Without it
+> this trade would carry another 1,035 bps of permanently stranded rent.
+> **The refusal path works under pressure** — three consecutive sell attempts were refused by the
+> effect check as the price fell, and the fourth was accepted. The system declined to sign three
+> transactions it could not verify *while holding a real position*.
+>
+> **TWO DEFECTS ONLY A LIVE ATTEMPT COULD FIND.** The signable-order schema had drifted —
+> `lastValidBlockHeight` became a string — so `buildSignableOrder` threw `schema_drift` on **every**
+> call and the executor could not have placed any order at all, gate or no gate. Nothing had
+> noticed because nothing had ever exercised the signable path against production. Fixed. And the
+> sell minimum derived from `quote.outAmount` is systematically ~2,039,280 lamports too high,
+> because the aggregator quote includes the WSOL rent it returns on unwrap while `verifyEffect`
+> measures only the token delta. That caused the three refusals and could strand a position in a
+> fast market. **Not yet fixed.**
+>
+> **WHAT THIS SETTLES AND WHAT IT DOES NOT.** It settles cost, completely and in our favour: cost
+> was never the reason this does not work. It does **not** settle edge and cannot — one trade is
+> one draw from the distribution `MT135` measured at an 8.5% win rate over 519 positions, and
+> losing 12% in two minutes is entirely consistent with it.
+>
+> **The machine works. The costs are negligible. The thing that loses money is the price.**
+
 > **2026-08-22 (LATEST) — The executor refused to trade real money, and it was right.
 > State: `CANARY_REFUSED_ON_OWN_EVIDENCE: 519_SHADOW_POSITIONS_AT_MINUS_88_PERCENT`.**
 >

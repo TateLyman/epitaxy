@@ -85,7 +85,17 @@ export const OrderResponseSchema = z
     transaction: z.string().nullish(),
     requestId: z.string().optional(),
     quoteId: z.string().optional(),
-    lastValidBlockHeight: z.number().nullish(),
+    /**
+     * DRIFTED 2026-08-22: the live API began returning this as a STRING. It was `z.number()`, and
+     * the mismatch made `buildSignableOrder` throw `schema_drift` on every call — the executor
+     * could not build ANY order, and nothing had noticed because nothing had exercised the
+     * signable path against production. Fail-closed worked exactly as intended; this widens the
+     * parser to the value the provider actually sends rather than the one it used to.
+     *
+     * A union rather than a coercion on purpose: `z.coerce.number()` would silently turn a
+     * malformed string into NaN, and a block height we cannot read is not a block height.
+     */
+    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
     expireAt: z.union([z.string(), z.number()]).nullish(),
     taker: z.string().nullish(),
     gasless: z.boolean().optional(),
@@ -266,13 +276,13 @@ export const BuildResponseSchema = z
     blockhashWithMetadata: z
       .object({
         blockhash: z.union([z.string(), z.array(z.number())]).nullish(),
-        lastValidBlockHeight: z.number().nullish(),
+        lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
       })
       .passthrough()
       .nullish(),
     contextSlot: z.number().nullish(),
     expireAt: z.union([z.string(), z.number()]).nullish(),
-    lastValidBlockHeight: z.number().nullish(),
+    lastValidBlockHeight: z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)]).nullish(),
     requestId: z.string().nullish(),
     router: z.string().nullish(),
     errorCode: z.number().nullish(),
