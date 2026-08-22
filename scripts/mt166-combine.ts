@@ -38,7 +38,21 @@ const WINDOWS = (arg('windows') ?? '').split(',').filter((s) => s.length > 0);
 const ANALYZE = new Set((arg('analyze') ?? '').split(',').filter((s) => s.length > 0));
 const DELAY = 4;
 const NOTIONAL = BigInt(arg('notional') ?? '20000000');
-const NONAMM_BPS = 23;
+/**
+ * NON-AMM COST SCALES WITH STAKE, AND HARDCODING IT AT 23 BPS WAS A DEFECT AT ANY OTHER SIZE.
+ *
+ * MT136 measured 23 bps of network, priority and routing drag on a round trip of 20,000,000
+ * lamports, which implies a FIXED cost of about 46,000 lamports that does not shrink when the
+ * order does. Expressed in basis points it therefore grows as the stake falls: 23 bps at 0.020
+ * SOL, 54 at 0.0085, 135 at 0.0034. Every earlier number in this chain used the 23 unconditionally,
+ * which is correct only at the one size it was measured at and optimistic at every smaller one -
+ * and fractional-Kelly sizing on a 0.034 SOL wallet lands squarely in the smaller ones.
+ *
+ * This is the same class of error as MT127-DEFECT and the 23-bps carry MT152 caught: a cost
+ * constant inherited from the place it was measured and applied where it does not hold.
+ */
+const FIXED_NONAMM_LAMPORTS = 46_000;
+const NONAMM_BPS = 1e4 * FIXED_NONAMM_LAMPORTS / Number(NOTIONAL);
 const MIN_DEPTH = 40;
 const BARRIER = Number(arg('barrier') ?? '3000');
 const CAP_S = Number(arg('cap') ?? '30');
@@ -130,6 +144,7 @@ const selComb = new Set(R.map((r) => [prob(wMove, r) * prob(wSign, r) * (1 - pro
 const union = new Set([...selMove, ...selComb]);
 const byPoolRow = new Map(R.map((r) => [r.pool, r]));
 console.log(`MT166 — block ${TAG}: ${R.length} joined pools, watchlists of ${nKeep} each`);
+console.log(`  stake ${(Number(NOTIONAL) / 1e9).toFixed(4)} SOL -> non-AMM drag ${NONAMM_BPS.toFixed(0)} bps per round trip (MT136 fixed cost, size-adjusted)`);
 console.log(`  shared between MOVE-only and combined: ${[...selMove].filter((p) => selComb.has(p)).length}`);
 
 interface Ev { slot: number; ts: number; tx: number; addr: string; buy: boolean; b: bigint; q: bigint; qa: bigint; ua: bigint }
@@ -225,7 +240,17 @@ function run(sel: Set<string>, lag: number): { out: number[]; hu: number; hd: nu
   }
   return { out, hu, hd };
 }
-const growthAt = (o: number[], f: number): number => mean(o.map((x) => Math.log(Math.max(1e-9, 1 + f * (x / 1e4)))));
+/**
+ * RUIN-AWARE growth. An earlier version clamped the bankroll multiplier at 1e-9, which scores a
+ * stake that loses everything as -20.7 instead of -infinity and therefore reported an optimal
+ * fraction of 1.00 on a sample whose minimum was -9,033 bps. A stake losing 100% ends the bankroll
+ * and there is no next trade; the clamp hid that. No clamp here.
+ */
+const growthAt = (o: number[], f: number): number => {
+  let s2 = 0;
+  for (const x of o) { const m = 1 + f * (x / 1e4); if (m <= 0) return -Infinity; s2 += Math.log(m); }
+  return s2 / o.length;
+};
 
 console.log('');
 console.log(`COMBINED HEAD vs MOVE ALONE — same barrier ±${BARRIER}, same ${CAP_S}s cap, same watchlist size`);
