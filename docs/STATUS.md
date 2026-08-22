@@ -3017,3 +3017,75 @@ picking it now would be choosing a sample size with the corpus in view.
 - **PREWARMED comparability** — the SDK will not let us pin the fee recipient.
 - **A replay calibration subset** — the machinery exists; the measurement does
   not.
+
+## 2026-08-22 — the tape is fair, the fee is the whole loss, and we bought the wrong bracket
+
+This is the first entry that explains the programme's negative results rather than adding
+another one to the pile.
+
+**MT151 — the first replicated finding in 151 rows.** A creator with no prior observed
+launch produces pools with a median return around −2,400 to −2,700 bps, roughly twenty
+times worse than every other bucket, and it holds on two independent continuous three-day
+blocks with a 24-hour burn-in on each (−2,353 then −2,675). The secondary cell failed
+exactly as predicted. As a screen it removes 2.9% of candidates and moves the population
+median 77 bps. It is a filter, not an edge.
+
+**MT152 — the positive mean was a cost artifact, and the defect is MT127-DEFECT recurring.**
+MT151 reported medians; a bankroll collects the mean, and the block B means weighted to
++314 bps. That number came from subtracting a flat 23 bps — MT136's live round trip — from
+a return computed as a *ratio of reserves*, which is the mid price and charges no AMM fee
+on either leg. The pool's real charge is p05 40, **median 120.1**, p95 125.0 bps *per leg*.
+The constant rode unexamined through MT147–MT151 for the same reason the 25 bps clamp did:
+a negative result never exercises a cost model. It surfaced only when something finally
+came out positive.
+
+Repriced leg by leg at each pool's own unclamped fee, with entry moving the pool it enters,
+exit selling into what the entry left behind, and pools that died inside the horizon marked
+rather than dropped:
+
+| corpus | NET mean | GROSS mean | GROSS median | % positive |
+|---|---|---|---|---|
+| block A | −188 | +60 | −7 | 44.7% |
+| block B | −330 | −87 | −10 | 45.2% |
+
+The survivorship fix was negligible — 96.5% of pools were still trading at the horizon,
+because reaching 25 trades already selects for survival. Cost was the entire correction.
+
+**The fee is a step function of market cap.** 1.25% below 420 SOL — split 0.93 protocol /
+0.30 creator / 0.02 LP, which is exactly the LP 2 / protocol 93 / creator 30 split
+`packages/intelligence/src/copy-fill.ts` measured from the program — falling to 0.30% at
+98,240 SOL and above. The collector screens `minTokenAgeMs: 120000, maxTokenAgeMs: 3600000`,
+so **every candidate in this system's history has sat in the most expensive bracket that
+exists.** Same venue, same program, same code path, four times the toll.
+
+**MT154 — the fee axis is closed anyway.** MT153 found positive net means in the mid-fee
+buckets. MT154 froze a decision rule and tested them on the eighteen staggered daily
+windows — eighteen day clusters, against MT108's ten-cluster floor that every interval in
+MT152 and MT153 was below. All three buckets fail: lower bounds of −33, −44 and −181, and
+win rates of 29.8%, 26.6% and 29.9%, all under the 35% lottery floor. The same 70–105 bps
+cell reads **+2,128 / +537 / +170** across the three corpora and collapses toward zero as
+the cluster count goes 4 → 18.
+
+**A correction to the framing above.** "Fair coin" holds for the two contiguous blocks. On
+the eighteen-day set gross ALL is −350 [−490, −188], entirely below zero. The claim that
+survives all three corpora is the weaker one and is the one to quote: **there is no positive
+gross expectation anywhere on the fee axis or the depth axis, on any corpus, at any of four
+horizons.**
+
+### What this changes
+
+The twenty-odd closed mechanisms are no longer a list of things that did not work. Directional
+expectation on this tape is zero to negative *before cost*, so no entry rule built from public
+tape data should be expected to clear a 250 bps toll. Searching harder for a signal in a fair
+game is not the remaining move. Any path forward has to change the structure — collect the fee
+rather than pay it, or trade an instrument whose expectation is not zero.
+
+### Unproven / not claimed
+
+- Moving fee bracket is a real 190 bps round-trip cost reduction. It is **not** an edge and
+  does not make anything profitable.
+- Every 95% interval in MT152 and MT153 sits below MT108's ten-cluster floor. Point estimates
+  stand; the intervals are not calibrated. MT154 is the only properly powered cell here.
+- Cashback rebates accrue off-tape and were **not** measured. Nothing here prices them.
+- New tooling: `scripts/build-pool-panel.ts` collapses the tape to one row per pool so later
+  slices cost milliseconds instead of an hour. Panels are gitignored; rebuild from the cache.
