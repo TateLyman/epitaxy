@@ -157,7 +157,7 @@ const Xtr = Xtr_raw.map(std);
 
 /** TARGET: top decile of 30s outcome on the training corpus. ~88 positives, not ~9. */
 const trThresh = quantile(trainRows.map((r) => r.ret), 0.90);
-const ytr = trainRows.map((r) => (r.ret >= trThresh ? 1 : 0));
+const ytr: number[] = trainRows.map((r) => (r.ret >= trThresh ? 1 : 0));
 const w = fit(Xtr, ytr, 0.02, 4000);
 
 console.log('MT160 — can delay-4 information enrich the eventual top-1% into the model top 10%?');
