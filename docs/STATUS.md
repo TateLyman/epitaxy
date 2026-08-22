@@ -3089,3 +3089,60 @@ rather than pay it, or trade an instrument whose expectation is not zero.
 - Cashback rebates accrue off-tape and were **not** measured. Nothing here prices them.
 - New tooling: `scripts/build-pool-panel.ts` collapses the tape to one row per pool so later
   slices cost milliseconds instead of an hour. Panels are gitignored; rebuild from the cache.
+
+## 2026-08-22 (later) — where the money actually is, and why we cannot stand there
+
+**MT155 — the route sets the cost, not the fee tier.** Before placing a trade in the "cheap
+bracket" MT154 identified, it was priced on live executable quotes. Pools whose own charge is
+a rock-solid 30 bps/leg across 88,600 trades quote at **288 bps a round trip** when Jupiter
+routes them through Pump.fun AMM — and the cost is size-invariant (269 at 0.002 SOL, 288 at
+0.020), so it is a charge, not our impact. The only cheap executable route found was **Meteora
+DLMM at 36 bps**, on a mint that is not a pump.fun token. The fee bracket is real on the tape
+and **unreachable through the router**. Cost to learn this: nothing. It killed the proposed
+trade before any capital moved.
+
+This also corrects MT136's headline. "Cost model validated at 23 bps all-in" was wrong: ~288
+of that trade's 1,217 bps was cost misattributed to price movement, and 23 bps was the network
+and priority drag only.
+
+**MT156 — 96.9% of all counted gains go to wallets in a pool's first slot.**
+
+| arrival | wallets | total PnL | share of gains | on deployed |
+|---|---|---|---|---|
+| slot 0 | 2,103 | +10,762.0 SOL | **96.9%** | +955 bps |
+| slot 1 | 1,630 | +149.5 SOL | 1.3% | +398 bps |
+| slot 2–4 | 5,415 | +200.2 SOL | 1.8% | +159 bps |
+| slot 5–20 | 21,503 | −2,184.3 SOL | 0.0% | −450 bps |
+| slot 21–200 | 118,813 | −25,072.4 SOL | 0.0% | −711 bps |
+
+By trade rank, trades 1–3 take 95.9%. **Trade 25 — the judging point inherited by MT147 through
+MT154 — sits at −777 bps.** A contamination that would have manufactured this exact result was
+found and removed first (the earliest chunk makes already-alive pools look newborn); removing it
+made the effect *stronger*.
+
+**MT157 — the reachable rungs do not pay mechanically.** A rule entering *every* pool at slot
+1–4 shows positive 30s means (+663 to +701) whose **top 1% contributes 174–182% of the mean** —
+remove the best trade in a hundred and the remainder is net negative. Medians −49 to −58, win
+rates ~43%. Third closure of that shape after MT127-RESULT and MT154. The slot 1–4 wallets'
+profit came from *which pools they picked*, not the rung.
+
+### What this settles
+
+The winners' edge was never information. It is a **position**: inside the first block of a token
+you control. That single fact explains MT131 (mirrored a winner at zero latency, −18.2%), MT144
+(edge gone within one slot), MT147 (predicted the shortlist, still lost at the median), and MT152
+(gross at trade 25 is a fair coin). Fifteen months of mechanisms closed negative because they were
+all searching for a signal in the wrong half of a transfer that had already happened.
+
+### Unproven / not claimed / refused
+
+- **The books do not balance.** ~11,100 SOL counted gains vs ~101,300 counted losses. FIFO drops
+  unmatched sells, and distributing supply across sub-wallets by transfer is what a bundler does.
+  True slot-0 extraction is likely larger; 96.9% is a share of *counted* gains.
+- MT157 rests on 1,290 pools over **3 day clusters**, below MT108's ten-cluster floor. The
+  disqualifying statistic is the top-1% share, which is a shape property and does not need power.
+- Occupying slot 0 means bundling buys with your own token creation and selling to whoever arrives
+  next — the documented "dev buy, snipers enter, dev dump". **This repository will not implement
+  that.** It is not a strategy gap, it is a refusal.
+- Sniping slots 1–4 is legitimate but is a diversification business: published accounts report
+  60–80% of individual snipes lose, run over 10–50 SOL and 50–200 launches a day.
