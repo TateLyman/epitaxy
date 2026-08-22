@@ -1,5 +1,49 @@
 # STATUS
 
+> **2026-08-21 (LATEST) — The copy-trading family is closed on three independent instruments,
+> and the winners' visible behaviour is anti-informative.
+> State: `OBSERVED_BEHAVIOUR_IS_NOT_A_STRATEGY: COPY_FAMILY_CLOSED`.**
+>
+> Ledger rows `MT129`, `MT129-RESULT`, `MT130`, `MT130-RESULT`. Read-only. Nothing funded or signed.
+>
+> **THE WINNERS' EDGE IS SELECTION.** Measured on FIFO-matched completed round trips with a hard
+> conservation gate: 65.3% of all winner profit comes from pools that ran more than +50% over the
+> winner's *own* holding window, 84% from pools up more than +10%, and only **4.8% from flat
+> pools — 0.9% for the top 100 wallets** where the money actually is. Zero of the top ten do
+> same-slot round trips, so they are **not MEV**. Their contrarian entry signature — price −4.86%
+> in the 60s before their buys while every other trader nets −8.76 SOL of selling — is how they
+> *accumulate*, not why they profit.
+>
+> **THREE INSTRUMENTS, THREE WAYS OF COPYING THEM, ALL NEGATIVE.**
+> `MT128` by IDENTITY: −8.695% [−11.887, −5.586].
+> `MT129` by CONSENSUS: −5.63% at K=1, −8.85% at K=2, −17.05% at K=3, −24.74% at K=5.
+> `MT130` by anonymous FOOTPRINT: −10.58%, against −8.32% for the *inverted* (losing) footprint
+> and −5.80% for concentration alone.
+>
+> **THE DOSE-RESPONSE IS THE FINDING.** MT129's ladder is monotone across four K values and five
+> horizons — twenty cells, no exceptions. At 3600s it runs −10.59, −18.31, −34.59, −49.43. A weak
+> signal scatters around one level; a signal that degrades *smoothly with more confirmation* is
+> real and inverted. **K is a proxy for lateness, and the ladder is a latency curve.** By the time
+> K independently-successful wallets have bought the same pool inside 120 seconds, the
+> accumulation they profit from is over and what remains is what they sell into. `MT107` argued
+> exactly this and named it the oldest open unknown bearing on the copy arm; it is now measured.
+>
+> **WALLET QUALITY DOES NOT TRANSFER THROUGH OBSERVATION.** At K=1 the LOSER set is *less*
+> negative than the winner set (−3.93% vs −5.63%), and MT130 independently found the losing
+> footprint less negative than the winning one. Being able to identify who wins tells you nothing
+> actionable, because the identification is only possible *after* the act that made them winners.
+>
+> **WHY COPYING THE WINNERS IS ACTIVELY HARMFUL.** Buying into a 3% decline while everyone else
+> sells is survivable only if you know something the sellers do not. The winners do. Stripped of
+> that, the identical action is buying something falling for a reason, and it keeps falling:
+> −6.69% at 120s, −8.73% at 300s, −10.84% at 600s. **An observed behaviour of successful traders
+> is not a strategy — it is the visible half of one whose other half is private information, and
+> reproducing the visible half faithfully reproduces the costs without the edge.**
+>
+> **MORE DATA WILL NOT CHANGE THIS.** Every confidence interval above sits far from zero; these
+> are not marginal results awaiting power. Twelve additional days were pulled and are available,
+> but they would sharpen intervals that already exclude zero by wide margins.
+
 > **2026-08-21 (LATEST) — Wallet selection does not rescue the horizon either.
 > State: `SELECTION_TESTED_AND_NEGATIVE: NO_MECHANISM_FAMILY_REMAINS_UNTESTED`.**
 >
