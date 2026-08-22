@@ -32,6 +32,15 @@ const COST_BPS = Number(arg('cost-bps') ?? '17.3');
 const LOOKBACKS_S = (arg('lookbacks') ?? '20,60,180').split(',').map(Number);
 const HORIZONS_S = (arg('horizons') ?? '30,60,180,600').split(',').map(Number);
 const TRIGGER_BPS = (arg('triggers') ?? '10,25,50').split(',').map(Number);
+/**
+ * NON-OVERLAPPING WINDOWS ONLY, when confirming rather than discovering.
+ *
+ * The feed refreshes about every 8 seconds, so a 60-second horizon overlaps roughly eight
+ * neighbours and a 180-second horizon about twenty-three. Overlap does not bias the mean but it
+ * badly inflates n, and therefore t: a reported t of 6.74 at a 180s horizon is about 1.42 once
+ * effective sample size is used. Discovery can live with that. A confirmation cannot.
+ */
+const DISJOINT = process.argv.includes('--disjoint');
 
 if (!existsSync(TAPE)) { console.error(`no tape at ${TAPE}`); process.exit(2); }
 
@@ -60,6 +69,7 @@ const spanMin = (() => {
 })();
 console.log(`tape: ${series.size} tokens, ${[...series.values()].reduce((n, a) => n + a.length, 0).toLocaleString()} ticks, ${spanMin.toFixed(0)} minutes`);
 console.log(`cost to beat: ${COST_BPS} bps per round trip (MT138, realised live)`);
+console.log(`windows: ${DISJOINT ? 'NON-OVERLAPPING (confirmation mode)' : 'overlapping (discovery mode — t-stats are inflated)'}`);
 console.log('');
 
 /** Price at or before a timestamp. Series are dense and sorted, so a scan from a hint is fine. */
@@ -88,9 +98,10 @@ for (const [mint, a] of series) {
   void mint;
   for (const lb of LOOKBACKS_S) {
     for (const hz of HORIZONS_S) {
-      let iPast = 0; let iFwd = 0;
+      let iPast = 0; let iFwd = 0; let busyUntil = -1;
       for (let i = 0; i < a.length; i += 1) {
         const now = a[i] as Tick;
+        if (DISJOINT && now.ts < busyUntil) continue;
         const past = priceAt(a, now.ts - lb * 1000, iPast);
         if (past === null) continue;
         iPast = past.i;
@@ -106,6 +117,7 @@ for (const [mint, a] of series) {
         const grossBps = 1e4 * (fwdTick.p / now.p - 1);
         const netBps = grossBps - COST_BPS;
 
+        if (DISJOINT) busyUntil = now.ts + hz * 1000;
         // The control. Every entry, unconditionally — what a coin flip earns on this tape.
         bump(`random|${lb}|${hz}`, netBps);
 
