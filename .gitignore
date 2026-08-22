@@ -49,3 +49,4 @@ artifacts/replay-armed/
 /ops/dune/results/q16-venue-*.json
 /ops/dune/results/q17-program-*.json
 data/trade-cache/
+data/panel/
