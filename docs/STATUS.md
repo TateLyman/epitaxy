@@ -1,5 +1,48 @@
 # STATUS
 
+> **2026-08-21 (LATEST) — Copying is impossible in principle, not in practice.
+> State: `ZERO_LATENCY_PERFECT_COPY_STILL_LOSES: COPY_FAMILY_CLOSED_ON_FOUR_INSTRUMENTS`.**
+>
+> Ledger rows `MT131`, `MT131-RESULT`. Read-only. Nothing funded or signed.
+>
+> **THE OPERATOR RAISED THE STRONGEST REMAINING OBJECTION**: if MT129's dose-response is a
+> latency curve, then copy faster. Every copy test in this programme — MT101, MT104, MT128,
+> MT129, MT130 — used a fixed 2-second lag and **never once varied it.** That dimension had
+> genuinely never been measured, and the objection was right that it needed to be.
+>
+> **`MT131` tests the physically impossible best case.** `MIRROR-FULL` replicates a proven
+> winner's ENTIRE trade schedule — every buy, every sell, in order, scaled to ~1.3% of their size
+> so our footprint is negligible — at their own fill prices, with zero lag and zero slippage. No
+> real system can act at zero latency, so this is a strict upper bound on any copier.
+>
+> **It loses 18.208%, CI [−18.830, −17.231].**
+>
+> **THE LATENCY LADDER PRICES DELAY EXACTLY, and it is not the mechanism.** On the simpler
+> first-buy/last-sell arm: 0 slots −4.385%, 1 slot −8.989%, 2 slots −9.198%, 5 slots (~2s)
+> −9.630%, 12 slots (~5s) −9.684%, 25 slots (~10s) −10.044%. **The first slot costs 4.6 points
+> and everything after it is nearly flat.** Same-slot execution is worth a great deal; speed
+> beyond that is worth almost nothing — and the zero-latency case is still 4.4% under water.
+> **There is no latency budget that reaches zero, because the deficit exists AT zero.**
+>
+> **I CORRECTED MY OWN TEST MID-RUN AND IT GOT WORSE.** The first mirror copied only the first buy
+> and last sell. These wallets make 50–83 trades and SCALE IN on dips, so their average basis is
+> far better than their first fill — that version tested a strawman of the operator's argument.
+> The full-schedule replication came out **four times worse**, not better.
+>
+> **THE LOSER CONTROL SEPARATES AT EVERY RUNG** — −43.087% vs −18.208% on the full schedule, ~−29%
+> vs ~−9% along the ladder. Past performance carries roughly 25 points of real, persistent
+> information. It is simply the difference between two catastrophically losing populations.
+>
+> **WHY A PAST WINNER LOSES ON HOLDOUT.** The winner set is chosen by realised PnL on a
+> heavy-tailed distribution where 65.3% of profit comes from pools that ran >+50%. Selecting the
+> top of such a distribution selects, substantially, whoever was recently lucky — and `MT073`
+> independently measured top deciles vanishing at 36.7–46.6% per month.
+>
+> **THE COPY FAMILY IS CLOSED ON FOUR INDEPENDENT INSTRUMENTS**: identity (MT128, −8.695%),
+> consensus (MT129, monotone −5.63→−24.74 across twenty cells), anonymous footprint (MT130,
+> −10.582%, worse than its inverted control), and zero-latency full-schedule replication (MT131,
+> −18.208%). Four ways of asking one question. Four negatives. No remaining formulation.
+
 > **2026-08-21 (LATEST) — The copy-trading family is closed on three independent instruments,
 > and the winners' visible behaviour is anti-informative.
 > State: `OBSERVED_BEHAVIOUR_IS_NOT_A_STRATEGY: COPY_FAMILY_CLOSED`.**
