@@ -1,10 +1,9 @@
 {
-  "applied": true,
-  "contractId": "contract-f9d8275d8794a989",
-  "contractHash": "f9d8275d8794a989dae4bb2a67f0ec53132b2c2809075917bf0a536c94f2e284",
-  "evidenceContextId": "ctx-9fcf99a201e1-DEV_WINDOW_5D24E",
-  "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
-  "windowId": "DEV_WINDOW_5D24E",
+  "applied": false,
+  "contractId": "contract-ec83d84223a686f9",
+  "contractHash": "ec83d84223a686f9afe94dd37bb5136d8372b3aed2b907031aed7657289ea713",
+  "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
+  "windowId": "CALIBRATION_V1",
   "cohort": "FIRST_HOUR",
   "notionalRule": "largest admissible of [2500000, 5000000, 10000000, 20000000] lamports, chosen from one decision-time coherent snapshot by mechanics only; ceiling 20000000 lamports; falls back to the ceiling when the rule cannot be evaluated",
   "entryPolicies": [
@@ -136,9 +135,9 @@
   },
   "provenance": {
     "writer": "contract-freeze.ts",
-    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
-    "treeDirty": false,
-    "dirtyFiles": 0,
-    "writtenUtc": "2026-08-21T17:15:46.732Z"
+    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
+    "treeDirty": true,
+    "dirtyFiles": 13,
+    "writtenUtc": "2026-08-22T04:09:24.654Z"
   }
 }

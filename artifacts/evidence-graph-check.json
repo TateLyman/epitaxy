@@ -103,9 +103,9 @@
   "verdict": "RESOLVES",
   "provenance": {
     "writer": "evidence-graph-check.ts",
-    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
+    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-21T20:52:33.328Z"
+    "dirtyFiles": 1,
+    "writtenUtc": "2026-08-22T03:57:56.008Z"
   }
 }

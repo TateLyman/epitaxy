@@ -1,15 +1,15 @@
 {
   "status": "NOT_RUN",
   "reason": "no trajectory carries both a bounded counterfactual and a reserve-delta replay for the same horizon",
-  "boundedRows": 3189,
+  "boundedRows": 3190,
   "replayRows": 24,
   "pairedRows": 0,
   "toleranceBps": 200,
   "provenance": {
     "writer": "counterfactual-calibrate.ts",
-    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
+    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-21T20:52:39.791Z"
+    "dirtyFiles": 6,
+    "writtenUtc": "2026-08-22T03:58:03.682Z"
   }
 }

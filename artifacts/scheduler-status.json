@@ -18,9 +18,9 @@
     },
     {
       "offsetMs": 300000,
-      "total": 19,
+      "total": 20,
       "onTime": 17,
-      "missed": 2,
+      "missed": 3,
       "unclassified": 0
     },
     {
@@ -69,9 +69,9 @@
     },
     {
       "offsetMs": 300000,
-      "total": 798,
+      "total": 799,
       "onTime": 439,
-      "missed": 67,
+      "missed": 68,
       "unclassified": 292
     },
     {
@@ -103,17 +103,17 @@
       "unclassified": 292
     }
   ],
-  "dueNow": 0,
-  "overdue": 0,
-  "nextWakeMs": 3000,
-  "activeTotal": 122,
-  "activeMissedOrUnclassified": 14,
+  "dueNow": 17,
+  "overdue": 17,
+  "nextWakeMs": 0,
+  "activeTotal": 123,
+  "activeMissedOrUnclassified": 15,
   "verdict": "SLA_BREACHED",
   "provenance": {
     "writer": "scheduler-status.ts",
-    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
+    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-21T20:52:39.315Z"
+    "dirtyFiles": 4,
+    "writtenUtc": "2026-08-22T03:58:03.146Z"
   }
 }

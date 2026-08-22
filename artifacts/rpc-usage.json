@@ -1,7 +1,7 @@
 {
   "sessionsExamined": 50,
-  "activeSeconds": 76302,
-  "sessionsNeverEnded": 31,
+  "activeSeconds": 76332,
+  "sessionsNeverEnded": 29,
   "sessionsFromDirtyTree": 1,
   "byKind": [
     {
@@ -13,37 +13,37 @@
     {
       "kind": "solana_rpc",
       "detail": "getAccountInfo",
-      "n": 38923,
+      "n": 38960,
       "q": 53
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenLargestAccounts",
-      "n": 11409,
+      "n": 11421,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "getTokenSupply",
-      "n": 11409,
+      "n": 11421,
       "q": 0
     },
     {
       "kind": "mark_jobs",
       "detail": "",
-      "n": 4523,
+      "n": 4524,
       "q": 0
     },
     {
       "kind": "microstructure",
       "detail": "cache_hit",
-      "n": 4391,
+      "n": 4403,
       "q": 0
     },
     {
       "kind": "solana_rpc",
       "detail": "entityTierWalk",
-      "n": 1061,
+      "n": 1063,
       "q": 0
     },
     {
@@ -53,11 +53,11 @@
       "q": 0
     }
   ],
-  "totalCalls": 165792,
-  "callsPerActiveSecond": 2.1728395061728394,
+  "totalCalls": 165868,
+  "callsPerActiveSecond": 2.1729811874443223,
   "quotaErrors": 53,
   "trajectories": 843,
-  "trajectoriesPerActiveDay": 954.5647558386412,
+  "trajectoriesPerActiveDay": 954.1895928313158,
   "recommendations": [
     "53 quota refusal(s) at 2.17 calls/active second. If the endpoint is out of credits after the single-writer repair, Helius Developer (~$49/month, 10M credits, 50 RPC requests/second per current official terms — use the dashboard price as source of truth) is the smallest purchase that removes it. Do not put the key in logs, chat or Git.",
     "Jupiter Developer is NOT recommended: direct PumpSwap is the primary lane, and Free’s 1 RPS has not been shown to limit completed trajectories or the later-fill SLA.",
@@ -65,9 +65,9 @@
   ],
   "provenance": {
     "writer": "rpc-usage.ts",
-    "sourceCommit": "9fcf99a201e18d9ba14f73666214ff2f0e19cf8b",
+    "sourceCommit": "cc868ff6cdd353e220b788f6505087fa0aaee9d6",
     "treeDirty": true,
-    "dirtyFiles": 19,
-    "writtenUtc": "2026-08-21T20:52:40.186Z"
+    "dirtyFiles": 8,
+    "writtenUtc": "2026-08-22T03:58:04.122Z"
   }
 }
