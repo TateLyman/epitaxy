@@ -37,7 +37,24 @@ const secrets = loadSecrets();
 const JH: Record<string, string> = secrets.jupiterApiKey ? { 'x-api-key': secrets.jupiterApiKey } : {};
 mkdirSync('data', { recursive: true });
 
+/**
+ * EXPLICIT MINTS OVERRIDE THE VOLUME RANKING, and the reason is testability rather than returns.
+ *
+ * The first executable tape used the five highest-VOLUME established tokens and fired the rule
+ * only 11 times in 40 minutes, because cbBTC, ZEC and their neighbours move less than 25 bps in
+ * 20 seconds almost never — measured trigger rates of 0.0% to 1.6%. A test that cannot fire cannot
+ * decide anything.
+ *
+ * So the caller may name mints directly, chosen on TRIGGER RATE. That is a selection on how often
+ * the rule gets to speak, not on what it says when it does: a token that moves more is not a token
+ * that reverts more, and the return being measured is untouched by the choice. It is recorded here
+ * because it IS a selection and belongs in the open.
+ */
 async function universe(): Promise<{ mint: string; symbol: string }[]> {
+  const explicit = arg('mints');
+  if (explicit !== null) {
+    return explicit.split(',').filter((m) => m.length > 0).map((m) => ({ mint: m, symbol: m.slice(0, 6) }));
+  }
   const res = await fetch(`https://lite-api.jup.ag/tokens/v2/toptraded/24h?limit=${TOKENS * 3}`, { signal: AbortSignal.timeout(20_000) });
   const j = (await res.json()) as { id?: string; symbol?: string }[];
   const out: { mint: string; symbol: string }[] = [];
