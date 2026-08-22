@@ -32,6 +32,7 @@ import { buildSignableOrder } from '../packages/execution/src/order.js';
 import { verifyEffect } from '../packages/execution/src/effect.js';
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import type { TradeIntent } from '../packages/domain/src/types.js';
+import { minOutputOnEffectBasis } from '../packages/execution/src/quote-basis.js';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 const arg = (n: string): string | null => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? null;
@@ -158,7 +159,9 @@ async function leg(label: string, inputMint: string, outputMint: string, amount:
    * this trade. The router already enforces slippage inside the transaction; this is the
    * independent second bound, so it is anchored to the same moment the transaction was built.
    */
-  const minOut = (order.quote.outAmount * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+  // MT136: the quote reports gross proceeds; the effect check reports NET lamports when the
+  // output is SOL. Comparing them directly refused three good sells on a live position.
+  const minOut = minOutputOnEffectBasis({ outputMint, quotedOut: order.quote.outAmount, slippageBps: SLIPPAGE_BPS });
   console.log(`  ${label} quoted ${order.quote.outAmount.toString()}, requiring at least ${minOut.toString()}`);
   const intent = intentFor(inputMint === WSOL ? 'buy' : 'sell', inputMint, outputMint, amount, minOut, now);
 

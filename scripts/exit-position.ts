@@ -20,6 +20,7 @@ import { buildSignableOrder } from '../packages/execution/src/order.js';
 import { verifyEffect } from '../packages/execution/src/effect.js';
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import type { TradeIntent } from '../packages/domain/src/types.js';
+import { minOutputOnEffectBasis } from '../packages/execution/src/quote-basis.js';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
@@ -76,7 +77,9 @@ for (const h of held) {
       const raw = order.transaction;
       const decoded = decodeTransaction(raw);
       const now = Date.now();
-      const minOut = (order.quote.outAmount * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+      // MT136: the quote reports gross proceeds; the effect check reports NET lamports when the
+      // output is SOL. Comparing them directly refused three good sells on a live position.
+      const minOut = minOutputOnEffectBasis({ outputMint: WSOL, quotedOut: order.quote.outAmount, slippageBps: SLIPPAGE_BPS });
       const intent: TradeIntent = {
         intentId: `exit-${String(now)}`, idempotencyKey: `exit-${String(now)}`,
         mint: h.mint, side: 'sell', inputMint: h.mint, outputMint: WSOL,
