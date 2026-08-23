@@ -47,6 +47,9 @@ const CURVE = { vSol: 16, rSol: 32, complete: 48 };
 const GRAD_SOL = 85;
 const INITIAL_VIRTUAL_SOL = 30;
 const ATA_RENT = 2_039_280;
+/** pump.fun curve constants: initial virtual reserves, so k is fixed for every curve. */
+const INIT_VSOL = 30, INIT_VTOK = 1_073_000_000;
+const CURVE_K = INIT_VSOL * INIT_VTOK;
 const PREFIX = 'Program data:';
 
 const arg = (n: string): string | null => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? null;
@@ -78,7 +81,8 @@ const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
 const EXIT_SOL = Number(arg('exit-sol') ?? '82');
 const STOP_BELOW = Number(arg('stop-below') ?? '4');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
-const MAX_IMPACT_BPS = Number(arg('max-impact-bps') ?? '400');
+/** How far below the curve's closed-form price a fill may land before it is refused. */
+const MAX_SHORTFALL_BPS = Number(arg('max-shortfall-bps') ?? '200');
 const RESERVE_SOL = Number(arg('reserve') ?? '0.008');
 const LOG = 'data/auto-trade.log';
 /**
@@ -241,8 +245,10 @@ say('AUTO-TRADE');
 say(`  owner ${owner}`);
 say(`  balance ${(startBalance / 1e9).toFixed(9)} SOL`);
 say(`  ${APPLY ? 'LIVE — WILL SIGN AND SEND' : 'DRY RUN — quotes every leg, signs nothing'}`);
-say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL, entering at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL, selling ${SELL_AFTER_S}s after migration`);
-say(`  MT174 measured this at median +755 bps, mean -889. Few trades is deliberate.`);
+say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
+say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
+say(`  MT185: block D n=959 mean +106 bps growth +0.0005, block E +12 bps and 0.0000.`);
+say(`  Expect roughly 58% to stop out small. That is the design, not a failure.`);
 say('');
 
 let positionsDone = 0;
@@ -299,7 +305,29 @@ async function run(mint: string, rSol: number): Promise<void> {
     const q = await quote(WSOL, mint, amount);
     if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }
     if (!q.labels.includes('Pump.fun')) { say(`   route is ${q.labels.join('+')}, not the bonding curve — skipping`); rec('skip', { mint, reason: 'not-curve-route', labels: q.labels, rSol }); skipped += 1; busy = false; return; }
-    if (q.impactBps > MAX_IMPACT_BPS) { say(`   impact ${q.impactBps.toFixed(0)} bps over ceiling — skipping`); rec('skip', { mint, reason: 'impact', impactBps: q.impactBps, rSol }); skipped += 1; busy = false; return; }
+    /**
+     * GATE ON CLOSED-FORM CURVE MATH, NOT ON JUPITER'S IMPACT FIELD.
+     *
+     * Measured against the first live fill: closed-form predicted the tokens received to within
+     * 0.337%, and the TRUE combined cost was 1.34% of which a full 1.00% is the pump.fun fee -- so
+     * real impact was 0.34%. Jupiter reported 232 bps on that same trade, roughly seven times the
+     * truth. Its priceImpactPct is not measuring what its name says on bonding-curve routes.
+     *
+     * The old ceiling therefore rejected on a number that does not mean what it claims, and it
+     * already threw away a candidate at "686 bps" whose real impact was almost certainly near 1%.
+     * Comparing the quote against the curve's own arithmetic tests the thing we actually care
+     * about: is this fill close to what the curve is obliged to give us.
+     */
+    const vSolNow = rSol + INIT_VSOL;
+    const vTokNow = CURVE_K / vSolNow;
+    const modelTokens = vTokNow - CURVE_K / (vSolNow + SOL_PER * (1 - 0.01));
+    const shortfallBps = 1e4 * (1 - Number(q.out) / 1e6 / modelTokens);
+    if (shortfallBps > MAX_SHORTFALL_BPS) {
+      say(`   quote is ${shortfallBps.toFixed(0)} bps below the curve's own price — skipping`);
+      rec('skip', { mint, reason: 'below-curve-model', shortfallBps, jupiterImpactBps: q.impactBps, rSol });
+      skipped += 1; busy = false; return;
+    }
+    say(`   quote is ${shortfallBps.toFixed(0)} bps off closed-form (jupiter claims ${q.impactBps.toFixed(0)} bps impact)`);
     say(`   buy quote ${q.out} tokens via ${q.labels.join('+')}, impact ${q.impactBps.toFixed(0)} bps`);
     rec('buy-quote', { mint, rSol, progress: (100 * rSol) / GRAD_SOL, tokensOut: q.out.toString(), labels: q.labels, impactBps: q.impactBps, solIn: SOL_PER, balanceLamports: bal });
     if (!APPLY) { say('   DRY RUN — would buy here'); positionsDone += 1; busy = false; if (positionsDone >= MAX_POSITIONS) finish(); return; }

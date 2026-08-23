@@ -70,9 +70,19 @@ const EXIT_LEVELS = [76, 78, 80, 82, 83.5];
  * question is only whether cutting at a small loss beats riding the stall down.
  */
 const STOP_LEVELS = (arg('stops') ?? '0,2,4,6').split(',').map(Number);
+/**
+ * A TRAILING stop, measured from the highest reserve reached rather than from entry.
+ *
+ * The second live position went 73.04 -> 76.71 and then faded back through its entry. A fixed stop
+ * four SOL below ENTRY does nothing about that: it gives back the whole excursion before it acts.
+ * A stop that follows the high locks in part of a move that reverses. Whether that is worth having
+ * is not obvious - trailing stops also cut winners early on ordinary noise, and this curve is noisy
+ * - so it is measured on both corpora rather than adopted because it sounds prudent.
+ */
+const TRAIL = Number(arg('trail') ?? '0');
 const DIR = 'data/sqd/events-6EF8rrec';
 
-interface C { entry: Map<number, { vSol: number; vTok: number }>; cross: Map<number, number>; exit: Map<number, { vSol: number; vTok: number }>; exitSlot: Map<number, number>; minAfter: Map<number, number>; minSlot: Map<number, number>; grad: number | null; maxR: number; lastVSol: number; lastVTok: number }
+interface C { entry: Map<number, { vSol: number; vTok: number }>; cross: Map<number, number>; exit: Map<number, { vSol: number; vTok: number }>; exitSlot: Map<number, number>; minAfter: Map<number, number>; minSlot: Map<number, number>; maxAfter: Map<number, number>; grad: number | null; maxR: number; lastVSol: number; lastVTok: number }
 const curves = new Map<string, C>();
 
 const files = readdirSync(DIR).filter((x) => {
@@ -105,7 +115,7 @@ for (const f of files) {
       trades += 1;
       const mint = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
       let c = curves.get(mint);
-      if (c === undefined) { c = { entry: new Map(), cross: new Map(), exit: new Map(), exitSlot: new Map(), minAfter: new Map(), minSlot: new Map(), grad: null, maxR: 0, lastVSol: vSol, lastVTok: vTok }; curves.set(mint, c); }
+      if (c === undefined) { c = { entry: new Map(), cross: new Map(), exit: new Map(), exitSlot: new Map(), minAfter: new Map(), minSlot: new Map(), maxAfter: new Map(), grad: null, maxR: 0, lastVSol: vSol, lastVTok: vTok }; curves.set(mint, c); }
       if (rSol > c.maxR) c.maxR = rSol;
       c.lastVSol = vSol; c.lastVTok = vTok;
       for (const L of ENTRY_LEVELS) if (rSol >= L && !c.entry.has(L)) { c.entry.set(L, { vSol, vTok }); c.cross.set(L, slot); }
@@ -115,6 +125,8 @@ for (const f of files) {
         if (!c.cross.has(L)) continue;
         const prev = c.minAfter.get(L);
         if (prev === undefined || rSol < prev) { c.minAfter.set(L, rSol); c.minSlot.set(L, slot); }
+        const hi = c.maxAfter.get(L);
+        if (hi === undefined || rSol > hi) c.maxAfter.set(L, rSol);
       }
       if (rSol >= GRAD && c.grad === null) c.grad = slot;
     }
@@ -160,7 +172,9 @@ for (const L of ENTRY_LEVELS) {
        * the target whenever it was eventually reached, regardless of what happened in between,
        * would be a look-ahead of exactly the kind that killed MT171.
        */
-      const stopAt = S > 0 ? L - S : null;
+      /** Fixed stop is measured from entry; trailing is measured from the peak reserve reached. */
+      const peak = c.maxAfter.get(L);
+      const stopAt = TRAIL > 0 && peak !== undefined ? peak - TRAIL : (S > 0 ? L - S : null);
       const stoppedFirst = stopAt !== null && c.minAfter.get(L) !== undefined && (c.minAfter.get(L) as number) <= stopAt
         && (ex === undefined || (c.minSlot.get(L) as number) < (c.exitSlot.get(X) as number));
       if (stoppedFirst) {
