@@ -104,10 +104,36 @@ if (SIDE === 'buy') {
 }
 
 // ---- quote, and check it against the pool's own frictionless price ----
+/**
+ * A 429 IS NOT AN ANSWER HERE EITHER, AND THE OMISSION LEFT REAL POSITIONS UNSELLABLE.
+ *
+ * The retry was added to the bot's quote path after a rate limit silently skipped a trade, and this
+ * file was left bare. The consequence was worse than a skipped trade: three consecutive attempts to
+ * sell open positions returned "REFUSED: no quote (429)" and the holder could do nothing, because the
+ * one tool for closing a position by hand gave up on the first rate limit. A gateway being busy must
+ * never be able to trap capital.
+ */
 const qs = new URLSearchParams({ inputMint, outputMint, amount: amount.toString(), slippageBps: String(SLIPPAGE_BPS) });
-const res = await fetch(`https://api.jup.ag/swap/v1/quote?${qs.toString()}`, { headers: JH, signal: AbortSignal.timeout(20_000) });
-if (!res.ok) { console.log(`REFUSED: no quote (${res.status})`); process.exit(1); }
-const jq = (await res.json()) as { outAmount?: string; priceImpactPct?: string; routePlan?: { swapInfo?: { label?: string } }[] };
+interface JQuote { outAmount?: string; priceImpactPct?: string; routePlan?: { swapInfo?: { label?: string } }[] }
+let jq: JQuote | null = null;
+for (let attempt = 0; attempt < 8; attempt += 1) {
+  let res: Response;
+  try {
+    res = await fetch(`https://api.jup.ag/swap/v1/quote?${qs.toString()}`, { headers: JH, signal: AbortSignal.timeout(20_000) });
+  } catch {
+    await new Promise((r) => { setTimeout(r, 700 * (attempt + 1)); });
+    continue;
+  }
+  if (res.status === 429) {
+    console.log(`  quote rate-limited, retry ${attempt + 1}/8`);
+    await new Promise((r) => { setTimeout(r, 900 * (attempt + 1)); });
+    continue;
+  }
+  if (!res.ok) { console.log(`REFUSED: no quote (${res.status})`); process.exit(1); }
+  jq = (await res.json()) as JQuote;
+  break;
+}
+if (jq === null) { console.log('REFUSED: still rate-limited after 8 attempts — wait a minute and re-run'); process.exit(1); }
 if (jq.outAmount === undefined) { console.log('REFUSED: quote carried no outAmount'); process.exit(1); }
 const labels = (jq.routePlan ?? []).map((p) => p.swapInfo?.label ?? '?');
 const impactBps = Math.abs(Number(jq.priceImpactPct ?? '0')) * 1e4;
@@ -121,9 +147,39 @@ if (SIDE === 'buy') {
 }
 if (!APPLY) { console.log('  dry run — re-run with --apply to sign'); process.exit(0); }
 
-// ---- the signed leg: policy, binding and effect all run before anything is signed ----
-const order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint, outputMint, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
-const txRaw = order.transaction;
+/**
+ * JUPITER SOMETIMES BUILDS THROUGH A ROUTER THE POLICY DOES NOT ALLOW, AND THE ANSWER IS TO ASK
+ * AGAIN RATHER THAN TO WIDEN THE POLICY.
+ *
+ * A live sell was refused with `disallowed_program: DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH`.
+ * That is DFlow, a separate aggregator. The allowlist permits Jupiter V6 and reaches everything
+ * beyond it by CPI, which is exactly the right shape: a program invoked BY Jupiter is bounded by
+ * Jupiter's own output constraint, whereas a top-level call is not. Both transactions that did
+ * succeed were built through JUP6Lkb; the refusal happened because this particular build came back
+ * routed top-level through DFlow instead.
+ *
+ * Routing varies between identical requests, so rebuilding is usually enough to obtain a V6 route.
+ * Adding DFlow to the allowlist would also "fix" it, and would be the wrong fix: it would widen a
+ * security gate to accommodate a vendor's routing lottery.
+ */
+let order: Awaited<ReturnType<typeof buildSignableOrder>> | null = null;
+let outcome: ReturnType<Signer['sign']> | null = null;
+let txRaw: Uint8Array | null = null;
+let effectOk: Awaited<ReturnType<typeof verifyEffect>> | null = null;
+for (let attempt = 0; attempt < 6; attempt += 1) {
+  try {
+    order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint, outputMint, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (!msg.includes('rate_limited') && !msg.includes('429')) throw e;
+    console.log(`  order rate-limited, retry ${attempt + 1}/6`);
+    await new Promise((r) => { setTimeout(r, 900 * (attempt + 1)); });
+    continue;
+  }
+  break;
+}
+if (order === null) { console.log('REFUSED: could not build an order'); process.exit(1); }
+txRaw = order.transaction;
 const decoded = decodeTransaction(txRaw);
 const now = Date.now();
 const minOut = minOutputOnEffectBasis({ outputMint, quotedOut: order.quote.outAmount, slippageBps: SLIPPAGE_BPS });
@@ -142,10 +198,17 @@ const intent: TradeIntent = {
   riskSnapshotHash: 'manual-swap',
   createdUtcMs: now,
 };
-const effect = await verifyEffect(rpc, Buffer.from(txRaw).toString('base64'), decoded, intent, owner);
-if (!effect.verified) { console.log(`  EFFECT REFUSED: ${effect.refusals.map((r) => `${r.refusal}: ${r.detail}`).join('; ')}`); process.exit(1); }
-const outcome = signer.sign({ raw: txRaw, intent, effect, nowUtcMs: Date.now() });
-if (!outcome.signed) { console.log(`  SIGNER REFUSED (${outcome.kind}): ${outcome.detail}`); process.exit(1); }
+effectOk = await verifyEffect(rpc, Buffer.from(txRaw).toString('base64'), decoded, intent, owner);
+if (!effectOk.verified) { console.log(`  EFFECT REFUSED: ${effectOk.refusals.map((r) => `${r.refusal}: ${r.detail}`).join('; ')}`); process.exit(1); }
+outcome = signer.sign({ raw: txRaw, intent, effect: effectOk, nowUtcMs: Date.now() });
+if (!outcome.signed) {
+  console.log(`  SIGNER REFUSED (${outcome.kind}): ${outcome.detail}`);
+  if (outcome.detail.includes('disallowed_program')) {
+    console.log('  This is Jupiter routing through a program outside the allowlist. Re-run; routing');
+    console.log('  varies between identical requests and a Jupiter V6 build usually appears within a few tries.');
+  }
+  process.exit(1);
+}
 const sig = await rpc.send(outcome.transactionBase64);
 console.log(`  SENT ${sig}`);
 console.log(`  https://solscan.io/tx/${sig}`);

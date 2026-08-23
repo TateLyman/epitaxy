@@ -329,6 +329,21 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (bal - need < RESERVE_SOL * 1e9) { say(`   REFUSED: balance ${(bal / 1e9).toFixed(6)} leaves less than the ${RESERVE_SOL} SOL reserve`); finish(); return; }
 
     const amount = BigInt(Math.floor(SOL_PER * 1e9));
+    /**
+     * NEVER BUY A CURVE THAT IS ALREADY PAST THE TARGET, which the live run did and which produced
+     * a position that triggered its own exit zero seconds after opening.
+     *
+     * The entry filter is a PERCENTAGE of graduation and the target is an ABSOLUTE reserve level,
+     * so a curve at 82.37 SOL satisfied "at least 82% of 85" while already standing above the 82
+     * SOL exit. There was never a trade there: it bought, immediately fired `target`, and paid two
+     * lots of fees for a round trip with no move in between. The two thresholds have to be compared
+     * in the same units.
+     */
+    if (rSol >= EXIT_SOL - 1) {
+      say(`   already at ${rSol.toFixed(2)} SOL, at or past the ${EXIT_SOL} target — no trade here`);
+      rec('skip', { mint, reason: 'already-past-target', rSol, target: EXIT_SOL });
+      skipped += 1; busy = false; return;
+    }
     const q = await quote(WSOL, mint, amount);
     if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }
     if (!q.labels.includes('Pump.fun')) { say(`   route is ${q.labels.join('+')}, not the bonding curve — skipping`); rec('skip', { mint, reason: 'not-curve-route', labels: q.labels, rSol }); skipped += 1; busy = false; return; }
