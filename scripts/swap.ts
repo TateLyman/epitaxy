@@ -34,7 +34,7 @@ import { loadConfig, loadSecrets, modeFromArgv } from '../packages/domain/src/co
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { ExecutionRpc } from '../packages/execution/src/rpc.js';
 import { Signer } from '../packages/execution/src/signer.js';
-import { buildSignableOrder } from '../packages/execution/src/order.js';
+import { buildSignableOrderV1 } from '../packages/execution/src/order.js';
 import { verifyEffect } from '../packages/execution/src/effect.js';
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import { minOutputOnEffectBasis } from '../packages/execution/src/quote-basis.js';
@@ -162,13 +162,13 @@ if (!APPLY) { console.log('  dry run — re-run with --apply to sign'); process.
  * Adding DFlow to the allowlist would also "fix" it, and would be the wrong fix: it would widen a
  * security gate to accommodate a vendor's routing lottery.
  */
-let order: Awaited<ReturnType<typeof buildSignableOrder>> | null = null;
+let order: Awaited<ReturnType<typeof buildSignableOrderV1>> | null = null;
 let outcome: ReturnType<Signer['sign']> | null = null;
 let txRaw: Uint8Array | null = null;
 let effectOk: Awaited<ReturnType<typeof verifyEffect>> | null = null;
 for (let attempt = 0; attempt < 6; attempt += 1) {
   try {
-    order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint, outputMint, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+    order = await buildSignableOrderV1(secrets.jupiterApiKey, { inputMint, outputMint, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
   } catch (e) {
     const msg = (e as Error).message;
     if (!msg.includes('rate_limited') && !msg.includes('429')) throw e;

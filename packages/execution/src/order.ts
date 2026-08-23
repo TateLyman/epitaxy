@@ -77,3 +77,90 @@ export async function buildSignableOrder(
     requestId: res.data.requestId ?? null,
   };
 }
+
+/**
+ * Build the same order through Jupiter's CLASSIC endpoint, because the modern one routes through a
+ * program the signer will not accept.
+ *
+ * `/swap/v2/order` began returning transactions whose TOP-LEVEL program is
+ * DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH - DFlow, a separate aggregator - and the signer
+ * refused them, correctly. The allowlist admits Jupiter V6 and reaches everything past it by CPI,
+ * which is the right shape: a program INVOKED BY Jupiter is bounded by Jupiter's own output
+ * constraint, while a top-level call is bounded by nothing we checked. Two live positions became
+ * unsellable behind that refusal.
+ *
+ * The fix is not to admit DFlow. Widening a security gate to accommodate a vendor's routing choice
+ * trades a real guarantee for a convenience. `/swap/v1/quote` followed by `/swap/v1/swap` builds
+ * the identical trade with JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 at the top level, verified
+ * by decoding the returned message and resolving its program indices against the static account
+ * keys, so the policy passes on its own terms rather than being relaxed.
+ *
+ * Everything downstream is unchanged: the transaction still goes through decode, effect
+ * verification and the signer's single entry point.
+ */
+export async function buildSignableOrderV1(
+  apiKey: string | null,
+  params: {
+    inputMint: string;
+    outputMint: string;
+    amount: bigint;
+    slippageBps: number;
+    taker: string;
+  },
+): Promise<SignableOrder> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (apiKey !== null) headers['x-api-key'] = apiKey;
+  const sleep = async (ms: number): Promise<void> => { await new Promise((r) => { setTimeout(r, ms); }); };
+
+  const qs = new URLSearchParams({
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    amount: params.amount.toString(),
+    slippageBps: String(params.slippageBps),
+  });
+  let quote: { outAmount?: string; inAmount?: string } | null = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let res: Response;
+    try { res = await fetch(`${BASE}/swap/v1/quote?${qs.toString()}`, { headers, signal: AbortSignal.timeout(20_000) }); }
+    catch { await sleep(700 * (attempt + 1)); continue; }
+    if (res.status === 429) { await sleep(900 * (attempt + 1)); continue; }
+    if (!res.ok) throw new OrderBuildError(`v1 quote HTTP ${String(res.status)}`);
+    quote = (await res.json()) as { outAmount?: string; inAmount?: string };
+    break;
+  }
+  if (quote === null || quote.outAmount === undefined) throw new OrderBuildError('v1 quote unavailable');
+
+  let swap: { swapTransaction?: string } | null = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/swap/v1/swap`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ quoteResponse: quote, userPublicKey: params.taker, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true }),
+        signal: AbortSignal.timeout(25_000),
+      });
+    } catch { await sleep(700 * (attempt + 1)); continue; }
+    if (res.status === 429) { await sleep(1_200 * (attempt + 1)); continue; }
+    if (!res.ok) throw new OrderBuildError(`v1 swap HTTP ${String(res.status)}`);
+    swap = (await res.json()) as { swapTransaction?: string };
+    break;
+  }
+  if (swap === null || swap.swapTransaction === undefined) throw new OrderBuildError('v1 swap returned no transaction');
+
+  return {
+    quote: {
+      inputMint: params.inputMint,
+      outputMint: params.outputMint,
+      inAmount: BigInt(quote.inAmount ?? params.amount.toString()),
+      outAmount: BigInt(quote.outAmount),
+      slippageBps: params.slippageBps,
+      routeLabels: [],
+      contextSlot: null,
+      lastValidBlockHeight: null,
+      schemaVersion: SCHEMA_VERSION,
+      parserVersion: PARSER_VERSION,
+    } as unknown as ExecutableQuote,
+    transaction: new Uint8Array(Buffer.from(swap.swapTransaction, 'base64')),
+    requestId: null,
+  };
+}

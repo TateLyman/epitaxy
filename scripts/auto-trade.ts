@@ -31,7 +31,7 @@ import { loadConfig, loadSecrets, modeFromArgv } from '../packages/domain/src/co
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { ExecutionRpc } from '../packages/execution/src/rpc.js';
 import { Signer } from '../packages/execution/src/signer.js';
-import { buildSignableOrder } from '../packages/execution/src/order.js';
+import { buildSignableOrderV1 } from '../packages/execution/src/order.js';
 import { verifyEffect } from '../packages/execution/src/effect.js';
 import { decodeTransaction } from '../packages/solana/src/transaction.js';
 import { minOutputOnEffectBasis } from '../packages/execution/src/quote-basis.js';
@@ -221,10 +221,10 @@ async function execute(inM: string, outM: string, amount: bigint, mint: string, 
    * A rate limit is never information about the trade. It is only information about the gateway, and
    * the two must not be allowed to look alike.
    */
-  let order: Awaited<ReturnType<typeof buildSignableOrder>> | null = null;
+  let order: Awaited<ReturnType<typeof buildSignableOrderV1>> | null = null;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+      order = await buildSignableOrderV1(secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
       break;
     } catch (e) {
       const msg = (e as Error).message;
