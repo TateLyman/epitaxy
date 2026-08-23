@@ -26,7 +26,7 @@
  *
  * `--apply` is required. Without it this is a full dry run that quotes every leg and signs nothing.
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { loadConfig, loadSecrets, modeFromArgv } from '../packages/domain/src/config.js';
 import { RateLimiter } from '../packages/adapters/src/ratelimit.js';
 import { ExecutionRpc } from '../packages/execution/src/rpc.js';
@@ -60,6 +60,25 @@ const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 const MAX_IMPACT_BPS = Number(arg('max-impact-bps') ?? '400');
 const RESERVE_SOL = Number(arg('reserve') ?? '0.008');
 const LOG = 'data/auto-trade.log';
+/**
+ * A STRUCTURED RECORD OF EVERYTHING SEEN, NOT ONLY OF WHAT WAS DONE.
+ *
+ * The human-readable log says what the run traded. That is the least interesting part. What decides
+ * whether the next run is better is the population it DECLINED - every curve that crossed the band
+ * and was skipped, and the exact reason. Without those rows the run produces one or two outcomes and
+ * teaches nothing; with them it produces a labelled sample of every candidate the market offered and
+ * how each was judged, which is the only thing that can be measured afterwards.
+ *
+ * Reserves, route, impact and timing are captured AT THE MOMENT OF THE DECISION rather than
+ * reconstructed later, because reconstructing a decision from a tape is how MT171 acquired a
+ * look-ahead and how MT180 measured one leg of a two-leg trade.
+ */
+const EVENTS = 'data/auto-trade-events.jsonl';
+/**
+ * A kill switch that does not require finding the process. Creating this file stops the run at the
+ * next safe point rather than mid-position, so a stop cannot strand a bag.
+ */
+const STOP_FILE = 'data/STOP';
 
 const mode = modeFromArgv(process.argv);
 const config = await loadConfig(mode);
@@ -78,6 +97,11 @@ const say = (m: string): void => {
   const line = `${new Date().toISOString()}  ${m}`;
   process.stdout.write(line + String.fromCharCode(10));
   appendFileSync(LOG, line + String.fromCharCode(10));
+};
+
+/** One JSON object per decision, so the run is analysable rather than merely readable. */
+const rec = (kind: string, fields: Record<string, unknown>): void => {
+  appendFileSync(EVENTS, JSON.stringify({ ts: Date.now(), iso: new Date().toISOString(), kind, ...fields }) + String.fromCharCode(10));
 };
 
 const balance = async (): Promise<number> => Number((await rpc.getAccounts([owner]))[0]?.lamports ?? 0n);
@@ -165,6 +189,8 @@ say(`  MT174 measured this at median +755 bps, mean -889. Few trades is delibera
 say('');
 
 let positionsDone = 0;
+let candidatesSeen = 0;
+let skipped = 0;
 let busy = false;
 let realised = 0;
 const ws = secrets.rpcWs;
@@ -195,6 +221,9 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     const mint = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
     if (seen.has(mint)) continue;
     seen.add(mint);
+    candidatesSeen += 1;
+    rec('candidate', { mint, rSol, progress, positionsDone });
+    if (existsSync(STOP_FILE)) { say('  STOP file present — halting'); rec('stopped', { reason: 'stop-file' }); finish(); return; }
     busy = true;
     void run(mint, rSol);
     return;
@@ -211,15 +240,18 @@ async function run(mint: string, rSol: number): Promise<void> {
 
     const amount = BigInt(Math.floor(SOL_PER * 1e9));
     const q = await quote(WSOL, mint, amount);
-    if (q === null) { say('   no buy quote — skipping'); busy = false; return; }
-    if (!q.labels.includes('Pump.fun')) { say(`   route is ${q.labels.join('+')}, not the bonding curve — skipping`); busy = false; return; }
-    if (q.impactBps > MAX_IMPACT_BPS) { say(`   impact ${q.impactBps.toFixed(0)} bps over ceiling — skipping`); busy = false; return; }
+    if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }
+    if (!q.labels.includes('Pump.fun')) { say(`   route is ${q.labels.join('+')}, not the bonding curve — skipping`); rec('skip', { mint, reason: 'not-curve-route', labels: q.labels, rSol }); skipped += 1; busy = false; return; }
+    if (q.impactBps > MAX_IMPACT_BPS) { say(`   impact ${q.impactBps.toFixed(0)} bps over ceiling — skipping`); rec('skip', { mint, reason: 'impact', impactBps: q.impactBps, rSol }); skipped += 1; busy = false; return; }
     say(`   buy quote ${q.out} tokens via ${q.labels.join('+')}, impact ${q.impactBps.toFixed(0)} bps`);
+    rec('buy-quote', { mint, rSol, progress: (100 * rSol) / GRAD_SOL, tokensOut: q.out.toString(), labels: q.labels, impactBps: q.impactBps, solIn: SOL_PER, balanceLamports: bal });
     if (!APPLY) { say('   DRY RUN — would buy here'); positionsDone += 1; busy = false; if (positionsDone >= MAX_POSITIONS) finish(); return; }
 
     const buySig = await execute(WSOL, mint, amount, mint, 'buy');
     if (buySig === null) { say('   buy refused — stopping'); finish(); return; }
     say(`   BOUGHT  ${buySig}`);
+    const boughtAt = Date.now();
+    rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
 
     /** Wait for migration. Polling is enough: we already hold the seat and are not racing for it. */
     const deadline = Date.now() + 45 * 60_000;
@@ -230,6 +262,7 @@ async function run(mint: string, rSol: number): Promise<void> {
       await sleep(2_000);
     }
     say(`   migrated — waiting ${SELL_AFTER_S}s`);
+    rec('migrated', { mint, heldSeconds: (Date.now() - boughtAt) / 1000 });
     await sleep(SELL_AFTER_S * 1000);
 
     const bag = await held(mint);
@@ -238,11 +271,14 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (sq === null) { say('   no sell quote — stopping, position still open'); finish(); return; }
     if (sq.labels.includes('Pump.fun') && !sq.labels.includes('Pump.fun Amm')) { say('   still routing to the CURVE not the pool — stopping'); finish(); return; }
     say(`   sell quote ${(Number(sq.out) / 1e9).toFixed(6)} SOL via ${sq.labels.join('+')}`);
+    rec('sell-quote', { mint, solOut: Number(sq.out) / 1e9, labels: sq.labels, impactBps: sq.impactBps, bag: bag.toString() });
     const sellSig = await execute(mint, WSOL, bag, mint, 'sell');
     if (sellSig === null) { say('   sell refused — stopping, position still open'); finish(); return; }
     say(`   SOLD    ${sellSig}`);
     realised += Number(sq.out) - Number(amount);
-    say(`   leg net ${((Number(sq.out) - Number(amount)) / 1e9).toFixed(6)} SOL before rent recovery`);
+    const netBps = 1e4 * (Number(sq.out) / Number(amount) - 1);
+    say(`   leg net ${((Number(sq.out) - Number(amount)) / 1e9).toFixed(6)} SOL = ${netBps.toFixed(0)} bps before rent recovery`);
+    rec('closed', { mint, sig: sellSig, solIn: SOL_PER, solOut: Number(sq.out) / 1e9, netBps, holdSeconds: (Date.now() - boughtAt) / 1000 });
 
     positionsDone += 1;
     busy = false;
@@ -255,7 +291,9 @@ async function run(mint: string, rSol: number): Promise<void> {
 
 function finish(): void {
   say('');
-  say(`  ${positionsDone} position(s) completed, realised ${(realised / 1e9).toFixed(6)} SOL before rent`);
+  say(`  ${candidatesSeen} candidates seen, ${skipped} skipped, ${positionsDone} position(s) completed`);
+  say(`  realised ${(realised / 1e9).toFixed(6)} SOL before rent recovery`);
+  rec('run-end', { candidatesSeen, skipped, positionsDone, realisedLamports: realised });
   say('  Reclaim the rent from every account this opened — it is ~20% of a 0.01 SOL position:');
   say('     npx tsx scripts/close-stranded-atas.ts --mode=canary --apply');
   say('');
