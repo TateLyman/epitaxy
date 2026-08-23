@@ -132,7 +132,34 @@ const rec = (kind: string, fields: Record<string, unknown>): void => {
 const balance = async (): Promise<number> => Number((await rpc.getAccounts([owner]))[0]?.lamports ?? 0n);
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
-async function held(mint: string): Promise<bigint> {
+/**
+ * A ZERO BALANCE JUST AFTER A BUY IS NOT EVIDENCE OF AN EMPTY POSITION, AND BELIEVING IT STRANDED
+ * REAL CAPITAL.
+ *
+ * The third live position bought 32,919,493,561 tokens in a CONFIRMED transaction that cost
+ * 0.0121 SOL, hit its stop four seconds later, queried its holdings, was told zero, concluded there
+ * was nothing to sell and ended the run - leaving the bag open on chain with the bot no longer
+ * watching it. The buy was fine and the stop was right: the curve genuinely fell 69.84 to 65.99.
+ * The defect was trusting a single balance read taken four seconds after the token account was
+ * created, which is precisely when an RPC is least likely to have indexed it.
+ *
+ * So a zero is retried before it is believed. Anything else lets a race condition masquerade as an
+ * empty wallet, which is the most expensive thing it could possibly pretend to be.
+ */
+async function held(mint: string, insist = false): Promise<bigint> {
+  const tries = insist ? 6 : 1;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    const v = await heldOnce(mint);
+    if (v > 0n) return v;
+    if (attempt + 1 < tries) {
+      say(`   holdings read 0, retrying (${attempt + 1}/${tries}) — the RPC may not have indexed the account yet`);
+      await sleep(2_500);
+    }
+  }
+  return 0n;
+}
+
+async function heldOnce(mint: string): Promise<bigint> {
   const res = await fetch(secrets.rpcHttp ?? '', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner', params: [owner, { mint }, { encoding: 'jsonParsed' }] }),
@@ -362,8 +389,15 @@ async function run(mint: string, rSol: number): Promise<void> {
     /** Only a migration needs the settling delay; on the curve we sell immediately. */
     if (reason === 'migrated') await sleep(SELL_AFTER_S * 1000);
 
-    const bag = await held(mint);
-    if (bag === 0n) { say('   nothing held — stopping'); finish(); return; }
+    /** insist: we just bought, so a zero here is far likelier to be RPC lag than an empty bag. */
+    const bag = await held(mint, true);
+    if (bag === 0n) {
+      say('   REFUSING TO REPORT SUCCESS: bought this position but cannot read a balance after 6 tries.');
+      say('   The position is OPEN. Sell it by hand once the RPC catches up:');
+      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
+      rec('stranded', { mint, reason: 'balance-unreadable-after-buy' });
+      finish(); return;
+    }
     const sq = await quote(mint, WSOL, bag);
     if (sq === null) { say('   no sell quote — stopping, position still open'); finish(); return; }
     /**
@@ -413,6 +447,8 @@ async function run(mint: string, rSol: number): Promise<void> {
 
 function finish(): void {
   say('');
+  /** A run that ends mid-position must say so loudly rather than printing a tidy summary. */
+  if (busy) say('  WARNING: exited while a position was still being managed — check holdings by hand.');
   say(`  ${candidatesSeen} candidates seen, ${skipped} skipped, ${positionsDone} position(s) completed`);
   say(`  realised ${(realised / 1e9).toFixed(6)} SOL before rent recovery`);
   rec('run-end', { candidatesSeen, skipped, positionsDone, realisedLamports: realised });
