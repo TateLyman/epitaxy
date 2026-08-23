@@ -157,8 +157,31 @@ async function quote(inM: string, outM: string, amount: bigint): Promise<Leg | n
 }
 
 /** One signed leg through the signer's single entry point. Returns the signature, or null on refusal. */
-async function execute(inM: string, outM: string, amount: bigint, mint: string, side: 'buy' | 'sell'): Promise<string | null> {
-  const order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+async function execute(inM: string, outM: string, amount: bigint, mint: string, side: 'buy' | 'sell'): Promise<{ sig: string; quotedOut: bigint } | null> {
+  /**
+   * THE ORDER PATH NEEDS THE SAME RETRY THE QUOTE PATH GOT, AND LEARNING THAT COST A POSITION.
+   *
+   * The first live run bought at 70.15 SOL, sold 69 seconds later for +2,338 bps, then found its
+   * second candidate, quoted it successfully at 203 bps impact - and died building the order, on a
+   * 429. The retry added earlier only guarded quote(); buildSignableOrder was left bare, so a
+   * transient gateway limit ended a run that had capital, a valid candidate and a good quote.
+   *
+   * A rate limit is never information about the trade. It is only information about the gateway, and
+   * the two must not be allowed to look alike.
+   */
+  let order: Awaited<ReturnType<typeof buildSignableOrder>> | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      order = await buildSignableOrder(limiter, secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+      break;
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.includes('rate_limited') && !msg.includes('429')) throw e;
+      say(`   order rate-limited, retry ${attempt + 1}/5`);
+      await sleep(900 * (attempt + 1));
+    }
+  }
+  if (order === null) { say('   order still rate-limited after retries'); rec('skip', { mint, reason: 'order-rate-limited', side }); return null; }
   const raw = order.transaction;
   const decoded = decodeTransaction(raw);
   const now = Date.now();
@@ -175,7 +198,20 @@ async function execute(inM: string, outM: string, amount: bigint, mint: string, 
   if (!effect.verified) { say(`   EFFECT REFUSED: ${effect.refusals.map((r) => r.refusal).join(', ')}`); return null; }
   const outcome = signer.sign({ raw, intent, effect, nowUtcMs: Date.now() });
   if (!outcome.signed) { say(`   SIGNER REFUSED (${outcome.kind}): ${outcome.detail}`); return null; }
-  return await rpc.send(outcome.transactionBase64);
+  /**
+   * THE ORDER CARRIES ITS OWN QUOTE AND IT IS NOT THE ONE WE LOGGED.
+   *
+   * The first live sell logged 0.012338 SOL and the wallet received 0.010723 - a 13% gap that looked
+   * like catastrophic slippage and was not. quote() fetches a price for reporting, then
+   * buildSignableOrder fetches a SECOND quote 400ms later and executes against that one, so minOut
+   * was computed from a price we never printed and no slippage guard could trip. In a pool five
+   * seconds old the price genuinely moved 13% in those 400 milliseconds.
+   *
+   * Reporting the order's own quoted output rather than the earlier probe makes the logged number
+   * the number that was actually traded against.
+   */
+  const sig = await rpc.send(outcome.transactionBase64);
+  return { sig, quotedOut: order.quote.outAmount };
 }
 
 const startBalance = await balance();
@@ -247,8 +283,10 @@ async function run(mint: string, rSol: number): Promise<void> {
     rec('buy-quote', { mint, rSol, progress: (100 * rSol) / GRAD_SOL, tokensOut: q.out.toString(), labels: q.labels, impactBps: q.impactBps, solIn: SOL_PER, balanceLamports: bal });
     if (!APPLY) { say('   DRY RUN — would buy here'); positionsDone += 1; busy = false; if (positionsDone >= MAX_POSITIONS) finish(); return; }
 
-    const buySig = await execute(WSOL, mint, amount, mint, 'buy');
-    if (buySig === null) { say('   buy refused — stopping'); finish(); return; }
+    const balBeforeBuy = await balance();
+    const buyRes = await execute(WSOL, mint, amount, mint, 'buy');
+    if (buyRes === null) { say('   buy refused — stopping'); finish(); return; }
+    const buySig = buyRes.sig;
     say(`   BOUGHT  ${buySig}`);
     const boughtAt = Date.now();
     rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
@@ -272,13 +310,32 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (sq.labels.includes('Pump.fun') && !sq.labels.includes('Pump.fun Amm')) { say('   still routing to the CURVE not the pool — stopping'); finish(); return; }
     say(`   sell quote ${(Number(sq.out) / 1e9).toFixed(6)} SOL via ${sq.labels.join('+')}`);
     rec('sell-quote', { mint, solOut: Number(sq.out) / 1e9, labels: sq.labels, impactBps: sq.impactBps, bag: bag.toString() });
-    const sellSig = await execute(mint, WSOL, bag, mint, 'sell');
-    if (sellSig === null) { say('   sell refused — stopping, position still open'); finish(); return; }
+    const sellRes = await execute(mint, WSOL, bag, mint, 'sell');
+    if (sellRes === null) { say('   sell refused — stopping, position still open'); finish(); return; }
+    const sellSig = sellRes.sig;
     say(`   SOLD    ${sellSig}`);
-    realised += Number(sq.out) - Number(amount);
-    const netBps = 1e4 * (Number(sq.out) / Number(amount) - 1);
-    say(`   leg net ${((Number(sq.out) - Number(amount)) / 1e9).toFixed(6)} SOL = ${netBps.toFixed(0)} bps before rent recovery`);
-    rec('closed', { mint, sig: sellSig, solIn: SOL_PER, solOut: Number(sq.out) / 1e9, netBps, holdSeconds: (Date.now() - boughtAt) / 1000 });
+    await sleep(3_000);
+    const balAfterSell = await balance();
+    /**
+     * P&L IS THE WALLET DELTA, NOT THE QUOTE, and the first live trade is why this line exists.
+     * Comparing sell proceeds to buy notional reported +2,338 bps on a round trip whose real
+     * contribution was +626 lamports once fees and the rent outlay were counted -- an overstatement
+     * of nearly four times. A number that flatters the strategy by four times is worse than no
+     * number. Rent is reported separately because it is recoverable and is not a loss.
+     */
+    const walletDelta = balAfterSell - balBeforeBuy;
+    const netOfRent = walletDelta + ATA_RENT;
+    const trueBps = 1e4 * (netOfRent / Number(amount));
+    const quotedBps = 1e4 * (Number(sellRes.quotedOut) / Number(amount) - 1);
+    say(`   quoted  ${quotedBps.toFixed(0)} bps  |  WALLET ${(walletDelta / 1e9).toFixed(9)} SOL`);
+    say(`   TRUE NET ${(netOfRent / 1e9).toFixed(9)} SOL = ${trueBps.toFixed(0)} bps once the ${(ATA_RENT / 1e9).toFixed(6)} SOL rent is reclaimed`);
+    rec('closed', {
+      mint, sig: sellSig, solIn: SOL_PER,
+      quotedOutSol: Number(sellRes.quotedOut) / 1e9, quotedBps,
+      walletDeltaSol: walletDelta / 1e9, netOfRentSol: netOfRent / 1e9, trueBps,
+      holdSeconds: (Date.now() - boughtAt) / 1000,
+    });
+    realised += netOfRent;
 
     positionsDone += 1;
     busy = false;
