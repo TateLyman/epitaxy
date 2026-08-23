@@ -40,7 +40,13 @@ import { base58DecodeBulk } from '../packages/solana/src/base58.js';
 
 const CPI = Buffer.from('e445a52e51cb9a1d', 'hex');
 const TRADE_EVENT = Buffer.from('bddb7fd34ee661ee', 'hex');
-const OFF = { mint: 8, vSol: 97, vTok: 105, rSol: 113 };
+/**
+ * TradeEvent layout after the 8-byte discriminator: mint(32) at 8, solAmount(8) at 40,
+ * tokenAmount(8) at 48, isBuy(1) at 56, user(32) at 57, timestamp(8) at 89, then the reserves.
+ * The reserve offsets are the ones MT170 validated against the 30.00 SOL constant; solAmount and
+ * isBuy sit in the same record and were simply never read.
+ */
+const OFF = { mint: 8, solAmount: 40, isBuy: 56, vSol: 97, vTok: 105, rSol: 113 };
 const NEED = OFF.rSol + 8;
 const INITIAL_VIRTUAL_SOL = 30;
 const FEE = 0.01;
@@ -54,6 +60,17 @@ const WATCH_FROM = Number(arg('watch-from') ?? '60');
 const ENTRY = Number(arg('entry') ?? '70');
 const EXIT = Number(arg('exit') ?? '82');
 const STOP_BELOW = Number(arg('stop-below') ?? '4');
+/**
+ * HOW FAR ABOVE THE ENTRY LEVEL A FILL MAY LAND AND STILL BE TAKEN.
+ *
+ * Entry happens on the first event at or above the level, and that event can be a long way above it:
+ * a twenty-SOL buy can carry a curve from 68 to 79 in one trade. The target is an ABSOLUTE level, so
+ * entering at 79 leaves three SOL of upside where entering at 70 leaves twelve, while the stop stays
+ * the same distance below. That is why the size and buy-share quintiles show a 62% target rate on
+ * block E alongside a NEGATIVE mean: the filter selects curves that jump, and jumping is exactly
+ * what ruins the entry price. Capping the overshoot tests whether the effect is the jump or the fill.
+ */
+const ENTRY_MAX = Number(arg('entry-max') ?? '999');
 const DIR = 'data/sqd/events-6EF8rrec';
 
 const buyTokens = (vSol: number, vTok: number, sol: number): number => { const k = vSol * vTok; return vTok - k / (vSol + sol * (1 - FEE)); };
@@ -74,6 +91,13 @@ interface C {
   tok: number;
   climb: number;
   flow: number;
+  /** SOL volume and buy-count accumulated during the observed climb, for the size and side features. */
+  climbSol: number;
+  climbBuys: number;
+  watchSol: number;
+  watchBuys: number;
+  avgSize: number;
+  buyPct: number;
   out: number;
   how: 'target' | 'stop' | 'drift';
   lastVSol: number;
@@ -112,10 +136,12 @@ for (const f of files) {
       const mint = b.subarray(OFF.mint, OFF.mint + 32).toString('base64');
       let c = curves.get(mint);
       if (c === undefined) {
-        c = { phase: 'pre', watchSlot: 0, watchTrades: 0, trades: 0, tok: 0, climb: 0, flow: 0, out: 0, how: 'drift', lastVSol: vSol, lastVTok: vTok };
+        c = { phase: 'pre', watchSlot: 0, watchTrades: 0, trades: 0, tok: 0, climb: 0, flow: 0, climbSol: 0, climbBuys: 0, watchSol: 0, watchBuys: 0, avgSize: 0, buyPct: 0, out: 0, how: 'drift', lastVSol: vSol, lastVTok: vTok };
         curves.set(mint, c);
       }
       c.trades += 1;
+      c.climbSol += Number(b.readBigUInt64LE(OFF.solAmount)) / 1e9;
+      if (b.readUInt8(OFF.isBuy) === 1) c.climbBuys += 1;
       c.lastVSol = vSol; c.lastVTok = vTok;
       if (c.phase === 'done') continue;
 
@@ -123,6 +149,7 @@ for (const f of files) {
         /** Start watching only BELOW the entry level, so a real climb can be observed. */
         if (rSol >= WATCH_FROM && rSol < ENTRY) {
           c.phase = 'watching'; c.watchSlot = slot; c.watchTrades = c.trades;
+          c.watchSol = c.climbSol; c.watchBuys = c.climbBuys;
         } else if (rSol >= ENTRY) {
           /** Arrived already above entry: climb time is unknown, not zero. Never traded. */
           c.phase = 'done';
@@ -133,11 +160,17 @@ for (const f of files) {
       if (c.phase === 'watching') {
         if (rSol < WATCH_FROM) continue;
         if (rSol < ENTRY) continue;
+        /** A fill too far above the level has already given away most of the move to the target. */
+        if (rSol > ENTRY + ENTRY_MAX) { c.phase = 'done'; continue; }
         const tok = buyTokens(vSol, vTok, NOTIONAL);
         if (!(tok > 0)) { c.phase = 'done'; continue; }
         c.tok = tok;
         c.climb = slot - c.watchSlot;
         c.flow = c.trades - c.watchTrades;
+        const solOverClimb = c.climbSol - c.watchSol;
+        const buysOverClimb = c.climbBuys - c.watchBuys;
+        c.avgSize = c.flow > 0 ? solOverClimb / c.flow : 0;
+        c.buyPct = c.flow > 0 ? (100 * buysOverClimb) / c.flow : 0;
         c.phase = 'holding';
         continue;
       }
@@ -200,6 +233,15 @@ console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, target ${EXIT}, stop ${STO
 console.log('');
 band(`CLIMB TIME from ${WATCH_FROM} to ${ENTRY} SOL — fastest first`, (c) => c.climb, ' slots');
 band(`FLOW: trades over that same climb — fewest first`, (c) => c.flow, '');
+/**
+ * AVERAGE TRADE SIZE, which is the obvious explanation for the flow result and has to be tested
+ * rather than assumed. Fewer trades predicting a HIGHER target rate is backwards if trades mean
+ * demand, and sensible if it means a curve pushed by a few large buyers rather than ground upward
+ * by retail churn. If size is the thing, it should separate the outcomes more cleanly than count.
+ */
+band(`AVERAGE TRADE SIZE during the climb — smallest first`, (c) => Math.round(c.avgSize * 1000) / 1000, ' SOL');
+/** And the side mix, since a climb made of buys is a different object from one made of churn. */
+band(`BUY SHARE of trades during the climb — lowest first`, (c) => Math.round(c.buyPct), '%');
 const all = rows.map((c) => c.out);
 console.log(`  ALL: n=${rows.length}  target ${((100 * rows.filter((c) => c.how === 'target').length) / rows.length).toFixed(0)}%  median ${med(all).toFixed(0)}  mean ${mean(all).toFixed(0)}  g ${growth(all, 0.05).toFixed(4)}`);
 console.log('');

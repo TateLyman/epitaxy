@@ -83,6 +83,8 @@ const EXIT_SOL = Number(arg('exit-sol') ?? '82');
 const WATCH_FROM_SOL = Number(arg('watch-from') ?? '60');
 /** Absolute reserve level the entry percentage corresponds to, used for the climb gate. */
 const ENTRY_SOL = Number(arg('entry-sol') ?? '69.7');
+/** How far above the entry level a fill may land. A bound on giving away the move, not an edge. */
+const MAX_OVERSHOOT_SOL = Number(arg('max-overshoot') ?? '4');
 const STOP_BELOW = Number(arg('stop-below') ?? '4');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 /** How far below the curve's closed-form price a fill may land before it is refused. */
@@ -278,8 +280,9 @@ say(`  balance ${(startBalance / 1e9).toFixed(9)} SOL`);
 say(`  ${APPLY ? 'LIVE — WILL SIGN AND SEND' : 'DRY RUN — quotes every leg, signs nothing'}`);
 say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
 say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
-say(`  MT185: block D n=959 mean +106 bps growth +0.0005, block E +12 bps and 0.0000.`);
-say(`  Expect roughly 58% to stop out small. That is the design, not a failure.`);
+say(`  Only curves watched climbing from ${WATCH_FROM_SOL} SOL are eligible; overshoot capped at ${MAX_OVERSHOOT_SOL} SOL.`);
+say(`  MT187: block D mean +129 bps growth +0.0006, block E +51 bps and +0.0002. Thin but positive on both.`);
+say(`  Expect roughly 55% to stop out small. That is the design, not a failure.`);
 say('');
 
 let positionsDone = 0;
@@ -370,6 +373,18 @@ async function run(mint: string, rSol: number): Promise<void> {
      * lots of fees for a round trip with no move in between. The two thresholds have to be compared
      * in the same units.
      */
+    /**
+     * Refuse a fill that has already given away most of the run to the target. MT187 tested caps of
+     * 1, 2 and 4 SOL across both corpora and found NO consistent winner - 4 was best on block D, 1
+     * on block E - so this is a sanity bound rather than an edge, set where it is never worse on
+     * either block. Entering twelve SOL above the level leaves three SOL of upside against an
+     * unchanged stop, which is a bad trade regardless of what the statistics say.
+     */
+    if (rSol > ENTRY_SOL + MAX_OVERSHOOT_SOL) {
+      say(`   ${rSol.toFixed(2)} SOL is ${(rSol - ENTRY_SOL).toFixed(2)} above the entry level — too little room to target`);
+      rec('skip', { mint, reason: 'entry-overshoot', rSol, entryLevel: ENTRY_SOL });
+      skipped += 1; busy = false; return;
+    }
     if (rSol >= EXIT_SOL - 1) {
       say(`   already at ${rSol.toFixed(2)} SOL, at or past the ${EXIT_SOL} target — no trade here`);
       rec('skip', { mint, reason: 'already-past-target', rSol, target: EXIT_SOL });
@@ -400,6 +415,21 @@ async function run(mint: string, rSol: number): Promise<void> {
       rec('skip', { mint, reason: 'below-curve-model', shortfallBps, jupiterImpactBps: q.impactBps, rSol });
       skipped += 1; busy = false; return;
     }
+    /**
+     * A QUOTE THAT IS IMPOSSIBLY GOOD IS AS WRONG AS ONE THAT IS IMPOSSIBLY BAD.
+     *
+     * The gate only ever checked one direction. A live candidate quoted 1,410 bps BETTER than the
+     * bonding curve is mathematically able to give, with Jupiter reporting zero price impact, and it
+     * passed straight through to fail simulation. The curve is a closed-form function of its own
+     * reserves: it cannot hand out fourteen percent more tokens than its formula. A quote claiming
+     * otherwise is describing a different pool, a stale state, or a token whose constants are not
+     * the ones assumed - and in every one of those cases the right move is to decline, not to sign.
+     */
+    if (shortfallBps < -MAX_SHORTFALL_BPS) {
+      say(`   quote is ${(-shortfallBps).toFixed(0)} bps BETTER than the curve can give — impossible, skipping`);
+      rec('skip', { mint, reason: 'above-curve-model', shortfallBps, jupiterImpactBps: q.impactBps, rSol });
+      skipped += 1; busy = false; return;
+    }
     say(`   quote is ${shortfallBps.toFixed(0)} bps off closed-form (jupiter claims ${q.impactBps.toFixed(0)} bps impact)`);
     say(`   buy quote ${q.out} tokens via ${q.labels.join('+')}, impact ${q.impactBps.toFixed(0)} bps`);
     rec('buy-quote', { mint, rSol, progress: (100 * rSol) / GRAD_SOL, tokensOut: q.out.toString(), labels: q.labels, impactBps: q.impactBps, solIn: SOL_PER, balanceLamports: bal });
@@ -407,7 +437,23 @@ async function run(mint: string, rSol: number): Promise<void> {
 
     const balBeforeBuy = await balance();
     const buyRes = await execute(WSOL, mint, amount, mint, 'buy');
-    if (buyRes === null) { say('   buy refused — stopping'); finish(); return; }
+    if (buyRes === null) {
+      /**
+       * A REFUSED BUY IS ONE BAD CANDIDATE, NOT THE END OF THE SESSION.
+       *
+       * The run died an hour into a live session because a single token's transaction failed
+       * simulation and this called finish(). Nothing was bought, nothing was at risk, and there was
+       * no reason to stop watching - but the bot sat dead while curves kept crossing the band. The
+       * refusal itself was correct: the effect check simulated the transaction and it failed, which
+       * is exactly what that gate is for. Only the response was wrong.
+       *
+       * A refusal BEFORE any capital moves means skip and keep watching. Only a failure with a
+       * position already open justifies stopping, because then there is something to protect.
+       */
+      say('   buy refused — skipping this candidate, still watching');
+      rec('skip', { mint, reason: 'buy-refused', rSol });
+      skipped += 1; busy = false; return;
+    }
     const buySig = buyRes.sig;
     say(`   BOUGHT  ${buySig}`);
     const boughtAt = Date.now();
