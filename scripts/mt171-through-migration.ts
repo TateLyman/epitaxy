@@ -44,6 +44,14 @@ const OFF = { mint: 8, ts: 89, vSol: 97, vTok: 105, rSol: 113 };
 const NEED = 129;
 const arg = (n: string): string | null => process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? null;
 const WINDOWS = (arg('windows') ?? 'D0,D1,D2,D3,D4,D5,D6,D7').split(',').filter((s) => s.length > 0);
+/**
+ * THE BONDING-CURVE FILES MUST BE RESTRICTED TO THIS BLOCK. The archive now holds three corpora,
+ * and reading all of it while scoring one block would mix a curve from block C with a pool from
+ * block D - a mint could appear to graduate in a period whose pool tape we are not looking at.
+ * File names carry their slot range, so the filter is exact rather than approximate.
+ */
+const BC_FROM = Number(arg('from') ?? '0');
+const BC_TO = Number(arg('to') ?? '999999999');
 const NOTIONAL_SOL = Number(arg('notional') ?? '0.02');
 const FEE = 0.01;
 const FIXED_LAMPORTS = 46_000;
@@ -69,7 +77,12 @@ console.log(`  mint -> pool links: ${poolOfMint.size.toLocaleString()}`);
 interface Curve { entry: Map<number, { vSol: number; vTok: number }>; maxR: number; lastVSol: number; lastVTok: number }
 const curves = new Map<string, Curve>();
 let trades = 0; let droppedNoTape = 0;
-for (const f of readdirSync(BC_DIR).filter((x) => /^events-\d+-\d+\.jsonl$/.test(x)).sort()) {
+const bcFiles = readdirSync(BC_DIR).filter((x) => {
+  const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(x);
+  return m !== null && Number(m[2]) >= BC_FROM && Number(m[1]) <= BC_TO;
+}).sort();
+console.log(`  bonding-curve files in range: ${bcFiles.length}`);
+for (const f of bcFiles) {
   const rl = createInterface({ input: createReadStream(`${BC_DIR}/${f}`, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.length === 0) continue;
