@@ -31,9 +31,8 @@
  *
  * Read-only. Proposes nothing, funds nothing, signs nothing.
  */
-import { createReadStream, existsSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { DatabaseSync } from 'node:sqlite';
 import { priceBuy, priceSell, FillNotPriceable, type PoolFeeLadder } from '../packages/intelligence/src/copy-fill.js';
 
 const CACHE = 'data/trade-cache';
@@ -47,17 +46,6 @@ const DELAY = Number(arg('delay') ?? '4');
 const HOLD_S = Number(arg('hold') ?? '30');
 const NOTIONAL = BigInt(arg('notional') ?? '20000000');
 const NONAMM_BPS = 23;
-/**
- * BIRTH BURN-IN, for corpora where a pool's true birth cannot be established.
- *
- * The continuous blocks get a real two-pass birth detection and the earliest chunk is excluded.
- * The eighteen staggered daily windows cannot do that — each is only ~2.2 hours, so a pool alive
- * before a window begins looks born at its first observed trade. MT158 already showed how badly
- * that can mislead: the first rule this test selected was 30.8% pools that were never newborn.
- * Excluding pools whose first observed trade lands in the opening slots of a window removes the
- * ones most likely to be dormant arrivals rather than genuine graduations.
- */
-const BIRTH_BURNIN_SLOTS = Number(arg('birth-burnin-slots') ?? '0');
 const V_CANDIDATES = [0n, 17_584_500_000n];
 
 interface Ev { slot: number; ts: number; tx: number; addr: string; buy: boolean; b: bigint; q: bigint; qa: bigint; ua: bigint; who: string }
@@ -89,34 +77,34 @@ function resolveV(evs: Ev[]): bigint | null {
   return best;
 }
 
-const db = new DatabaseSync('data/runtime.db', { readOnly: true });
+/**
+ * BIRTH AND CREATOR BOTH COME FROM CreatePoolEvent, and that removes two defects at once.
+ *
+ * The old construction inferred birth from the FIRST OBSERVED TRADE in a chunk, so a pool already
+ * alive when the chunk began looked newborn the moment it first traded inside it. MT158 measured
+ * that contamination at 30.8% of its selected bucket against 1.5% elsewhere, and it manufactured a
+ * rule that ranked first on two independent blocks and was pure artifact. It also needed a two-pass
+ * scan plus exclusion of the earliest chunk to be even approximately right.
+ *
+ * createdSlot is the EXACT creation slot: no inference, no two-pass, no chunk-boundary exclusions,
+ * and each pool is analysed exactly once, in the chunk containing its birth. The creator comes from
+ * the same event, so it no longer depends on the venue_pools snapshot that made older corpora
+ * survivorship-filtered.
+ */
+const SPLIT_NL = new RegExp(String.fromCharCode(13) + "?" + String.fromCharCode(10));
+interface PoolMeta { born: number; creator: string }
+const meta = new Map<string, PoolMeta>();
+for (const line of readFileSync('data/panel/pool-map.jsonl', 'utf8').split(SPLIT_NL)) {
+  if (line.length === 0) continue;
+  try {
+    const r = JSON.parse(line) as { pool: string; creator: string; createdSlot: number; quoteMint: string };
+    if (r.quoteMint !== 'So11111111111111111111111111111111111111112') continue;
+    meta.set(r.pool, { born: r.createdSlot, creator: r.creator });
+  } catch { /* skip */ }
+}
 const creatorOf = new Map<string, string>();
-for (const r of db.prepare(`SELECT pool, coin_creator FROM venue_pools WHERE coin_creator NOT IN ('', ?)`).all(SYSTEM_ADDRESS) as { pool: string; coin_creator: string }[]) {
-  creatorOf.set(r.pool, r.coin_creator);
-}
-db.close();
-
-// pass 1 — true birth slot
-const firstSlot = new Map<string, number>();
-for (const w of WINDOWS) {
-  const f = `${CACHE}/w${w}.jsonl`;
-  if (!existsSync(f)) continue;
-  const rl = createInterface({ input: createReadStream(f, { encoding: 'utf8' }), crlfDelay: Infinity });
-  for await (const line of rl) {
-    if (line.length === 0) continue;
-    const i = line.indexOf('"', 2);
-    if (i < 0) continue;
-    const pool = line.slice(2, i);
-    const rest = line.slice(i + 2);
-    const j = rest.indexOf(',');
-    const slot = Number(j < 0 ? rest : rest.slice(0, j));
-    if (!Number.isFinite(slot)) continue;
-    const prev = firstSlot.get(pool);
-    if (prev === undefined || slot < prev) firstSlot.set(pool, slot);
-  }
-  rl.close();
-}
-console.log(`  pass1 — ${firstSlot.size.toLocaleString()} pools`);
+for (const [pool, m] of meta) if (m.creator !== SYSTEM_ADDRESS && m.creator !== '') creatorOf.set(pool, m.creator);
+console.log(`  pool map: ${meta.size.toLocaleString()} WSOL-quoted pools with exact creation slots`);
 
 interface Row {
   pool: string; creator: string; bornSlot: number; ts: number; ret: number;
@@ -130,7 +118,7 @@ for (const w of WINDOWS) {
   const f = `${CACHE}/w${w}.jsonl`;
   if (!existsSync(f)) continue;
   const byPool = new Map<string, Ev[]>();
-  let chunkMin = Infinity; let lastTs = 0;
+  let chunkMin = Infinity; let chunkMax = -Infinity; let lastTs = 0;
   const rl = createInterface({ input: createReadStream(f, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.length === 0) continue;
@@ -138,6 +126,7 @@ for (const w of WINDOWS) {
     try { r = JSON.parse(line); } catch { continue; }
     if (r.length < 15) continue;
     if (r[1] < chunkMin) chunkMin = r[1];
+    if (r[1] > chunkMax) chunkMax = r[1];
     if (r[2] > lastTs) lastTs = r[2];
     const a = byPool.get(r[0]) ?? [];
     a.push({ slot: r[1], ts: r[2], tx: r[3], addr: r[4], buy: r[5] === 1,
@@ -147,9 +136,11 @@ for (const w of WINDOWS) {
   rl.close();
 
   for (const [pool, evs] of byPool) {
-    const born = firstSlot.get(pool);
-    if (born === undefined || born < chunkMin) continue;
-    if (BIRTH_BURNIN_SLOTS > 0 && born < chunkMin + BIRTH_BURNIN_SLOTS) continue;
+    const mm = meta.get(pool);
+    if (mm === undefined) continue;
+    const born = mm.born;
+    /** Analyse a pool exactly once, in the chunk that contains its ACTUAL creation. */
+    if (born < chunkMin || born > chunkMax) continue;
     evs.sort((x, y) => x.slot - y.slot || x.tx - y.tx || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0));
     const fee = poolFeeBps(evs); const v = resolveV(evs);
     if (fee === null || v === null) continue;

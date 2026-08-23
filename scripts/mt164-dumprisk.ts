@@ -34,7 +34,7 @@
  *
  * Read-only. Proposes nothing, funds nothing, signs nothing.
  */
-import { createReadStream, existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { createReadStream, existsSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { priceBuy, priceSell, FillNotPriceable, type PoolFeeLadder } from '../packages/intelligence/src/copy-fill.js';
 
@@ -52,6 +52,32 @@ const RISK_HORIZON_S = 1200;
 /** MELT's threshold: min_price_ratio below 0.3 is high risk. Not tuned here. */
 const MELT_RATIO = 0.3;
 const V_CANDIDATES = [0n, 17_584_500_000n];
+
+/**
+ * BIRTH AND CREATOR BOTH COME FROM CreatePoolEvent, which removes two defects at once.
+ *
+ * The old construction inferred birth from the FIRST OBSERVED TRADE in a chunk, so a pool already
+ * alive when the chunk began looked newborn the moment it first traded inside it. MT158 measured
+ * that contamination at 30.8% of its selected bucket against 1.5% elsewhere, and it manufactured a
+ * rule that ranked first on two independent blocks and was pure artifact.
+ *
+ * createdSlot is the EXACT creation slot: no inference, no two-pass scan, no chunk-boundary
+ * exclusions, and each pool is analysed once, in the chunk containing its birth. The creator comes
+ * from the same event, so it no longer depends on the venue_pools snapshot that made older corpora
+ * survivorship-filtered.
+ */
+const SPLIT_NL = new RegExp(String.fromCharCode(13) + "?" + String.fromCharCode(10));
+interface PoolMeta { born: number; creator: string }
+const meta = new Map<string, PoolMeta>();
+for (const line of readFileSync('data/panel/pool-map.jsonl', 'utf8').split(SPLIT_NL)) {
+  if (line.length === 0) continue;
+  try {
+    const r = JSON.parse(line) as { pool: string; creator: string; createdSlot: number; quoteMint: string };
+    if (r.quoteMint !== 'So11111111111111111111111111111111111111112') continue;
+    meta.set(r.pool, { born: r.createdSlot, creator: r.creator });
+  } catch { /* skip */ }
+}
+console.log(`  pool map: ${meta.size.toLocaleString()} WSOL-quoted pools with exact creation slots`);
 
 interface Ev { slot: number; ts: number; tx: number; addr: string; buy: boolean; b: bigint; q: bigint; qa: bigint; ua: bigint; who: string; base: bigint }
 
@@ -93,24 +119,6 @@ class DSU {
   union(a: string, b: string): void { const ra = this.find(a); const rb = this.find(b); if (ra !== rb) this.p.set(ra, rb); }
 }
 
-// pass 1 — true birth slot
-const firstSlot = new Map<string, number>();
-for (const w of WINDOWS) {
-  const f = `${CACHE}/w${w}.jsonl`;
-  if (!existsSync(f)) continue;
-  const rl = createInterface({ input: createReadStream(f, { encoding: 'utf8' }), crlfDelay: Infinity });
-  for await (const line of rl) {
-    if (line.length === 0) continue;
-    const i = line.indexOf('"', 2); if (i < 0) continue;
-    const pool = line.slice(2, i); const rest = line.slice(i + 2);
-    const j = rest.indexOf(','); const slot = Number(j < 0 ? rest : rest.slice(0, j));
-    if (!Number.isFinite(slot)) continue;
-    const prev = firstSlot.get(pool);
-    if (prev === undefined || slot < prev) firstSlot.set(pool, slot);
-  }
-  rl.close();
-}
-console.log(`  pass1 — ${firstSlot.size.toLocaleString()} pools`);
 
 interface Out {
   pool: string; ts: number; bornSlot: number; ret30: number;
@@ -125,7 +133,7 @@ for (const w of WINDOWS) {
   const f = `${CACHE}/w${w}.jsonl`;
   if (!existsSync(f)) continue;
   const byPool = new Map<string, Ev[]>();
-  let chunkMin = Infinity; let lastTs = 0;
+  let chunkMin = Infinity; let chunkMax = -Infinity; let lastTs = 0;
   const rl = createInterface({ input: createReadStream(f, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.length === 0) continue;
@@ -133,6 +141,7 @@ for (const w of WINDOWS) {
     try { r = JSON.parse(line); } catch { continue; }
     if (r.length < 15) continue;
     if (r[1] < chunkMin) chunkMin = r[1];
+    if (r[1] > chunkMax) chunkMax = r[1];
     if (r[2] > lastTs) lastTs = r[2];
     const a = byPool.get(r[0]) ?? [];
     a.push({ slot: r[1], ts: r[2], tx: r[3], addr: r[4], buy: r[5] === 1,
@@ -143,8 +152,11 @@ for (const w of WINDOWS) {
   rl.close();
 
   for (const [pool, evsRaw] of byPool) {
-    const born = firstSlot.get(pool);
-    if (born === undefined || born < chunkMin) continue;
+    const mm = meta.get(pool);
+    if (mm === undefined) continue;
+    const born = mm.born;
+    /** Analyse a pool exactly once, in the chunk that contains its ACTUAL creation. */
+    if (born < chunkMin || born > chunkMax) continue;
     const evs = evsRaw.sort((x, y) => x.slot - y.slot || x.tx - y.tx || (x.addr < y.addr ? -1 : x.addr > y.addr ? 1 : 0));
     const fee = feeOf(evs); const v = resolveV(evs);
     if (fee === null || v === null) continue;
