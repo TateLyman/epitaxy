@@ -19,7 +19,7 @@
  * Run one process per window range; they are independent. Verify against a known trigger count
  * before trusting it.
  */
-import { createReadStream, readdirSync, createWriteStream, mkdirSync } from 'node:fs';
+import { createReadStream, readdirSync, createWriteStream, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { openDb } from '../packages/storage/src/db.js';
 import { decodePumpSwapTrade } from '../packages/intelligence/src/pumpswap-event.js';
@@ -52,10 +52,42 @@ const only = (arg('windows') ?? '').split(',').filter((s) => s.length > 0).map(N
 const explicit = arg('range');   // form: label:from:to
 if (only.length === 0 && explicit === null) { console.error('need --windows=1,2,3 or --range=label:from:to'); process.exit(2); }
 
+/**
+ * THE POOL SET IS THE UNION OF TWO SOURCES, AND THE SECOND ONE IS WHY THIS IS NOT A SURVIVORSHIP
+ * FILTER ANY MORE.
+ *
+ * `venue_pools` is a single-day snapshot - every row carries resolved_utc_ms of 2026-08-20 - so a
+ * pool appears in it only if it was still observable on that date. Measured against RAW SQD events,
+ * that keeps 44.7% of pools at slot 435.74M, 53.8% at 436.74M, 78.1% at 438.82M and about 70% across
+ * blocks A and B. It is a survivorship filter whose strength varies with the AGE of the window,
+ * biasing older corpora harder and removing exactly the pools that died - the worst possible shape
+ * for any comparison across corpora.
+ *
+ * `data/panel/pool-map.jsonl` is built from CreatePoolEvent, which the SQD pull already captured
+ * because it filters on the emit_cpi discriminator. It carries the pool address and both mints, so
+ * it needs no RPC and no account reads. Since the analysis only ever scores pools whose BIRTH is
+ * observed inside a block, and a pool born in a block has its create event in that block, the union
+ * gives 100% coverage of the analysable population instead of 45-78%.
+ *
+ * Only WSOL-QUOTED pools are kept, from either source. A pool with WSOL as its BASE is the inverted
+ * direction and its constant-product price math means the opposite thing; 55% of created pools are
+ * that shape and they are excluded deliberately.
+ */
 const db = openDb({ path: 'data/runtime.db' });
 const wsol = new Set<string>();
 for (const r of db.prepare('SELECT pool FROM venue_pools WHERE quote_mint = ?').all(WSOL) as { pool: string }[]) wsol.add(r.pool);
 db.close();
+const fromSnapshot = wsol.size;
+if (existsSync('data/panel/pool-map.jsonl')) {
+  for (const line of readFileSync('data/panel/pool-map.jsonl', 'utf8').split(/\r?\n/)) {
+    if (line.length === 0) continue;
+    try {
+      const r = JSON.parse(line) as { pool: string; quoteMint: string };
+      if (r.quoteMint === WSOL) wsol.add(r.pool);
+    } catch { /* skip */ }
+  }
+}
+console.log(`  pool set: ${fromSnapshot.toLocaleString()} from venue_pools snapshot, ${wsol.size.toLocaleString()} after union with CreatePoolEvent map`);
 mkdirSync(OUT, { recursive: true });
 console.log(`cache builder — windows ${only.join(',')} — ${wsol.size.toLocaleString()} WSOL pools known`);
 
