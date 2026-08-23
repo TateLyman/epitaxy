@@ -217,9 +217,9 @@ console.log(`  distinct slot-0 BUYERS per pool: p25 ${qt(slot0Counts, 0.25)}  me
 console.log(`  SOL bought in slot 0 per pool:   p25 ${qt(slot0Sol, 0.25).toFixed(1)}  median ${med(slot0Sol).toFixed(1)}  p75 ${qt(slot0Sol, 0.75).toFixed(1)}`);
 console.log('');
 console.log(`  marks refused because our position exceeded the pool base reserve: ${unpriceable.toLocaleString()}`);
-const p0 = (out.get(0) ?? []).slice().sort((a,b)=>b-a);
+const p0: number[] = (out.get(0) ?? []).slice().sort((a, b) => b - a);
 console.log('  position-0 outcome tail (bps): max ' + p0.slice(0,6).map(x=>x.toFixed(0)).join(', '));
-console.log('  p99 ' + p0[Math.floor(0.01*p0.length)].toFixed(0) + '  p95 ' + p0[Math.floor(0.05*p0.length)].toFixed(0) + '  p75 ' + p0[Math.floor(0.25*p0.length)].toFixed(0));
+console.log('  p99 ' + (p0[Math.floor(0.01 * p0.length)] ?? 0).toFixed(0) + '  p95 ' + (p0[Math.floor(0.05 * p0.length)] ?? 0).toFixed(0) + '  p75 ' + (p0[Math.floor(0.25 * p0.length)] ?? 0).toFixed(0));
 console.log('  share of the MEAN from the top 10 outcomes: ' + (100*p0.slice(0,10).reduce((a,b)=>a+b,0)/p0.reduce((a,b)=>a+b,0)).toFixed(1) + '%');
 console.log('  our queue position       n      mean      median     %pos    g(f=.05)   g(f=.10)');
 for (const pos of POSITIONS) {
