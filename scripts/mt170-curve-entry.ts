@@ -109,7 +109,7 @@ const growth = (o: number[], f: number): number => {
 console.log('');
 console.log('  entry level    reached      graduated    P(grad|reached)     median      mean    %pos   g(f=.05)');
 for (const L of LEVELS) {
-  const outs: number[] = [];
+  const outs: number[] = []; const outsG: number[] = []; const outsN: number[] = []; let noGradIdx = 0;
   let reached = 0; let grad = 0;
   for (const [, raw] of byMint) {
     const evs = raw.sort((a, b) => a.ts - b.ts);
@@ -125,16 +125,29 @@ for (const L of LEVELS) {
      * Exit at graduation if it comes, otherwise at the LAST observation. A stall is not a free
      * exit: the position is marked where the curve actually ends up.
      */
-    const iGrad = evs.findIndex((e, j) => j > iEntry && e.rSol >= GRAD);
+    /**
+     * EXIT AT THE MAXIMUM-rSol EVENT, not at a sequential search for the first crossing. Timestamps
+     * on this feed are in WHOLE SECONDS and a hot curve can run from 60 to 85 SOL inside one, so
+     * sorting by ts alone cannot order those events reliably. A sequential findIndex for the first
+     * crossing AFTER the entry index therefore returned -1 for 790 of 1,998 graduating tokens - 40%
+     * of them - and those were silently exited at the LAST event instead of at graduation, which is
+     * a different and much worse trade. The graduation moment is simply where rSol peaks.
+     */
+    let iGrad = -1;
+    if (graduated) { let best = -Infinity; for (let j = 0; j < evs.length; j += 1) { const rr2 = (evs[j] as Ev).rSol; if (rr2 > best) { best = rr2; iGrad = j; } } }
+    if (graduated && iGrad < 0) noGradIdx += 1;
     const exit = (iGrad >= 0 ? evs[iGrad] : evs[evs.length - 1]) as Ev;
     if (!(exit.vSol > 0) || !(exit.vTok > 0)) continue;
     const tok = buyTokens(at.vSol, at.vTok, NOTIONAL_SOL);
     if (!(tok > 0)) continue;
     const back = sellSol(exit.vSol, exit.vTok, tok);
     const fixedBps = 1e4 * (FIXED_LAMPORTS / 1e9) / NOTIONAL_SOL;
-    outs.push(1e4 * (back / NOTIONAL_SOL - 1) - fixedBps);
+    const rr = 1e4 * (back / NOTIONAL_SOL - 1) - fixedBps;
+    outs.push(rr);
+    if (graduated) outsG.push(rr); else outsN.push(rr);
   }
   if (outs.length < 30) continue;
+  console.log(`    [split] n=${outs.length} graduated=${outsG.length} med(grad)=${outsG.length ? med(outsG).toFixed(0) : "-"} nonGrad=${outsN.length} med(nonGrad)=${outsN.length ? med(outsN).toFixed(0) : "-"} gradButNoExitIdx=${noGradIdx}`);
   const g5 = growth(outs, 0.05);
   console.log(
     `  ${(L + ' SOL').padStart(10)} ${String(reached).padStart(10)} ${String(grad).padStart(13)} ${(100 * grad / reached).toFixed(1).padStart(16)}% ${med(outs).toFixed(0).padStart(10)} ${mean(outs).toFixed(0).padStart(9)} ${(100 * outs.filter((x) => x > 0).length / outs.length).toFixed(1).padStart(6)}% ${(g5 === -Infinity ? 'RUIN' : g5.toFixed(4)).padStart(10)}`,
