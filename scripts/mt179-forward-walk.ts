@@ -38,6 +38,8 @@ const P1 = (arg('p1') ?? '16,17,18').split(',').filter((s) => s.length > 0);
 const P2 = (arg('p2') ?? '15,14,13,12,11,10,9,8,7,6,5,4,3,A0,D0,E').split(',').filter((s) => s.length > 0);
 const MIN_CLOSED = Number(arg('min-closed') ?? '3');
 const LAG = Number(arg('lag') ?? '12');
+/** Minimum positions before a window's growth is quoted; pooling still uses everything above it. */
+const MIN_N = Number(arg('min-n') ?? '200');
 const FIXED_LAMPORTS = Number(arg('fixed-lamports') ?? '46000');
 const NOTIONAL_SOL = Number(arg('notional') ?? '0.02');
 const fixedBps = 1e4 * (FIXED_LAMPORTS / 1e9) / NOTIONAL_SOL;
@@ -98,7 +100,18 @@ console.log(`  selection ${P1.join(',')} (oldest in the archive), aggregate ${(a
 if (agg1 > 0) { console.log('  REFUSED: positive aggregate means the accounting is wrong.'); process.exit(1); }
 const ranked = [...per.entries()].filter(([, p]) => p.closed >= MIN_CLOSED).sort((a, b) => b[1].pnl - a[1].pnl);
 const decile = ranked.slice(0, Math.floor(ranked.length / 10));
-const cohort = new Set(decile.filter(([, p]) => p.classified >= MIN_CLOSED && p.atBirth === 0).map(([u]) => u));
+let cohort = new Set(decile.filter(([, p]) => p.classified >= MIN_CLOSED && p.atBirth === 0).map(([u]) => u));
+/**
+ * An explicit cohort, for testing ONE named wallet rather than a selected decile.
+ *
+ * The distinction matters when reading the output. A decile is a population and its result is an
+ * expectation. A single wallet is one draw, chosen because it won, and following it is a bet that
+ * whatever it is doing continues - which no amount of its own past record can establish. What this
+ * CAN answer is narrower and still worth having: whether the wallet's positions are followable at
+ * all, or whether its profit lives in the part of the trade an observer cannot reach.
+ */
+const EXPLICIT = (arg('cohort') ?? '').split(',').map((x) => x.trim()).filter((x) => x.length > 0);
+if (EXPLICIT.length > 0) cohort = new Set(EXPLICIT);
 const mid = ranked.slice(Math.floor(ranked.length * 0.45), Math.floor(ranked.length * 0.55));
 const control = new Set(mid.filter(([, p]) => p.classified >= MIN_CLOSED && p.atBirth === 0).map(([u]) => u));
 console.log(`  cohort ${cohort.size.toLocaleString()} wallets, control ${control.size.toLocaleString()}, both fixed before any test period is read`);
@@ -157,7 +170,7 @@ for (const w of P2) {
     (p.ctl ? arms.k : arms.c)?.push(1e4 * (net - 1) - fixedBps);
   }
   const c = arms.c ?? []; const k = arms.k ?? [];
-  if (c.length < 200) { console.log(`  ${w.padEnd(8)} too few positions (${c.length})`); continue; }
+  if (c.length < MIN_N) { console.log(`  ${w.padEnd(8)} too few positions (${c.length})`); continue; }
   poolC.push(...c); poolK.push(...k);
   const gc = growth(c, 0.05); const gk = k.length > 0 ? growth(k, 0.05) : NaN;
   gs.push(gc);
