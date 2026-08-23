@@ -67,7 +67,7 @@ console.log('MT158 CONFIRMATION — the frozen rule on three corpora, nothing re
 console.log('  rule: bottom quintile of top-buyer share, depth at entry >= 40 SOL, enter delay 4, hold 30s');
 console.log('');
 console.log('  corpus        all pools   selected     MEAN  [95% day-clustered CI]   clusters   median   %pos   drop5   drop10');
-for (const tag of ['A', 'B', 'S']) {
+for (const tag of ['A', 'B', 'C', 'D']) {
   const all = load(tag);
   if (all.length === 0) { console.log(`  ${tag.padEnd(12)} (missing)`); continue; }
   const g = RULE(all);
@@ -78,16 +78,16 @@ for (const tag of ['A', 'B', 'S']) {
   );
 }
 console.log('');
-const S = load('S');
+const S = load('D');
 if (S.length > 0) {
   const g = RULE(S); const v = g.map((r) => r.ret);
   const [lo, , cl] = boot(g);
   const base = mean(S.map((r) => r.ret));
-  console.log(`  UNSELECTED BASELINE on the same corpus: ${base.toFixed(0)} bps — the rule must beat this, not just zero`);
+  console.log(`  UNSELECTED BASELINE on block D, the strictly-later corpus: ${base.toFixed(0)} bps — the rule must beat this, not just zero`);
   console.log(`  selected minus baseline: ${(mean(v) - base).toFixed(0)} bps`);
   console.log('');
   console.log(`VERDICT on ${cl} clusters: mean ${mean(v).toFixed(0)}, lower bound ${lo.toFixed(0)} — ${lo > 0 && mean(v) > base ? 'HOLDS' : 'DOES NOT HOLD'}`);
 }
 console.log('');
-console.log('  Three days give three clusters. MT108 set a ten-cluster floor and MT154 had to walk back');
-console.log('  two rows quoted below it. The eighteen-window column is the only properly powered one.');
+console.log('  Each block is three days and gives three clusters. Four INDEPENDENT blocks is the design now,');
+console.log('  and block D is strictly LATER than every corpus any model was fitted on.');

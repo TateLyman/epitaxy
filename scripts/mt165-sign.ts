@@ -148,7 +148,7 @@ for (const [n, v] of NAMES.map((n, j) => [n, w[j] as number] as [string, number]
 console.log('');
 console.log('  DIRECTION AUC among extreme movers — 0.500 is a coin flip and is the null here');
 console.log('  corpus     n extreme   up    down   AUC(sign)   top-half mean/median   bottom-half mean/median');
-for (const tag of ['A', 'B', 'S', 'C']) {
+for (const tag of ['A', 'B', 'C', 'D']) {
   const R = tag === 'A' ? A : load(tag);
   if (R.length === 0) { if (tag === 'C') console.log('  block C    (not built yet)'); continue; }
   const E = extremeOf(R);
@@ -166,8 +166,8 @@ for (const tag of ['A', 'B', 'S', 'C']) {
 
 console.log('');
 console.log('  UNIVARIATE DIRECTION CHECK — does any single feature separate up-extremes from down?');
-console.log('  feature          A up p50   A down p50   B up p50   B down p50   S up p50   S down p50');
-const B = load('B'); const S = load('S');
+console.log('  feature          A up p50   A down p50   B up p50   B down p50   C up p50   C down p50');
+const B = load('B'); const S = load('C');
 for (const [name, f] of [['slot0Share', (r: Joined) => r.slot0Share], ['churnRatio', (r: Joined) => r.churnRatio],
   ['topEntityShare', (r: Joined) => r.topEntityShare], ['liqImpactBps', (r: Joined) => r.liqImpactBps],
   ['coordShare', (r: Joined) => r.coordShare], ['buyers', (r: Joined) => r.buyers],

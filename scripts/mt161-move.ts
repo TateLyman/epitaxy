@@ -131,7 +131,7 @@ for (const [n, v] of NAMES.map((n, j) => [n, wMove[j] as number] as [string, num
 console.log('');
 console.log('  AUC — is it a magnitude detector or a direction detector?');
 console.log('  corpus     n   signed-model: AUC(up10%)  AUC(|ret|10%)   MOVE-model: AUC(up10%)  AUC(|ret|10%)');
-for (const tag of ['A', 'B', 'S', 'C']) {
+for (const tag of ['A', 'B', 'C', 'D']) {
   const R = tag === 'A' ? A : load(tag);
   if (R.length === 0) { if (tag === 'C') console.log('  block C    (not built yet)'); continue; }
   const up = R.map((r) => (r.ret >= qt(R.map((z) => z.ret), 0.90) ? 1 : 0));
@@ -146,7 +146,7 @@ for (const tag of ['A', 'B', 'S', 'C']) {
 console.log('');
 console.log('  EXTREME-MOVE CAPTURE and PER-SIDE TAIL ENRICHMENT — MOVE model, its top decile');
 console.log('  corpus   kept   |ret| top1% caught   UP top1%   DOWN bottom1%   symmetry   kept mean / median');
-for (const tag of ['A', 'B', 'S', 'C']) {
+for (const tag of ['A', 'B', 'C', 'D']) {
   const R = tag === 'A' ? A : load(tag);
   if (R.length === 0) continue;
   const rets = R.map((r) => r.ret);

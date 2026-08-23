@@ -170,7 +170,7 @@ for (const [n, v] of order) console.log(`    ${n.padEnd(12)} ${v >= 0 ? '+' : ''
 
 console.log('');
 console.log('  corpus     n    top1% n   AUC(top10%)   captured in model top-10%   lift    exact p     retained decile: mean / median bps');
-for (const tag of ['A', 'B', 'S', 'C']) {
+for (const tag of ['A', 'B', 'C', 'D']) {
   const rows = tag === TRAIN ? trainRows : load(tag);
   if (rows.length === 0) { if (tag === 'C') console.log('  block C    (not built yet)'); continue; }
   const sc = rows.map((r) => score(w, std(FEATS(r))));
