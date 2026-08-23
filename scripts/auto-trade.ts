@@ -56,6 +56,27 @@ const SOL_PER = Number(arg('sol') ?? '0.01');
 const MAX_POSITIONS = Number(arg('max-positions') ?? '3');
 const MIN_PROGRESS = Number(arg('min-progress') ?? '94');
 const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
+/**
+ * SELL ON THE CURVE, NOT INTO THE POOL, AND CUT THE STALLS.
+ *
+ * The first live trade bought at 70.15 SOL and rode to graduation. The curve moved 70.15 -> 85,
+ * which at vSol-squared pricing is +31.9%, and the round trip returned +7.4%. Twenty-four points
+ * went to the migration: the pool's fee, the pool's impact, and about 13% of price movement in the
+ * 400ms between quoting and landing. The pump was never captured. It was paid.
+ *
+ * MT185 tested the consequence on both corpora. Selling on the CURVE at 82 SOL instead of into the
+ * pool lifts growth from -0.0034 to -0.0018, and adding a stop four SOL below entry lifts it again
+ * to +0.0005 on block D over 959 positions with a mean of +106 bps -- the first positive
+ * out-of-sample cell this programme has produced. Level 75 stays negative in both periods, so the
+ * result is not a grid artifact.
+ *
+ * THE STOP DOES THE HEAVY LIFTING AND IT CUTS 58% OF POSITIONS. That is the point: holding the
+ * stalls was costing roughly 66% each, and no improvement to the winners could outrun it. A bonding
+ * curve is always quotable because it is a closed-form function of its own reserves, so unlike an
+ * ordinary illiquid token the stop can actually be taken.
+ */
+const EXIT_SOL = Number(arg('exit-sol') ?? '82');
+const STOP_BELOW = Number(arg('stop-below') ?? '4');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 const MAX_IMPACT_BPS = Number(arg('max-impact-bps') ?? '400');
 const RESERVE_SOL = Number(arg('reserve') ?? '0.008');
@@ -119,15 +140,15 @@ async function held(mint: string): Promise<bigint> {
   return t;
 }
 
-/** `complete` flipping true IS the migration. */
-async function curveComplete(mint: string): Promise<boolean | null> {
+/** Reserves and completion together, so a target, a stop and a migration are one read. */
+async function curveState(mint: string): Promise<{ rSol: number; complete: boolean } | null> {
   const found = findProgramAddress([new TextEncoder().encode('bonding-curve'), base58Decode(mint, 64)], PUMP);
   if (found === null) return null;
   const acc = (await rpc.getAccounts([found.address]))[0];
-  if (acc === null || acc === undefined) return true;
+  if (acc === null || acc === undefined) return { rSol: 0, complete: true };
   const b = Buffer.from(acc.dataBase64, 'base64');
   if (b.length < CURVE.complete + 1) return null;
-  return b.readUInt8(CURVE.complete) === 1;
+  return { rSol: Number(b.readBigUInt64LE(CURVE.rSol)) / 1e9, complete: b.readUInt8(CURVE.complete) === 1 };
 }
 
 interface Leg { out: bigint; labels: string[]; impactBps: number }
@@ -291,23 +312,39 @@ async function run(mint: string, rSol: number): Promise<void> {
     const boughtAt = Date.now();
     rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
 
-    /** Wait for migration. Polling is enough: we already hold the seat and are not racing for it. */
+    /**
+     * Watch the curve's own reserves for a target, a stop, or a migration we did not want.
+     * Polling is enough: we hold the position already and are not racing anyone for it.
+     */
+    const stopAt = rSol - STOP_BELOW;
+    say(`   target ${EXIT_SOL} SOL   stop ${stopAt.toFixed(2)} SOL`);
     const deadline = Date.now() + 45 * 60_000;
+    let reason = 'timeout';
     for (;;) {
-      const done = await curveComplete(mint);
-      if (done === true) break;
-      if (Date.now() > deadline) { say('   never migrated inside 45 min — selling anyway'); break; }
+      const st = await curveState(mint);
+      if (st === null || st.complete) { reason = 'migrated'; break; }
+      if (st.rSol >= EXIT_SOL) { reason = 'target'; break; }
+      if (st.rSol <= stopAt) { reason = 'stop'; break; }
+      if (Date.now() > deadline) break;
       await sleep(2_000);
     }
-    say(`   migrated — waiting ${SELL_AFTER_S}s`);
-    rec('migrated', { mint, heldSeconds: (Date.now() - boughtAt) / 1000 });
-    await sleep(SELL_AFTER_S * 1000);
+    const heldS = (Date.now() - boughtAt) / 1000;
+    say(`   EXIT REASON: ${reason}  after ${heldS.toFixed(0)}s`);
+    rec('exit-trigger', { mint, reason, heldSeconds: heldS, entryRSol: rSol, target: EXIT_SOL, stopAt });
+    /** Only a migration needs the settling delay; on the curve we sell immediately. */
+    if (reason === 'migrated') await sleep(SELL_AFTER_S * 1000);
 
     const bag = await held(mint);
     if (bag === 0n) { say('   nothing held — stopping'); finish(); return; }
     const sq = await quote(mint, WSOL, bag);
     if (sq === null) { say('   no sell quote — stopping, position still open'); finish(); return; }
-    if (sq.labels.includes('Pump.fun') && !sq.labels.includes('Pump.fun Amm')) { say('   still routing to the CURVE not the pool — stopping'); finish(); return; }
+    /**
+     * The old gate refused a curve route outright, which was right when every exit went through the
+     * pool and is wrong now: a target or stop exit is SUPPOSED to sell back to the curve.
+     */
+    const wantCurve = reason === 'target' || reason === 'stop';
+    const onCurve = sq.labels.includes('Pump.fun') && !sq.labels.includes('Pump.fun Amm');
+    if (wantCurve !== onCurve) { say(`   route ${sq.labels.join('+')} does not match a ${reason} exit — stopping`); finish(); return; }
     say(`   sell quote ${(Number(sq.out) / 1e9).toFixed(6)} SOL via ${sq.labels.join('+')}`);
     rec('sell-quote', { mint, solOut: Number(sq.out) / 1e9, labels: sq.labels, impactBps: sq.impactBps, bag: bag.toString() });
     const sellRes = await execute(mint, WSOL, bag, mint, 'sell');
