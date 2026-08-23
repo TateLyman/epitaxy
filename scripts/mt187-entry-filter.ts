@@ -1,32 +1,38 @@
 /**
- * MT187 — does anything observable AT ENTRY predict whether the curve reaches the target?
+ * MT187 — is anything visible AT ENTRY able to tell a winner from a stop-out?
  *
- * MT186 settled the exit: sell on the curve at 82 with a stop four SOL below entry, and the result
- * sits at roughly breakeven once the position is large enough that transaction fees stop dominating.
- * Every improvement so far has come from removing a cost. This asks the other question, which no arm
- * in this programme has ever asked: given two curves both sitting at 70 SOL, is there anything
- * visible right then that separates the 33% which go on to reach 82 from the 31% which stop out?
+ * MT186 settled the exit and landed at breakeven: sell on the curve at 82 SOL with a stop four SOL
+ * below entry, and once the position is large enough that the flat transaction cost stops dominating,
+ * the mean sits a hair either side of zero. Every gain in this programme has come from removing a
+ * cost. Nothing has ever come from choosing a better trade.
  *
- * IF THE ANSWER IS NO, THE STRATEGY IS FINISHED AT BREAKEVEN and no amount of exit tuning changes
- * that, because the exit is already close to optimal and the entry is a coin flip. If the answer is
- * yes, it is worth more than every exit refinement combined: raising the target-hit rate from 33% to
- * even 40% moves the mean by hundreds of basis points.
+ * SO THIS ASKS THE ONLY QUESTION LEFT THAT COULD MOVE THE SIGN. Two curves are both sitting at 70 SOL.
+ * One goes on to reach 82; the other falls four SOL and stops us out. Is there anything observable at
+ * that instant which separates them? If not, the strategy is finished at breakeven no matter how the
+ * exit is tuned, because the exit is already near optimal and the entry is a coin flip. If there is,
+ * it is worth more than every exit refinement combined - moving the target-hit rate from 33% to 40%
+ * is worth hundreds of basis points on the mean.
  *
- * THE FEATURE TESTED IS VELOCITY, because it is the one thing a live watcher already has for free.
- * The bot sees every trade on the curve, so it knows how many slots the curve took to climb from 60
- * SOL to the entry level. A curve dragged to 70 over an hour by a handful of buyers is a different
- * object from one that got there in twenty seconds on heavy flow, and the question is whether that
- * difference survives into the outcome.
+ * THE FEATURES ARE THE TWO A LIVE BOT ALREADY HAS FOR FREE, since it sees every trade on the curve:
  *
- * EVERYTHING IS MEASURED AT THE MOMENT OF ENTRY AND NOTHING AFTER IT. The velocity uses only slots
- * already elapsed when the position would be opened. That is the discipline MT185 broke by reading a
- * peak from the future, and the correction cost a full rebuild, so it is stated explicitly here: no
- * quantity used to make the decision may be computed from an event after the decision.
+ *   CLIMB TIME, the slots taken to get from 60 SOL to the entry level. A curve dragged to 70 over an
+ *   hour by a few buyers is a different object from one that got there in twenty seconds.
  *
- * Outcomes are the same three MT186 produces - target, stop, or drift to the end - simulated forward
- * with the same state machine.
+ *   FLOW, the number of trades over that same stretch. Climb time and trade count can disagree - a
+ *   curve can rise fast on three enormous buys or slowly on four hundred small ones - and which of
+ *   those is the better sign is exactly the sort of thing that has to be measured rather than assumed.
  *
- * Reads the bonding-curve tape only.
+ * TWO DISCIPLINES ARE ENFORCED BECAUSE BOTH HAVE ALREADY GONE WRONG HERE ONCE.
+ *
+ *   NOTHING FROM AFTER THE DECISION. Every feature uses only events already past when the position
+ *   would open. MT185 set a trailing stop from the peak a curve would EVENTUALLY reach and produced
+ *   a spectacular result that evaporated the moment it was simulated forward.
+ *
+ *   NO CURVE COUNTS UNLESS WE WATCHED IT CLIMB. If the tape first shows a curve when it is already
+ *   above the entry level, its climb time is not zero - it is unknown, and recording it as zero would
+ *   populate the fastest bucket with curves we simply arrived late to. Those are dropped, not scored.
+ *
+ * Reads the bonding-curve tape only. Signs nothing, sends nothing, spends nothing.
  */
 import { createReadStream, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -44,8 +50,7 @@ const BC_FROM = Number(arg('from') ?? '0');
 const BC_TO = Number(arg('to') ?? '999999999');
 const NOTIONAL = Number(arg('notional') ?? '0.05');
 const FIXED_LAMPORTS = Number(arg('fixed-lamports') ?? '108513');
-/** The level at which the clock starts, and the level at which we buy. */
-const FROM_LEVEL = Number(arg('from-level') ?? '60');
+const WATCH_FROM = Number(arg('watch-from') ?? '60');
 const ENTRY = Number(arg('entry') ?? '70');
 const EXIT = Number(arg('exit') ?? '82');
 const STOP_BELOW = Number(arg('stop-below') ?? '4');
@@ -54,16 +59,35 @@ const DIR = 'data/sqd/events-6EF8rrec';
 const buyTokens = (vSol: number, vTok: number, sol: number): number => { const k = vSol * vTok; return vTok - k / (vSol + sol * (1 - FEE)); };
 const sellSol = (vSol: number, vTok: number, tok: number): number => { const k = vSol * vTok; return (vSol - k / (vTok + tok)) * (1 - FEE); };
 const fixedBps = 1e4 * (FIXED_LAMPORTS / 1e9) / NOTIONAL;
+const STOP_AT = ENTRY - STOP_BELOW;
 
-interface S { fromSlot: number | null; tok: number | null; open: boolean; climbSlots: number | null; out: number | null; how: string; trades: number; tradesAtEntry: number }
-const st = new Map<string, S>();
+/**
+ * `phase` is the whole state machine. A curve is watched from the moment it is first seen at or above
+ * the watch level, entered when it crosses the entry level on a LATER event, and resolved exactly once.
+ */
+type Phase = 'pre' | 'watching' | 'holding' | 'done';
+interface C {
+  phase: Phase;
+  watchSlot: number;
+  watchTrades: number;
+  trades: number;
+  tok: number;
+  climb: number;
+  flow: number;
+  out: number;
+  how: 'target' | 'stop' | 'drift';
+  lastVSol: number;
+  lastVTok: number;
+}
+const curves = new Map<string, C>();
 
 const files = readdirSync(DIR).filter((x) => {
   const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(x);
   return m !== null && Number(m[2]) >= BC_FROM && Number(m[1]) <= BC_TO;
 }).sort();
-console.log(`MT187 — is the outcome predictable at entry? ${files.length} files`);
+console.log(`MT187 — can entry be filtered? ${files.length} tape files`);
 
+let events = 0;
 for (const f of files) {
   const rl = createInterface({ input: createReadStream(`${DIR}/${f}`, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -83,76 +107,101 @@ for (const f of files) {
       const rSol = Number(b.readBigUInt64LE(OFF.rSol)) / 1e9;
       if (Math.abs(vSol - rSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
       if (!(vSol > 0) || !(vTok > 0)) continue;
+      events += 1;
+
       const mint = b.subarray(OFF.mint, OFF.mint + 32).toString('base64');
-      let c = st.get(mint);
-      if (c === undefined) { c = { fromSlot: null, tok: null, open: false, climbSlots: null, out: null, how: '', trades: 0, tradesAtEntry: 0 }; st.set(mint, c); }
+      let c = curves.get(mint);
+      if (c === undefined) {
+        c = { phase: 'pre', watchSlot: 0, watchTrades: 0, trades: 0, tok: 0, climb: 0, flow: 0, out: 0, how: 'drift', lastVSol: vSol, lastVTok: vTok };
+        curves.set(mint, c);
+      }
       c.trades += 1;
-      if (c.out !== null) continue;
+      c.lastVSol = vSol; c.lastVTok = vTok;
+      if (c.phase === 'done') continue;
 
-      /** Start the clock the first time the curve is seen at or above the lower level. */
-      if (c.fromSlot === null && rSol >= FROM_LEVEL) c.fromSlot = slot;
-
-      if (!c.open && c.tok === null && rSol >= ENTRY) {
-        const tok = buyTokens(vSol, vTok, NOTIONAL);
-        if (!(tok > 0)) continue;
-        /** Velocity uses only slots already elapsed. Nothing after this instant is consulted. */
-        c.climbSlots = c.fromSlot === null ? null : slot - c.fromSlot;
-        c.tradesAtEntry = c.trades;
-        c.tok = tok; c.open = true;
+      if (c.phase === 'pre') {
+        /** Start watching only BELOW the entry level, so a real climb can be observed. */
+        if (rSol >= WATCH_FROM && rSol < ENTRY) {
+          c.phase = 'watching'; c.watchSlot = slot; c.watchTrades = c.trades;
+        } else if (rSol >= ENTRY) {
+          /** Arrived already above entry: climb time is unknown, not zero. Never traded. */
+          c.phase = 'done';
+        }
         continue;
       }
-      if (!c.open || c.tok === null) continue;
-      if (rSol <= ENTRY - STOP_BELOW) { c.out = 1e4 * (sellSol(vSol, vTok, c.tok) / NOTIONAL - 1) - fixedBps; c.how = 'stop'; c.open = false; continue; }
-      if (rSol >= EXIT) { c.out = 1e4 * (sellSol(vSol, vTok, c.tok) / NOTIONAL - 1) - fixedBps; c.how = 'target'; c.open = false; continue; }
-      c.out = null;
-      /** Carry the latest reserves so an unresolved position can be marked at the end. */
-      c.fromSlot = c.fromSlot; c.tok = c.tok;
-      (c as S & { lv?: number; lt?: number }).lv = vSol;
-      (c as S & { lv?: number; lt?: number }).lt = vTok;
+
+      if (c.phase === 'watching') {
+        if (rSol < WATCH_FROM) continue;
+        if (rSol < ENTRY) continue;
+        const tok = buyTokens(vSol, vTok, NOTIONAL);
+        if (!(tok > 0)) { c.phase = 'done'; continue; }
+        c.tok = tok;
+        c.climb = slot - c.watchSlot;
+        c.flow = c.trades - c.watchTrades;
+        c.phase = 'holding';
+        continue;
+      }
+
+      /** holding: resolve at the reserves standing when the condition fires, never later. */
+      if (rSol <= STOP_AT) {
+        c.out = 1e4 * (sellSol(vSol, vTok, c.tok) / NOTIONAL - 1) - fixedBps;
+        c.how = 'stop'; c.phase = 'done'; continue;
+      }
+      if (rSol >= EXIT) {
+        c.out = 1e4 * (sellSol(vSol, vTok, c.tok) / NOTIONAL - 1) - fixedBps;
+        c.how = 'target'; c.phase = 'done'; continue;
+      }
     }
   }
   rl.close();
 }
-for (const c of st.values()) {
-  if (!c.open || c.tok === null) continue;
-  const e = c as S & { lv?: number; lt?: number };
-  if (e.lv === undefined || e.lt === undefined) continue;
-  c.out = 1e4 * (sellSol(e.lv, e.lt, c.tok) / NOTIONAL - 1) - fixedBps;
-  c.how = 'drift'; c.open = false;
+/** Positions still open when the tape ends are marked where their curve actually finished. */
+const rows: C[] = [];
+for (const c of curves.values()) {
+  if (c.phase === 'holding') {
+    c.out = 1e4 * (sellSol(c.lastVSol, c.lastVTok, c.tok) / NOTIONAL - 1) - fixedBps;
+    c.how = 'drift'; c.phase = 'done';
+  }
+  if (c.tok > 0) rows.push(c);
 }
-
-const rows = [...st.values()].filter((c) => c.out !== null && c.climbSlots !== null);
-console.log(`  ${rows.length.toLocaleString()} positions with a measurable climb from ${FROM_LEVEL} to ${ENTRY} SOL`);
+console.log(`  ${events.toLocaleString()} SOL-quoted events, ${curves.size.toLocaleString()} mints`);
+console.log(`  ${rows.length.toLocaleString()} positions where the climb ${WATCH_FROM}->${ENTRY} SOL was actually observed`);
 console.log('');
 
 const mean = (a: number[]): number => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
+const med = (a: number[]): number => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)] ?? NaN; };
 const growth = (o: number[], f: number): number => {
   let s = 0;
   for (const x of o) { const m = 1 + f * (x / 1e4); if (m <= 0) return -Infinity; s += Math.log(m); }
   return s / o.length;
 };
-const med = (a: number[]): number => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)] ?? NaN; };
 
-/** Quintiles of climb time, so the buckets are equal-sized rather than arbitrary. */
-const sorted = [...rows].sort((a, b) => (a.climbSlots as number) - (b.climbSlots as number));
-console.log(`  climb ${FROM_LEVEL}->${ENTRY} SOL, fastest first. Stake ${NOTIONAL} SOL, ${fixedBps.toFixed(0)} bps fixed cost.`);
-console.log('');
-console.log('  quintile   climb slots        n   target%   stop%   drift%    median     mean   g(f=.05)');
-for (let k = 0; k < 5; k += 1) {
-  const lo = Math.floor((k * sorted.length) / 5);
-  const hi = Math.floor(((k + 1) * sorted.length) / 5);
-  const g = sorted.slice(lo, hi);
-  if (g.length < 20) continue;
-  const o = g.map((c) => c.out as number);
-  const lab = `${g[0]?.climbSlots ?? 0}-${g[g.length - 1]?.climbSlots ?? 0}`;
-  console.log(
-    `  ${String(k + 1).padStart(5)}      ${lab.padEnd(14)} ${String(g.length).padStart(6)} ` +
-    `${((100 * g.filter((c) => c.how === 'target').length) / g.length).toFixed(0).padStart(7)}% ` +
-    `${((100 * g.filter((c) => c.how === 'stop').length) / g.length).toFixed(0).padStart(6)}% ` +
-    `${((100 * g.filter((c) => c.how === 'drift').length) / g.length).toFixed(0).padStart(7)}% ` +
-    `${med(o).toFixed(0).padStart(9)} ${mean(o).toFixed(0).padStart(8)} ${growth(o, 0.05).toFixed(4).padStart(10)}`,
-  );
+function band(title: string, key: (c: C) => number, unit: string): void {
+  const sorted = [...rows].sort((a, b) => key(a) - key(b));
+  console.log(`  ${title}`);
+  console.log('  quintile   range           n   target%   stop%   drift%    median     mean   g(f=.05)');
+  for (let k = 0; k < 5; k += 1) {
+    const g = sorted.slice(Math.floor((k * sorted.length) / 5), Math.floor(((k + 1) * sorted.length) / 5));
+    if (g.length < 20) continue;
+    const o = g.map((c) => c.out);
+    const lab = `${key(g[0] as C)}-${key(g[g.length - 1] as C)}${unit}`;
+    console.log(
+      `  ${String(k + 1).padStart(5)}      ${lab.padEnd(13)} ${String(g.length).padStart(5)} ` +
+      `${((100 * g.filter((c) => c.how === 'target').length) / g.length).toFixed(0).padStart(7)}% ` +
+      `${((100 * g.filter((c) => c.how === 'stop').length) / g.length).toFixed(0).padStart(6)}% ` +
+      `${((100 * g.filter((c) => c.how === 'drift').length) / g.length).toFixed(0).padStart(7)}% ` +
+      `${med(o).toFixed(0).padStart(9)} ${mean(o).toFixed(0).padStart(8)} ${growth(o, 0.05).toFixed(4).padStart(10)}`,
+    );
+  }
+  console.log('');
 }
+
+console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, target ${EXIT}, stop ${STOP_AT}, ${fixedBps.toFixed(0)} bps fixed cost`);
 console.log('');
-console.log('  A monotone target% across quintiles is a real signal. A flat one means the entry is a');
-console.log('  coin flip and the strategy is finished at breakeven, however the exit is tuned.');
+band(`CLIMB TIME from ${WATCH_FROM} to ${ENTRY} SOL — fastest first`, (c) => c.climb, ' slots');
+band(`FLOW: trades over that same climb — fewest first`, (c) => c.flow, '');
+const all = rows.map((c) => c.out);
+console.log(`  ALL: n=${rows.length}  target ${((100 * rows.filter((c) => c.how === 'target').length) / rows.length).toFixed(0)}%  median ${med(all).toFixed(0)}  mean ${mean(all).toFixed(0)}  g ${growth(all, 0.05).toFixed(4)}`);
+console.log('');
+console.log('  A monotone target% down a column is a usable filter. A flat one means the entry carries');
+console.log('  no information and the strategy is finished at breakeven however the exit is tuned.');

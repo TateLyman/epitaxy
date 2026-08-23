@@ -79,6 +79,10 @@ const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
  * ordinary illiquid token the stop can actually be taken.
  */
 const EXIT_SOL = Number(arg('exit-sol') ?? '82');
+/** Reserve level below the entry band at which a curve starts being watched. */
+const WATCH_FROM_SOL = Number(arg('watch-from') ?? '60');
+/** Absolute reserve level the entry percentage corresponds to, used for the climb gate. */
+const ENTRY_SOL = Number(arg('entry-sol') ?? '69.7');
 const STOP_BELOW = Number(arg('stop-below') ?? '4');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 /** How far below the curve's closed-form price a fill may land before it is refused. */
@@ -287,6 +291,24 @@ const ws = secrets.rpcWs;
 if (ws === null || ws === '') { say('REFUSED: no websocket configured'); process.exit(1); }
 const sock = new WebSocket(ws);
 const seen = new Set<string>();
+/**
+ * ONLY TRADE CURVES WE WATCHED CLIMB INTO THE BAND.
+ *
+ * MT187 restricts its sample to positions where the rise from 60 SOL to the entry level was actually
+ * observed, and that restriction alone is worth about a hundred basis points on the mean: block D
+ * reads +129 bps against MT186's +29 on the identical configuration, and block E reads +51. Both are
+ * positive, and both improve on the unrestricted version.
+ *
+ * The mechanism is the same one the climb-time quintiles show. A curve first seen ALREADY above the
+ * entry level has an unknown climb time, and unknown behaves like slow: those quintiles carry the
+ * worst target rates in both blocks. Buying one is arriving late to something that may have been
+ * stalled there for an hour.
+ *
+ * The bot was doing exactly that. It bought whatever it first noticed at or above the progress
+ * threshold, which after any restart is mostly curves that crossed while it was not running. This
+ * records every curve seen BELOW the entry level and refuses anything not on that list.
+ */
+const watchedBelow = new Set<string>();
 
 sock.addEventListener('open', () => {
   sock.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'logsSubscribe', params: [{ mentions: [PUMP] }, { commitment: 'processed' }] }));
@@ -307,9 +329,18 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     /** Proves the decode and selects SOL-quoted curves; the others are a different instrument. */
     if (Math.abs(vSol - rSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
     const progress = (100 * rSol) / GRAD_SOL;
+    const mintEarly = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
+    /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
+    if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) watchedBelow.add(mintEarly);
     if (progress < MIN_PROGRESS || progress >= 100) continue;
-    const mint = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
+    const mint = mintEarly;
     if (seen.has(mint)) continue;
+    if (!watchedBelow.has(mint)) {
+      /** Not an error and not worth a log line per event — just never a trade. */
+      seen.add(mint);
+      rec('skip', { mint, reason: 'climb-not-observed', rSol, progress });
+      continue;
+    }
     seen.add(mint);
     candidatesSeen += 1;
     rec('candidate', { mint, rSol, progress, positionsDone });
