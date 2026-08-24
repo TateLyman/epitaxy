@@ -83,6 +83,9 @@ const MAX_POSITIONS = Number(arg('max-positions') ?? '3');
  */
 const MIN_PROGRESS = Number(arg('min-progress') ?? '64.7');
 const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
+/** A migration handover blocks routing for seconds; the retry has to outlast it by a wide margin. */
+const SELL_ATTEMPTS = Number(arg('sell-attempts') ?? '40');
+const SELL_RETRY_MS = Number(arg('sell-retry-ms') ?? '4000');
 /**
  * SELL ON THE CURVE, NOT INTO THE POOL, AND CUT THE STALLS.
  *
@@ -598,8 +601,34 @@ async function run(mint: string, rSol: number): Promise<void> {
       rec('stranded', { mint, reason: 'balance-unreadable-after-buy' });
       finish(); return;
     }
-    const sq = await quote(mint, WSOL, bag);
-    if (sq === null) { say('   no sell quote — stopping, position still open'); finish(); return; }
+    /**
+     * A POSITION IS NEVER ABANDONED BECAUSE ONE QUOTE FAILED. THIS COST THE BEST TRADE OF THE RUN.
+     *
+     * A position reached its 82 SOL target in 164 seconds - the strategy's best possible outcome, about
+     * +68% - and the sell quote returned nothing on the first attempt, so the bot logged "no sell quote"
+     * and exited holding it. The token was MIGRATING at that instant: during the curve-to-pool handover
+     * there is a window where the curve no longer routes and the pool does not yet. It is a few seconds
+     * long and it is entirely survivable. Ten minutes later the migrated pool had collapsed and the
+     * position was worth -91.5%, turning the run's only winner into its largest loss.
+     *
+     * The transition is precisely when a sell is most likely to fail and most urgent to complete, so
+     * the retry runs for minutes rather than once, and the loop only ends when the position is closed
+     * or the operator is told plainly to close it by hand. Giving up while holding inventory is never
+     * the correct response to a temporary routing gap.
+     */
+    let sq: Leg | null = null;
+    for (let attempt = 0; attempt < SELL_ATTEMPTS; attempt += 1) {
+      sq = await quote(mint, WSOL, bag);
+      if (sq !== null) break;
+      say(`   no sell route yet (attempt ${attempt + 1}/${SELL_ATTEMPTS}) — likely mid-migration, retrying`);
+      await sleep(SELL_RETRY_MS);
+    }
+    if (sq === null) {
+      say('   STILL NO SELL ROUTE. The position is OPEN and must be closed by hand:');
+      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
+      rec('stranded', { mint, reason: 'no-sell-route-after-retries' });
+      finish(); return;
+    }
     /**
      * The old gate refused a curve route outright, which was right when every exit went through the
      * pool and is wrong now: a target or stop exit is SUPPOSED to sell back to the curve.
@@ -609,8 +638,20 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (wantCurve !== onCurve) { say(`   route ${sq.labels.join('+')} does not match a ${reason} exit — stopping`); finish(); return; }
     say(`   sell quote ${(Number(sq.out) / 1e9).toFixed(6)} SOL via ${sq.labels.join('+')}`);
     rec('sell-quote', { mint, solOut: Number(sq.out) / 1e9, labels: sq.labels, impactBps: sq.impactBps, bag: bag.toString() });
-    const sellRes = await execute(mint, WSOL, bag, mint, 'sell');
-    if (sellRes === null) { say('   sell refused — stopping, position still open'); finish(); return; }
+    /** Same rule for the signed leg: a refusal while holding inventory is retried, not accepted. */
+    let sellRes: { sig: string; quotedOut: bigint } | null = null;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      sellRes = await execute(mint, WSOL, bag, mint, 'sell');
+      if (sellRes !== null) break;
+      say(`   sell refused (attempt ${attempt + 1}/6) — rebuilding and retrying`);
+      await sleep(3_000);
+    }
+    if (sellRes === null) {
+      say('   SELL STILL REFUSED. The position is OPEN and must be closed by hand:');
+      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
+      rec('stranded', { mint, reason: 'sell-refused-after-retries' });
+      finish(); return;
+    }
     const sellSig = sellRes.sig;
     say(`   SOLD    ${sellSig}`);
     await sleep(3_000);

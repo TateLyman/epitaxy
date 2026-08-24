@@ -57,8 +57,29 @@ const ENTRY = Number(arg('entry') ?? '55');
  * more. Concentration is measured at ENTRY and does not depend on the exit, so one entry decision can
  * feed a position per target and all of them see identical data in a single pass.
  */
-const EXITS = (arg('exits') ?? '70,74,78,82,84').split(',').map(Number);
-const STOP_BELOW = Number(arg('stop-below') ?? '8');
+const EXITS = (arg('exits') ?? '82').split(',').map(Number);
+/**
+ * STOP VARIANTS, INCLUDING A TRUE TRAILING STOP.
+ *
+ * A live position peaked at +49% and gave back to +24% while holding for the 82 SOL target, which is
+ * the visible cost of a fixed stop: it protects the entry price and does nothing about a run that
+ * reverses. MT186 measured trailing stops as WORSE than fixed and that measurement stands, but it was
+ * taken at entry 70 with a four-SOL stop and no concentration filter. This configuration holds far
+ * longer, swings much further, and trades a different population. Whether trailing helps here has
+ * never actually been asked.
+ *
+ * THE PEAK IS THE RUNNING MAXIMUM SINCE ENTRY, NOT THE EVENTUAL ONE. MT185 used the highest reserve a
+ * curve would ever reach, which is a look-ahead: it triggers stops that could not have triggered and
+ * books them at prices that did not exist. It read +0.0078 and evaporated to -0.0005 when MT186 walked
+ * the path in order. Here the peak only ever contains events already seen.
+ *
+ * Encoded as a positive number for a fixed stop that many SOL below ENTRY, and a negative number for a
+ * trailing stop that many SOL below the running peak.
+ */
+const STOPS = (arg('stops') ?? '8,-4,-6,-8,-10,-14').split(',').map(Number);
+/** Retained for the fixed-stop variants encoded as positive entries in STOPS. */
+const STOP_BELOW_UNUSED = Number(arg('stop-below') ?? '8');
+void STOP_BELOW_UNUSED;
 const WATCH_BELOW = Number(arg('watch-below') ?? '10');
 const MAX_OVERSHOOT = Number(arg('max-overshoot') ?? '4');
 /** The concentration band MT189 measured: both tails carry the disasters, the middle does not. */
@@ -115,13 +136,13 @@ console.log(`  ${reached.size.toLocaleString()} curves reach ${ENTRY - WATCH_BEL
 
 // ---- pass 2: reconstruct holders, then simulate ----
 interface P { hold: Map<string, number>; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; lastVSol: number; lastVTok: number;
-  /** One slot per target level: the realised bps, and whether it is still open. */
-  out: number[]; open: boolean[] }
+  /** One slot per stop variant: realised bps, whether still open, and its own running peak. */
+  out: number[]; open: boolean[]; peak: number[] }
 const st = new Map<string, P>();
 for await (const e of events()) {
   if (!reached.has(e.mint)) continue;
   let p = st.get(e.mint);
-  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: EXITS.map(() => 0), open: EXITS.map(() => false), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
+  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: STOPS.map(() => 0), open: STOPS.map(() => false), peak: STOPS.map(() => 0), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
   p.lastVSol = e.vSol; p.lastVTok = e.vTok;
   /** Net position per wallet, updated on every trade, so the distribution is exact at any instant. */
   p.hold.set(e.user, (p.hold.get(e.user) ?? 0) + (e.isBuy ? e.tokens : -e.tokens));
@@ -144,22 +165,27 @@ for await (const e of events()) {
     p.top1 = supply > 0 ? (100 * (bal[0] ?? 0)) / supply : 0;
     p.top10 = supply > 0 ? (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply : 0;
     p.tok = tok; p.phase = 2;
-    for (let k = 0; k < EXITS.length; k += 1) p.open[k] = true;
+    for (let k = 0; k < STOPS.length; k += 1) { p.open[k] = true; p.peak[k] = e.rSol; }
     continue;
   }
   /** Every target slot resolves independently, at the reserves standing when its condition fires. */
+  const target = EXITS[0] as number;
   let anyOpen = false;
-  for (let k = 0; k < EXITS.length; k += 1) {
+  for (let k = 0; k < STOPS.length; k += 1) {
     if (!p.open[k]) continue;
-    if (e.rSol <= ENTRY - STOP_BELOW) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
-    if (e.rSol >= (EXITS[k] as number)) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
+    const spec = STOPS[k] as number;
+    /** The peak is only ever what has been SEEN. This is the whole correction over MT185. */
+    if (e.rSol > (p.peak[k] as number)) p.peak[k] = e.rSol;
+    const stopAt = spec > 0 ? ENTRY - spec : (p.peak[k] as number) + spec;
+    if (e.rSol <= stopAt) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
+    if (e.rSol >= target) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
     anyOpen = true;
   }
   if (!anyOpen) p.phase = 3;
 }
 const rows: P[] = [];
 for (const p of st.values()) {
-  for (let k = 0; k < EXITS.length; k += 1) {
+  for (let k = 0; k < STOPS.length; k += 1) {
     if (!p.open[k]) continue;
     p.out[k] = 1e4 * (sellSol(p.lastVSol, p.lastVTok, p.tok) / NOTIONAL - 1) - fixedBps;
     p.open[k] = false;
@@ -177,45 +203,23 @@ const growth = (o: number[], f: number): number => {
 };
 
 const dis = (o: number[]): string => `${((100 * o.filter((x) => x <= -5000).length) / o.length).toFixed(1)}%`;
-console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, stop ${ENTRY - STOP_BELOW}, concentration band ${CONC_LO}-${CONC_HI}%`);
+console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, target ${EXITS[0]}, concentration band ${CONC_LO}-${CONC_HI}%`);
 console.log('');
-console.log('  TARGET SWEEP.  filtered = top-10 concentration inside the band.');
-console.log('  target      n    hit%   disasters      mean   g(.05)   g(.10)   g(.20)');
-for (let k = 0; k < EXITS.length; k += 1) {
-  const x = EXITS[k] as number;
-  for (const [lab, set] of [['all     ', rows], ['filtered', rows.filter((p) => p.top10 >= CONC_LO && p.top10 <= CONC_HI)]] as [string, P[]][]) {
+console.log('  STOP VARIANT SWEEP.  positive = fixed below entry, negative = trailing below the running peak.');
+console.log('  stop          n    hit%   disasters      mean   g(.05)   g(.20)');
+for (let k = 0; k < STOPS.length; k += 1) {
+  const spec = STOPS[k] as number;
+  const lab = spec > 0 ? `fixed-${spec}` : `trail-${-spec}`;
+  for (const [tag, set] of [['all     ', rows], ['filtered', rows.filter((p) => p.top10 >= CONC_LO && p.top10 <= CONC_HI)]] as [string, P[]][]) {
     const o = set.map((p) => p.out[k] as number);
     if (o.length < 40) continue;
-    /** A hit is any outcome better than flat: the target was reached rather than stopped or drifted. */
     const hit = (100 * o.filter((v) => v > 0).length) / o.length;
     console.log(
-      `  ${String(x).padStart(4)} ${lab} ${String(o.length).padStart(5)} ${hit.toFixed(0).padStart(5)}% ` +
-      `${dis(o).padStart(9)} ${mean(o).toFixed(0).padStart(9)} ${growth(o, 0.05).toFixed(4).padStart(8)} ${growth(o, 0.10).toFixed(4).padStart(8)} ${growth(o, 0.20).toFixed(4).padStart(8)}`,
+      `  ${lab.padEnd(9)} ${tag} ${String(o.length).padStart(5)} ${hit.toFixed(0).padStart(5)}% ` +
+      `${dis(o).padStart(9)} ${mean(o).toFixed(0).padStart(9)} ${growth(o, 0.05).toFixed(4).padStart(8)} ${growth(o, 0.20).toFixed(4).padStart(8)}`,
     );
   }
   console.log('');
 }
-/**
- * BAND SWEEP. The 44-71% boundaries came from quintile edges, which is where the data happened to
- * split rather than where the effect actually lives. Re-filtering the same positions costs nothing,
- * and a band that only works at one exact pair of boundaries is a coincidence rather than a filter.
- */
-{
-  const k = EXITS.indexOf(82);
-  if (k >= 0) {
-    console.log('  CONCENTRATION BAND SWEEP at target 82. Look for a wide plateau, not a best pair.');
-    console.log('    band          n    disasters      mean   g(.05)   g(.20)');
-    for (const [lo, hi] of [[0, 100], [30, 80], [35, 75], [40, 75], [44, 71], [45, 65], [50, 70], [50, 80], [55, 75], [60, 85]] as [number, number][]) {
-      const set = rows.filter((p) => p.top10 >= lo && p.top10 <= hi);
-      const o = set.map((p) => p.out[k] as number);
-      if (o.length < 60) { console.log(`    ${String(lo)}-${String(hi)}%`.padEnd(14) + ` n=${o.length} too few`); continue; }
-      console.log(
-        `    ${(`${String(lo)}-${String(hi)}%`).padEnd(10)} ${String(o.length).padStart(5)} ${dis(o).padStart(10)} ${mean(o).toFixed(0).padStart(9)} ` +
-        `${growth(o, 0.05).toFixed(4).padStart(8)} ${growth(o, 0.20).toFixed(4).padStart(8)}`,
-      );
-    }
-    console.log('');
-  }
-}
-console.log('  A nearer target is hit more often for less; a further one more rarely for more.');
-console.log('  The question is only which side of that trade the curve actually pays for.');
+console.log('  A fixed stop protects the entry price and nothing else. A trailing stop protects a run');
+console.log('  that reverses, and pays for it by cutting positions that were only pausing.');
