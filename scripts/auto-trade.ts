@@ -57,7 +57,31 @@ const APPLY = process.argv.includes('--apply');
 const SOL_PER = Number(arg('sol') ?? '0.01');
 /** See the note above: raising this is the losing direction, not more exposure to an edge. */
 const MAX_POSITIONS = Number(arg('max-positions') ?? '3');
-const MIN_PROGRESS = Number(arg('min-progress') ?? '94');
+/**
+ * ENTER MUCH LOWER AND GIVE THE POSITION FAR MORE ROOM.
+ *
+ * MT188 swept entry level against stop distance in a single forward pass, 25 cells per block, on
+ * both corpora. The surface is a smooth gradient in both directions rather than a bright square in
+ * noise, which is the distinction that matters: neighbouring cells agree, so the effect is real
+ * rather than the grid handing back its luckiest square.
+ *
+ * The configuration this bot was running - enter at 70 SOL, stop four below - reads +0.0008 on block
+ * D and +0.0002 on block E, and it was inherited from MT171, which is the falsified one. Entry 55
+ * with a stop eight SOL below reads +0.0038 and +0.0035. The peak sits at 45 on block D and 50-55 on
+ * block E, a broad PLATEAU rather than a point, so 55 is chosen for agreeing on both blocks while
+ * holding for less time than 45 would.
+ *
+ * The arithmetic is the whole reason and it is not subtle. The target is an ABSOLUTE reserve level,
+ * so entering at 55 buys the move 55 to 82, which the curve prices at about +74%, where entering at
+ * 70 buys +25%. The target rate FALLS from 44% to 35% and stop-outs rise, because a curve entered at
+ * 55 has much further to climb - but each win is worth three times more, and the mean goes from +166
+ * to +812 bps. Fewer, larger wins paid for by more frequent, larger stops.
+ *
+ * EXPECT ABOUT 63% OF POSITIONS TO STOP OUT, each around -18%. That is the design. A stop at 47 SOL
+ * from an entry at 55 is a much deeper drawdown than the old four-SOL stop and it will feel wrong;
+ * tightening it is measurably worse on both blocks, in every row of the sweep.
+ */
+const MIN_PROGRESS = Number(arg('min-progress') ?? '64.7');
 const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
 /**
  * SELL ON THE CURVE, NOT INTO THE POOL, AND CUT THE STALLS.
@@ -80,12 +104,13 @@ const SELL_AFTER_S = Number(arg('sell-after') ?? '5');
  */
 const EXIT_SOL = Number(arg('exit-sol') ?? '82');
 /** Reserve level below the entry band at which a curve starts being watched. */
-const WATCH_FROM_SOL = Number(arg('watch-from') ?? '60');
+/** Ten SOL below entry, so the climb into the band is genuinely observed. */
+const WATCH_FROM_SOL = Number(arg('watch-from') ?? '45');
 /** Absolute reserve level the entry percentage corresponds to, used for the climb gate. */
-const ENTRY_SOL = Number(arg('entry-sol') ?? '69.7');
+const ENTRY_SOL = Number(arg('entry-sol') ?? '55');
 /** How far above the entry level a fill may land. A bound on giving away the move, not an edge. */
 const MAX_OVERSHOOT_SOL = Number(arg('max-overshoot') ?? '4');
-const STOP_BELOW = Number(arg('stop-below') ?? '4');
+const STOP_BELOW = Number(arg('stop-below') ?? '8');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 /** How far below the curve's closed-form price a fill may land before it is refused. */
 const MAX_SHORTFALL_BPS = Number(arg('max-shortfall-bps') ?? '200');
@@ -281,8 +306,8 @@ say(`  ${APPLY ? 'LIVE — WILL SIGN AND SEND' : 'DRY RUN — quotes every leg, 
 say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
 say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
 say(`  Only curves watched climbing from ${WATCH_FROM_SOL} SOL are eligible; overshoot capped at ${MAX_OVERSHOOT_SOL} SOL.`);
-say(`  MT187: block D mean +129 bps growth +0.0006, block E +51 bps and +0.0002. Thin but positive on both.`);
-say(`  Expect roughly 55% to stop out small. That is the design, not a failure.`);
+say(`  MT188: block D +812 bps growth +0.0038, block E +756 bps and +0.0035, on a smooth plateau.`);
+say(`  Expect roughly 63% to stop out at about -18%. Fewer, larger wins pay for them. That is the design.`);
 say('');
 
 let positionsDone = 0;
