@@ -622,6 +622,20 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     const rSol = Number(b.readBigUInt64LE(OFF.rSol)) / 1e9;
     /** Proves the decode and selects SOL-quoted curves; the others are a different instrument. */
     if (Math.abs(vSol - rSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
+    /**
+     * FEED HEALTH, REPORTED RATHER THAN ASSUMED.
+     *
+     * A silently incomplete endpoint is indistinguishable from a quiet market from inside the
+     * process, and the difference decides whether the bot sees any candidates at all. publicnode
+     * delivered a quarter of solanatracker's trades over the same window while looking perfectly
+     * healthy. Roughly 30 curve trades a second is normal for this subscription.
+     */
+    feedTrades += 1;
+    if (Date.now() - feedWindowStart > 60_000) {
+      const rate = feedTrades / ((Date.now() - feedWindowStart) / 1000);
+      say(`  feed health: ${rate.toFixed(1)} curve trades/sec${rate < 8 ? '  <= LOW, this endpoint may be dropping messages' : ''}`);
+      feedTrades = 0; feedWindowStart = Date.now();
+    }
     const progress = (100 * rSol) / GRAD_SOL;
     const mintEarly = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
     /** Our own position's reserve, straight off the trade that moved it. */
