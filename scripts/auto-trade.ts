@@ -110,9 +110,18 @@ const WATCH_FROM_SOL = Number(arg('watch-from') ?? '45');
 const ENTRY_SOL = Number(arg('entry-sol') ?? '55');
 /** How far above the entry level a fill may land. A bound on giving away the move, not an edge. */
 const MAX_OVERSHOOT_SOL = Number(arg('max-overshoot') ?? '4');
-/** Top-ten concentration band. Both tails are dangerous; MT189 measured where they are not. */
-const CONC_LO = Number(arg('conc-lo') ?? '44');
-const CONC_HI = Number(arg('conc-hi') ?? '71');
+/**
+ * Top-ten concentration band. Both tails are dangerous; MT189 measured where they are not.
+ *
+ * 44-71 came from quintile edges, which is where the data happened to split rather than where the
+ * effect lives. Sweeping the boundaries gives a broad plateau from roughly 50 to 85, and 50-80 is the
+ * most stable point on it: growth at f=0.20 reads 0.0269 over eleven days against 0.0273 on block D,
+ * two independent samples agreeing to the third decimal, on 418 and 370 positions. Narrower bands
+ * score higher - 55-75 reads 0.0391 and 0.0352 - but block E cannot test them at all, with 55
+ * positions, and a band narrowed past the point where a sample can check it is a curve fit.
+ */
+const CONC_LO = Number(arg('conc-lo') ?? '50');
+const CONC_HI = Number(arg('conc-hi') ?? '80');
 const STOP_BELOW = Number(arg('stop-below') ?? '8');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 /** How far below the curve's closed-form price a fill may land before it is refused. */
@@ -363,7 +372,7 @@ say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
 say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
 say(`  Only curves watched climbing from ${WATCH_FROM_SOL} SOL are eligible; overshoot capped at ${MAX_OVERSHOOT_SOL} SOL.`);
 say(`  Rug filter: top-10 concentration must sit inside ${CONC_LO}-${CONC_HI}% of circulating supply.`);
-say(`  MT189: that band cut disasters 3.2%->0.5% over 11 days, 2.3%->0.2% on block D, 5.6%->3.6% on block E.`);
+say(`  MT189/MT190: growth at f=0.20 reads 0.0269 over 11 days and 0.0273 on block D inside this band.`);
 say(`  Expect roughly 63% to stop out at about -18%. Fewer, larger wins pay for them. That is the design.`);
 say('');
 

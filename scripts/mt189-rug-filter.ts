@@ -48,10 +48,22 @@ const BC_TO = Number(arg('to') ?? '999999999');
 const NOTIONAL = Number(arg('notional') ?? '0.05');
 const FIXED_LAMPORTS = Number(arg('fixed-lamports') ?? '108513');
 const ENTRY = Number(arg('entry') ?? '55');
-const EXIT = Number(arg('exit') ?? '82');
+/**
+ * TARGET LEVELS, SWEPT TOGETHER.
+ *
+ * MT188 swept entry against stop and held the target at 82 SOL throughout, a number inherited from
+ * MT171 - the falsified result - and never chosen. It is the last untested lever and it trades
+ * directly against itself: a nearer target is hit more often for less, a further one more rarely for
+ * more. Concentration is measured at ENTRY and does not depend on the exit, so one entry decision can
+ * feed a position per target and all of them see identical data in a single pass.
+ */
+const EXITS = (arg('exits') ?? '70,74,78,82,84').split(',').map(Number);
 const STOP_BELOW = Number(arg('stop-below') ?? '8');
 const WATCH_BELOW = Number(arg('watch-below') ?? '10');
 const MAX_OVERSHOOT = Number(arg('max-overshoot') ?? '4');
+/** The concentration band MT189 measured: both tails carry the disasters, the middle does not. */
+const CONC_LO = Number(arg('conc-lo') ?? '44');
+const CONC_HI = Number(arg('conc-hi') ?? '71');
 const DIR = 'data/sqd/events-6EF8rrec';
 
 const buyTokens = (vSol: number, vTok: number, sol: number): number => { const k = vSol * vTok; return vTok - k / (vSol + sol * (1 - FEE)); };
@@ -102,12 +114,14 @@ for await (const e of events()) { if (e.rSol >= ENTRY - WATCH_BELOW) reached.add
 console.log(`  ${reached.size.toLocaleString()} curves reach ${ENTRY - WATCH_BELOW} SOL — holders tracked for these only`);
 
 // ---- pass 2: reconstruct holders, then simulate ----
-interface P { hold: Map<string, number>; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; out: number; how: string; lastVSol: number; lastVTok: number }
+interface P { hold: Map<string, number>; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; lastVSol: number; lastVTok: number;
+  /** One slot per target level: the realised bps, and whether it is still open. */
+  out: number[]; open: boolean[] }
 const st = new Map<string, P>();
 for await (const e of events()) {
   if (!reached.has(e.mint)) continue;
   let p = st.get(e.mint);
-  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: 0, how: 'drift', lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
+  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: EXITS.map(() => 0), open: EXITS.map(() => false), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
   p.lastVSol = e.vSol; p.lastVTok = e.vTok;
   /** Net position per wallet, updated on every trade, so the distribution is exact at any instant. */
   p.hold.set(e.user, (p.hold.get(e.user) ?? 0) + (e.isBuy ? e.tokens : -e.tokens));
@@ -130,14 +144,26 @@ for await (const e of events()) {
     p.top1 = supply > 0 ? (100 * (bal[0] ?? 0)) / supply : 0;
     p.top10 = supply > 0 ? (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply : 0;
     p.tok = tok; p.phase = 2;
+    for (let k = 0; k < EXITS.length; k += 1) p.open[k] = true;
     continue;
   }
-  if (e.rSol <= ENTRY - STOP_BELOW) { p.out = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.how = 'stop'; p.phase = 3; continue; }
-  if (e.rSol >= EXIT) { p.out = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.how = 'target'; p.phase = 3; continue; }
+  /** Every target slot resolves independently, at the reserves standing when its condition fires. */
+  let anyOpen = false;
+  for (let k = 0; k < EXITS.length; k += 1) {
+    if (!p.open[k]) continue;
+    if (e.rSol <= ENTRY - STOP_BELOW) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
+    if (e.rSol >= (EXITS[k] as number)) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
+    anyOpen = true;
+  }
+  if (!anyOpen) p.phase = 3;
 }
 const rows: P[] = [];
 for (const p of st.values()) {
-  if (p.phase === 2) { p.out = 1e4 * (sellSol(p.lastVSol, p.lastVTok, p.tok) / NOTIONAL - 1) - fixedBps; p.how = 'drift'; p.phase = 3; }
+  for (let k = 0; k < EXITS.length; k += 1) {
+    if (!p.open[k]) continue;
+    p.out[k] = 1e4 * (sellSol(p.lastVSol, p.lastVTok, p.tok) / NOTIONAL - 1) - fixedBps;
+    p.open[k] = false;
+  }
   if (p.tok > 0) rows.push(p);
 }
 console.log(`  ${rows.length.toLocaleString()} positions`);
@@ -150,58 +176,46 @@ const growth = (o: number[], f: number): number => {
   return s / o.length;
 };
 
-function band(title: string, key: (p: P) => number): void {
-  const sorted = [...rows].sort((a, b) => key(a) - key(b));
-  console.log(`  ${title}`);
-  console.log('  quintile   range          n   target%   DISASTER%   mean   g(f=.05)  g(f=.35)');
-  for (let k = 0; k < 5; k += 1) {
-    const g = sorted.slice(Math.floor((k * sorted.length) / 5), Math.floor(((k + 1) * sorted.length) / 5));
-    if (g.length < 20) continue;
-    const o = g.map((p) => p.out);
-    /** A disaster is a position losing more than half. Those are what a bankroll cannot absorb. */
-    const disaster = (100 * o.filter((x) => x <= -5000).length) / o.length;
+const dis = (o: number[]): string => `${((100 * o.filter((x) => x <= -5000).length) / o.length).toFixed(1)}%`;
+console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, stop ${ENTRY - STOP_BELOW}, concentration band ${CONC_LO}-${CONC_HI}%`);
+console.log('');
+console.log('  TARGET SWEEP.  filtered = top-10 concentration inside the band.');
+console.log('  target      n    hit%   disasters      mean   g(.05)   g(.10)   g(.20)');
+for (let k = 0; k < EXITS.length; k += 1) {
+  const x = EXITS[k] as number;
+  for (const [lab, set] of [['all     ', rows], ['filtered', rows.filter((p) => p.top10 >= CONC_LO && p.top10 <= CONC_HI)]] as [string, P[]][]) {
+    const o = set.map((p) => p.out[k] as number);
+    if (o.length < 40) continue;
+    /** A hit is any outcome better than flat: the target was reached rather than stopped or drifted. */
+    const hit = (100 * o.filter((v) => v > 0).length) / o.length;
     console.log(
-      `  ${String(k + 1).padStart(5)}      ${(key(g[0] as P).toFixed(0) + '-' + key(g[g.length - 1] as P).toFixed(0)).padEnd(12)} ${String(g.length).padStart(5)} ` +
-      `${((100 * g.filter((p) => p.how === 'target').length) / g.length).toFixed(0).padStart(7)}% ` +
-      `${disaster.toFixed(1).padStart(9)}% ${mean(o).toFixed(0).padStart(7)} ${growth(o, 0.05).toFixed(4).padStart(10)} ${growth(o, 0.35).toFixed(4).padStart(9)}`,
+      `  ${String(x).padStart(4)} ${lab} ${String(o.length).padStart(5)} ${hit.toFixed(0).padStart(5)}% ` +
+      `${dis(o).padStart(9)} ${mean(o).toFixed(0).padStart(9)} ${growth(o, 0.05).toFixed(4).padStart(8)} ${growth(o, 0.10).toFixed(4).padStart(8)} ${growth(o, 0.20).toFixed(4).padStart(8)}`,
     );
   }
   console.log('');
 }
-
-console.log(`  stake ${NOTIONAL} SOL, entry ${ENTRY}, target ${EXIT}, stop ${ENTRY - STOP_BELOW}`);
-console.log('');
-band('TOP-1 HOLDER share of circulating supply at entry — lowest first', (p) => p.top1);
-band('TOP-10 HOLDER share at entry — lowest first', (p) => p.top10);
-band('NUMBER OF HOLDERS at entry — fewest first', (p) => p.nHold);
-const all = rows.map((p) => p.out);
-console.log(`  ALL: n=${rows.length}  mean ${mean(all).toFixed(0)}  disasters ${((100 * all.filter((x) => x <= -5000).length) / all.length).toFixed(1)}%  g(.05) ${growth(all, 0.05).toFixed(4)}  g(.35) ${growth(all, 0.35).toFixed(4)}`);
 /**
- * THE BET-FRACTION CURVE ON THIS SAMPLE, AND ON THE CONCENTRATION-FILTERED SUBSET.
- *
- * Growth quoted at a single fraction is how a sizing error hides. Blocks D and E gave +0.0161 at
- * f=0.35; a wider span gives -0.0007 at the same fraction, which means the favourable-period
- * estimate would have justified a bet size that loses money over a longer run. The whole curve is
- * printed so the peak can be read rather than assumed.
- *
- * The filtered arm keeps only curves whose top-ten concentration sits in the band that showed a
- * 0.3% disaster rate on both LARGE samples. If that band survives here it is worth having; if it
- * moves with the sample it was never a band.
+ * BAND SWEEP. The 44-71% boundaries came from quintile edges, which is where the data happened to
+ * split rather than where the effect actually lives. Re-filtering the same positions costs nothing,
+ * and a band that only works at one exact pair of boundaries is a coincidence rather than a filter.
  */
-const CONC_LO = Number(arg('conc-lo') ?? '44');
-const CONC_HI = Number(arg('conc-hi') ?? '71');
-const filtered = rows.filter((p) => p.top10 >= CONC_LO && p.top10 <= CONC_HI).map((p) => p.out);
-const allOut = rows.map((p) => p.out);
-const dis = (o: number[]): string => `${((100 * o.filter((x) => x <= -5000).length) / o.length).toFixed(1)}%`;
-console.log('');
-console.log(`  BET FRACTION CURVE.  unfiltered n=${allOut.length} (disasters ${dis(allOut)})   filtered ${CONC_LO}-${CONC_HI}% n=${filtered.length} (disasters ${filtered.length ? dis(filtered) : 'n/a'})`);
-console.log('     f        unfiltered      concentration-filtered');
-for (const f of [0.02, 0.05, 0.10, 0.15, 0.20, 0.35, 0.50]) {
-  const a = growth(allOut, f);
-  const b = filtered.length >= 40 ? growth(filtered, f) : NaN;
-  const fmt = (x: number): string => (x === -Infinity ? 'RUIN' : Number.isNaN(x) ? 'n/a' : x.toFixed(4));
-  console.log(`   ${f.toFixed(2)}   ${fmt(a).padStart(12)}   ${fmt(b).padStart(20)}`);
+{
+  const k = EXITS.indexOf(82);
+  if (k >= 0) {
+    console.log('  CONCENTRATION BAND SWEEP at target 82. Look for a wide plateau, not a best pair.');
+    console.log('    band          n    disasters      mean   g(.05)   g(.20)');
+    for (const [lo, hi] of [[0, 100], [30, 80], [35, 75], [40, 75], [44, 71], [45, 65], [50, 70], [50, 80], [55, 75], [60, 85]] as [number, number][]) {
+      const set = rows.filter((p) => p.top10 >= lo && p.top10 <= hi);
+      const o = set.map((p) => p.out[k] as number);
+      if (o.length < 60) { console.log(`    ${String(lo)}-${String(hi)}%`.padEnd(14) + ` n=${o.length} too few`); continue; }
+      console.log(
+        `    ${(`${String(lo)}-${String(hi)}%`).padEnd(10)} ${String(o.length).padStart(5)} ${dis(o).padStart(10)} ${mean(o).toFixed(0).padStart(9)} ` +
+        `${growth(o, 0.05).toFixed(4).padStart(8)} ${growth(o, 0.20).toFixed(4).padStart(8)}`,
+      );
+    }
+    console.log('');
+  }
 }
-console.log('');
-console.log('  The column that matters is DISASTER%. Concentration being riskier on average is');
-console.log('  unsurprising and can be paid for; concentration predicting total losses cannot be.');
+console.log('  A nearer target is hit more often for less; a further one more rarely for more.');
+console.log('  The question is only which side of that trade the curve actually pays for.');
