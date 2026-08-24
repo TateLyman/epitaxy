@@ -281,7 +281,7 @@ async function curveState(mint: string): Promise<{ rSol: number; complete: boole
   return { rSol: Number(b.readBigUInt64LE(CURVE.rSol)) / 1e9, complete: b.readUInt8(CURVE.complete) === 1 };
 }
 
-interface Leg { out: bigint; labels: string[]; impactBps: number }
+interface Leg { out: bigint; labels: string[]; impactBps: number; raw: unknown }
 /**
  * A 429 IS NOT AN ANSWER, AND TREATING IT AS ONE COST A TRADE.
  *
@@ -302,13 +302,13 @@ async function quote(inM: string, outM: string, amount: bigint): Promise<Leg | n
     if (!r.ok) return null;
     const j = (await r.json()) as { outAmount?: string; priceImpactPct?: string; routePlan?: { swapInfo?: { label?: string } }[] };
     if (j.outAmount === undefined) return null;
-    return { out: BigInt(j.outAmount), labels: (j.routePlan ?? []).map((p) => p.swapInfo?.label ?? '?'), impactBps: Math.abs(Number(j.priceImpactPct ?? '0')) * 1e4 };
+    return { out: BigInt(j.outAmount), labels: (j.routePlan ?? []).map((p) => p.swapInfo?.label ?? '?'), impactBps: Math.abs(Number(j.priceImpactPct ?? '0')) * 1e4, raw: j };
   }
   return null;
 }
 
 /** One signed leg through the signer's single entry point. Returns the signature, or null on refusal. */
-async function execute(inM: string, outM: string, amount: bigint, mint: string, side: 'buy' | 'sell'): Promise<{ sig: string; quotedOut: bigint } | null> {
+async function execute(inM: string, outM: string, amount: bigint, mint: string, side: 'buy' | 'sell', preQuote?: unknown): Promise<{ sig: string; quotedOut: bigint } | null> {
   /**
    * THE ORDER PATH NEEDS THE SAME RETRY THE QUOTE PATH GOT, AND LEARNING THAT COST A POSITION.
    *
@@ -323,7 +323,7 @@ async function execute(inM: string, outM: string, amount: bigint, mint: string, 
   let order: Awaited<ReturnType<typeof buildSignableOrderV1>> | null = null;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      order = await buildSignableOrderV1(secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner });
+      order = await buildSignableOrderV1(secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner, preQuote });
       break;
     } catch (e) {
       const msg = (e as Error).message;
@@ -447,6 +447,18 @@ const seen = new Set<string>();
  * records every curve seen BELOW the entry level and refuses anything not on that list.
  */
 const watchedBelow = new Set<string>();
+/**
+ * Concentration is read ON DEMAND, not prefetched, and that is a deliberate reversal.
+ *
+ * Reading it ahead of the crossing would shave about 250ms from the entry path, which MT193 values
+ * at roughly a third of a trade of delay on a median curve. But it costs two RPC calls for EVERY
+ * curve in the watch band, most of which never cross, and the provider quota turned out to be the
+ * binding constraint long before latency was: the key hit "max usage reached" and the websocket
+ * handshake was refused along with it, which stops the bot entirely. A cheaper entry is worth
+ * nothing if the feed is switched off.
+ */
+const concCache = new Map<string, { top10: number; nHold: number; at: number }>();
+const CONC_TTL_MS = Number(arg('conc-ttl-ms') ?? '90000');
 
 sock.addEventListener('open', () => {
   sock.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'logsSubscribe', params: [{ mentions: [PUMP] }, { commitment: 'processed' }] }));
@@ -472,7 +484,9 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     /** Our own position's reserve, straight off the trade that moved it. */
     if (openMint !== null && mintEarly === openMint) { heldRSol = rSol; if (rSol >= GRAD_SOL) heldComplete = true; }
     /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
-    if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) watchedBelow.add(mintEarly);
+    if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) {
+      watchedBelow.add(mintEarly);
+    }
     if (progress < MIN_PROGRESS || progress >= 100) continue;
     const mint = mintEarly;
     if (seen.has(mint)) continue;
@@ -542,7 +556,11 @@ async function run(mint: string, rSol: number): Promise<void> {
      * THE RUG FILTER. Refusing on an unreadable distribution is deliberate: a curve whose holders we
      * cannot see is one we do not understand, and the whole point is to decline those.
      */
-    const conc = await concentration(mint);
+    /** Use the prefetched reading when it is fresh; fall back to reading it now when it is not. */
+    const cached = concCache.get(mint);
+    const conc = cached !== undefined && Date.now() - cached.at <= CONC_TTL_MS
+      ? { top10: cached.top10, nHold: cached.nHold }
+      : await concentration(mint);
     if (conc === null) {
       say('   could not read the holder distribution — no trade');
       rec('skip', { mint, reason: 'concentration-unknown', rSol });
@@ -601,7 +619,8 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (!APPLY) { say('   DRY RUN — would buy here'); positionsDone += 1; busy = false; if (positionsDone >= MAX_POSITIONS) finish(); return; }
 
     const balBeforeBuy = await balance();
-    const buyRes = await execute(WSOL, mint, amount, mint, 'buy');
+    /** Hand over the quote we just judged: one fewer round trip, and the order matches the decision. */
+    const buyRes = await execute(WSOL, mint, amount, mint, 'buy', q.raw);
     if (buyRes === null) {
       /**
        * A REFUSED BUY IS ONE BAD CANDIDATE, NOT THE END OF THE SESSION.
@@ -722,7 +741,7 @@ async function run(mint: string, rSol: number): Promise<void> {
     /** Same rule for the signed leg: a refusal while holding inventory is retried, not accepted. */
     let sellRes: { sig: string; quotedOut: bigint } | null = null;
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      sellRes = await execute(mint, WSOL, bag, mint, 'sell');
+      sellRes = await execute(mint, WSOL, bag, mint, 'sell', attempt === 0 ? sq.raw : undefined);
       if (sellRes !== null) break;
       say(`   sell refused (attempt ${attempt + 1}/6) — rebuilding and retrying`);
       await sleep(3_000);

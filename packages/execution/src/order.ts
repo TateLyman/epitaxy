@@ -106,6 +106,20 @@ export async function buildSignableOrderV1(
     amount: bigint;
     slippageBps: number;
     taker: string;
+    /**
+     * A QUOTE THE CALLER ALREADY FETCHED, SO THE SAME PRICE IS NOT ASKED FOR TWICE.
+     *
+     * The bot quotes to decide whether to trade, then this function quoted again to build the order,
+     * and both round trips sat in the entry path. MT193 measures the cost of that directly: delay is
+     * counted in TRADES between the decision and the fill, and curves in the entry band trade at a
+     * median of 1.22 per second and 7.5 per second in the fastest tenth. Growth at f=0.20 runs 0.0179
+     * at zero delay, 0.0083 at three trades and zero at five, so several hundred milliseconds of
+     * duplicated work is not housekeeping - it is a material part of the edge.
+     *
+     * Reusing the decision quote also makes the order the one we actually judged, rather than a second
+     * quote taken at a price we never evaluated.
+     */
+    preQuote?: unknown;
   },
 ): Promise<SignableOrder> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -118,8 +132,8 @@ export async function buildSignableOrderV1(
     amount: params.amount.toString(),
     slippageBps: String(params.slippageBps),
   });
-  let quote: { outAmount?: string; inAmount?: string } | null = null;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  let quote: { outAmount?: string; inAmount?: string } | null = (params.preQuote as { outAmount?: string; inAmount?: string } | undefined) ?? null;
+  for (let attempt = 0; quote === null && attempt < 8; attempt += 1) {
     let res: Response;
     try { res = await fetch(`${BASE}/swap/v1/quote?${qs.toString()}`, { headers, signal: AbortSignal.timeout(20_000) }); }
     catch { await sleep(700 * (attempt + 1)); continue; }

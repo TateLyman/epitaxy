@@ -50,6 +50,27 @@ const CONC_LO = Number(arg('conc-lo') ?? '50');
 const CONC_HI = Number(arg('conc-hi') ?? '80');
 /** Events between the barrier being crossed and our order landing. 0 is the fiction every sweep used. */
 const DELAYS = (arg('delays') ?? '0,1,2,3,5,10,20').split(',').map(Number);
+/**
+ * ENTRY latency, which was never priced either and is the same error on the other side.
+ *
+ * Every sweep buys at the exact event where the curve crosses the entry level. A live bot sees that
+ * trade, reads the holder distribution, fetches a quote, builds an order, signs it and lands it -
+ * and the curve trades throughout. Unlike the exit, the sign of this is not obvious: buying late
+ * into a curve that is climbing means paying more for less room to the target, but it also means
+ * the curves that immediately collapse are never bought at all. Whether that selection pays for the
+ * worse price is exactly the sort of thing that cannot be reasoned out and has to be measured.
+ */
+const ENTRY_DELAY = Number(arg('entry-delay') ?? '0');
+/**
+ * THE SHORTFALL GATE, WHICH THE LIVE BOT HAS AND THIS SIMULATION DID NOT.
+ *
+ * Modelling entry delay by simply buying N trades later overstates the damage, because a real bot
+ * compares the quote it finally receives against the curve's own closed-form price and REFUSES a fill
+ * that has run away. In a dry run that gate fired at 1,131 bps. Delay hurts most precisely when the
+ * curve moved a lot while we were building the order, and that is exactly the case the gate declines,
+ * so the two interact and the loss cannot be read off the delay alone.
+ */
+const MAX_SHORTFALL_BPS = Number(arg('max-shortfall-bps') ?? '200');
 const DIR = 'data/sqd/events-6EF8rrec';
 
 const buyTokens = (vSol: number, vTok: number, sol: number): number => { const k = vSol * vTok; return vTok - k / (vSol + sol * (1 - FEE)); };
@@ -61,7 +82,7 @@ const STOP_AT = ENTRY - STOP_BELOW;
  * A position per delay. `pending` counts down the events between the trigger and the fill, so the
  * exit price is whatever the curve reached while our order was in flight.
  */
-interface Slot { phase: 0 | 1 | 2 | 3; tok: number; pending: number; why: 'stop' | 'target' | '' }
+interface Slot { phase: 0 | 1 | 2 | 3; tok: number; pending: number; why: 'stop' | 'target' | ''; armEntry: number; triggerVSol: number; triggerVTok: number }
 interface C { hold: Map<string, number>; s: Slot[]; lastVSol: number; lastVTok: number }
 const curves = new Map<string, C>();
 const outs: number[][] = DELAYS.map(() => []);
@@ -72,7 +93,7 @@ const files = readdirSync(DIR).filter((x) => {
   const m = /^events-(\d+)-(\d+)\.jsonl$/.exec(x);
   return m !== null && Number(m[2]) >= BC_FROM && Number(m[1]) <= BC_TO;
 }).sort();
-console.log(`MT193 — cost of exit latency. entry ${ENTRY}, target ${EXIT}, stop ${STOP_AT}, ${files.length} files`);
+console.log(`MT193 — latency. entry ${ENTRY} (buy delay ${ENTRY_DELAY}), target ${EXIT}, stop ${STOP_AT}, ${files.length} files`);
 
 for (const f of files) {
   const rl = createInterface({ input: createReadStream(`${DIR}/${f}`, { encoding: 'utf8' }), crlfDelay: Infinity });
@@ -96,7 +117,7 @@ for (const f of files) {
 
       const mint = b.subarray(OFF.mint, OFF.mint + 32).toString('base64');
       let c = curves.get(mint);
-      if (c === undefined) { c = { hold: new Map(), s: DELAYS.map(() => ({ phase: 0 as 0, tok: 0, pending: -1, why: '' as const })), lastVSol: vSol, lastVTok: vTok }; curves.set(mint, c); }
+      if (c === undefined) { c = { hold: new Map(), s: DELAYS.map(() => ({ phase: 0 as 0, tok: 0, pending: -1, why: '' as const, armEntry: -1, triggerVSol: 0, triggerVTok: 0 })), lastVSol: vSol, lastVTok: vTok }; curves.set(mint, c); }
       c.lastVSol = vSol; c.lastVTok = vTok;
       const user = b.subarray(OFF.user, OFF.user + 32).toString('base64');
       const tokens = Number(b.readBigUInt64LE(OFF.tokenAmount)) / 1e6;
@@ -124,6 +145,18 @@ for (const f of files) {
         }
         if (st.phase === 1) {
           if (rSol < ENTRY) continue;
+          /** Arm on the crossing, buy ENTRY_DELAY trades later at whatever price stands then. */
+          if (st.armEntry < 0) { st.armEntry = ENTRY_DELAY; st.triggerVSol = vSol; st.triggerVTok = vTok; if (ENTRY_DELAY > 0) continue; }
+          else if (st.armEntry > 0) { st.armEntry -= 1; continue; }
+          /**
+           * Refuse a fill that has run away from the price we decided on. This is the live gate, and
+           * without it the delayed entry buys at any price the curve happened to reach.
+           */
+          if (st.triggerVSol > 0) {
+            const wouldGet = buyTokens(vSol, vTok, NOTIONAL);
+            const atTrigger = buyTokens(st.triggerVSol, st.triggerVTok, NOTIONAL);
+            if (atTrigger > 0 && 1e4 * (1 - wouldGet / atTrigger) > MAX_SHORTFALL_BPS) { st.phase = 3; continue; }
+          }
           if (rSol > ENTRY + MAX_OVERSHOOT) { st.phase = 3; continue; }
           const bal = [...c.hold.values()].filter((v) => v > 0).sort((x, y) => y - x);
           const supply = bal.reduce((x, y) => x + y, 0);
