@@ -540,6 +540,26 @@ function connectFeed(): void {
   sock = new WebSocket(url);
   attachFeedHandlers(label);
 }
+/**
+ * BOUNDED, BECAUSE THIS IS MEANT TO RUN ALL DAY.
+ *
+ * The feed carries roughly 167 distinct mints every forty seconds, so an eight-hour run sees tens of
+ * thousands. Three collections keyed by mint had no eviction at all: the candidates already judged,
+ * the curves watched climbing into the band, and the cached holder readings. None of them is large
+ * per entry, and all of them grow without limit, which is the shape of a leak that only appears on
+ * exactly the long unattended run the bot is for.
+ *
+ * Insertion order is the eviction order, which is right here: the oldest mint is the one least likely
+ * to still be climbing toward a band it has not reached yet.
+ */
+function boundSet(x: Set<string>, cap: number): void {
+  while (x.size > cap) { const k = x.keys().next().value; if (k === undefined) break; x.delete(k); }
+}
+function boundMap<V>(x: Map<string, V>, cap: number): void {
+  while (x.size > cap) { const k = x.keys().next().value; if (k === undefined) break; x.delete(k); }
+}
+const MINT_CAP = Number(arg('mint-cap') ?? '20000');
+
 const seen = new Set<string>();
 /**
  * ONLY TRADE CURVES WE WATCHED CLIMB INTO THE BAND.
@@ -643,6 +663,7 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
     if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) {
       watchedBelow.add(mintEarly);
+      boundSet(watchedBelow, MINT_CAP);
       /** Free to compute: the trade carrying the reserve also carries who traded and how much. */
       const u = base58Encode(b.subarray(OFF.user, OFF.user + 32));
       const amt = Number(b.readBigUInt64LE(OFF.tokenAmount)) / 1e6;
@@ -666,6 +687,7 @@ sock.addEventListener('message', (ev: MessageEvent) => {
       continue;
     }
     seen.add(mint);
+    boundSet(seen, MINT_CAP);
     candidatesSeen += 1;
     rec('candidate', { mint, rSol, progress, positionsDone });
     if (existsSync(STOP_FILE)) { say('  STOP file present — halting'); rec('stopped', { reason: 'stop-file' }); finish(); return; }
@@ -766,7 +788,7 @@ async function run(mint: string, rSol: number): Promise<void> {
       skipped += 1; busy = false; return;
     }
     say(`   top-10 hold ${conc.top10.toFixed(0)}% (${src}) — inside the ${lo}-${hi}% band`);
-    if (chain !== null) concCache.set(mint, { top10: chain.top10, nHold: chain.nHold, at: Date.now() });
+    if (chain !== null) { concCache.set(mint, { top10: chain.top10, nHold: chain.nHold, at: Date.now() }); boundMap(concCache, 4_000); }
 
     const q = await quote(WSOL, mint, amount);
     if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }
