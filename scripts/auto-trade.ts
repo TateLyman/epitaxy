@@ -383,6 +383,29 @@ let positionsDone = 0;
 let candidatesSeen = 0;
 let skipped = 0;
 let busy = false;
+/**
+ * THE MINT WE ACTUALLY HOLD, OR NULL. NOTHING MAY END THE RUN WHILE THIS IS SET.
+ *
+ * Three separate paths abandoned a bought position: a route that did not match the expected venue, a
+ * websocket close, and any thrown error. Each called finish() and exited, and one of them - a sell
+ * quote failing during the curve-to-pool handover - turned the run's only winning trade, a +68%
+ * target hit, into a -91.5% loss ten minutes later.
+ *
+ * `busy` was never the right flag for this: it is true from the moment a candidate is picked up,
+ * including the whole stretch before anything is bought, when exiting is perfectly safe. Only the
+ * interval between a confirmed buy and a confirmed sell matters, and until now nothing recorded it.
+ */
+let openMint: string | null = null;
+/** Set when the candidate feed drops; new entries stop, open positions are still managed. */
+let feedClosed = false;
+
+/** Everything a person needs to close a position by hand, printed wherever one might be left open. */
+function warnOpen(where: string): void {
+  if (openMint === null) return;
+  say(`  !! POSITION STILL OPEN (${where}). Close it by hand:`);
+  say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${openMint} --side=sell --apply`);
+  rec('stranded', { mint: openMint, reason: where });
+}
 let realised = 0;
 const ws = secrets.rpcWs;
 if (ws === null || ws === '') { say('REFUSED: no websocket configured'); process.exit(1); }
@@ -413,7 +436,8 @@ sock.addEventListener('open', () => {
 });
 
 sock.addEventListener('message', (ev: MessageEvent) => {
-  if (busy || positionsDone >= MAX_POSITIONS) return;
+  /** A closed feed takes no new candidates; anything already held is still managed to completion. */
+  if (feedClosed || busy || positionsDone >= MAX_POSITIONS) return;
   let msg: { params?: { result?: { value?: { logs?: string[] } } } };
   try { msg = JSON.parse(String(ev.data)) as typeof msg; } catch { return; }
   for (const line of msg.params?.result?.value?.logs ?? []) {
@@ -447,7 +471,17 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     return;
   }
 });
-sock.addEventListener('close', () => { say('  websocket closed'); finish(); });
+/**
+ * A CLOSED SOCKET STOPS NEW ENTRIES AND NOTHING ELSE. Position management runs independently of the
+ * feed, so exiting here would kill a live position for the sake of a stream that is only used to find
+ * candidates. If nothing is held the run ends normally; if something is, it is left to complete.
+ */
+sock.addEventListener('close', () => {
+  feedClosed = true;
+  say('  websocket closed — no new candidates');
+  if (openMint === null && !busy) finish();
+  else say('  a position is still being managed; the run continues until it closes');
+});
 
 async function run(mint: string, rSol: number): Promise<void> {
   try {
@@ -566,6 +600,7 @@ async function run(mint: string, rSol: number): Promise<void> {
       skipped += 1; busy = false; return;
     }
     const buySig = buyRes.sig;
+    openMint = mint;
     say(`   BOUGHT  ${buySig}`);
     const boughtAt = Date.now();
     rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
@@ -596,9 +631,6 @@ async function run(mint: string, rSol: number): Promise<void> {
     const bag = await held(mint, true);
     if (bag === 0n) {
       say('   REFUSING TO REPORT SUCCESS: bought this position but cannot read a balance after 6 tries.');
-      say('   The position is OPEN. Sell it by hand once the RPC catches up:');
-      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
-      rec('stranded', { mint, reason: 'balance-unreadable-after-buy' });
       finish(); return;
     }
     /**
@@ -624,9 +656,7 @@ async function run(mint: string, rSol: number): Promise<void> {
       await sleep(SELL_RETRY_MS);
     }
     if (sq === null) {
-      say('   STILL NO SELL ROUTE. The position is OPEN and must be closed by hand:');
-      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
-      rec('stranded', { mint, reason: 'no-sell-route-after-retries' });
+      say('   STILL NO SELL ROUTE after every retry.');
       finish(); return;
     }
     /**
@@ -635,7 +665,17 @@ async function run(mint: string, rSol: number): Promise<void> {
      */
     const wantCurve = reason === 'target' || reason === 'stop';
     const onCurve = sq.labels.includes('Pump.fun') && !sq.labels.includes('Pump.fun Amm');
-    if (wantCurve !== onCurve) { say(`   route ${sq.labels.join('+')} does not match a ${reason} exit — stopping`); finish(); return; }
+    /**
+     * A MISMATCHED ROUTE IS INFORMATION, NOT A REASON TO WALK AWAY FROM INVENTORY. This previously
+     * called finish(). During migration the venue legitimately flips from the curve to the pool
+     * between the exit trigger and the quote, so a target exit can correctly arrive on Pump.fun Amm -
+     * and refusing to sell because of it left the position open while the token collapsed. We are at
+     * an exit condition and we want out; the venue we get out through is not worth holding for.
+     */
+    if (wantCurve !== onCurve) {
+      say(`   note: route ${sq.labels.join('+')} is not the venue a ${reason} exit expected — selling anyway`);
+      rec('route-mismatch', { mint, reason, labels: sq.labels });
+    }
     say(`   sell quote ${(Number(sq.out) / 1e9).toFixed(6)} SOL via ${sq.labels.join('+')}`);
     rec('sell-quote', { mint, solOut: Number(sq.out) / 1e9, labels: sq.labels, impactBps: sq.impactBps, bag: bag.toString() });
     /** Same rule for the signed leg: a refusal while holding inventory is retried, not accepted. */
@@ -647,12 +687,11 @@ async function run(mint: string, rSol: number): Promise<void> {
       await sleep(3_000);
     }
     if (sellRes === null) {
-      say('   SELL STILL REFUSED. The position is OPEN and must be closed by hand:');
-      say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${mint} --side=sell --apply`);
-      rec('stranded', { mint, reason: 'sell-refused-after-retries' });
+      say('   SELL STILL REFUSED after every retry.');
       finish(); return;
     }
     const sellSig = sellRes.sig;
+    openMint = null;
     say(`   SOLD    ${sellSig}`);
     await sleep(3_000);
     const balAfterSell = await balance();
@@ -682,14 +721,15 @@ async function run(mint: string, rSol: number): Promise<void> {
     if (positionsDone >= MAX_POSITIONS) finish();
   } catch (e) {
     say(`   ERROR: ${(e as Error).message}`);
+    warnOpen('error-while-holding');
     finish();
   }
 }
 
 function finish(): void {
   say('');
-  /** A run that ends mid-position must say so loudly rather than printing a tidy summary. */
-  if (busy) say('  WARNING: exited while a position was still being managed — check holdings by hand.');
+  /** A run that ends holding something must say exactly what, and how to close it. */
+  warnOpen('run-ended-holding');
   say(`  ${candidatesSeen} candidates seen, ${skipped} skipped, ${positionsDone} position(s) completed`);
   say(`  realised ${(realised / 1e9).toFixed(6)} SOL before rent recovery`);
   rec('run-end', { candidatesSeen, skipped, positionsDone, realisedLamports: realised });
