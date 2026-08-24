@@ -192,7 +192,41 @@ const READ_ENDPOINTS: string[] = [
 ];
 let readIdx = 0;
 
+/**
+ * READS DEFAULT TO `confirmed`, NOT `finalized`, AND THE DIFFERENCE WAS CORRUPTING EVERY NUMBER.
+ *
+ * Solana's JSON-RPC default is `finalized`, roughly 13 to 30 seconds behind the chain, and nothing
+ * here was passing a commitment. Three consequences, all of them silent:
+ *
+ *   EVERY REPORTED P&L WAS WRONG. The close reads the balance three seconds after the sell is
+ *   broadcast. At finalized the sell has not landed but the minutes-old buy has, so the "after"
+ *   balance is the balance BEFORE the sell - and the run reported a large loss on every position,
+ *   win or lose, then wrote it to the event log as fact.
+ *
+ *   THE POST-BUY BALANCE READ WAS RACING FINALIZATION. Six retries at 2.5 seconds is about 12.5
+ *   seconds against a 13-second lag, so a stop firing shortly after a buy was a coin flip, and
+ *   losing it ended the run holding the bag. The retry treated the symptom; the commitment is the
+ *   cause.
+ *
+ *   THE BUDGET CHECK COULD END THE SESSION ON STALE DATA. Immediately after a close the proceeds
+ *   are not finalized, so the balance reads low and the reserve check stops a run that had plenty.
+ *
+ * `confirmed` is the right level: it is what the execution client already uses, and a confirmed
+ * transaction on Solana is not realistically reverted.
+ */
+function withCommitment(method: string, params: unknown[]): unknown[] {
+  /** Only methods whose last argument is a config object take a commitment. */
+  const CONFIGURABLE = new Set(['getBalance', 'getAccountInfo', 'getTokenAccountsByOwner', 'getTokenLargestAccounts', 'getTokenSupply']);
+  if (!CONFIGURABLE.has(method)) return params;
+  const last = params[params.length - 1];
+  if (typeof last === 'object' && last !== null && !Array.isArray(last)) {
+    return [...params.slice(0, -1), { ...(last as Record<string, unknown>), commitment: 'confirmed' }];
+  }
+  return [...params, { commitment: 'confirmed' }];
+}
+
 async function readRpc<T>(method: string, params: unknown[]): Promise<T | null> {
+  params = withCommitment(method, params);
   for (let attempt = 0; attempt < READ_ENDPOINTS.length * 2; attempt += 1) {
     const url = READ_ENDPOINTS[(readIdx + attempt) % READ_ENDPOINTS.length] as string;
     try {
@@ -337,14 +371,31 @@ async function concentration(mint: string): Promise<{ top10: number; nHold: numb
 }
 
 /** Reserves and completion together, so a target, a stop and a migration are one read. */
+/**
+ * FAILS CLOSED, AND NEVER THROWS OUT OF A LIVE POSITION.
+ *
+ * Two defects lived here. It reported a MISSING account as `complete: true`, which the exit watcher
+ * reads as a migration and acts on - but a graduated curve account is not closed, it persists with
+ * `complete` set, so a null result is always an RPC artifact and never a migration. Reporting one as
+ * the other forced an unnecessary exit at whatever price the market happened to offer.
+ *
+ * And it had no try/catch while `rpc.getAccounts` throws on any RPC error, including the rate limit
+ * this session has already hit twice. That throw escaped the exit loop, reached the outer catch, and
+ * ended the process holding the position - every five seconds, for up to forty-five minutes, the
+ * position was betting against a rate limit.
+ *
+ * `null` now means "could not read", and the caller keeps waiting rather than selling on a guess.
+ */
 async function curveState(mint: string): Promise<{ rSol: number; complete: boolean } | null> {
   const found = findProgramAddress([new TextEncoder().encode('bonding-curve'), base58Decode(mint, 64)], PUMP);
   if (found === null) return null;
-  const acc = (await rpc.getAccounts([found.address]))[0];
-  if (acc === null || acc === undefined) return { rSol: 0, complete: true };
-  const b = Buffer.from(acc.dataBase64, 'base64');
-  if (b.length < CURVE.complete + 1) return null;
-  return { rSol: Number(b.readBigUInt64LE(CURVE.rSol)) / 1e9, complete: b.readUInt8(CURVE.complete) === 1 };
+  try {
+    const acc = (await rpc.getAccounts([found.address]))[0];
+    if (acc === null || acc === undefined) return null;
+    const b = Buffer.from(acc.dataBase64, 'base64');
+    if (b.length < CURVE.complete + 1) return null;
+    return { rSol: Number(b.readBigUInt64LE(CURVE.rSol)) / 1e9, complete: b.readUInt8(CURVE.complete) === 1 };
+  } catch { return null; }
 }
 
 interface Leg { out: bigint; labels: string[]; impactBps: number; raw: unknown }
@@ -392,9 +443,21 @@ async function execute(inM: string, outM: string, amount: bigint, mint: string, 
       order = await buildSignableOrderV1(secrets.jupiterApiKey, { inputMint: inM, outputMint: outM, amount, slippageBps: SLIPPAGE_BPS, taker: owner, preQuote });
       break;
     } catch (e) {
-      const msg = (e as Error).message;
-      if (!msg.includes('rate_limited') && !msg.includes('429')) throw e;
-      say(`   order rate-limited, retry ${attempt + 1}/5`);
+      /**
+       * EVERY BUILD FAILURE IS RETRIED, NOT ONLY THE RATE LIMIT.
+       *
+       * This rethrew anything whose message did not mention `rate_limited` or `429`, which was
+       * written for the v2 order endpoint and orphaned when the builder moved to v1. The v1 builder
+       * throws "v1 quote HTTP 500", "v1 quote unavailable", "v1 swap HTTP 400" and "v1 swap returned
+       * no transaction" - none of which match - and it consumes the 429 internally before those
+       * checks run. So the retry was dead code against the builder actually in use, and every
+       * failure escaped the caller's retry loop, reached the outer catch, and ended the process.
+       *
+       * On a SELL that means abandoning inventory for a transient upstream error, which is exactly
+       * the migration-handover failure that turned a +68% winner into a -91.5% loss. A build failure
+       * is upstream weather; the caller decides whether to keep trying, and for a sell it must.
+       */
+      say(`   order build failed (attempt ${attempt + 1}/5): ${(e as Error).message.slice(0, 80)}`);
       await sleep(900 * (attempt + 1));
     }
   }
@@ -510,8 +573,11 @@ let heldRSol: number | null = null;
 let heldComplete = false;
 
 /** Everything a person needs to close a position by hand, printed wherever one might be left open. */
+/** Guarded so the error path, which also calls finish(), cannot write the same stranded position twice. */
+let warned = false;
 function warnOpen(where: string): void {
-  if (openMint === null) return;
+  if (openMint === null || warned) return;
+  warned = true;
   say(`  !! POSITION STILL OPEN (${where}). Close it by hand:`);
   say(`     npx tsx scripts/swap.ts --mode=` + `canary --mint=${openMint} --side=sell --apply`);
   rec('stranded', { mint: openMint, reason: where });
@@ -889,8 +955,24 @@ async function run(mint: string, rSol: number): Promise<void> {
 
     const balBeforeBuy = await balance();
     /** Hand over the quote we just judged: one fewer round trip, and the order matches the decision. */
+    /**
+     * CLAIM THE POSITION BEFORE SENDING, NOT AFTER.
+     *
+     * `rpc.send` can throw after the node has already forwarded the transaction - a timeout, a reset,
+     * a proxy hiccup - and the buy is then on chain while we believe nothing happened. Assigning
+     * `openMint` only on the success path meant that case exited with `openMint` still null, so the
+     * warning that prints the mint and the manual close command was skipped entirely: the operator
+     * saw one ambiguous error line and no indication that real capital was sitting on chain.
+     *
+     * Claiming it first inverts the failure: at worst we warn about a position that does not exist,
+     * which costs a moment checking. That is strictly better than silently abandoning one that does.
+     */
+    openMint = mint;
+    heldRSol = null; heldComplete = false;
     const buyRes = await execute(WSOL, mint, amount, mint, 'buy', q.raw);
     if (buyRes === null) {
+      /** Refused before anything was sent, so the claim is released. */
+      openMint = null;
       /**
        * A REFUSED BUY IS ONE BAD CANDIDATE, NOT THE END OF THE SESSION.
        *
@@ -908,8 +990,7 @@ async function run(mint: string, rSol: number): Promise<void> {
       skipped += 1; busy = false; return;
     }
     const buySig = buyRes.sig;
-    openMint = mint;
-    heldRSol = null; heldComplete = false;
+    warned = false;
     say(`   BOUGHT  ${buySig}`);
     const boughtAt = Date.now();
     rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
@@ -918,7 +999,23 @@ async function run(mint: string, rSol: number): Promise<void> {
      * Watch the curve's own reserves for a target, a stop, or a migration we did not want.
      * Polling is enough: we hold the position already and are not racing anyone for it.
      */
-    const stopAt = rSol - STOP_BELOW;
+    /**
+     * THE STOP IS ANCHORED TO THE FILL, NOT TO THE DECISION.
+     *
+     * `rSol` is the reserve from the websocket event that produced the candidate, captured before a
+     * balance read, two concentration calls, a quote and an order build. The shortfall gate bounds
+     * staleness at QUOTE time, but the fill happens later still, so the stop could sit several SOL
+     * below a level the curve had already left - and always in the direction that deepens the loss.
+     *
+     * One read after the buy confirms costs a round trip once per position and removes the drift.
+     * If it cannot be read we keep the decision-time anchor rather than trading without a stop.
+     */
+    const filled = await curveState(mint);
+    const anchor = filled === null ? rSol : filled.rSol;
+    if (filled !== null && Math.abs(anchor - rSol) > 0.5) {
+      say(`   note: curve moved ${(anchor - rSol >= 0 ? '+' : '')}${(anchor - rSol).toFixed(2)} SOL between decision and fill; anchoring the stop to the fill`);
+    }
+    const stopAt = anchor - STOP_BELOW;
     say(`   target ${EXIT_SOL} SOL   stop ${stopAt.toFixed(2)} SOL`);
     const deadline = Date.now() + 45 * 60_000;
     let reason = 'timeout';
@@ -942,7 +1039,9 @@ async function run(mint: string, rSol: number): Promise<void> {
       if (Date.now() - lastPoll > 5_000) {
         lastPoll = Date.now();
         const st = await curveState(mint);
-        if (st === null || st.complete) { reason = 'migrated'; break; }
+        /** Unreadable is not migrated. Keep waiting; the stream may answer before the next poll. */
+        if (st === null) { continue; }
+        if (st.complete) { reason = 'migrated'; break; }
         if (st.rSol >= EXIT_SOL) { reason = 'target'; break; }
         if (st.rSol <= stopAt) { reason = 'stop'; break; }
         if (heldRSol === null) heldRSol = st.rSol;
