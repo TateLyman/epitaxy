@@ -137,16 +137,24 @@ console.log(`  ${reached.size.toLocaleString()} curves reach ${ENTRY - WATCH_BEL
 // ---- pass 2: reconstruct holders, then simulate ----
 interface P { hold: Map<string, number>; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; lastVSol: number; lastVTok: number;
   /** One slot per stop variant: realised bps, whether still open, and its own running peak. */
-  out: number[]; open: boolean[]; peak: number[] }
+  out: number[]; open: boolean[]; peak: number[];
+  /** For the regret measure: was this slot stopped, and did the curve later reach the target anyway. */
+  stopped: boolean[]; laterHit: boolean[] }
 const st = new Map<string, P>();
 for await (const e of events()) {
   if (!reached.has(e.mint)) continue;
   let p = st.get(e.mint);
-  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: STOPS.map(() => 0), open: STOPS.map(() => false), peak: STOPS.map(() => 0), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
+  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: STOPS.map(() => 0), open: STOPS.map(() => false), peak: STOPS.map(() => 0), stopped: STOPS.map(() => false), laterHit: STOPS.map(() => false), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
   p.lastVSol = e.vSol; p.lastVTok = e.vTok;
   /** Net position per wallet, updated on every trade, so the distribution is exact at any instant. */
   p.hold.set(e.user, (p.hold.get(e.user) ?? 0) + (e.isBuy ? e.tokens : -e.tokens));
 
+  /** Regret: once stopped, keep watching to see whether the curve reached the target regardless. */
+  if (p.tok > 0) {
+    for (let k = 0; k < STOPS.length; k += 1) {
+      if (p.stopped[k] && !p.laterHit[k] && e.rSol >= (EXITS[0] as number)) p.laterHit[k] = true;
+    }
+  }
   if (p.phase === 3) continue;
   if (p.phase === 0) {
     if (e.rSol >= ENTRY - WATCH_BELOW && e.rSol < ENTRY) p.phase = 1;
@@ -177,7 +185,7 @@ for await (const e of events()) {
     /** The peak is only ever what has been SEEN. This is the whole correction over MT185. */
     if (e.rSol > (p.peak[k] as number)) p.peak[k] = e.rSol;
     const stopAt = spec > 0 ? ENTRY - spec : (p.peak[k] as number) + spec;
-    if (e.rSol <= stopAt) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
+    if (e.rSol <= stopAt) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; p.stopped[k] = true; continue; }
     if (e.rSol >= target) { p.out[k] = 1e4 * (sellSol(e.vSol, e.vTok, p.tok) / NOTIONAL - 1) - fixedBps; p.open[k] = false; continue; }
     anyOpen = true;
   }
@@ -221,5 +229,17 @@ for (let k = 0; k < STOPS.length; k += 1) {
   }
   console.log('');
 }
+console.log('  REGRET: of the positions each stop cut, how many reached the target afterwards anyway.');
+console.log('  stop           stopped   of those, later hit target');
+for (let k = 0; k < STOPS.length; k += 1) {
+  const spec = STOPS[k] as number;
+  const lab = spec > 0 ? `fixed-${spec}` : `trail-${-spec}`;
+  const set = rows.filter((p) => p.top10 >= CONC_LO && p.top10 <= CONC_HI);
+  const cut = set.filter((p) => p.stopped[k]);
+  if (cut.length < 20) continue;
+  const later = cut.filter((p) => p.laterHit[k]).length;
+  console.log(`  ${lab.padEnd(10)} ${String(cut.length).padStart(9)} ${`${later} (${((100 * later) / cut.length).toFixed(0)}%)`.padStart(24)}`);
+}
+console.log('');
 console.log('  A fixed stop protects the entry price and nothing else. A trailing stop protects a run');
 console.log('  that reverses, and pays for it by cutting positions that were only pausing.');
