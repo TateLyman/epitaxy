@@ -42,7 +42,7 @@ import type { TradeIntent } from '../packages/domain/src/types.js';
 const WSOL = 'So11111111111111111111111111111111111111112';
 const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const TRADE_EVENT = 'bddb7fd34ee661ee';
-const OFF = { mint: 8, vSol: 97, rSol: 113 };
+const OFF = { mint: 8, tokenAmount: 48, isBuy: 56, user: 57, vSol: 97, rSol: 113 };
 const CURVE = { vSol: 16, rSol: 32, complete: 48 };
 const GRAD_SOL = 85;
 const INITIAL_VIRTUAL_SOL = 30;
@@ -110,6 +110,9 @@ const WATCH_FROM_SOL = Number(arg('watch-from') ?? '45');
 const ENTRY_SOL = Number(arg('entry-sol') ?? '55');
 /** How far above the entry level a fill may land. A bound on giving away the move, not an edge. */
 const MAX_OVERSHOOT_SOL = Number(arg('max-overshoot') ?? '4');
+/** Top-ten concentration band. Both tails are dangerous; MT189 measured where they are not. */
+const CONC_LO = Number(arg('conc-lo') ?? '44');
+const CONC_HI = Number(arg('conc-hi') ?? '71');
 const STOP_BELOW = Number(arg('stop-below') ?? '8');
 const SLIPPAGE_BPS = Number(arg('slippage') ?? '300');
 /** How far below the curve's closed-form price a fill may land before it is refused. */
@@ -200,6 +203,59 @@ async function heldOnce(mint: string): Promise<bigint> {
   let t = 0n;
   for (const a of j.result?.value ?? []) t += BigInt(a.account.data.parsed.info.tokenAmount.amount);
   return t;
+}
+
+/**
+ * HOLDER CONCENTRATION, ASKED OF THE CHAIN RATHER THAN RECONSTRUCTED FROM THE STREAM.
+ *
+ * The rug defence is a filter, not a stop. A live position lost 90% when its curve fell from 69.7 SOL
+ * to 1.26 inside ONE transaction, and nothing reacts to that - not a two-second poll, not a websocket,
+ * not a colocated node - because every one of them looks after the transaction has landed. The only
+ * defence is not to be holding it. MT189 found what separates those: a collapse that large needs one
+ * wallet holding most of the supply, and top-ten concentration inside 44-71% cut disasters from 3.2%
+ * to 0.5% over eleven days, 2.3% to 0.2% on block D and 5.6% to 3.6% on block E, improving growth at
+ * every bet fraction on all three. Both tails are dangerous: too dispersed and nobody is driving the
+ * curve to graduation, too concentrated and one wallet can end it.
+ *
+ * REBUILDING BALANCES FROM THE TRADE STREAM WAS TRIED FIRST AND WAS WRONG. The backtest walks a
+ * curve's whole history; a live bot joins mid-story, so a curve that traded for an hour before startup
+ * has most of its holders missing and the computed share measures how long we have been watching
+ * rather than how concentrated the curve is. A dry run reported "100% across 7 wallets" for curves with
+ * hundreds of holders and would have refused nearly everything.
+ *
+ * The bonding curve's OWN vault is excluded, because unsold inventory is not circulating supply and
+ * counting it would put every young curve near 100% - the same artifact by another route.
+ */
+async function concentration(mint: string): Promise<{ top10: number; nHold: number } | null> {
+  interface Largest { result?: { value?: { address: string; amount: string }[] } }
+  interface Owned { result?: { value?: { pubkey: string }[] } }
+  async function post<T>(method: string, params: unknown[]): Promise<T | null> {
+    const r = await fetch(secrets.rpcHttp ?? '', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as T;
+  }
+  let largest: Largest | null = null;
+  try { largest = await post<Largest>('getTokenLargestAccounts', [mint]); } catch { return null; }
+  const rows: { address: string; amount: string }[] = largest?.result?.value ?? [];
+  if (rows.length === 0) return null;
+
+  let curveAta: string | null = null;
+  const found = findProgramAddress([new TextEncoder().encode('bonding-curve'), base58Decode(mint, 64)], PUMP);
+  if (found !== null) {
+    try {
+      const owned = await post<Owned>('getTokenAccountsByOwner', [found.address, { mint }, { encoding: 'jsonParsed' }]);
+      curveAta = owned?.result?.value?.[0]?.pubkey ?? null;
+    } catch { /* the vault simply stays counted; the band is wide enough to survive it */ }
+  }
+
+  const bal: number[] = rows.filter((r) => r.address !== curveAta).map((r) => Number(r.amount)).filter((v) => v > 0).sort((a, b) => b - a);
+  const supply = bal.reduce((a, b) => a + b, 0);
+  if (!(supply > 0)) return null;
+  return { top10: (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply, nHold: bal.length };
 }
 
 /** Reserves and completion together, so a target, a stop and a migration are one read. */
@@ -306,7 +362,8 @@ say(`  ${APPLY ? 'LIVE — WILL SIGN AND SEND' : 'DRY RUN — quotes every leg, 
 say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
 say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
 say(`  Only curves watched climbing from ${WATCH_FROM_SOL} SOL are eligible; overshoot capped at ${MAX_OVERSHOOT_SOL} SOL.`);
-say(`  MT188: block D +812 bps growth +0.0038, block E +756 bps and +0.0035, on a smooth plateau.`);
+say(`  Rug filter: top-10 concentration must sit inside ${CONC_LO}-${CONC_HI}% of circulating supply.`);
+say(`  MT189: that band cut disasters 3.2%->0.5% over 11 days, 2.3%->0.2% on block D, 5.6%->3.6% on block E.`);
 say(`  Expect roughly 63% to stop out at about -18%. Fewer, larger wins pay for them. That is the design.`);
 say('');
 
@@ -415,6 +472,23 @@ async function run(mint: string, rSol: number): Promise<void> {
       rec('skip', { mint, reason: 'already-past-target', rSol, target: EXIT_SOL });
       skipped += 1; busy = false; return;
     }
+    /**
+     * THE RUG FILTER. Refusing on an unreadable distribution is deliberate: a curve whose holders we
+     * cannot see is one we do not understand, and the whole point is to decline those.
+     */
+    const conc = await concentration(mint);
+    if (conc === null) {
+      say('   could not read the holder distribution — no trade');
+      rec('skip', { mint, reason: 'concentration-unknown', rSol });
+      skipped += 1; busy = false; return;
+    }
+    if (conc.top10 < CONC_LO || conc.top10 > CONC_HI) {
+      say(`   top-10 hold ${conc.top10.toFixed(0)}% of supply — outside the ${CONC_LO}-${CONC_HI}% band`);
+      rec('skip', { mint, reason: 'concentration-outside-band', top10: conc.top10, nHold: conc.nHold, rSol });
+      skipped += 1; busy = false; return;
+    }
+    say(`   top-10 hold ${conc.top10.toFixed(0)}% of supply — inside the band`);
+
     const q = await quote(WSOL, mint, amount);
     if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }
     if (!q.labels.includes('Pump.fun')) { say(`   route is ${q.labels.join('+')}, not the bonding curve — skipping`); rec('skip', { mint, reason: 'not-curve-route', labels: q.labels, rSol }); skipped += 1; busy = false; return; }
