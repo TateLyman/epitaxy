@@ -164,6 +164,51 @@ const signer = Signer.fromFile(secrets.tradingKeypairPath);
 const owner = signer.publicKey;
 const JH: Record<string, string> = secrets.jupiterApiKey ? { 'x-api-key': secrets.jupiterApiKey } : {};
 
+/**
+ * READ-ONLY RPC, TRIED ON FREE ENDPOINTS BEFORE THE PAID ONE.
+ *
+ * Both paid providers hit their daily limits, and losing the ability to TRADE because a READ ran out
+ * is a bad trade. The reads a position needs are few - a balance check, a holder distribution, an
+ * occasional curve-state poll - perhaps five per position against roughly two positions an hour, so
+ * they fit comfortably inside what a free endpoint will serve even though a free endpoint will not
+ * take a burst.
+ *
+ * Writes are deliberately NOT routed here. Signing and sending is the one path that must not be
+ * flaky, most free endpoints refuse sendTransaction anyway, and a transaction that fails to land is
+ * far more expensive than a read that has to be retried.
+ *
+ * The paid endpoint stays last in the list rather than absent: when the free ones are rate-limiting,
+ * a read is still worth spending quota on.
+ */
+const READ_ENDPOINTS: string[] = [
+  'https://rpc.solanatracker.io/public',
+  'https://solana-rpc.publicnode.com',
+  ...(secrets.rpcHttp !== null && secrets.rpcHttp !== '' ? [secrets.rpcHttp] : []),
+  ...(secrets.rpcHttpFallback !== null && secrets.rpcHttpFallback !== '' ? [secrets.rpcHttpFallback] : []),
+];
+let readIdx = 0;
+
+async function readRpc<T>(method: string, params: unknown[]): Promise<T | null> {
+  for (let attempt = 0; attempt < READ_ENDPOINTS.length * 2; attempt += 1) {
+    const url = READ_ENDPOINTS[(readIdx + attempt) % READ_ENDPOINTS.length] as string;
+    try {
+      const r = await fetch(url, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!r.ok) continue;
+      const j = (await r.json()) as { result?: T; error?: unknown };
+      if (j.error !== undefined) continue;
+      if (j.result === undefined) continue;
+      /** Stay on whatever answered, so a working endpoint is not abandoned after one success. */
+      readIdx = (readIdx + attempt) % READ_ENDPOINTS.length;
+      return j.result;
+    } catch { /* try the next endpoint */ }
+  }
+  return null;
+}
+
 const say = (m: string): void => {
   const line = `${new Date().toISOString()}  ${m}`;
   process.stdout.write(line + String.fromCharCode(10));
@@ -175,7 +220,12 @@ const rec = (kind: string, fields: Record<string, unknown>): void => {
   appendFileSync(EVENTS, JSON.stringify({ ts: Date.now(), iso: new Date().toISOString(), kind, ...fields }) + String.fromCharCode(10));
 };
 
-const balance = async (): Promise<number> => Number((await rpc.getAccounts([owner]))[0]?.lamports ?? 0n);
+const balance = async (): Promise<number> => {
+  const v = await readRpc<{ value?: number }>('getBalance', [owner]);
+  if (v !== null && typeof v.value === 'number') return v.value;
+  /** Fall back to the execution client, which knows how to retry its own endpoints. */
+  return Number((await rpc.getAccounts([owner]))[0]?.lamports ?? 0n);
+};
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
 /**
@@ -206,14 +256,11 @@ async function held(mint: string, insist = false): Promise<bigint> {
 }
 
 async function heldOnce(mint: string): Promise<bigint> {
-  const res = await fetch(secrets.rpcHttp ?? '', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner', params: [owner, { mint }, { encoding: 'jsonParsed' }] }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  const j = (await res.json()) as { result?: { value?: { account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } } }[] } };
+  const j = await readRpc<{ value?: { account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } } }[] }>(
+    'getTokenAccountsByOwner', [owner, { mint }, { encoding: 'jsonParsed' }],
+  );
   let t = 0n;
-  for (const a of j.result?.value ?? []) t += BigInt(a.account.data.parsed.info.tokenAmount.amount);
+  for (const a of j?.value ?? []) t += BigInt(a.account.data.parsed.info.tokenAmount.amount);
   return t;
 }
 
@@ -239,28 +286,16 @@ async function heldOnce(mint: string): Promise<bigint> {
  * counting it would put every young curve near 100% - the same artifact by another route.
  */
 async function concentration(mint: string): Promise<{ top10: number; nHold: number } | null> {
-  interface Largest { result?: { value?: { address: string; amount: string }[] } }
-  interface Owned { result?: { value?: { pubkey: string }[] } }
-  async function post<T>(method: string, params: unknown[]): Promise<T | null> {
-    const r = await fetch(secrets.rpcHttp ?? '', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  }
-  let largest: Largest | null = null;
-  try { largest = await post<Largest>('getTokenLargestAccounts', [mint]); } catch { return null; }
-  const rows: { address: string; amount: string }[] = largest?.result?.value ?? [];
+  const largest = await readRpc<{ value?: { address: string; amount: string }[] }>('getTokenLargestAccounts', [mint]);
+  const rows: { address: string; amount: string }[] = largest?.value ?? [];
   if (rows.length === 0) return null;
 
   let curveAta: string | null = null;
   const found = findProgramAddress([new TextEncoder().encode('bonding-curve'), base58Decode(mint, 64)], PUMP);
   if (found !== null) {
     try {
-      const owned = await post<Owned>('getTokenAccountsByOwner', [found.address, { mint }, { encoding: 'jsonParsed' }]);
-      curveAta = owned?.result?.value?.[0]?.pubkey ?? null;
+      const owned = await readRpc<{ value?: { pubkey: string }[] }>('getTokenAccountsByOwner', [found.address, { mint }, { encoding: 'jsonParsed' }]);
+      curveAta = owned?.value?.[0]?.pubkey ?? null;
     } catch { /* the vault simply stays counted; the band is wide enough to survive it */ }
   }
 
@@ -365,7 +400,33 @@ async function execute(inM: string, outM: string, amount: bigint, mint: string, 
   return { sig, quotedOut: order.quote.outAmount };
 }
 
-const startBalance = await balance();
+/**
+ * A RATE-LIMITED PROVIDER MUST PRODUCE A SENTENCE, NOT A STACK TRACE.
+ *
+ * The very first thing the bot does is read its own balance, and when the key was exhausted that
+ * call threw an unhandled rate_limited error: the process died on a Node stack trace with no
+ * indication that the cause was a quota rather than a defect in the strategy or the wallet. Anyone
+ * starting this before leaving for the day would have found a crash and no explanation.
+ *
+ * The balance is also not worth failing over. It is printed for the operator and checked properly
+ * before every buy, so a startup that cannot read it can still run - it just says so.
+ */
+let startBalance = 0;
+try {
+  startBalance = await balance();
+} catch (e) {
+  const msg = (e as Error).message;
+  say('');
+  say('AUTO-TRADE — could not read the wallet balance at startup');
+  say(`  ${msg.slice(0, 200)}`);
+  if (msg.includes('429') || msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('usage')) {
+    say('  The RPC provider is rate-limiting or the plan quota is exhausted. This is not a defect in');
+    say('  the bot: the same limit will refuse the websocket handshake, so nothing can run until it');
+    say('  resets or the key is upgraded. Balance checks before each buy would fail the same way.');
+  }
+  say('  Refusing to start rather than trading blind.');
+  process.exit(1);
+}
 say('');
 say('AUTO-TRADE');
 say(`  owner ${owner}`);
@@ -425,9 +486,60 @@ function warnOpen(where: string): void {
   rec('stranded', { mint: openMint, reason: where });
 }
 let realised = 0;
-const ws = secrets.rpcWs;
-if (ws === null || ws === '') { say('REFUSED: no websocket configured'); process.exit(1); }
-const sock = new WebSocket(ws);
+/**
+ * THE CANDIDATE FEED RUNS ON A FREE ENDPOINT, AND THE PAID QUOTA IS KEPT FOR TRADING.
+ *
+ * Both configured providers hit their limits within a day - Helius reported "max usage reached" and
+ * QuickNode "daily request limit reached" - and the same limit refuses the websocket handshake, so
+ * the bot stops entirely. Losing the ability to trade because a read ran out is a bad trade in
+ * itself, and the cause is not subtle: logsSubscribe on the whole pump.fun program is a firehose
+ * delivering thousands of messages a minute, while a position needs only a handful of calls.
+ *
+ * The firehose is also the part that least needs a paid provider. It is read-only, it carries no
+ * signing, and losing it costs nothing but missed candidates - which is already handled, since a
+ * closed feed stops new entries and leaves open positions to complete. So it is moved to free
+ * endpoints, verified to carry this exact subscription, and rotated when one stops answering.
+ *
+ * What stays on the paid endpoint is what genuinely cannot be flaky: the balance check, the holder
+ * distribution, the curve-state fallback poll, and every write.
+ */
+/**
+ * ORDER MATTERS AND WAS MEASURED, BECAUSE A FREE FEED CAN BE SILENTLY INCOMPLETE.
+ *
+ * Over identical forty-second windows on the same subscription: solanatracker delivered 1,834
+ * SOL-quoted curve trades across 167 mints, publicnode delivered 426 across 83. Both connect, both
+ * answer, and both look healthy - publicnode is simply dropping roughly three quarters of the
+ * stream. Having listed it first would have starved the bot of candidates AND corrupted the
+ * stream-derived concentration reading, with nothing in the logs to show for it.
+ *
+ * Helius measured about 30 trades a second earlier in the session, so solanatracker at 45.9 is
+ * delivering at least as much as the paid feed. The incomplete endpoint is kept only as a late
+ * fallback: a degraded feed still beats no feed once the others are gone.
+ */
+const FEED_ENDPOINTS = (arg('feeds') ?? [
+  'wss://rpc.solanatracker.io/public',
+  'wss://api.mainnet-beta.solana.com',
+  'wss://solana-rpc.publicnode.com',
+].join(',')).split(',').filter((x) => x.length > 0);
+/** The paid websocket is kept as the last resort rather than the first choice. */
+if (secrets.rpcWs !== null && secrets.rpcWs !== '') FEED_ENDPOINTS.push(secrets.rpcWs);
+
+let feedIdx = 0;
+let feedTrades = 0;
+let feedWindowStart = Date.now();
+let sock: WebSocket;
+
+/**
+ * Rotate to the next feed when one closes without us being finished. Reconnecting rather than
+ * exiting matters because a free endpoint dropping is expected, not exceptional, and an open
+ * position still needs the stream to see its exit.
+ */
+function connectFeed(): void {
+  const url = FEED_ENDPOINTS[feedIdx % FEED_ENDPOINTS.length] as string;
+  const label = (() => { try { return new URL(url).host; } catch { return url; } })();
+  sock = new WebSocket(url);
+  attachFeedHandlers(label);
+}
 const seen = new Set<string>();
 /**
  * ONLY TRADE CURVES WE WATCHED CLIMB INTO THE BAND.
@@ -458,11 +570,42 @@ const watchedBelow = new Set<string>();
  * nothing if the feed is switched off.
  */
 const concCache = new Map<string, { top10: number; nHold: number; at: number }>();
+
+/**
+ * A STREAM-DERIVED CONCENTRATION READING, USED WHEN THE CHAIN CANNOT BE ASKED.
+ *
+ * The chain read is better and MT189 says so plainly: on block D it gives growth of 0.0273 at f=0.20
+ * against 0.0191 for the best stream-only band and 0.0121 for no filter at all. The RPC call buys
+ * real information and there is no free way to have all of it.
+ *
+ * But the provider quota is a single point of failure that switches the whole bot off - the key hit
+ * "max usage reached" and the websocket handshake was refused along with it - and a filter that
+ * captures roughly sixty percent of the benefit for nothing is worth far more than no filter while
+ * that lasts. So this is a fallback, never a replacement.
+ *
+ * IT READS ON A DIFFERENT SCALE AND NEEDS ITS OWN BAND. Watching only the climb from 45 SOL misses
+ * every holder who bought earlier, so the same curve reads higher here than on chain: the band that
+ * suits it is 70-100%, not the chain's 50-80%. Applying the chain's band to this reading was tried
+ * and rejected everything, which is what "100% across 7 wallets" in an early dry run actually meant.
+ */
+const streamHold = new Map<string, Map<string, number>>();
+const STREAM_CONC_LO = Number(arg('stream-conc-lo') ?? '70');
+const STREAM_CONC_HI = Number(arg('stream-conc-hi') ?? '100');
+
+function streamConcentration(mint: string): { top10: number; nHold: number } | null {
+  const h = streamHold.get(mint);
+  if (h === undefined) return null;
+  const bal = [...h.values()].filter((v) => v > 0).sort((a, b) => b - a);
+  const supply = bal.reduce((a, b) => a + b, 0);
+  if (!(supply > 0) || bal.length === 0) return null;
+  return { top10: (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply, nHold: bal.length };
+}
 const CONC_TTL_MS = Number(arg('conc-ttl-ms') ?? '90000');
 
+function attachFeedHandlers(label: string): void {
 sock.addEventListener('open', () => {
   sock.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'logsSubscribe', params: [{ mentions: [PUMP] }, { commitment: 'processed' }] }));
-  say('  watching…');
+  say(`  watching via ${label}…`);
 });
 
 sock.addEventListener('message', (ev: MessageEvent) => {
@@ -486,6 +629,18 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
     if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) {
       watchedBelow.add(mintEarly);
+      /** Free to compute: the trade carrying the reserve also carries who traded and how much. */
+      const u = base58Encode(b.subarray(OFF.user, OFF.user + 32));
+      const amt = Number(b.readBigUInt64LE(OFF.tokenAmount)) / 1e6;
+      let h = streamHold.get(mintEarly);
+      if (h === undefined) {
+        /** Bounded, because a bot left running for days would otherwise map every token ever launched. */
+        if (streamHold.size > 400) { const first = streamHold.keys().next().value; if (first !== undefined) streamHold.delete(first); }
+        h = new Map(); streamHold.set(mintEarly, h);
+      }
+      h.set(u, (h.get(u) ?? 0) + (b.readUInt8(OFF.isBuy) === 1 ? amt : -amt));
+    } else if (rSol >= EXIT_SOL) {
+      streamHold.delete(mintEarly);
     }
     if (progress < MIN_PROGRESS || progress >= 100) continue;
     const mint = mintEarly;
@@ -510,12 +665,27 @@ sock.addEventListener('message', (ev: MessageEvent) => {
  * feed, so exiting here would kill a live position for the sake of a stream that is only used to find
  * candidates. If nothing is held the run ends normally; if something is, it is left to complete.
  */
+sock.addEventListener('error', () => { /* close fires next; rotation happens there */ });
 sock.addEventListener('close', () => {
+  /**
+   * A dropped feed is rotated, not fatal. Only give up once every endpoint has been tried, and even
+   * then keep managing anything held rather than abandoning it.
+   */
+  if (positionsDone >= MAX_POSITIONS) { feedClosed = true; if (openMint === null && !busy) finish(); return; }
+  feedIdx += 1;
+  if (feedIdx < FEED_ENDPOINTS.length * 3) {
+    say(`  feed ${label} dropped — rotating to ${(() => { try { return new URL(FEED_ENDPOINTS[feedIdx % FEED_ENDPOINTS.length] as string).host; } catch { return 'next'; } })()}`);
+    setTimeout(connectFeed, 1_500);
+    return;
+  }
   feedClosed = true;
-  say('  websocket closed — no new candidates');
+  say('  every feed endpoint failed — no new candidates');
   if (openMint === null && !busy) finish();
   else say('  a position is still being managed; the run continues until it closes');
 });
+}
+
+connectFeed();
 
 async function run(mint: string, rSol: number): Promise<void> {
   try {
@@ -556,22 +726,33 @@ async function run(mint: string, rSol: number): Promise<void> {
      * THE RUG FILTER. Refusing on an unreadable distribution is deliberate: a curve whose holders we
      * cannot see is one we do not understand, and the whole point is to decline those.
      */
-    /** Use the prefetched reading when it is fresh; fall back to reading it now when it is not. */
+    /**
+     * The chain reading first, the stream reading only if the chain cannot answer. Each is judged
+     * against its own band because they are not the same measurement on the same scale.
+     */
     const cached = concCache.get(mint);
-    const conc = cached !== undefined && Date.now() - cached.at <= CONC_TTL_MS
+    const chain = cached !== undefined && Date.now() - cached.at <= CONC_TTL_MS
       ? { top10: cached.top10, nHold: cached.nHold }
       : await concentration(mint);
+    let lo = CONC_LO; let hi = CONC_HI; let src = 'chain';
+    let conc = chain;
     if (conc === null) {
-      say('   could not read the holder distribution — no trade');
+      conc = streamConcentration(mint);
+      lo = STREAM_CONC_LO; hi = STREAM_CONC_HI; src = 'stream';
+    }
+    if (conc === null) {
+      say('   holder distribution unavailable from chain or stream — no trade');
       rec('skip', { mint, reason: 'concentration-unknown', rSol });
       skipped += 1; busy = false; return;
     }
-    if (conc.top10 < CONC_LO || conc.top10 > CONC_HI) {
-      say(`   top-10 hold ${conc.top10.toFixed(0)}% of supply — outside the ${CONC_LO}-${CONC_HI}% band`);
-      rec('skip', { mint, reason: 'concentration-outside-band', top10: conc.top10, nHold: conc.nHold, rSol });
+    if (src === 'stream') say('   NOTE: chain read unavailable, using the weaker stream-derived reading');
+    if (conc.top10 < lo || conc.top10 > hi) {
+      say(`   top-10 hold ${conc.top10.toFixed(0)}% (${src}) — outside the ${lo}-${hi}% band`);
+      rec('skip', { mint, reason: 'concentration-outside-band', top10: conc.top10, nHold: conc.nHold, src, rSol });
       skipped += 1; busy = false; return;
     }
-    say(`   top-10 hold ${conc.top10.toFixed(0)}% of supply — inside the band`);
+    say(`   top-10 hold ${conc.top10.toFixed(0)}% (${src}) — inside the ${lo}-${hi}% band`);
+    if (chain !== null) concCache.set(mint, { top10: chain.top10, nHold: chain.nHold, at: Date.now() });
 
     const q = await quote(WSOL, mint, amount);
     if (q === null) { say('   no buy quote after retries — skipping'); rec('skip', { mint, reason: 'no-quote', rSol }); skipped += 1; busy = false; return; }

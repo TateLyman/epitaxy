@@ -85,6 +85,21 @@ const MAX_OVERSHOOT = Number(arg('max-overshoot') ?? '4');
 /** The concentration band MT189 measured: both tails carry the disasters, the middle does not. */
 const CONC_LO = Number(arg('conc-lo') ?? '44');
 const CONC_HI = Number(arg('conc-hi') ?? '71');
+/**
+ * HOW MUCH HISTORY THE CONCENTRATION READING ACTUALLY NEEDS.
+ *
+ * The live filter asks the chain with getTokenLargestAccounts, which costs RPC calls in the entry
+ * path - and the provider quota binds before latency does, refusing the websocket handshake along
+ * with everything else once the key is exhausted. If a reading taken from ONLY the trades we watched
+ * while the curve climbed into the band works as well as one taken from the token's whole history,
+ * the filter becomes free, instant, and immune to a quota that can switch the bot off.
+ *
+ * This is not obviously true and is the whole point of measuring it. A curve at 45 SOL has already
+ * distributed most of its supply, so a window reading misses every holder who bought earlier. It can
+ * only work if the wallets that matter - the ones large enough to end a curve - are also the ones
+ * still actively trading it on the way up.
+ */
+const WINDOW_SOL = Number(arg('window-sol') ?? '999');
 const DIR = 'data/sqd/events-6EF8rrec';
 
 const buyTokens = (vSol: number, vTok: number, sol: number): number => { const k = vSol * vTok; return vTok - k / (vSol + sol * (1 - FEE)); };
@@ -135,7 +150,7 @@ for await (const e of events()) { if (e.rSol >= ENTRY - WATCH_BELOW) reached.add
 console.log(`  ${reached.size.toLocaleString()} curves reach ${ENTRY - WATCH_BELOW} SOL — holders tracked for these only`);
 
 // ---- pass 2: reconstruct holders, then simulate ----
-interface P { hold: Map<string, number>; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; lastVSol: number; lastVTok: number;
+interface P { hold: Map<string, number>; win: Map<string, number>; winOpen: boolean; winTop10: number; phase: 0 | 1 | 2 | 3; tok: number; top1: number; top10: number; nHold: number; lastVSol: number; lastVTok: number;
   /** One slot per stop variant: realised bps, whether still open, and its own running peak. */
   out: number[]; open: boolean[]; peak: number[];
   /** For the regret measure: was this slot stopped, and did the curve later reach the target anyway. */
@@ -144,10 +159,13 @@ const st = new Map<string, P>();
 for await (const e of events()) {
   if (!reached.has(e.mint)) continue;
   let p = st.get(e.mint);
-  if (p === undefined) { p = { hold: new Map(), phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: STOPS.map(() => 0), open: STOPS.map(() => false), peak: STOPS.map(() => 0), stopped: STOPS.map(() => false), laterHit: STOPS.map(() => false), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
+  if (p === undefined) { p = { hold: new Map(), win: new Map(), winOpen: false, winTop10: 0, phase: 0, tok: 0, top1: 0, top10: 0, nHold: 0, out: STOPS.map(() => 0), open: STOPS.map(() => false), peak: STOPS.map(() => 0), stopped: STOPS.map(() => false), laterHit: STOPS.map(() => false), lastVSol: e.vSol, lastVTok: e.vTok }; st.set(e.mint, p); }
   p.lastVSol = e.vSol; p.lastVTok = e.vTok;
   /** Net position per wallet, updated on every trade, so the distribution is exact at any instant. */
   p.hold.set(e.user, (p.hold.get(e.user) ?? 0) + (e.isBuy ? e.tokens : -e.tokens));
+  /** The same accumulation, but started only when the curve entered the observation window. */
+  if (!p.winOpen && e.rSol >= ENTRY - WINDOW_SOL) p.winOpen = true;
+  if (p.winOpen) p.win.set(e.user, (p.win.get(e.user) ?? 0) + (e.isBuy ? e.tokens : -e.tokens));
 
   /** Regret: once stopped, keep watching to see whether the curve reached the target regardless. */
   if (p.tok > 0) {
@@ -172,6 +190,10 @@ for await (const e of events()) {
     p.nHold = bal.length;
     p.top1 = supply > 0 ? (100 * (bal[0] ?? 0)) / supply : 0;
     p.top10 = supply > 0 ? (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply : 0;
+    /** The reading a live bot could compute from the stream alone, with no RPC at all. */
+    const wb = [...p.win.values()].filter((v) => v > 0).sort((a, b) => b - a);
+    const wsup = wb.reduce((a, b) => a + b, 0);
+    p.winTop10 = wsup > 0 ? (100 * wb.slice(0, 10).reduce((a, b) => a + b, 0)) / wsup : 0;
     p.tok = tok; p.phase = 2;
     for (let k = 0; k < STOPS.length; k += 1) { p.open[k] = true; p.peak[k] = e.rSol; }
     continue;
@@ -241,5 +263,27 @@ for (let k = 0; k < STOPS.length; k += 1) {
   console.log(`  ${lab.padEnd(10)} ${String(cut.length).padStart(9)} ${`${later} (${((100 * later) / cut.length).toFixed(0)}%)`.padStart(24)}`);
 }
 console.log('');
+/**
+ * THE FREE FILTER AGAINST THE PAID ONE. If the window reading holds the same band, the rug filter
+ * costs nothing and adds no latency; if it does not, the RPC call is buying something real.
+ */
+{
+  const k = 0;
+  const scored = (set: P[]): string => {
+    const o = set.map((q) => q.out[k] as number);
+    if (o.length < 40) return `n=${o.length} too few`;
+    return `n=${String(o.length).padStart(4)}  disasters ${dis(o).padStart(6)}  mean ${mean(o).toFixed(0).padStart(6)}  g(.20) ${growth(o, 0.20).toFixed(4)}`;
+  };
+  console.log(`  CONCENTRATION SOURCE COMPARISON (window ${WINDOW_SOL} SOL below entry)`);
+  console.log(`    unfiltered          ${scored(rows)}`);
+  console.log(`    chain-read  ${CONC_LO}-${CONC_HI}%  ${scored(rows.filter((q) => q.top10 >= CONC_LO && q.top10 <= CONC_HI))}`);
+  console.log(`    STREAM-only ${CONC_LO}-${CONC_HI}%  ${scored(rows.filter((q) => q.winTop10 >= CONC_LO && q.winTop10 <= CONC_HI))}`);
+  /** The stream reading has its own scale; the band that suits it need not be the chain's band. */
+  console.log('    stream-only, band swept:');
+  for (const [lo, hi] of [[30, 70], [40, 80], [50, 80], [50, 90], [60, 95], [70, 100]] as [number, number][]) {
+    console.log(`      ${String(lo)}-${String(hi)}%`.padEnd(16) + scored(rows.filter((q) => q.winTop10 >= lo && q.winTop10 <= hi)));
+  }
+  console.log('');
+}
 console.log('  A fixed stop protects the entry price and nothing else. A trailing stop protects a run');
 console.log('  that reverses, and pays for it by cutting positions that were only pausing.');
