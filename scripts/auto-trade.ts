@@ -43,7 +43,7 @@ const WSOL = 'So11111111111111111111111111111111111111112';
 const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const TRADE_EVENT = 'bddb7fd34ee661ee';
 const OFF = { mint: 8, tokenAmount: 48, isBuy: 56, user: 57, vSol: 97, rSol: 113 };
-const CURVE = { vSol: 16, rSol: 32, complete: 48 };
+const CURVE = { vTok: 8, vSol: 16, rTok: 24, rSol: 32, supply: 40, complete: 48 };
 const GRAD_SOL = 85;
 const INITIAL_VIRTUAL_SOL = 30;
 const ATA_RENT = 2_039_280;
@@ -122,6 +122,10 @@ const MAX_OVERSHOOT_SOL = Number(arg('max-overshoot') ?? '4');
  * two independent samples agreeing to the third decimal, on 418 and 370 positions. Narrower bands
  * score higher - 55-75 reads 0.0391 and 0.0352 - but block E cannot test them at all, with 55
  * positions, and a band narrowed past the point where a sample can check it is a curve fit.
+ */
+/**
+ * Against CIRCULATING supply, which is what MT189 measured. While the denominator was the top-20
+ * sum these numbers screened a different statistic entirely and the lower bound was unreachable.
  */
 const CONC_LO = Number(arg('conc-lo') ?? '50');
 const CONC_HI = Number(arg('conc-hi') ?? '80');
@@ -286,23 +290,50 @@ async function heldOnce(mint: string): Promise<bigint> {
  * counting it would put every young curve near 100% - the same artifact by another route.
  */
 async function concentration(mint: string): Promise<{ top10: number; nHold: number } | null> {
+  /**
+   * getTokenLargestAccounts returns AT MOST TWENTY accounts, and that cap invalidated the whole
+   * measurement until now. Summing those twenty and calling it supply meant the ratio was the top
+   * ten's share of the top TWENTY, which is a different quantity that is arithmetically forced
+   * above 50% no matter how the token is actually held. The lower half of the 50-80% band could
+   * never fire, and the upper bound was screening on a statistic MT189 never validated: MT189
+   * builds its distribution from every wallet that ever traded the curve, typically hundreds, and
+   * divides by circulating supply. Every live reading this session came back between 59% and 76%,
+   * which is precisely the range "top ten of top twenty" produces on any realistic distribution.
+   *
+   * The correct denominator costs no extra call and in fact replaces one. The BondingCurve account
+   * carries token_total_supply and real_token_reserves - the unsold inventory still in the vault -
+   * so circulating supply is their difference, read from the same account the exit watcher already
+   * polls. That also identifies the vault to exclude from the numerator without a second lookup.
+   */
   const largest = await readRpc<{ value?: { address: string; amount: string }[] }>('getTokenLargestAccounts', [mint]);
   const rows: { address: string; amount: string }[] = largest?.value ?? [];
   if (rows.length === 0) return null;
 
-  let curveAta: string | null = null;
   const found = findProgramAddress([new TextEncoder().encode('bonding-curve'), base58Decode(mint, 64)], PUMP);
-  if (found !== null) {
-    try {
-      const owned = await readRpc<{ value?: { pubkey: string }[] }>('getTokenAccountsByOwner', [found.address, { mint }, { encoding: 'jsonParsed' }]);
-      curveAta = owned?.value?.[0]?.pubkey ?? null;
-    } catch { /* the vault simply stays counted; the band is wide enough to survive it */ }
-  }
+  if (found === null) return null;
+  const acc = await readRpc<{ value?: { data?: [string, string] } }>('getAccountInfo', [found.address, { encoding: 'base64' }]);
+  const data = acc?.value?.data?.[0];
+  if (data === undefined) return null;
+  const cb = Buffer.from(data, 'base64');
+  if (cb.length < CURVE.complete + 1) return null;
+  const totalSupply = Number(cb.readBigUInt64LE(CURVE.supply));
+  const vaultHeld = Number(cb.readBigUInt64LE(CURVE.rTok));
+  const circulating = totalSupply - vaultHeld;
+  /** A curve with nothing sold has no holder distribution to speak of, and dividing by it is worse. */
+  if (!(circulating > 0)) return null;
 
-  const bal: number[] = rows.filter((r) => r.address !== curveAta).map((r) => Number(r.amount)).filter((v) => v > 0).sort((a, b) => b - a);
-  const supply = bal.reduce((a, b) => a + b, 0);
-  if (!(supply > 0)) return null;
-  return { top10: (100 * bal.slice(0, 10).reduce((a, b) => a + b, 0)) / supply, nHold: bal.length };
+  /**
+   * The vault is excluded by its BALANCE rather than by its address. Deriving the address needs
+   * another call or an assumption about how pump.fun creates it; the balance is already known
+   * exactly from real_token_reserves, and no ordinary holder will match it.
+   */
+  const bal = rows
+    .map((r) => Number(r.amount))
+    .filter((v) => v > 0 && v !== vaultHeld)
+    .sort((a, b) => b - a);
+  if (bal.length === 0) return null;
+  const top10 = bal.slice(0, 10).reduce((a, b) => a + b, 0);
+  return { top10: (100 * top10) / circulating, nHold: bal.length };
 }
 
 /** Reserves and completion together, so a target, a stop and a migration are one read. */
@@ -629,6 +660,43 @@ sock.addEventListener('open', () => {
 });
 
 sock.addEventListener('message', (ev: MessageEvent) => {
+  /**
+   * THE POSITION WE HOLD IS UPDATED BEFORE ANY GATE, AND THAT ORDERING IS THE WHOLE POINT.
+   *
+   * This handler used to return early when `busy` was set - and `busy` is true for the entire life
+   * of a position, from the moment a candidate is picked up until the sell completes. So the line
+   * that publishes our own position's reserve to the exit watcher was unreachable for exactly the
+   * period it existed to serve, and every exit silently fell back to the five-second poll.
+   *
+   * That quietly undid MT193. Delay is counted in trades, and curves in the entry band trade a
+   * median 1.22 times a second and 7.5 in the fastest tenth, so a five-second poll is about six
+   * trades of delay at the median and far more in the tail - where MT193 measures growth at f=0.20
+   * falling from 0.0244 toward 0.0065 and the disaster rate rising from 1.2% to over 13%.
+   *
+   * The feed-health counters moved above the gate for the same reason: they froze during every
+   * position and then reported a false "LOW" on the next window.
+   */
+  let msgEarly: { params?: { result?: { value?: { logs?: string[] } } } };
+  try { msgEarly = JSON.parse(String(ev.data)) as typeof msgEarly; } catch { return; }
+  for (const line of msgEarly.params?.result?.value?.logs ?? []) {
+    if (!line.startsWith(PREFIX)) continue;
+    let eb: Buffer;
+    try { eb = Buffer.from(line.slice(PREFIX.length).trim(), 'base64'); } catch { continue; }
+    if (eb.length < OFF.rSol + 8 || eb.subarray(0, 8).toString('hex') !== TRADE_EVENT) continue;
+    const evSol = Number(eb.readBigUInt64LE(OFF.vSol)) / 1e9;
+    const erSol = Number(eb.readBigUInt64LE(OFF.rSol)) / 1e9;
+    if (Math.abs(evSol - erSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
+    feedTrades += 1;
+    if (Date.now() - feedWindowStart > 60_000) {
+      const rate = feedTrades / ((Date.now() - feedWindowStart) / 1000);
+      say(`  feed health: ${rate.toFixed(1)} curve trades/sec${rate < 8 ? '  <= LOW, this endpoint may be dropping messages' : ''}`);
+      feedTrades = 0; feedWindowStart = Date.now();
+    }
+    if (openMint !== null && base58Encode(eb.subarray(OFF.mint, OFF.mint + 32)) === openMint) {
+      heldRSol = erSol;
+      if (erSol >= GRAD_SOL) heldComplete = true;
+    }
+  }
   /** A closed feed takes no new candidates; anything already held is still managed to completion. */
   if (feedClosed || busy || positionsDone >= MAX_POSITIONS) return;
   let msg: { params?: { result?: { value?: { logs?: string[] } } } };
@@ -642,24 +710,8 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     const rSol = Number(b.readBigUInt64LE(OFF.rSol)) / 1e9;
     /** Proves the decode and selects SOL-quoted curves; the others are a different instrument. */
     if (Math.abs(vSol - rSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
-    /**
-     * FEED HEALTH, REPORTED RATHER THAN ASSUMED.
-     *
-     * A silently incomplete endpoint is indistinguishable from a quiet market from inside the
-     * process, and the difference decides whether the bot sees any candidates at all. publicnode
-     * delivered a quarter of solanatracker's trades over the same window while looking perfectly
-     * healthy. Roughly 30 curve trades a second is normal for this subscription.
-     */
-    feedTrades += 1;
-    if (Date.now() - feedWindowStart > 60_000) {
-      const rate = feedTrades / ((Date.now() - feedWindowStart) / 1000);
-      say(`  feed health: ${rate.toFixed(1)} curve trades/sec${rate < 8 ? '  <= LOW, this endpoint may be dropping messages' : ''}`);
-      feedTrades = 0; feedWindowStart = Date.now();
-    }
     const progress = (100 * rSol) / GRAD_SOL;
     const mintEarly = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
-    /** Our own position's reserve, straight off the trade that moved it. */
-    if (openMint !== null && mintEarly === openMint) { heldRSol = rSol; if (rSol >= GRAD_SOL) heldComplete = true; }
     /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
     if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) {
       watchedBelow.add(mintEarly);
