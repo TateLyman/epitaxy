@@ -375,6 +375,7 @@ say(`  plan: up to ${MAX_POSITIONS} positions of ${SOL_PER} SOL`);
 say(`  ENTER at >=${MIN_PROGRESS}% of ${GRAD_SOL} SOL   TARGET ${EXIT_SOL} SOL on the curve   STOP ${STOP_BELOW} SOL below entry`);
 say(`  Only curves watched climbing from ${WATCH_FROM_SOL} SOL are eligible; overshoot capped at ${MAX_OVERSHOOT_SOL} SOL.`);
 say(`  Rug filter: top-10 concentration must sit inside ${CONC_LO}-${CONC_HI}% of circulating supply.`);
+say(`  Exits trigger from the trade stream, not a poll: MT193 prices every trade of lateness at real cost.`);
 say(`  MT189/MT190: growth at f=0.20 reads 0.0269 over 11 days and 0.0273 on block D inside this band.`);
 say(`  Expect roughly 63% to stop out at about -18%. Fewer, larger wins pay for them. That is the design.`);
 say('');
@@ -398,6 +399,23 @@ let busy = false;
 let openMint: string | null = null;
 /** Set when the candidate feed drops; new entries stop, open positions are still managed. */
 let feedClosed = false;
+/**
+ * THE LIVE RESERVE OF THE POSITION WE HOLD, PUBLISHED BY THE STREAM.
+ *
+ * The exit used to poll the bonding-curve account every two seconds, and MT193 measured what that
+ * costs. Delay is counted in TRADES between the barrier being crossed and the order landing, and it
+ * does not merely shave the mean - it manufactures disasters, because a stop fires precisely when the
+ * curve is falling, so every trade we are late by is a worse fill. Across the eleven-day sample the
+ * disaster rate runs 1.2% at zero delay, 5.5% at five trades, 13.2% at ten and 17.5% at twenty, while
+ * growth at f=0.20 falls from 0.0244 to 0.0065. A live exit took six seconds from trigger to fill.
+ *
+ * We were already subscribed to every trade on the program. The same stream that finds candidates
+ * carries the trades on the curve we are holding, so the barrier can be checked the instant the trade
+ * lands instead of up to two seconds later. Polling stays as a fallback for the case where our token
+ * simply is not trading, which is exactly when the stream tells us nothing.
+ */
+let heldRSol: number | null = null;
+let heldComplete = false;
 
 /** Everything a person needs to close a position by hand, printed wherever one might be left open. */
 function warnOpen(where: string): void {
@@ -451,6 +469,8 @@ sock.addEventListener('message', (ev: MessageEvent) => {
     if (Math.abs(vSol - rSol - INITIAL_VIRTUAL_SOL) >= 0.01) continue;
     const progress = (100 * rSol) / GRAD_SOL;
     const mintEarly = base58Encode(b.subarray(OFF.mint, OFF.mint + 32));
+    /** Our own position's reserve, straight off the trade that moved it. */
+    if (openMint !== null && mintEarly === openMint) { heldRSol = rSol; if (rSol >= GRAD_SOL) heldComplete = true; }
     /** Seen below the band: this is what makes a later crossing a climb we watched rather than a guess. */
     if (rSol >= WATCH_FROM_SOL && rSol < ENTRY_SOL) watchedBelow.add(mintEarly);
     if (progress < MIN_PROGRESS || progress >= 100) continue;
@@ -601,6 +621,7 @@ async function run(mint: string, rSol: number): Promise<void> {
     }
     const buySig = buyRes.sig;
     openMint = mint;
+    heldRSol = null; heldComplete = false;
     say(`   BOUGHT  ${buySig}`);
     const boughtAt = Date.now();
     rec('bought', { mint, sig: buySig, solIn: SOL_PER, rSolAtEntry: rSol });
@@ -613,13 +634,33 @@ async function run(mint: string, rSol: number): Promise<void> {
     say(`   target ${EXIT_SOL} SOL   stop ${stopAt.toFixed(2)} SOL`);
     const deadline = Date.now() + 45 * 60_000;
     let reason = 'timeout';
+    /**
+     * Watch the STREAM first and poll only as a fallback. The stream reports the reserve on the very
+     * trade that moved it; polling can be a full interval behind, and MT193 prices every trade of that
+     * lateness in both mean and disaster rate. The tight loop below costs nothing because it is almost
+     * always waiting on an event rather than an RPC round trip.
+     */
+    let lastPoll = 0;
     for (;;) {
-      const st = await curveState(mint);
-      if (st === null || st.complete) { reason = 'migrated'; break; }
-      if (st.rSol >= EXIT_SOL) { reason = 'target'; break; }
-      if (st.rSol <= stopAt) { reason = 'stop'; break; }
+      if (heldComplete) { reason = 'migrated'; break; }
+      if (heldRSol !== null) {
+        if (heldRSol >= EXIT_SOL) { reason = 'target'; break; }
+        if (heldRSol <= stopAt) { reason = 'stop'; break; }
+      }
+      /**
+       * A curve that is not trading publishes nothing, and that is exactly when it may have migrated
+       * or gone quiet, so the account is still read - just infrequently enough not to matter.
+       */
+      if (Date.now() - lastPoll > 5_000) {
+        lastPoll = Date.now();
+        const st = await curveState(mint);
+        if (st === null || st.complete) { reason = 'migrated'; break; }
+        if (st.rSol >= EXIT_SOL) { reason = 'target'; break; }
+        if (st.rSol <= stopAt) { reason = 'stop'; break; }
+        if (heldRSol === null) heldRSol = st.rSol;
+      }
       if (Date.now() > deadline) break;
-      await sleep(2_000);
+      await sleep(120);
     }
     const heldS = (Date.now() - boughtAt) / 1000;
     say(`   EXIT REASON: ${reason}  after ${heldS.toFixed(0)}s`);
@@ -692,6 +733,7 @@ async function run(mint: string, rSol: number): Promise<void> {
     }
     const sellSig = sellRes.sig;
     openMint = null;
+    heldRSol = null; heldComplete = false;
     say(`   SOLD    ${sellSig}`);
     await sleep(3_000);
     const balAfterSell = await balance();
